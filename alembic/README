@@ -1,0 +1,3 @@
+Single-database Alembic environment.
+
+Use explicit migration files under alembic/versions.

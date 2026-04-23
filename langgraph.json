@@ -1,0 +1,9 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "pod_lifecycle": "./app/studio.py:studio_graph"
+  },
+  "env": ".env"
+}
