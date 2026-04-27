@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
+    # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
+    STUDIO_TENANT_ID: str = "t3ra"
+    TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
+
+    # Turvo Public API OAuth (optional until Turvo is configured)
+    TURVO_PUBLICAPI_URL: Optional[str] = None
+    TURVO_PUBLICAPI_CLIENT_ID: Optional[str] = None
+    TURVO_PUBLICAPI_CLIENT_SECRET: Optional[str] = None
+    TURVO_X_API_KEY: Optional[str] = None
+    TURVO_TENANT_REF: Optional[str] = None
+    # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
+    TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

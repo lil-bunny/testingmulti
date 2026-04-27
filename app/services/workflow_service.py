@@ -12,6 +12,8 @@ from app.workflows.graph.routers import (
 from typing import Optional
 import uuid
 
+from langsmith import traceable
+
 
 ROUTER_REGISTRY = {
     "pod_exists": pod_exists_router,
@@ -28,6 +30,7 @@ class WorkflowService:
         self.tenant_repo = tenant_repo
         self.execution = ExecutionService()
 
+    @traceable(run_type="chain", name="workflow_service_run")
     async def run(
         self,
         tenant_id: str,

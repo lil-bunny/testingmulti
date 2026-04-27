@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv(override=False)
+
 from celery import Celery
 
 from app.core.config import settings
@@ -14,5 +18,6 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
-# Explicit imports keep task discovery predictable in simple deployments.
-celery_app.autodiscover_tasks(["app.tasks"])
+# autodiscover_tasks(["app.tasks"]) loads `app.tasks.tasks` by convention, not
+# `app.tasks.reminders` — import reminder tasks explicitly so they register.
+celery_app.autodiscover_tasks(["app.tasks"], related_name="reminders", force=True)
