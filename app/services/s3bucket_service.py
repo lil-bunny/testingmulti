@@ -1,4 +1,3 @@
-import asyncio
 import boto3
 import logging
 from typing import Any, Dict
@@ -14,11 +13,13 @@ class S3Bucket:
     # Global prefix for all uploads
     BUCKET_PREFIX = "freightx"
 
-    def __init__(self):
+    def __init__(self, s3_client=None, bucket_name=None):
         """Initialize S3-compatible client"""
-        self.s3_client = None
-        self.bucket_name = None
-        self._init_client()
+        self.s3_client = s3_client
+        self.bucket_name = bucket_name
+        if not self.s3_client:
+            self._init_client()
+
 
     def _init_client(self):
         """Initialize S3-compatible client (AWS S3 or Digital Ocean Spaces)"""
@@ -47,7 +48,7 @@ class S3Bucket:
             self.s3_client = None
             self.bucket_name = None
 
-    async def upload_file(
+    def upload_file(
         self,
         file_content: bytes,
         filename: str,
@@ -89,7 +90,7 @@ class S3Bucket:
             }
 
             # Upload to S3
-            await asyncio.to_thread(self.s3_client.put_object, **put_args)
+            self.s3_client.put_object(**put_args)
 
             # Generate public URL
             if settings.BUCKET_ENDPOINT:
@@ -115,7 +116,7 @@ class S3Bucket:
                 "error_message": error_msg,
             }
 
-    async def delete_file(self, file_url: str) -> Dict[str, Any]:
+    def delete_file(self, file_url: str) -> Dict[str, Any]:
         """Delete a file from S3 bucket using its URL.
 
         Args:
@@ -140,8 +141,7 @@ class S3Bucket:
             object_key = parsed_url.path.lstrip('/')
 
             # Delete the object
-            await asyncio.to_thread(
-                self.s3_client.delete_object,
+            self.s3_client.delete_object(
                 Bucket=self.bucket_name,
                 Key=object_key
             )

@@ -27,9 +27,9 @@ class Unipile:
         if not self.api_key:
             raise ValueError("UNIPILE_API_KEY environment variable not set")
          # Initialize httpx client with timeout and retry settings
-        self.client = httpx.AsyncClient(
+        self.client = httpx.Client(
             timeout=httpx.Timeout(30.0, connect=10.0),  # 30s total timeout, 10s connect timeout
-            transport=httpx.AsyncHTTPTransport(retries=3)  # Retry failed requests up to 3 times
+            transport=httpx.HTTPTransport(retries=3)  # Retry failed requests up to 3 times
         )
 
     def _get_headers(self) -> Dict[str, str]:
@@ -39,7 +39,7 @@ class Unipile:
             "Accept": "application/json"
         }
     
-    async def get_email_attachment(self, email_id: str, attachment_id: str, account_id: Optional[str] = None) -> bytes:
+    def get_email_attachment(self, email_id: str, attachment_id: str, account_id: Optional[str] = None) -> bytes:
         """
         Retrieve an attachment from an email.
         
@@ -58,11 +58,13 @@ class Unipile:
             if account_id:
                 params["account_id"] = account_id
             
-            response = await self.client.get(url, headers=self._get_headers(), params=params,timeout=120)
+            response = self.client.get(url, headers=self._get_headers(), params=params,timeout=120)
             
             if response.status_code != 200:
                 raise UnipileException(f"Error retrieving attachment: {response.text}")
             
             return response.content
+        except UnipileException:
+            raise  
         except Exception as e:
             raise UnipileException(f"Failed to get attachment: {str(e)}")

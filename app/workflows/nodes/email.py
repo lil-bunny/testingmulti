@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Tuple
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
 from app.tools.email import ingest_email as ingest_email_tool
 from app.services.reminder_scheduler import schedule_initial_pod_reminders
-from app.integrations.s3.bucket import bucket
+from app.services.s3bucket_service import bucket
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def _stable_attachment_token(attachment_id: str) -> str:
     """Create a filesystem-safe stable token for a source attachment id."""
     return hashlib.sha256(attachment_id.encode("utf-8")).hexdigest()
 
-async def get_email_attachments(state):
+def get_email_attachments(state):
     """
     - fetch attachments using get_email_attachment tool
     - upload attachments to S3 and get URLs
@@ -70,7 +70,7 @@ async def get_email_attachments(state):
 
     for attachment_id in attachments_ids:
         try:
-            file_content = await get_email_attachments_tool(
+            file_content = get_email_attachments_tool(
                 email_id=email_id,
                 attachment_id=attachment_id,
                 account_id=account_id
@@ -87,7 +87,7 @@ async def get_email_attachments(state):
             extension, content_type = _detect_upload_type(file_content)
             filename = f"pod_{attachment_id}.{extension}"
             
-            upload_result = await bucket.upload_file(
+            upload_result = bucket.upload_file(
                 file_content=file_content,
                 filename=filename,
                 folder="pod_attachments",

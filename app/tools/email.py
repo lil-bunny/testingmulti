@@ -24,7 +24,7 @@ def ingest_email(payload):
     }
 
 
-async def get_email_attachments(email_id, attachment_id, account_id):
+def get_email_attachments(email_id, attachment_id, account_id):
     unipile = Unipile()
-    file_content = await unipile.get_email_attachment(email_id, attachment_id, account_id)
+    file_content = unipile.get_email_attachment(email_id, attachment_id, account_id)
     return file_content
