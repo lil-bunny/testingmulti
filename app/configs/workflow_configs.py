@@ -9,16 +9,15 @@ WORKFLOW_CONFIGS = {
             "check_existing_pod",
             "send_email",
             "ingest_email",
-            "classify_inbound_email",
-            "update_workflow_correlation",
+            "check_email_attachments",
+            "get_email_attachments",
             "process_pod",
             "update_shipment",
             "end",
         ],
         "edges": [
-            ["read_workflow_correlation", "check_existing_pod"],
-            ["ingest_email", "classify_inbound_email"],
-            ["update_workflow_correlation", "process_pod"],
+            ["ingest_email", "check_email_attachments"],
+            ["get_email_attachments","process_pod"],
             ["update_shipment", "end"],
             ["send_email", "end"],
         ],
@@ -32,19 +31,26 @@ WORKFLOW_CONFIGS = {
                 },
             },
             "get_shipment": {
-                "router": "convoy",
+                "router": "get_shipment",
                 "map": {
                     "convoy": "end",
                     "non_convoy": "read_workflow_correlation",
+                    # Pod reply workflow
+                    "valid_shipment_status": "get_email_attachments",
+                    "invalid_shipment_status": "end",
                 },
             },
             "check_existing_pod": {
                 "router": "pod_exists",
                 "map": {"exists": "end", "missing": "send_email"},
             },
-            "classify_inbound_email": {
+            "check_email_attachments": {
                 "router": "pod_reply",
-                "map": {"is_reply": "update_workflow_correlation", "ignore": "end"},
+                "map": {"is_reply": "read_workflow_correlation", "missing": "end"},
+            },
+            "read_workflow_correlation": {
+                "router": "read_workflow_correlation",
+                "map": {"is_found": "get_shipment", "check_existing_pod": "check_existing_pod", "missing": "end"},
             },
             "process_pod": {
                 "router": "pod_exists",

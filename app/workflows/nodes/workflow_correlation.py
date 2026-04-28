@@ -13,6 +13,7 @@ def _resolve_correlation_key(state) -> str:
 def read_workflow_correlation(state):
     result = read_by_key(_resolve_correlation_key(state))
     state.data["workflow_correlation"] = result
+    state.data["workflow_correlation_found"] = bool(result.get("found"))
     return state
 
 
