@@ -50,10 +50,10 @@ class Settings(BaseSettings):
     OAUTH_REDIRECT_URI: str
 
     # S3-compatible Bucket (AWS S3)
-    DO_BUCKET_ENDPOINT: str = ""
-    DO_BUCKET_ID: str = ""
-    DO_BUCKET_KEY: str = ""
-    BUCKET_NAME: str = ""
+    BUCKET_ENDPOINT: str
+    BUCKET_ID: str
+    BUCKET_KEY: str
+    BUCKET_NAME: str
     BUCKET_REGION: str = "us-west-2"
 
     # Webhooks

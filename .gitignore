@@ -14,3 +14,6 @@ htmlcov/
 dist/
 build/
 *.zip
+
+.vscode
+.codex
