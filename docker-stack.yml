@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  api:
+    image: appfreightx/freightx-agents:latest
+    env_file:
+      - .env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    networks:
+      - freightx_net
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 60s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+
+  worker:
+    image: appfreightx/freightx-agents:latest
+    env_file:
+      - .env
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    networks:
+      - freightx_net
+    stop_grace_period: 60s
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 60s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+
+networks:
+  freightx_net:
+    driver: overlay
