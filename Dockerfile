@@ -16,6 +16,7 @@ WORKDIR /code
 # Copy ONLY your dependency files first. 
 # Docker caches layers. By doing this before copying your code, changing a python file won't force a full re-install of all packages.
 COPY pyproject.toml uv.lock ./
+COPY README.md ./
 
 # Install dependencies using uv. 
 # --frozen ensures it strictly follows your lockfile.
