@@ -34,4 +34,4 @@ ENV PATH="/code/.venv/bin:$PATH"
 
 # The default command runs the Uvicorn web API on port 80 (standard for AWS containers).
 # Note: For the Celery worker container in ECS, we will override this command via the AWS console.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "80"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
