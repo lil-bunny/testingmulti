@@ -47,6 +47,6 @@ jobs:
     - name: Force ECS to deploy new image
       run: |
         aws ecs update-service \
-          --cluster freightx-agents-cluster \
+          --cluster freightx-staging-cluster \
           --service staging-freightx-agents-service-gq43l3i5 \
           --force-new-deployment
