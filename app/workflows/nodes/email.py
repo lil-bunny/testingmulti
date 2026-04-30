@@ -29,8 +29,8 @@ def ingest_email(state):
 
 
 def check_email_attachments(state):
-    attachments = state.data.get("attachments") or []
-    has_attachments = state.data.get("has_attachments")
+    attachments = state.data.get("unipile_webhook_payload").get("attachments") or []
+    has_attachments = state.data.get("unipile_webhook_payload").get("has_attachments")
     if has_attachments is None:
         has_attachments = bool(attachments)
 

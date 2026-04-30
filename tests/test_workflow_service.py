@@ -69,7 +69,7 @@ async def test_pod_lifecycle_email_received_routes_to_processing(mock_attachment
 
     assert result["data"]["is_pod_attached"] is True
     assert result["data"]["workflow_correlation"]["payload"]["shipment_id"] == "S2"
-    assert result["data"]["workflow_correlation_found"] is True
+    assert result["data"]["workflow_correlation"]["found"] is True
     assert result["data"]["shipment"]["data"]["status"]["code"]["key"] in {"2116", "2106", "2105"}
     assert result["data"]["pod_processing"]["success"] is True
 

@@ -46,7 +46,7 @@ async def unipile_webhook(
         payload = {
             "event_type": "email_received",
             "webhook_name": raw.get("webhook_name"),
-             **raw
+            "unipile_webhook_payload": raw,
         }
         if payload['webhook_name'] != "ayush-pod-mail-received-staging-2":
             return {"message": "invalid webhook"}

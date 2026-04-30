@@ -6,7 +6,7 @@ def convoy_router(state):
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
 
 
-def get_shipment_router(state):
+def shipment_router(state):
     event_type = event_type_router(state)
 
     if event_type == "email_received":
@@ -29,7 +29,7 @@ def pod_reply_router(state):
 def read_workflow_correlation_router(state):
     event_type = event_type_router(state)
     if event_type == "email_received":
-        return "is_found" if state.data.get("workflow_correlation_found") else "missing"
+        return "is_found" if state.data.get("workflow_correlation").get("found") else "missing"
     
     return "check_existing_pod"
 

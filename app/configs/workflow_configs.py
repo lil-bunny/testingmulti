@@ -31,7 +31,7 @@ WORKFLOW_CONFIGS = {
                 },
             },
             "get_shipment": {
-                "router": "get_shipment",
+                "router": "shipment_router",
                 "map": {
                     "convoy": "end",
                     "non_convoy": "read_workflow_correlation",
