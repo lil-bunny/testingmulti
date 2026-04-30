@@ -5,9 +5,14 @@ WORKFLOW_CONFIGS = {
         "nodes": [
             "route_event",
             "get_shipment",
+            "check_pod_request_triggered",
             "read_workflow_correlation",
             "check_existing_pod",
+            "refresh_pod_before_send_email",
             "send_email",
+            "branch_after_send_email_pod_request",
+            "send_email_continue",
+            "noop_pod_followup_marker",
             "ingest_email",
             "classify_inbound_email",
             "update_workflow_correlation",
@@ -20,7 +25,10 @@ WORKFLOW_CONFIGS = {
             ["ingest_email", "classify_inbound_email"],
             ["update_workflow_correlation", "process_pod"],
             ["update_shipment", "end"],
-            ["send_email", "end"],
+            ["send_email", "branch_after_send_email_pod_request"],
+            ["branch_after_send_email_pod_request", "send_email_continue"],
+            ["send_email_continue", "end"],
+            ["noop_pod_followup_marker", "refresh_pod_before_send_email"],
         ],
         "routers": {
             "route_event": {
@@ -35,10 +43,21 @@ WORKFLOW_CONFIGS = {
                 "router": "convoy",
                 "map": {
                     "convoy": "end",
-                    "non_convoy": "read_workflow_correlation",
+                    "non_convoy": "check_pod_request_triggered",
+                },
+            },
+            "check_pod_request_triggered": {
+                "router": "pod_request_triggered",
+                "map": {
+                    "blocked": "end",
+                    "continue": "read_workflow_correlation",
                 },
             },
             "check_existing_pod": {
+                "router": "pod_exists",
+                "map": {"exists": "end", "missing": "send_email"},
+            },
+            "refresh_pod_before_send_email": {
                 "router": "pod_exists",
                 "map": {"exists": "end", "missing": "send_email"},
             },
@@ -48,7 +67,14 @@ WORKFLOW_CONFIGS = {
             },
             "process_pod": {
                 "router": "pod_exists",
-                "map": {"exists": "update_shipment", "missing": "send_email"},
+                "map": {
+                    "exists": "update_shipment",
+                    "missing": "noop_pod_followup_marker",
+                },
+            },
+            "branch_after_send_email_pod_request": {
+                "router": "pod_request_mark",
+                "map": {"marked": "send_email_continue", "skipped_mark": "send_email_continue"},
             },
         },
     },

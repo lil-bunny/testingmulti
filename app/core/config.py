@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
 
+    # Pydantic Logfire (set LOGFIRE_TOKEN in .env to enable tracing)
+    LOGFIRE_TOKEN: Optional[str] = None
+    LOGFIRE_SERVICE_NAME: str = "freightx"
+
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int
@@ -43,6 +47,9 @@ class Settings(BaseSettings):
     TURVO_TENANT_REF: Optional[str] = None
     # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
     TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
+    # Optional fallback app user id used by workflow tools when the workflow state
+    # does not carry one (e.g. Turvo webhook-triggered runs).
+    TURVO_DEFAULT_APP_USER_ID: Optional[str] = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

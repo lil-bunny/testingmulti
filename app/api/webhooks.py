@@ -89,10 +89,10 @@ async def listen_turvo_status(
     workflow_tenant = _resolve_workflow_tenant_id(override)
     payload = map_turvo_status_webhook_to_payload(body)
     if payload is None:
-        logger.info("Turvo webhook skipped: missing shipment_id and load_id")
+        logger.info("Turvo webhook skipped: status key is not 2116 or shipment/load id missing")
         return TurvoWebhookAck(
             status="skipped",
-            detail="missing shipment_id and load_id; not enough to run pod_lifecycle",
+            detail="eventPayload.status.code.key must be 2116 and shipment_id/load_id must be present",
         )
 
     try:

@@ -1,12 +1,14 @@
 """
 Map Turvo webhook JSON to internal pod_lifecycle payload.
 
-Turvo payload shapes vary by event; extend _extract_ids as you lock onto real samples.
+Turvo payload shapes vary by event; extend extractors as you lock onto real samples.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+ROUTE_COMPLETED_STATUS_CODE_KEY = "2116"
 
 
 def extract_shipment_and_load_ids(body: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -14,7 +16,7 @@ def extract_shipment_and_load_ids(body: dict[str, Any]) -> tuple[str | None, str
     shipment_id = body.get("shipment_id") or body.get("shipmentId")
     load_id = body.get("load_id") or body.get("loadId")
 
-    # Public API: SHIPMENT_STATUS_UPDATE, etc. — shipment is often under eventPayload.id
+    # Public API: SHIPMENT_STATUS_UPDATE, etc. - shipment is often under eventPayload.id
     event_payload = body.get("eventPayload")
     if isinstance(event_payload, dict):
         if not shipment_id and event_payload.get("id") is not None:
@@ -41,8 +43,32 @@ def extract_shipment_and_load_ids(body: dict[str, Any]) -> tuple[str | None, str
     )
 
 
-def should_run_pod_workflow(shipment_id: str | None, load_id: str | None) -> bool:
-    """Require at least one stable id so get_shipment / correlation can run."""
+def extract_status_code_key(body: dict[str, Any]) -> str | None:
+    """Extract Turvo status code key from eventPayload.status.code.key."""
+    event_payload = body.get("eventPayload")
+    if not isinstance(event_payload, dict):
+        return None
+
+    status = event_payload.get("status")
+    if not isinstance(status, dict):
+        return None
+
+    code = status.get("code")
+    if not isinstance(code, dict):
+        return None
+
+    key = code.get("key")
+    return str(key) if key is not None else None
+
+
+def should_run_pod_workflow(
+    shipment_id: str | None,
+    load_id: str | None,
+    status_code_key: str | None,
+) -> bool:
+    """Run only for Route complete status key (2116) with at least one stable id."""
+    if status_code_key != ROUTE_COMPLETED_STATUS_CODE_KEY:
+        return False
     return bool(shipment_id or load_id)
 
 
@@ -50,10 +76,13 @@ def map_turvo_status_webhook_to_payload(body: dict[str, Any]) -> dict[str, Any] 
     """
     Build workflow payload for a Turvo status-style webhook.
 
-    Returns None if there is not enough data to run pod_lifecycle safely.
+    Returns None unless:
+    - eventPayload.status.code.key == "2116" (Route complete), and
+    - shipment_id or load_id can be extracted.
     """
     shipment_id, load_id = extract_shipment_and_load_ids(body)
-    if not should_run_pod_workflow(shipment_id, load_id):
+    status_code_key = extract_status_code_key(body)
+    if not should_run_pod_workflow(shipment_id, load_id, status_code_key):
         return None
 
     payload: dict[str, Any] = {

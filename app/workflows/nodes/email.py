@@ -1,7 +1,6 @@
 from app.tools.email import send_email as send_email_tool
 from app.tools.email import ingest_email as ingest_email_tool
 from app.tools.llm_tasks.email_classification import classify_email_for_pod
-from app.services.reminder_scheduler import schedule_initial_pod_reminders
 
 
 def send_email(state):
@@ -10,7 +9,12 @@ def send_email(state):
         state.data.get("subject", "POD Request"),
         state.data.get("body", "")
     )
-    schedule_initial_pod_reminders(state.data)
+
+    evt = state.data.get("event_type")
+    if evt == "route_completed" and "_pod_email_context" not in state.data:
+        state.data["_pod_email_context"] = "route_completed_primary"
+    elif evt == "reminder_due":
+        state.data["_pod_email_context"] = "route_completed_primary"
 
     return state
 

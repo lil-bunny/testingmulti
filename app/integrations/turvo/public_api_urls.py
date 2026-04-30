@@ -25,3 +25,10 @@ def build_oauth_token_url(
         quote_via=quote,
     )
     return f"{path}?{q}"
+
+
+def build_publicapi_v1_url(normalized_base: str, path: str) -> str:
+    """Compose absolute Turvo Public API v1 URL from a normalized base and a relative path."""
+    base = normalized_base.rstrip("/")
+    suffix = path if path.startswith("/") else f"/{path}"
+    return f"{base}/v1{suffix}"
