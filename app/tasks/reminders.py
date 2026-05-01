@@ -8,7 +8,7 @@ from app.core.logger import get_logger
 logger = get_logger(__name__)
 
 
-@celery_app.task(name="app.tasks.reminders.trigger_pod_reminder")
+@celery_app.task(name="app.tasks.reminders.trigger_pod_reminder", ignore_result=True)
 def trigger_pod_reminder(payload: dict[str, Any]):
     """
     Invoke pod_lifecycle reminder path for an existing workflow instance.

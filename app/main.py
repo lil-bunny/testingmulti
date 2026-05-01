@@ -19,6 +19,10 @@ def create_app() -> FastAPI:
         docs_url="/docs"
     )
 
+    @app.get("/")
+    async def welcome():
+        return "Welcome to Freightx"
+
     app.include_router(router, prefix="/api")
     app.include_router(webhooks_router, prefix="/api")
     app.include_router(user_turvo_router, prefix="/api")
