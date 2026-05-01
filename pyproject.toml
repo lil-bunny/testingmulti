@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.13.1",
     "pydantic-settings>=2.11.0",
     "psycopg[binary]>=3.2.13",
+    "redis>=5.0.0",
     "uvicorn>=0.39.0",
     "boto3>=1.42.96",
     "openai>=2.33.0",
@@ -22,7 +23,6 @@ dependencies = [
     "pdf2image>=1.17.0",
     "poppler-utils>=0.1.0",
     "thefuzz>=0.22.1",
-    "logfire[openai]>=3.0.0",
 ]
 
 [dependency-groups]

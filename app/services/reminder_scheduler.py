@@ -37,16 +37,27 @@ def schedule_initial_pod_reminders(data: dict[str, Any]) -> None:
     first_payload = _build_reminder_payload(data, settings.REMINDER_1_HOURS, 1)
     second_payload = _build_reminder_payload(data, settings.REMINDER_2_HOURS, 2)
 
+    queued_ids: list[Any] = []
     try:
-        trigger_pod_reminder.apply_async(
+        r1 = trigger_pod_reminder.apply_async(
             kwargs={"payload": first_payload},
             countdown=timedelta(hours=settings.REMINDER_1_HOURS).total_seconds(),
+            expires=timedelta(hours=settings.REMINDER_EXPIRE_GRACE_HOURS),
         )
-        trigger_pod_reminder.apply_async(
+        queued_ids.append(r1)
+        r2 = trigger_pod_reminder.apply_async(
             kwargs={"payload": second_payload},
             countdown=timedelta(hours=settings.REMINDER_2_HOURS).total_seconds(),
+            expires=timedelta(hours=settings.REMINDER_EXPIRE_GRACE_HOURS),
         )
+        queued_ids.append(r2)
     except Exception:
+        # Avoid split state: first enqueue OK, second fails → revoke any queued work.
+        for r in queued_ids:
+            try:
+                r.revoke(terminate=False)
+            except Exception:
+                pass
         # Keep workflow path non-blocking when broker is unavailable.
         return
 

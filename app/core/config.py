@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
     REMINDER_1_HOURS: int
     REMINDER_2_HOURS: int
+    # After nominal reminder time (ETA), Celery discards the task if not yet executed.
+    REMINDER_EXPIRE_GRACE_HOURS: int = 2
 
     # Celery
     CELERY_BROKER_URL: str
