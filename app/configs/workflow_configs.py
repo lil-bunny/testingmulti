@@ -11,13 +11,22 @@ WORKFLOW_CONFIGS = {
             "ingest_email",
             "check_email_attachments",
             "get_email_attachments",
-            "process_pod",
+            "classify_attachments",
+            "ratecon_analysis",
+            "pod_analysis",
+            "pod_vs_ratecon_analysis",
+            "upload_to_turvo",
             "update_shipment",
             "end",
         ],
         "edges": [
             ["ingest_email", "check_email_attachments"],
-            ["get_email_attachments","process_pod"],
+            ["get_email_attachments", "ratecon_analysis"],
+            ["ratecon_analysis","classify_attachments"],
+            ["classify_attachments", "pod_analysis"],
+            ["pod_analysis", "pod_vs_ratecon_analysis"],
+            ["pod_vs_ratecon_analysis", "upload_to_turvo"],
+            ["upload_to_turvo", "update_shipment"],
             ["update_shipment", "end"],
             ["send_email", "end"],
         ],
@@ -51,11 +60,7 @@ WORKFLOW_CONFIGS = {
             "read_workflow_correlation": {
                 "router": "read_workflow_correlation",
                 "map": {"is_found": "get_shipment", "check_existing_pod": "check_existing_pod", "missing": "end"},
-            },
-            "process_pod": {
-                "router": "pod_exists",
-                "map": {"exists": "update_shipment", "missing": "send_email"},
-            },
+            }
         },
     },
 }

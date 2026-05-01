@@ -162,7 +162,7 @@ def reply_to_thread(
     body: str,
     account_id: str,
     subject: Optional[str] = None,
-    reply_to_message_id: Optional[str] = None,
+    reply_to_message_id: Optional[str] = None, # this could be either unipile_email_object[id] from retrieve email endpoint or provider_id (long alphanumeric used by outlook/gmail)
     cc: Optional[List[Dict[str, Any]]] = None,
 ):
     """
@@ -224,7 +224,7 @@ def reply_to_thread(
 
 def ingest_email(payload):
     # Prefer nested webhook payload to keep workflow state uncluttered.
-    source = payload.get("unipile_webhook_payload", payload)
+    source = payload
 
     return {
         "attachments": source.get("attachments"),

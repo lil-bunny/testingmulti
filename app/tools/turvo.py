@@ -1,6 +1,6 @@
-from app.services.turvo_service import TurvoService
+# from app.services.turvo_service import TurvoService
 
-async def get_shipment(shipment_id):
+def get_shipment(shipment_id):
     # turvo_client = TurvoService()
     # shipment_data = turvo_client.get_shipment_details(shipment_id)
     shipment_data=turvo_response['details']
@@ -12,4 +12,9 @@ async def get_shipment(shipment_id):
 
 
 def update_shipment(data):
-    print(f"[SHIPMENT UPDATE] {data}")
+    print(f"[SHIPMENT UPDATE]")
+
+
+def upload_to_turvo(data):
+    """Scaffold: upload artifacts to Turvo (implementation pending)."""
+    pass

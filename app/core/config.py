@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     ENV: str = "dev"
 
     # LLM / observability
+    LOGFIRE_TOKEN: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: Optional[str] = None
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
 
+    ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
+
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int
@@ -28,6 +31,8 @@ class Settings(BaseSettings):
 
     # Workflow correlation persistence
     WORKFLOW_CORRELATION_TABLE: str
+    DOCUMENTS_TABLE: str = "documents"
+    DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
     REMINDER_1_HOURS: int
     REMINDER_2_HOURS: int
 
