@@ -6,8 +6,10 @@ from app.workflows.compiler.compiler import compile_graph
 from app.workflows.graph.routers import (
     convoy_router,
     event_type_router,
+    shipment_router,
     pod_exists_router,
     pod_reply_router,
+    read_workflow_correlation_router
 )
 from typing import Optional
 import uuid
@@ -16,8 +18,10 @@ import uuid
 ROUTER_REGISTRY = {
     "pod_exists": pod_exists_router,
     "convoy": convoy_router,
+    "shipment_router": shipment_router,
     "pod_reply": pod_reply_router,
     "event_type": event_type_router,
+    "read_workflow_correlation": read_workflow_correlation_router,
 }
 
 

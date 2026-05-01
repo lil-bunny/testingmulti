@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from urllib.parse import quote_plus
+import os
 
 
 class Settings(BaseSettings):
@@ -8,12 +9,18 @@ class Settings(BaseSettings):
     ENV: str = "dev"
 
     # LLM / observability
+    LOGFIRE_TOKEN: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
+    LANGSMITH_PROJECT: Optional[str] = None
+    LANGSMITH_ENDPOINT: Optional[str] = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = True
+    LANGSMITH_TRACING_V2: bool = True
     LLM_MODEL: Optional[str] = None
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
+
+    ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
 
     # DB
     DATABASE_HOST: str
@@ -24,6 +31,8 @@ class Settings(BaseSettings):
 
     # Workflow correlation persistence
     WORKFLOW_CORRELATION_TABLE: str
+    DOCUMENTS_TABLE: str = "documents"
+    DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
     REMINDER_1_HOURS: int
     REMINDER_2_HOURS: int
     # After nominal reminder time (ETA), Celery discards the task if not yet executed.
@@ -32,6 +41,30 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+
+    # Turvo
+    TURVO_APP_URL: str = "https://app.turvo.com"
+    TURVO_PUBLICAPI_URL:str = "https://publicapi.turvo.com"
+    TURVO_PUBLICAPI_CLIENT_ID: str = "publicapi"
+    TURVO_PUBLICAPI_CLIENT_SECRET: str = "secret"
+    TURVO_USERNAME: str
+    TURVO_PASSWORD: str
+    TURVO_X_API_KEY: str
+
+    # Unipile
+    UNIPILE_API_KEY: str
+    UNIPILE_DSN: str
+    OAUTH_REDIRECT_URI: str
+
+    # S3-compatible Bucket (AWS S3)
+    BUCKET_ENDPOINT: str
+    BUCKET_ID: str
+    BUCKET_KEY: str
+    BUCKET_NAME: str
+    BUCKET_REGION: str = "us-west-2"
+
+    # Webhooks
+    UNIPILE_WEBHOOK_SECRET: str
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

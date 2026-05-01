@@ -14,3 +14,8 @@ htmlcov/
 dist/
 build/
 *.zip
+
+.vscode
+.codex
+
+langsmith_init.py

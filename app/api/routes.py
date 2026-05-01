@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services.workflow_service import WorkflowService
 from app.api.deps import get_workflow_service
 from app.core.logger import get_logger
+
+from app.core.config import settings
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -30,4 +32,32 @@ async def run_workflow(
 
     except Exception as e:
         logger.exception("Workflow execution failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/webhook/unipile")
+async def unipile_webhook(
+    request: Request,
+    workflow_service: WorkflowService = Depends(get_workflow_service)
+):
+    try:
+        if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        raw = await request.json()
+        payload = {
+            "event_type": "email_received",
+            "webhook_name": raw.get("webhook_name"),
+            **raw,
+        }
+        if payload['webhook_name'] != "ayush-pod-mail-received-staging-2":
+            return {"message": "invalid webhook"}
+
+        result = await workflow_service.run(
+            tenant_id="t3ra",
+            workflow_name="pod_lifecycle",
+            payload=payload,
+        )
+        return result
+
+    except Exception as e:
+        logger.exception("Unipile webhook processing failed")
         raise HTTPException(status_code=500, detail=str(e))

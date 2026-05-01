@@ -9,16 +9,24 @@ WORKFLOW_CONFIGS = {
             "check_existing_pod",
             "send_email",
             "ingest_email",
-            "classify_inbound_email",
-            "update_workflow_correlation",
-            "process_pod",
+            "check_email_attachments",
+            "get_email_attachments",
+            "classify_attachments",
+            "ratecon_analysis",
+            "pod_analysis",
+            "pod_vs_ratecon_analysis",
+            "upload_to_turvo",
             "update_shipment",
             "end",
         ],
         "edges": [
-            ["read_workflow_correlation", "check_existing_pod"],
-            ["ingest_email", "classify_inbound_email"],
-            ["update_workflow_correlation", "process_pod"],
+            ["ingest_email", "check_email_attachments"],
+            ["get_email_attachments", "ratecon_analysis"],
+            ["ratecon_analysis","classify_attachments"],
+            ["classify_attachments", "pod_analysis"],
+            ["pod_analysis", "pod_vs_ratecon_analysis"],
+            ["pod_vs_ratecon_analysis", "upload_to_turvo"],
+            ["upload_to_turvo", "update_shipment"],
             ["update_shipment", "end"],
             ["send_email", "end"],
         ],
@@ -32,24 +40,27 @@ WORKFLOW_CONFIGS = {
                 },
             },
             "get_shipment": {
-                "router": "convoy",
+                "router": "shipment_router",
                 "map": {
                     "convoy": "end",
                     "non_convoy": "read_workflow_correlation",
+                    # Pod reply workflow
+                    "valid_shipment_status": "get_email_attachments",
+                    "invalid_shipment_status": "end",
                 },
             },
             "check_existing_pod": {
                 "router": "pod_exists",
                 "map": {"exists": "end", "missing": "send_email"},
             },
-            "classify_inbound_email": {
+            "check_email_attachments": {
                 "router": "pod_reply",
-                "map": {"is_reply": "update_workflow_correlation", "ignore": "end"},
+                "map": {"is_reply": "read_workflow_correlation", "missing": "end"},
             },
-            "process_pod": {
-                "router": "pod_exists",
-                "map": {"exists": "update_shipment", "missing": "send_email"},
-            },
+            "read_workflow_correlation": {
+                "router": "read_workflow_correlation",
+                "map": {"is_found": "get_shipment", "check_existing_pod": "check_existing_pod", "missing": "end"},
+            }
         },
     },
 }
