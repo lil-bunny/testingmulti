@@ -19,7 +19,8 @@ def encrypt_password(plain: str, key_b64: Optional[str]) -> str:
 
 
 def decrypt_password(stored: str, key_b64: Optional[str]) -> str:
-    if stored.startswith("plain:") and not key_b64:
+    # Explicit plaintext-at-rest marker (dev / legacy); strip before Fernet path.
+    if stored.startswith("plain:"):
         return stored[len("plain:") :]
     if not key_b64:
         raise ValueError("TURVO_OAUTH_ENCRYPTION_KEY is required to decrypt stored password")

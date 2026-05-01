@@ -30,10 +30,16 @@ class Settings(BaseSettings):
     WORKFLOW_CORRELATION_TABLE: str
     REMINDER_1_HOURS: int
     REMINDER_2_HOURS: int
+    POD_REMINDER_EMAIL_BODY: str = "Please send pod"
 
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+
+    # Unipile (optional; POD reminder replies in thread when set)
+    UNIPILE_API_KEY: Optional[str] = None
+    UNIPILE_BASE_URL: str = "https://api16.unipile.com:14674"
+    UNIPILE_ACCOUNT_ID: Optional[str] = None
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
     STUDIO_TENANT_ID: str = "t3ra"
@@ -50,6 +56,8 @@ class Settings(BaseSettings):
     # Optional fallback app user id used by workflow tools when the workflow state
     # does not carry one (e.g. Turvo webhook-triggered runs).
     TURVO_DEFAULT_APP_USER_ID: Optional[str] = None
+    # Turvo tokens + password: persisted under tenants.config (JSON), keyed by app_user_id
+    TENANTS_TABLE: str = "tenants"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

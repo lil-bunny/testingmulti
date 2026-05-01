@@ -18,7 +18,8 @@ def _build_reminder_payload(
         "thread_id": data.get("thread_id"),
         "to": data.get("to"),
         "subject": data.get("subject", f"POD Reminder ({reminder_hours}h)"),
-        "body": data.get("body", ""),
+        "body": (data.get("body") or "").strip()
+        or settings.POD_REMINDER_EMAIL_BODY,
     }
     return payload
 

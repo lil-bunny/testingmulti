@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.logger import get_logger
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
 from app.services.workflow_service import WorkflowService
+from app.tools.workflow_correlation import read_by_key
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -94,6 +95,20 @@ async def listen_turvo_status(
             status="skipped",
             detail="eventPayload.status.code.key must be 2116 and shipment_id/load_id must be present",
         )
+
+    sid = payload.get("shipment_id") or ""
+ 
+    correlation_key = str(sid).strip() 
+    correlation = read_by_key(correlation_key)
+    if not correlation.get("found"):
+        logger.info("Turvo webhook skipped: no workflow_correlation row for shipment/load %s", correlation_key)
+        return TurvoWebhookAck(
+            status="skipped",
+            detail=f"no workflow_correlation row for shipment_id/load_id {correlation_key!r}",
+        )
+    thread = (correlation.get("payload") or {}).get("email_thread_id") or ""
+    if thread.strip():
+        payload["thread_id"] = thread.strip()
 
     try:
         result = await workflow_service.run(
