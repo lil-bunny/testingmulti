@@ -16,6 +16,7 @@ def _build_reminder_payload(
         "shipment_id": data.get("shipment_id"),
         "load_id": data.get("load_id"),
         "thread_id": data.get("thread_id"),
+        "account_id": data.get("account_id"),
         "to": data.get("to"),
         "subject": data.get("subject", f"POD Reminder ({reminder_hours}h)"),
         "body": (data.get("body") or "").strip()

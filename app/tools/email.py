@@ -1,119 +1,162 @@
-import json
-import re
-from typing import Any, Optional
-from urllib.parse import quote, urljoin
-
-import httpx
+from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
 
 
-def send_email(to, subject, body):
-    print(f"[EMAIL] to={to}, subject={subject}")  # TO-DO
+# Private helpers
+
+def _normalize_email(e: Any) -> str:
+    return (str(e) if e else "").strip().lower()
 
 
-def ingest_email(payload):
+def _attendee_to_recipient(att: Any) -> Optional[Dict[str, str]]:
+    """Convert a Unipile attendee dict to a {identifier, display_name} recipient."""
+    if not isinstance(att, dict):
+        return None
+    ident = att.get("identifier")
+    if not ident or "@" not in str(ident):
+        return None
     return {
-        "attachments": payload.get("attachments", []),
-        "thread_id": payload.get("thread_id", "thread-123"),
-        "body": payload.get("body", ""),
+        "identifier": str(ident),
+        "display_name": att.get("display_name") or str(ident).split("@")[0],
     }
 
 
-def _unipile_headers() -> dict[str, str]:
-    key = settings.UNIPILE_API_KEY or ""
-    return {
-        "X-API-KEY": key,
-        "accept": "application/json",
-    }
+def _resolve_parent_id(
+    unipile: Unipile,
+    latest_email: Dict,
+    reply_to_message_id: Optional[str],
+    account_id: Optional[str],
+) -> str:
+    """
+    Resolve the internal Unipile email `id` to use as `reply_to`.
+    Prefers an explicit caller-supplied id; falls back to latest email's id.
+    """
+    if reply_to_message_id:
+        reply_to_message_id = str(reply_to_message_id).strip()
+        if not reply_to_message_id:
+            raise UnipileException("reply_to_message_id was provided but empty")
 
+        resolved = None
+        try:
+            resolved = unipile.get_email(reply_to_message_id, account_id=account_id)
+        except Exception:
+            print(f"[reply_to_thread] Could not resolve provider_id={reply_to_message_id}, using as-is")
 
-def unipile_list_thread_emails(thread_id: str, account_id: str) -> list[dict[str, Any]]:
-    """GET /api/v1/emails for one thread; returns raw `items` list (may be empty)."""
-    if not settings.UNIPILE_API_KEY or not thread_id.strip() or not account_id.strip():
-        return []
-    base = settings.UNIPILE_BASE_URL.rstrip("/")
-    q_tid = quote(thread_id, safe="")
-    q_acc = quote(account_id, safe="")
-    url = f"{base}/api/v1/emails?thread_id={q_tid}&account_id={q_acc}"
-    try:
-        with httpx.Client(timeout=30.0) as client:
-            r = client.get(url, headers=_unipile_headers())
-            r.raise_for_status()
-            data = r.json()
-    except (httpx.HTTPError, ValueError) as e:
-        logger.warning("Unipile list emails failed: %s", e)
-        return []
-    items = data.get("items")
-    return items if isinstance(items, list) else []
+        reply_to_id = (resolved.get("id") if isinstance(resolved, dict) else None) or reply_to_message_id
+        return str(reply_to_id).strip()
 
-
-def _attendees_json(attendees: Any) -> str:
-    if not isinstance(attendees, list) or not attendees:
-        return "[]"
-    out = []
-    for a in attendees:
-        if not isinstance(a, dict):
-            continue
-        ident = a.get("identifier")
-        if not ident:
-            continue
-        out.append(
-            {
-                "identifier": ident,
-                "display_name": a.get("display_name") or "",
-            }
+    pid = latest_email.get("id") or latest_email.get("provider_id") or latest_email.get("message_id")
+    if not pid:
+        raise UnipileException(
+            "Could not determine parent message id to reply to; pass reply_to_message_id explicitly"
         )
-    return json.dumps(out)
+    return str(pid).strip()
 
 
-def _reply_fields_from_last_email(last: dict[str, Any]) -> Optional[dict[str, str]]:
-    """Minimal fields for Unipile reply POST (multipart), derived from list API item."""
-    account_id = last.get("account_id")
-    provider_id = last.get("provider_id")
-    from_a = last.get("from_attendee")
-    if not account_id or not provider_id or not isinstance(from_a, dict):
-        return None
-    identifier = from_a.get("identifier")
-    if not identifier:
-        return None
-    to_src = last.get("to_attendees")
-    to_json = _attendees_json(to_src)
-    if to_json == "[]":
-        return None
-    return {
-        "account_id": str(account_id),
-        "identifier": str(identifier),
-        "to": to_json,
-        "reply_to": str(provider_id),
-    }
-
-
-_RE_PREFIX = re.compile(r"(?i)^re\s*:\s*(.*)$")
-
-
-def _strip_reply_prefixes(subject: str) -> str:
-    """Remove repeated Re:/RE: (any casing) so we never send Re: Re: …"""
-    s = (subject or "").strip()
-    while s:
-        m = _RE_PREFIX.match(s)
-        if not m:
-            break
-        s = m.group(1).strip()
-    return s
-
-
-def _reply_subject_line(thread_subject: str | None, fallback_subject: str) -> str:
+def _build_reply_subject(original_subject: str, override: Optional[str] = None) -> str:
     """
-    One well-formed reply subject: "Re: <root>".
-    Prefer the last message's subject; use fallback (e.g. reminder title) if empty.
+    Pick subject from original thread first, fall back to override.
+    Ensures a 'Re: ' prefix exists (case-insensitive check).
     """
-    raw = (thread_subject or "").strip() or (fallback_subject or "").strip()
-    core = _strip_reply_prefixes(raw)
-    return f"Re: {core}" if core else "Re:"
+    subj = original_subject.strip() if original_subject and original_subject.strip() else None
+    if not subj and override:
+        subj = str(override).strip() or None
+    if not subj:
+        raise UnipileException("No subject found in thread and no override provided")
+
+    low = subj.lstrip().lower()
+    if low.startswith(("re:", "re :")):
+        return subj
+    return f"Re: {subj}"
+
+
+def _build_recipients(
+    latest_email: Dict,
+    exclude_email: str,
+) -> tuple[List[Dict[str, str]], List[Dict[str, str]]]:
+    """
+    Build reply-all TO and CC lists from the latest email in a thread.
+
+    Rules (mirrors standard reply-all behavior):
+      - If we RECEIVED the latest email (role != 'sent'):
+          TO  = from_attendee (the person who sent it to us)
+                + all to_attendees (minus ourselves)
+          CC  = all cc_attendees (minus ourselves)
+      - If we SENT the latest email (role == 'sent'):
+          TO  = all to_attendees (the people we sent to)
+          CC  = all cc_attendees
+      - Always excludes our own email from both lists.
+
+    Returns (to_list, cc_list).
+    """
+    excluded: Set[str] = set()
+    if exclude_email:
+        excluded.add(_normalize_email(exclude_email))
+
+    to_list: List[Dict[str, str]] = []
+    cc_list: List[Dict[str, str]] = []
+    seen: Set[str] = set()
+
+    def _add(recipient: Optional[Dict], target: List[Dict]) -> None:
+        if not recipient or not recipient.get("identifier"):
+            return
+        norm = _normalize_email(recipient["identifier"])
+        if norm in excluded or norm in seen:
+            return
+        seen.add(norm)
+        target.append(recipient)
+
+    role = latest_email.get("role")
+    from_attendee = latest_email.get("from_attendee")
+    to_attendees = latest_email.get("to_attendees") or []
+    cc_attendees = latest_email.get("cc_attendees") or []
+
+    if role != "sent":
+        _add(_attendee_to_recipient(from_attendee), to_list)
+
+    for att in to_attendees:
+        _add(_attendee_to_recipient(att), to_list)
+
+    for att in cc_attendees:
+        _add(_attendee_to_recipient(att), cc_list)
+
+    return to_list, cc_list
+
+
+def _merge_cc(
+    thread_cc: List[Dict[str, str]],
+    upstream_cc: Optional[List[Dict[str, Any]]],
+    exclude_email: str,
+    to_recipients: List[Dict[str, str]],
+) -> Optional[List[Dict[str, str]]]:
+    """Merge upstream caller CC with thread CC, deduplicating against TO and self."""
+    excluded = {_normalize_email(exclude_email)} if exclude_email else set()
+    to_norm = {_normalize_email(r.get("identifier")) for r in to_recipients}
+    seen = {_normalize_email(c.get("identifier")) for c in thread_cc}
+
+    merged = list(thread_cc)
+
+    for c in (upstream_cc or []):
+        if not isinstance(c, dict):
+            continue
+        ident = c.get("identifier") or c.get("email") or c.get("email_address")
+        if not ident or not isinstance(ident, str) or "@" not in ident:
+            continue
+        norm = _normalize_email(ident)
+        if norm in excluded or norm in to_norm or norm in seen:
+            continue
+        seen.add(norm)
+        merged.append({"identifier": ident, "display_name": c.get("display_name") or ident.split("@")[0]})
+
+    return merged or None
+
+
+# Public tools
 
 
 def send_unipile_thread_reply(
@@ -122,38 +165,188 @@ def send_unipile_thread_reply(
     subject: str,
     body: str,
 ) -> bool:
-    """
-    List thread emails, take the last message, POST in-thread reply via Unipile.
-    """
-    if not settings.UNIPILE_API_KEY:
-        return False
-    items = unipile_list_thread_emails(thread_id, account_id)
-    if not items:
-        logger.warning("Unipile reply skipped: no messages for thread %s", thread_id[:24])
-        return False
-    last = items[-1]
-    fields = _reply_fields_from_last_email(last)
-    if not fields:
-        logger.warning("Unipile reply skipped: cannot build reply from last message")
-        return False
-
-    out_subject = _reply_subject_line(last.get("subject"), subject)
-
-    base = settings.UNIPILE_BASE_URL.rstrip("/")
-    url = urljoin(base + "/", "api/v1/emails")
-    form = {
-        "account_id": (None, fields["account_id"]),
-        "identifier": (None, fields["identifier"]),
-        "to": (None, fields["to"]),
-        "subject": (None, out_subject),
-        "body": (None, body),
-        "reply_to": (None, fields["reply_to"]),
-    }
+    """In-thread reply via Unipile (wraps ``reply_to_thread``; returns False on failure)."""
     try:
-        with httpx.Client(timeout=30.0) as client:
-            r = client.post(url, headers=_unipile_headers(), files=form)
-            r.raise_for_status()
-    except httpx.HTTPError as e:
-        logger.warning("Unipile send reply failed: %s", e)
+        reply_to_thread(
+            thread_id=thread_id,
+            body=body,
+            account_id=account_id,
+            subject=subject or None,
+        )
+        return True
+    except UnipileException as e:
+        logger.warning("Unipile thread reply failed: %s", e)
         return False
-    return True
+    except Exception:
+        logger.exception("Unexpected error in send_unipile_thread_reply")
+        return False
+
+
+def send_email(
+    to,
+    subject: Optional[str] = None,
+    body: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    account_id: Optional[str] = None,
+):
+    """
+    POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
+    is an email, send a new message. Requires ``UNIPILE_API_KEY`` and sending ``account_id``
+    (argument or ``settings.UNIPILE_ACCOUNT_ID``).
+
+    ``subject`` is optional; empty/missing values default to ``"POD Request"``.
+    """
+    subject = subject or "POD Request"
+    body = (body or "").strip() or settings.POD_REMINDER_EMAIL_BODY
+    tid = (thread_id or "").strip()
+    acc = (account_id or settings.UNIPILE_ACCOUNT_ID or "").strip()
+    api_key = (settings.UNIPILE_API_KEY or "").strip()
+
+    if not api_key:
+        logger.info(
+            "send_email skipped: UNIPILE_API_KEY not set (to=%r subject=%r)",
+            to,
+            subject,
+        )
+        print(f"[EMAIL] to={to}, subject={subject} (no UNIPILE_API_KEY)")
+        return
+
+    if not acc:
+        logger.info(
+            "send_email skipped: no account_id and UNIPILE_ACCOUNT_ID unset (to=%r)",
+            to,
+        )
+        print(f"[EMAIL] to={to}, subject={subject} (no account_id)")
+        return
+
+    try:
+        if tid:
+            reply_to_thread(
+                thread_id=tid,
+                body=body,
+                account_id=acc,
+                # subject=subject,
+            )
+            return
+
+        to_addr = (str(to).strip() if to else "") or ""
+        if "@" in to_addr:
+            unipile = Unipile()
+            recipients: List[Dict[str, str]] = [
+                {
+                    "identifier": to_addr,
+                    "display_name": to_addr.split("@", 1)[0],
+                }
+            ]
+            out = unipile.send_email(
+                to=recipients,
+                subject=subject,
+                body=body,
+                account_id=acc,
+            )
+            if not out.get("success"):
+                logger.warning("send_email: Unipile send failed: %s", out.get("error"))
+            return
+
+        logger.warning(
+            "send_email: no thread_id and no valid `to` address; nothing sent (subject=%r)",
+            subject,
+        )
+    except UnipileException as e:
+        logger.warning("send_email failed: %s", e)
+    except Exception:
+        logger.exception("send_email unexpected error")
+
+
+def reply_to_thread(
+    thread_id: str,
+    body: str,
+    account_id: str,
+    subject: Optional[str] = None,
+    reply_to_message_id: Optional[str] = None, # this could be either unipile_email_object[id] from retrieve email endpoint or provider_id (long alphanumeric used by outlook/gmail)
+    cc: Optional[List[Dict[str, Any]]] = None,
+):
+    """
+    Orchestrates a thread reply (reply-all):
+    1. Resolve our email (to exclude from recipients)
+    2. Fetch thread emails
+    3. Resolve parent message id for Unipile reply_to
+    4. Auto-resolve subject from latest message (unless overridden)
+    5. Build reply-all TO + CC lists
+    6. Merge any upstream CC, deduplicate
+    7. Send via Unipile
+    """
+    if not thread_id:
+        raise UnipileException("thread_id is required to reply to a thread")
+
+    unipile = Unipile()
+
+    # 1) Resolve our email to exclude from recipients
+    exclude_email = unipile.get_account_email(account_id)
+
+    # 2) Fetch all emails in thread
+    emails_result = unipile.list_emails(account_id=account_id, thread_id=thread_id, limit=50)
+    emails = emails_result.get("items", []) if isinstance(emails_result, dict) else []
+    if not emails:
+        raise UnipileException(f"No emails found for thread_id={thread_id}")
+
+    sorted_emails = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
+    latest_email = sorted_emails[0]
+
+    # 3) Resolve parent message id
+    reply_to_id = _resolve_parent_id(unipile, latest_email, reply_to_message_id, account_id)
+
+    # 4) Subject: use latest email's subject unless upstream overrides
+    original_subject = (latest_email.get("subject") or "").strip()
+    effective_subject = _build_reply_subject(original_subject, subject)
+
+    # 5) Reply-all: build TO and CC from latest email
+    to_list, thread_cc = _build_recipients(latest_email, exclude_email)
+    if not to_list:
+        raise UnipileException("Could not determine reply recipients from the thread")
+
+    # 6) Merge upstream CC with thread CC and dedup
+    cc_final = _merge_cc(thread_cc, cc, exclude_email, to_list)
+
+    # 7) Send
+    result = unipile.send_email(
+        to=to_list,
+        subject=effective_subject,
+        body=body,
+        account_id=account_id,
+        reply_to=reply_to_id,
+        cc=cc_final,
+    )
+
+    result.setdefault("thread_id", thread_id)
+    result.setdefault("reply_to_message_id", reply_to_id)
+    print(f"[reply_to_thread] thread_id={thread_id}, to={[r['identifier'] for r in to_list]}, cc={[c['identifier'] for c in (cc_final or [])]}, subject={effective_subject}")
+    return result
+
+def ingest_email(payload):
+    # Prefer nested webhook payload to keep workflow state uncluttered.
+    source = payload
+
+    return {
+        "attachments": source.get("attachments"),
+        "thread_id": source.get("thread_id"),
+        "body": source.get("body"),
+        "subject": source.get("subject"),
+        "has_attachments": source.get("has_attachments"),
+        "role": source.get("role"),
+        "email_id": source.get("email_id"),
+        "account_id": source.get("account_id"),
+        "provider_id": source.get("provider_id"),
+        "message_id": source.get("message_id"),
+        "from_attendee": source.get("from_attendee"),
+        "to_attendees": source.get("to_attendees"),
+        "cc_attendees": source.get("cc_attendees"),
+        "in_reply_to": source.get("in_reply_to"),
+        "date": source.get("date"),
+    }
+
+
+def get_email_attachments(email_id, attachment_id, account_id):
+    unipile = Unipile()
+    file_content = unipile.get_email_attachment(email_id, attachment_id, account_id)
+    return file_content

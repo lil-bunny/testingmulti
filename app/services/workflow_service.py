@@ -8,10 +8,12 @@ from app.workflows.graph.routers import (
     event_type_router,
     noop_always_router,
     noop_followup_route,
+    shipment_router,
     pod_exists_router,
     pod_reply_router,
     pod_request_mark_router,
     pod_request_triggered_router,
+    read_workflow_correlation_router
 )
 from typing import Optional
 import uuid
@@ -22,12 +24,14 @@ from langsmith import traceable
 ROUTER_REGISTRY = {
     "pod_exists": pod_exists_router,
     "convoy": convoy_router,
+    "shipment_router": shipment_router,
     "pod_reply": pod_reply_router,
     "event_type": event_type_router,
     "pod_request_triggered": pod_request_triggered_router,
     "pod_request_mark": pod_request_mark_router,
     "noop_always": noop_always_router,
     "noop_followup": noop_followup_route,
+    "read_workflow_correlation": read_workflow_correlation_router,
 }
 
 

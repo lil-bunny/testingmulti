@@ -2,6 +2,30 @@ from app.core.config import settings
 from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import update_shipment as update_shipment_tool
+from app.tools.turvo import upload_to_turvo as upload_to_turvo_tool
+from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipment_id_for_fetch
+
+
+def _turvo_app_user_id(state) -> str | None:
+    """Prefer run state; fall back to env default (same choice as previous tool behavior)."""
+    if state.data.get("app_user_id"):
+        return str(state.data["app_user_id"])
+    return settings.TURVO_DEFAULT_APP_USER_ID or None
+
+
+def _merge_pod_exists_from_turvo(state) -> None:
+    """Set ``pod_exists`` from webhook hint plus Turvo documents when the check succeeds."""
+    webhook_pod = bool(state.data.get("existing_pod"))
+    shipment_id = state.data.get("shipment_id")
+    if not shipment_id:
+        state.data["pod_exists"] = webhook_pod
+        return
+    result = check_pod_tool(shipment_id, app_user_id=_turvo_app_user_id(state))
+    state.data["turvo_pod_check"] = result
+    if result.get("success"):
+        state.data["pod_exists"] = webhook_pod or bool(result.get("pod_exists"))
+    else:
+        state.data["pod_exists"] = webhook_pod
 
 
 def _turvo_app_user_id(state) -> str | None:
@@ -46,6 +70,11 @@ def get_shipment(state):
         else bool(shipment.get("convoy", False))
     )
 
+    return state
+
+
+def upload_to_turvo(state):
+    upload_to_turvo_tool(state.data)
     return state
 
 

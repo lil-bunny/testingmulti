@@ -1,5 +1,6 @@
-from app.workflows.nodes.process_pod import process_pod
-from app.workflows.nodes.email import classify_inbound_email, ingest_email, send_email
+# from app.workflows.nodes.process_pod import process_pod
+from app.workflows.nodes.pod import classify_attachments, ratecon_analysis, pod_analysis, pod_vs_ratecon_analysis
+from app.workflows.nodes.email import check_email_attachments, ingest_email, send_email, get_email_attachments
 from app.workflows.nodes.noop import noop_pod_followup_marker
 from app.workflows.nodes.pod_request import (
     branch_after_send_email_pod_request,
@@ -13,13 +14,14 @@ from app.workflows.nodes.turvo import (
     get_shipment,
     refresh_pod_before_send_email,
     update_shipment,
+    upload_to_turvo,
 )
-
 
 NODE_REGISTRY = {
     "get_shipment": get_shipment,
     "check_existing_pod": check_existing_pod,
     "refresh_pod_before_send_email": refresh_pod_before_send_email,
+    "upload_to_turvo": upload_to_turvo,
     "update_shipment": update_shipment,
     "send_email": send_email,
     "noop_pod_followup_marker": noop_pod_followup_marker,
@@ -27,10 +29,14 @@ NODE_REGISTRY = {
     "branch_after_send_email_pod_request": branch_after_send_email_pod_request,
     "send_email_continue": send_email_continue,
     "ingest_email": ingest_email,
-    "classify_inbound_email": classify_inbound_email,
+    "check_email_attachments": check_email_attachments,
+    "get_email_attachments": get_email_attachments,
+    "classify_attachments": classify_attachments,
+    "ratecon_analysis": ratecon_analysis,
+    "pod_analysis": pod_analysis,
+    "pod_vs_ratecon_analysis": pod_vs_ratecon_analysis,
     "read_workflow_correlation": read_workflow_correlation,
     "update_workflow_correlation": update_workflow_correlation,
-    "process_pod": process_pod,
     "route_event": route_event,
     "end": end,
 }

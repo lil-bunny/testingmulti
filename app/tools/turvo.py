@@ -22,6 +22,7 @@ __all__ = (
     "check_pod_by_shipment_id",
     "get_shipment",
     "update_shipment",
+    "upload_to_turvo",
 )
 
 
@@ -154,3 +155,18 @@ def check_pod_by_shipment_id(
 def update_shipment(data: dict[str, Any]) -> None:
     """Placeholder for Turvo shipment update; replace with real endpoint when wired."""
     logger.info("[SHIPMENT UPDATE] %s", data)
+
+
+def upload_to_turvo(data: dict[str, Any]) -> None:
+    """Push merged POD to Turvo for the shipment in ``data``.
+
+    Workflow passes ``state.data`` (e.g. ``pod_merged_pdf_url``, ``shipment_id``).
+    Document upload via Turvo Public API is not implemented yet; logs only.
+    """
+    shipment_id = data.get("shipment_id")
+    merged = data.get("pod_merged_pdf_url")
+    logger.info(
+        "[TURVO POD UPLOAD] shipment_id=%s merged_url_present=%s (upload not wired)",
+        shipment_id,
+        bool(merged),
+    )
