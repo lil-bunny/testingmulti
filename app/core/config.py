@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     REMINDER_1_HOURS: int
     REMINDER_2_HOURS: int
     POD_REMINDER_EMAIL_BODY: str = "Please send pod"
+    # After nominal reminder time (ETA), Celery discards the task if not yet executed.
+    REMINDER_EXPIRE_GRACE_HOURS: int = 2
 
     # Celery
     CELERY_BROKER_URL: str
