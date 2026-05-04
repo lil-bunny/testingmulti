@@ -5,9 +5,15 @@ WORKFLOW_CONFIGS = {
         "nodes": [
             "route_event",
             "get_shipment",
+            "check_pod_request_triggered",
             "read_workflow_correlation",
             "check_existing_pod",
+            "refresh_pod_before_send_email",
             "send_email",
+            "mark_pod_schedule_context",
+            "branch_after_send_email_pod_request",
+            "send_email_continue",
+            "noop_pod_followup_marker",
             "ingest_email",
             "check_email_attachments",
             "get_email_attachments",
@@ -28,7 +34,11 @@ WORKFLOW_CONFIGS = {
             ["pod_vs_ratecon_analysis", "upload_to_turvo"],
             ["upload_to_turvo", "update_shipment"],
             ["update_shipment", "end"],
-            ["send_email", "end"],
+            ["send_email", "branch_after_send_email_pod_request"],
+            ["mark_pod_schedule_context", "branch_after_send_email_pod_request"],
+            ["branch_after_send_email_pod_request", "send_email_continue"],
+            ["send_email_continue", "end"],
+            ["noop_pod_followup_marker", "refresh_pod_before_send_email"],
         ],
         "routers": {
             "route_event": {
@@ -43,15 +53,36 @@ WORKFLOW_CONFIGS = {
                 "router": "shipment_router",
                 "map": {
                     "convoy": "end",
-                    "non_convoy": "read_workflow_correlation",
+                    "non_convoy": "check_pod_request_triggered",
                     # Pod reply workflow
                     "valid_shipment_status": "get_email_attachments",
                     "invalid_shipment_status": "end",
                 },
             },
+            "check_pod_request_triggered": {
+                "router": "pod_request_triggered_router",
+                "map": {
+                    "blocked": "end",
+                    "continue": "read_workflow_correlation",
+                },
+            },
             "check_existing_pod": {
-                "router": "pod_exists",
-                "map": {"exists": "end", "missing": "send_email"},
+                "router": "pod_missing_dispatch",
+                "map": {
+                    "exists": "end",
+                    "schedule_initial": "mark_pod_schedule_context",
+                    "send_now": "send_email",
+                    "skip_send": "end",
+                },
+            },
+            "refresh_pod_before_send_email": {
+                "router": "pod_missing_dispatch",
+                "map": {
+                    "exists": "end",
+                    "schedule_initial": "mark_pod_schedule_context",
+                    "send_now": "send_email",
+                    "skip_send": "end",
+                },
             },
             "check_email_attachments": {
                 "router": "pod_reply",

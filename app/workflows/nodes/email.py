@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Tuple
 
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
 from app.tools.email import ingest_email as ingest_email_tool
-from app.services.reminder_scheduler import schedule_initial_pod_reminders
 from app.services.s3bucket_service import bucket
 from app.services.attachment_normalizer import pod_individual_attachment_filename
 from app.models.document import DocumentType
@@ -16,9 +15,16 @@ def send_email(state):
     send_email_tool(
         state.data.get("to"),
         state.data.get("subject", "POD Request"),
-        state.data.get("body", "")
+        state.data.get("body", ""),
+        thread_id=state.data.get("thread_id"),
+        account_id=state.data.get("account_id"),
     )
-    schedule_initial_pod_reminders(state.data)
+
+    evt = state.data.get("event_type")
+    if evt == "route_completed" and "_pod_email_context" not in state.data:
+        state.data["_pod_email_context"] = "route_completed_primary"
+    elif evt == "reminder_due":
+        state.data["_pod_email_context"] = "route_completed_primary"
 
     return state
 

@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "cryptography>=46.0.0",
     "celery>=5.5.3",
     "fastapi>=0.128.8",
     "httpx>=0.28.1",
@@ -15,6 +16,11 @@ dependencies = [
     "psycopg[binary]>=3.2.13",
     "redis>=5.0.0",
     "uvicorn>=0.39.0",
+    "redis>=7.4.0",
+    "langgraph-cli[inmem]>=0.4.24",
+    "langsmith>=0.7.32",
+    "python-dotenv>=1.2.2",
+    "logfire[fastapi,httpx,psycopg]>=4.32.1",
     "boto3>=1.42.96",
     "openai>=2.33.0",
     "img2pdf>=0.6.3",
@@ -32,3 +38,6 @@ dev = [
     "pytest-asyncio>=1.2.0",
     "sqlalchemy>=2.0.44",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

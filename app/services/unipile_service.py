@@ -1,7 +1,11 @@
 import json
 import httpx
 from typing import Any, Dict, List, Optional
+
 from app.core.config import settings
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class UnipileException(Exception):
     """Exception raised for Unipile API errors"""
@@ -243,7 +247,7 @@ class Unipile:
 
             if response.status_code not in [200, 201]:
                 error_msg = response.text
-                error_details = {}
+                error_details: Dict[str, Any] = {}
                 try:
                     error_json = response.json()
                     # Extract error message, title, type, and status for better error reporting
@@ -267,11 +271,32 @@ class Unipile:
                 else:
                     formatted_error = f"Email send failed ({response.status_code}): {error_msg}"
                 
+                logger.warning(
+                    "Unipile POST /emails failed status=%s account_id=%s subject=%r reply_to=%r err=%s raw_len=%s",
+                    response.status_code,
+                    account_id,
+                    subject[:200] if subject else "",
+                    reply_to,
+                    formatted_error,
+                    len(response.text or ""),
+                )
+                logger.debug(
+                    "Unipile POST /emails error_details=%s body_preview=%s",
+                    error_details,
+                    (response.text or "")[:2000],
+                )
                 return {"success": False, "error": formatted_error, "error_details": error_details}
             
             result = response.json()
             tracking_id = result.get("tracking_id")
-            
+            logger.info(
+                "Unipile POST /emails ok status=%s account_id=%s subject=%r reply_to=%r tracking_id=%s",
+                response.status_code,
+                account_id,
+                subject[:200] if subject else "",
+                reply_to,
+                tracking_id,
+            )
             return {
                 "success": True, 
                 "message_id": tracking_id,

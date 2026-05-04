@@ -1,6 +1,14 @@
 .env
 .env.*
 !.env.example
+
+# Turvo integration architecture notes (local-only; remove this line to commit docs/turvo-integration.md)
+docs/turvo-integration.md
+
+# Workflow architecture guide (local-only; remove this line to commit docs/workflows.md)
+docs/workflows.md
+
+.cursor/
 __pycache__/
 *.pyc
 .DS_Store
