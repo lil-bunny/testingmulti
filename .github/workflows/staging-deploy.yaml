@@ -3,7 +3,7 @@ name: Deploy backend to Amazon ECS Staging
 on:
   push:
     branches:
-      - master
+      - staging
 
 env:
   AWS_REGION: us-east-2
