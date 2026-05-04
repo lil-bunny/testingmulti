@@ -4,9 +4,8 @@ import tempfile
 from datetime import datetime
 from typing import Any
 
-import httpx
-
 from app.core.config import settings
+from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import (
     AttachmentNormalizerService,
     _sanitize_path_segment,
@@ -28,34 +27,34 @@ def classify_attachments(state):
     """
     Full POD attachment normalization
 
-    1. Get pod_urls from state
-    2. Per URL: download, MIME branch PDF accept; image prefilter + classifier; other types reject.
+    1. Get ``pod_object_keys`` from state (S3 object keys; ``https://`` entries are still supported for external fetch).
+    2. Per attachment ref: HTTP(S) sources are downloaded with httpx; S3 object keys use ``GetObject``.
     3. Merge valid PDFs + images to one PDF, upload merged file.
-    4. Expose merged URL on pod_urls (single-element list) for downstream process_pod.
+    4. Expose merged key on ``pod_object_keys`` (single-element list) for downstream ``process_pod``.
     """
-    pod_urls = state.data.get("pod_urls")
+    pod_object_keys = state.data.get("pod_object_keys")
 
     shipment_id = resolve_shipment_id(state.data) or None
 
     normalizer = AttachmentNormalizerService()
-    result = normalizer.normalize(pod_urls, shipment_number=shipment_id)
+    result = normalizer.normalize(pod_object_keys, shipment_number=shipment_id)
 
     state.data["attachment_normalization"] = result
 
-    merged = result.get("merged_pdf_url")
+    merged = result.get("pod_merged_pdf_object_key")
     if result.get("success") and merged:
-        state.data["pod_urls"] = [merged]
-        state.data["pod_merged_pdf_url"] = merged
+        state.data["pod_object_keys"] = [merged]
+        state.data["pod_merged_pdf_object_key"] = merged
         state.data["has_attachments"] = True
     else:
-        state.data["pod_urls"] = []
-        state.data.pop("pod_merged_pdf_url", None)
+        state.data["pod_object_keys"] = []
+        state.data.pop("pod_merged_pdf_object_key", None)
         state.data["has_attachments"] = False
 
     logger.info(
-        "classify_attachments: shipment_id=%s input_urls=%s success=%s merged=%s rejected=%s single_sc=%s",
+        "classify_attachments: shipment_id=%s input_keys=%s success=%s merged=%s rejected=%s single_sc=%s",
         shipment_id,
-        len(pod_urls or []),
+        len(pod_object_keys or []),
         result.get("success"),
         bool(merged),
         len(result.get("rejected") or []),
@@ -66,10 +65,9 @@ def classify_attachments(state):
 
 def ratecon_analysis(data: dict) -> dict:
     """
-    Resolve rate confirmation PDF from ``documents`` (``type='ratecon'``) by
-    ``shipment_id``, download the stored S3 URL, then run per-page vision
-    extraction. Expected object basename: ``ratecon_{shipmentId}.pdf`` (sanitized
-    segment); a warning is logged if the URL path does not contain it.
+    Load the rate confirmation PDF from ``documents`` (``type='ratecon'``) by
+    ``shipment_id`` using the stored S3 object key, then run per-page vision extraction.
+    Expected object basename: ``ratecon_{shipmentId}.pdf`` (sanitized segment).
     """
     sid = resolve_shipment_id(data)
     if not sid:
@@ -83,7 +81,7 @@ def ratecon_analysis(data: dict) -> dict:
             "shipment_id": sid,
         }
 
-    if not doc.get("found") or not doc.get("url"):
+    if not doc.get("found") or not doc.get("object_key"):
         logger.info(
             "ratecon_analysis: no ratecon document row for shipment_id=%s",
             sid,
@@ -95,27 +93,41 @@ def ratecon_analysis(data: dict) -> dict:
             "shipment_id": sid,
         }
 
-    url = doc["url"]
+    raw_key = doc["object_key"]
+    try:
+        object_key = normalize_object_key(raw_key)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "shipment_id": sid,
+            "ratecon_object_key": raw_key,
+        }
     document_id = doc.get("id")
     expected_key = f"ratecon_{_sanitize_path_segment(sid)}.pdf"
-    if expected_key.lower() not in (url or "").lower():
+    if expected_key.lower() not in (object_key or "").lower():
         logger.warning(
-            "ratecon_analysis: URL path missing expected key %r (shipment_id=%s)",
+            "ratecon_analysis: object key missing expected basename %r (shipment_id=%s)",
             expected_key,
             sid,
         )
     tmp_path: str | None = None
     try:
-        with httpx.Client(timeout=120.0, follow_redirects=True) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            body = resp.content
+        dl = bucket.download_object_bytes(object_key)
+        if not dl.get("success"):
+            return {
+                "success": False,
+                "error": dl.get("error_message") or "s3_download_failed",
+                "shipment_id": sid,
+                "ratecon_object_key": object_key,
+            }
+        body = dl["body"]
         if not body.startswith(b"%PDF"):
             return {
                 "success": False,
                 "error": "downloaded_file_not_pdf",
                 "shipment_id": sid,
-                "ratecon_url": url,
+                "ratecon_object_key": object_key,
             }
 
         fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
@@ -136,7 +148,7 @@ def ratecon_analysis(data: dict) -> dict:
                 "success": False,
                 "error": "extraction_empty",
                 "shipment_id": sid,
-                "ratecon_url": url,
+                "ratecon_object_key": object_key,
                 "page_results": page_results,
                 "extracted_data": extracted,
             }
@@ -160,7 +172,7 @@ def ratecon_analysis(data: dict) -> dict:
         return {
             "success": True,
             "shipment_id": sid,
-            "ratecon_url": url,
+            "ratecon_object_key": object_key,
             "ratecon_document_id": document_id,
             "primary_identifier": extracted.get("primary_identifier"),
             "identifiers_found": extracted.get("shipment_identifiers"),
@@ -176,7 +188,7 @@ def ratecon_analysis(data: dict) -> dict:
             "success": False,
             "error": str(exc),
             "shipment_id": sid,
-            "ratecon_url": url,
+            "ratecon_object_key": object_key,
         }
     finally:
         if tmp_path and os.path.isfile(tmp_path):
@@ -187,13 +199,13 @@ def ratecon_analysis(data: dict) -> dict:
 
 
 def _resolve_pod_pdf_url(data: dict) -> tuple[str | None, dict[str, Any]]:
-    """Prefer merged POD URL from workflow state; fallback to latest ``pod_merged_final`` row."""
-    urls = data.get("pod_urls") or []
-    if isinstance(urls, list):
-        for u in urls:
+    """Prefer merged POD object key from workflow state; fallback to latest ``pod_merged_final`` row."""
+    refs = data.get("pod_object_keys") or []
+    if isinstance(refs, list):
+        for u in refs:
             if u and str(u).strip():
                 return str(u).strip(), {"source": "state"}
-    merged = data.get("pod_merged_pdf_url")
+    merged = data.get("pod_merged_pdf_object_key")
     if merged and str(merged).strip():
         return str(merged).strip(), {"source": "state"}
     sid = resolve_shipment_id(data)
@@ -201,8 +213,8 @@ def _resolve_pod_pdf_url(data: dict) -> tuple[str | None, dict[str, Any]]:
         doc = read_document(sid, DocumentType.POD_MERGED_FINAL)
         if doc.get("error"):
             return None, {"source": "documents", "error": doc["error"]}
-        if doc.get("found") and doc.get("url"):
-            return doc["url"], {"source": "documents", "document_id": doc.get("id")}
+        if doc.get("found") and doc.get("object_key"):
+            return doc["object_key"], {"source": "documents", "document_id": doc.get("id")}
     return None, {}
 
 
@@ -221,21 +233,33 @@ def _broker_name_from_ratecon_results(data: dict) -> str | None:
 
 def pod_analysis(data: dict) -> dict:
     """
-    Download merged POD from state URLs (or DB fallback), run vision extraction +
-    reconciliation (legacy rules), return structured findings for persistence.
+    Download merged POD from workflow state or ``documents`` using the stored S3 object key,
+    then run vision extraction and reconciliation.
     """
     sid = resolve_shipment_id(data)
     if not sid:
         return {"success": False, "error": "missing_shipment_id"}
 
-    url, url_meta = _resolve_pod_pdf_url(data)
-    if not url:
-        logger.info("pod_analysis: no POD URL in state or documents shipment_id=%s", sid)
+    storage_ref, url_meta = _resolve_pod_pdf_url(data)
+    if not storage_ref:
+        logger.info(
+            "pod_analysis: no POD object key in state or documents shipment_id=%s", sid
+        )
         return {
             "success": True,
             "skipped": True,
-            "reason": "no_pod_url",
+            "reason": "no_pod_object_key",
             "shipment_id": sid,
+        }
+
+    try:
+        object_key = normalize_object_key(storage_ref)
+    except ValueError as exc:
+        return {
+            "success": False,
+            "error": str(exc),
+            "shipment_id": sid,
+            "pod_object_key": storage_ref,
         }
 
     merged_doc = data.get("documents_pod_merged") or {}
@@ -249,10 +273,15 @@ def pod_analysis(data: dict) -> dict:
 
     tmp_path: str | None = None
     try:
-        with httpx.Client(timeout=120.0, follow_redirects=True) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            body = resp.content
+        dl = bucket.download_object_bytes(object_key)
+        if not dl.get("success"):
+            return {
+                "success": False,
+                "error": dl.get("error_message") or "s3_download_failed",
+                "shipment_id": sid,
+                "pod_object_key": object_key,
+            }
+        body = dl["body"]
 
         if body.startswith(b"%PDF"):
             suffix = ".pdf"
@@ -289,7 +318,7 @@ def pod_analysis(data: dict) -> dict:
                 "success": False,
                 "error": "extraction_empty",
                 "shipment_id": sid,
-                "pod_url": url,
+                "pod_object_key": object_key,
                 "page_results": page_results,
                 "pod_data": final_pod_data,
             }
@@ -301,7 +330,7 @@ def pod_analysis(data: dict) -> dict:
                 "successful_pages": ok_pages,
                 "failed_pages": len(page_results) - ok_pages,
                 "model": settings.LLM_MODEL,
-                "pod_url_source": url_meta.get("source"),
+                "pod_object_key_source": url_meta.get("source"),
             },
             "pod_data": final_pod_data,
             "validation_issues": validation_issues,
@@ -324,7 +353,7 @@ def pod_analysis(data: dict) -> dict:
         return {
             "success": True,
             "shipment_id": sid,
-            "pod_url": url,
+            "pod_object_key": object_key,
             "pod_document_id": document_id,
             "findings": findings,
             "attachments_used": attachments_used,
@@ -338,7 +367,7 @@ def pod_analysis(data: dict) -> dict:
             "success": False,
             "error": str(exc),
             "shipment_id": sid,
-            "pod_url": url,
+            "pod_object_key": object_key,
         }
     finally:
         if tmp_path and os.path.isfile(tmp_path):

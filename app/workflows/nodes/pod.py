@@ -24,23 +24,23 @@ def _first_source_attachment_id(state) -> str | None:
 
 def classify_attachments(state):
     """
-    Normalize POD URL inputs after get_email_attachments.
+    Normalize POD attachment inputs after get_email_attachments.
 
-    Ensures state.data['pod_urls'] is a list of non-empty strings and aligns
-    has_attachments for downstream process_pod.
+    Ensures state.data['pod_object_keys'] lists S3 object keys for uploaded attachments
+    and aligns has_attachments for downstream process_pod.
     """
 
-    # 1. Processes a list of S3 attachment URLs and returns a single merged PDF URL plus metadata about rejections
+    # 1. Processes ``pod_object_keys`` (and optional HTTP(S) refs) and returns ``pod_merged_pdf_object_key`` plus metadata
     get_normalized_attachments(state)
 
-    merged_url = state.data.get("pod_merged_pdf_url")
+    merged_key = state.data.get("pod_merged_pdf_object_key")
     shipment_id = resolve_shipment_id(state.data) or None
     # 2. Insert merged POD into documents table
-    if merged_url and shipment_id:
+    if merged_key and shipment_id:
         persist = insert_document(
             DocumentType.POD_MERGED_FINAL,
             shipment_id,
-            merged_url,
+            merged_key,
             email_id=state.data.get("email_id"),
             attachment_id=_first_source_attachment_id(state),
         )
@@ -50,9 +50,9 @@ def classify_attachments(state):
             persist.get("stored"),
             persist.get("id"),
         )
-    elif merged_url and not shipment_id:
+    elif merged_key and not shipment_id:
         logger.warning(
-            "classify_attachments: merged PDF URL present but no shipment_id; skipping documents row"
+            "classify_attachments: merged PDF object key present but no shipment_id; skipping documents row"
         )
     return state
 

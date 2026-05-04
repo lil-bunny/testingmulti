@@ -64,7 +64,7 @@ def _detect_upload_type(file_content: bytes) -> Tuple[str, str]:
 def get_email_attachments(state):
     """
     - fetch attachments using get_email_attachment tool
-    - upload attachments to S3 and get URLs
+    - upload attachments to S3 and persist object keys (use ``presign_get_object`` to expose links)
     """
     attachments = state.data.get("attachments") or []
     email_id = state.data.get("email_id")
@@ -98,7 +98,7 @@ def get_email_attachments(state):
                 results.append({
                     "attachment_id": attachment_id,
                     "success": False,
-                    "uploaded_url": None,
+                    "object_key": None,
                     "error_message": "Attachment was empty or could not be retrieved.",
                     "original_filename": original_filename or None,
                     "document_id": None,
@@ -117,9 +117,8 @@ def get_email_attachments(state):
                 filename=filename,
                 folder="pod_attachments",
                 content_type=content_type,
-                public=True,
             )
-            uploaded_url = upload_result.get("file_url")
+            uploaded_key = upload_result.get("object_key")
             upload_success = bool(upload_result.get("success"))
             upload_error = upload_result.get("error_message")
 
@@ -133,11 +132,11 @@ def get_email_attachments(state):
             document_id = None
             stored_in_db = False
             doc_row_type = None
-            if upload_success and uploaded_url:
+            if upload_success and uploaded_key:
                 persist = insert_document(
                     DocumentType.POD_ATTACHMENT,
                     ship_token,
-                    uploaded_url,
+                    uploaded_key,
                     email_id=email_id,
                     attachment_id=str(attachment_id)
                     if attachment_id is not None
@@ -155,7 +154,7 @@ def get_email_attachments(state):
 
             results.append({
                 "attachment_id": attachment_id,
-                "uploaded_url": uploaded_url,
+                "object_key": uploaded_key,
                 "success": upload_success,
                 "content_type": content_type,
                 "extension": extension,
@@ -171,7 +170,7 @@ def get_email_attachments(state):
             results.append({
                 "attachment_id": attachment_id,
                 "success": False,
-                "uploaded_url": None,
+                "object_key": None,
                 "error_message": str(e),
                 "original_filename": original_filename or None,
                 "document_id": None,
@@ -179,14 +178,14 @@ def get_email_attachments(state):
                 "type": None,
             })
 
-    pod_urls = [
-        item["uploaded_url"]
+    pod_object_keys = [
+        item["object_key"]
         for item in results
-        if item.get("success") and item.get("uploaded_url")
+        if item.get("success") and item.get("object_key")
     ]
 
     state.data["get_email_attachments_results"] = results
-    state.data["pod_urls"] = pod_urls
+    state.data["pod_object_keys"] = pod_object_keys
     if any(not item.get("success", False) for item in results):
         failed_results = [item for item in results if not item.get("success", False)]
         failure_details = [

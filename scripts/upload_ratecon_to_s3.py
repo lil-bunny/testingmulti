@@ -60,11 +60,10 @@ def main() -> int:
         filename=args.filename,
         content_type="application/pdf",
         folder=args.folder,
-        public=True,
     )
 
     if result["success"]:
-        print(f"[upload_ratecon_to_s3] OK url={result['file_url']}")
+        print(f"[upload_ratecon_to_s3] OK object_key={result['object_key']}")
         return 0
 
     print(f"[upload_ratecon_to_s3] FAILED: {result.get('error_message')}", file=sys.stderr)

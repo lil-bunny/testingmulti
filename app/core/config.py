@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     BUCKET_KEY: str
     BUCKET_NAME: str
     BUCKET_REGION: str = "us-west-2"
+    # Presigned GetObject TTL (seconds)
+    BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str

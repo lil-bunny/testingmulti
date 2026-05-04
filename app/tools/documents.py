@@ -14,6 +14,7 @@ import psycopg
 
 from app.core.config import settings
 from app.models.document import DocumentType
+from app.services.s3bucket_service import normalize_object_key
 
 logger = logging.getLogger(__name__)
 
@@ -45,30 +46,15 @@ def _ensure_pg_table() -> None:
                     type TEXT NOT NULL
                         CHECK (type IN ({_DOC_TYPE_SQL_IN})),
                     shipment_id TEXT NOT NULL,
-                    url TEXT,
-                    email_id TEXT,
-                    attachment_id TEXT,
+                    object_key TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
             )
             cur.execute(
-                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS email_id TEXT"
-            )
-            cur.execute(
-                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS attachment_id TEXT"
-            )
-            cur.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{t}_shipment_id ON {t}(shipment_id)"
             )
             cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_type ON {t}(type)")
-            cur.execute(
-                f"""
-                CREATE INDEX IF NOT EXISTS idx_{t}_unipile_source
-                ON {t}(email_id, attachment_id)
-                WHERE email_id IS NOT NULL AND attachment_id IS NOT NULL
-                """
-            )
         conn.commit()
         _PG_READY = True
         logger.info("documents: ensured table %s exists", t)
@@ -79,21 +65,29 @@ def _ensure_pg_table() -> None:
 def insert_document(
     doc_type: DocumentType,
     shipment_id: str,
-    url: str,
+    object_key: str,
     *,
     email_id: Optional[str] = None,
     attachment_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Insert one ``documents`` row. Returns ``{stored, id?, type?, created_at?, error?}``."""
+    """Insert one ``documents`` row. Returns ``{stored, id?, type?, created_at?, error?}``.
 
-    if not shipment_id or not url:
+    ``object_key`` is the S3 object key (e.g. ``freightx/pod_attachments/...``), stored in the ``object_key`` column.
+    """
+
+    if not shipment_id or not object_key:
         logger.warning(
-            "insert_document: skip persist (type=%s shipment_id=%r url_set=%s)",
+            "insert_document: skip persist (type=%s shipment_id=%r object_key_set=%s)",
             doc_type.value,
             shipment_id,
-            bool(url),
+            bool(object_key),
         )
-        return {"stored": False, "id": None, "error": "missing_shipment_id_or_url"}
+        return {"stored": False, "id": None, "error": "missing_shipment_id_or_object_key"}
+
+    try:
+        key = normalize_object_key(object_key)
+    except ValueError as exc:
+        return {"stored": False, "id": None, "error": str(exc)}
 
     _ensure_pg_table()
     doc_id = str(uuid.uuid4())
@@ -103,11 +97,11 @@ def insert_document(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                INSERT INTO {t} (id, type, shipment_id, url, email_id, attachment_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO {t} (id, type, shipment_id, object_key)
+                VALUES (%s, %s, %s, %s)
                 RETURNING id, type, created_at
                 """,
-                (doc_id, doc_type.value, shipment_id, url, email_id, attachment_id),
+                (doc_id, doc_type.value, shipment_id, key),
             )
             row = cur.fetchone()
         conn.commit()
@@ -135,12 +129,11 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
     """
     Load the latest ``documents`` row for ``shipment_id`` and ``doc_type``.
 
-    ``doc_type`` is a :class:`~app.models.document.DocumentType` value.
-    Rate confirmation artifacts are expected at S3 paths whose basename is
-    ``ratecon_{shipmentId}.pdf`` (with the same path-segment sanitization used
-    elsewhere); the stored ``url`` column is the source of truth for downloads.
+    The ``object_key`` column stores the S3 object key.
 
-    Returns ``{found, id, url, shipment_id, type, created_at, error}``.
+    Rate confirmation artifacts use basename ``ratecon_{shipmentId}.pdf`` (sanitized).
+
+    Returns ``{found, id, object_key, shipment_id, type, created_at, error}``.
     """
 
     sid = (shipment_id or "").strip()
@@ -148,7 +141,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         return {
             "found": False,
             "id": None,
-            "url": None,
+            "object_key": None,
             "shipment_id": shipment_id,
             "type": doc_type.value,
             "created_at": None,
@@ -162,10 +155,10 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT id, url, type, shipment_id, created_at
+                SELECT id, object_key, type, shipment_id, created_at
                 FROM {t}
                 WHERE shipment_id = %s AND type = %s
-                  AND url IS NOT NULL AND BTRIM(url) <> ''
+                  AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
@@ -181,7 +174,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             return {
                 "found": False,
                 "id": None,
-                "url": None,
+                "object_key": None,
                 "shipment_id": sid,
                 "type": doc_type.value,
                 "created_at": None,
@@ -190,7 +183,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         return {
             "found": True,
             "id": row[0],
-            "url": row[1],
+            "object_key": row[1],
             "type": str(row[2]),
             "shipment_id": row[3],
             "created_at": row[4],
@@ -205,7 +198,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         return {
             "found": False,
             "id": None,
-            "url": None,
+            "object_key": None,
             "shipment_id": sid,
             "type": doc_type.value,
             "created_at": None,

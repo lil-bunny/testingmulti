@@ -1,49 +1,52 @@
 import boto3
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
+
 from app.core.config import settings
 
-# module logger
 logger = logging.getLogger(__name__)
 
-class S3Bucket:
-    """S3-compatible bucket utility for file operations (AWS S3 or DO Spaces)"""
 
-    # Global prefix for all uploads
+def normalize_object_key(key: str) -> str:
+    """Return a trimmed S3 object key. Rejects URLs and other non-key values."""
+    raw = (key or "").strip().lstrip("/")
+    if not raw:
+        return ""
+    if raw.startswith(("http://", "https://")) or "://" in raw:
+        raise ValueError("expected S3 object key, not a URL")
+    return raw
+
+
+class S3Bucket:
+    """S3-compatible bucket utility for file operations (AWS S3 or DO Spaces)."""
+
     BUCKET_PREFIX = "freightx"
 
     def __init__(self, s3_client=None, bucket_name=None):
-        """Initialize S3-compatible client"""
         self.s3_client = s3_client
         self.bucket_name = bucket_name
         if not self.s3_client:
             self._init_client()
 
-
     def _init_client(self):
-        """Initialize S3-compatible client (AWS S3 or Digital Ocean Spaces)"""
         try:
-            # Check if using AWS S3 (no custom endpoint) or DO Spaces (custom endpoint)
             endpoint_url = settings.BUCKET_ENDPOINT if settings.BUCKET_ENDPOINT else None
 
             self.s3_client = boto3.client(
-                's3',
+                "s3",
                 aws_access_key_id=settings.BUCKET_ID,
                 aws_secret_access_key=settings.BUCKET_KEY,
                 endpoint_url=endpoint_url,
-                region_name=getattr(settings, 'BUCKET_REGION', 'us-west-2')
+                region_name=getattr(settings, "BUCKET_REGION", "us-west-2"),
             )
 
-            # Use explicit bucket name if configured, otherwise extract from endpoint
-            self.bucket_name = getattr(settings, 'BUCKET_NAME', None)
+            self.bucket_name = getattr(settings, "BUCKET_NAME", None)
             if not self.bucket_name and endpoint_url:
-                # For DO Spaces: extract from endpoint (e.g., bucket.nyc3.digitaloceanspaces.com)
                 endpoint_domain = urlparse(endpoint_url).netloc
-                self.bucket_name = endpoint_domain.split('.')[0]
-            
+                self.bucket_name = endpoint_domain.split(".")[0]
+
         except Exception:
-            # Log the failure to initialize S3 client
             logger.exception("Failed to initialize S3 client")
             self.s3_client = None
             self.bucket_name = None
@@ -54,56 +57,31 @@ class S3Bucket:
         filename: str,
         content_type: str,
         folder: str = "pod_attachments",
-        public: bool = True
     ) -> Dict[str, Any]:
-        """Upload file content to S3 bucket.
-
-        Args:
-            file_content: Binary content of the file
-            filename: Original filename
-            folder: Folder path in the bucket (default: pod_attachments)
-            content_type: MIME type of the file
-            public: Whether the file should be publicly accessible
-
-        Returns:
-            Upload result with success status, file URL, and error message.
-        """
-        try:           
+        """Upload bytes to the bucket (private objects). Persist the returned ``object_key``."""
+        try:
             if not self.s3_client or not self.bucket_name:
                 error_msg = "S3 client not initialized or bucket name missing"
                 return {
                     "success": False,
-                    "file_url": None,
+                    "object_key": None,
                     "error_message": error_msg,
                 }
 
-            # Use the original filename with global prefix
-            unique_filename = f"{self.BUCKET_PREFIX}/{folder}/{filename}"
+            object_key = f"{self.BUCKET_PREFIX}/{folder}/{filename}"
 
-            # Prepare upload args. Public access is controlled by bucket policy or CDN,
-            # because buckets with Object Ownership enforced reject per-object ACLs.
-            put_args = {
-                'Bucket': self.bucket_name,
-                'Key': unique_filename,
-                'Body': file_content,
-                'ContentType': content_type,
+            put_args: Dict[str, Any] = {
+                "Bucket": self.bucket_name,
+                "Key": object_key,
+                "Body": file_content,
+                "ContentType": content_type,
             }
 
-            # Upload to S3
             self.s3_client.put_object(**put_args)
-
-            # Generate public URL
-            if settings.BUCKET_ENDPOINT:
-                # Custom endpoint (DO Spaces) - bucket might be in domain
-                file_url = f"{settings.BUCKET_ENDPOINT}/{unique_filename}"
-            else:
-                # AWS S3 - use standard URL format
-                region = getattr(settings, 'BUCKET_REGION', 'us-west-2')
-                file_url = f"https://{self.bucket_name}.s3.{region}.amazonaws.com/{unique_filename}"
 
             return {
                 "success": True,
-                "file_url": file_url,
+                "object_key": object_key,
                 "error_message": None,
             }
 
@@ -112,54 +90,140 @@ class S3Bucket:
             logger.exception(error_msg)
             return {
                 "success": False,
-                "file_url": None,
+                "object_key": None,
                 "error_message": error_msg,
             }
 
-    def delete_file(self, file_url: str) -> Dict[str, Any]:
-        """Delete a file from S3 bucket using its URL.
+    def presign_get_object(
+        self,
+        object_key: str,
+        expires_in: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Return a time-limited HTTPS URL for ``GetObject`` (private bucket)."""
+        try:
+            if not self.s3_client or not self.bucket_name:
+                return {
+                    "success": False,
+                    "url": None,
+                    "object_key": None,
+                    "error_message": "S3 client not initialized or bucket name missing",
+                }
+            key = normalize_object_key(object_key)
+            if not key:
+                return {
+                    "success": False,
+                    "url": None,
+                    "object_key": None,
+                    "error_message": "empty_object_key",
+                }
+            ttl = (
+                expires_in
+                if expires_in is not None
+                else int(settings.BUCKET_PRESIGN_EXPIRES_SECONDS)
+            )
+            url = self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self.bucket_name, "Key": key},
+                ExpiresIn=ttl,
+            )
+            return {
+                "success": True,
+                "url": url,
+                "object_key": key,
+                "error_message": None,
+            }
+        except ValueError as e:
+            return {
+                "success": False,
+                "url": None,
+                "object_key": None,
+                "error_message": str(e),
+            }
+        except Exception as e:
+            logger.exception("presign_get_object failed object_key=%r", object_key)
+            return {
+                "success": False,
+                "url": None,
+                "object_key": None,
+                "error_message": str(e),
+            }
 
-        Args:
-            file_url: The complete URL of the file to delete
+    def download_object_bytes(self, object_key: str) -> Dict[str, Any]:
+        """Download object body using app credentials."""
+        try:
+            if not self.s3_client or not self.bucket_name:
+                return {
+                    "success": False,
+                    "body": None,
+                    "object_key": None,
+                    "error_message": "S3 client not initialized or bucket name missing",
+                }
+            key = normalize_object_key(object_key)
+            if not key:
+                return {
+                    "success": False,
+                    "body": None,
+                    "object_key": None,
+                    "error_message": "empty_object_key",
+                }
+            resp = self.s3_client.get_object(Bucket=self.bucket_name, Key=key)
+            body = resp["Body"].read()
+            return {
+                "success": True,
+                "body": body,
+                "object_key": key,
+                "error_message": None,
+            }
+        except ValueError as e:
+            return {
+                "success": False,
+                "body": None,
+                "object_key": None,
+                "error_message": str(e),
+            }
+        except Exception as e:
+            logger.exception("download_object_bytes failed object_key=%r", object_key)
+            return {
+                "success": False,
+                "body": None,
+                "object_key": None,
+                "error_message": str(e),
+            }
 
-        Returns:
-            Deletion result with success status, file URL, and error message.
-        """
+    def delete_file(self, object_key: str) -> Dict[str, Any]:
+        """Delete an object by S3 object key."""
         try:
             if not self.s3_client or not self.bucket_name:
                 error_msg = "S3 client not initialized or bucket name missing"
                 return {
                     "success": False,
-                    "file_url": file_url,
+                    "object_key": object_key,
                     "error_message": error_msg,
                 }
 
-            # Parse the URL to extract the key
-            parsed_url = urlparse(file_url)
-
-            # Extract the path from the URL (remove leading slash)
-            object_key = parsed_url.path.lstrip('/')
-
-            # Delete the object
-            self.s3_client.delete_object(
-                Bucket=self.bucket_name,
-                Key=object_key
-            )
+            key = normalize_object_key(object_key)
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=key)
 
             return {
                 "success": True,
-                "file_url": file_url,
+                "object_key": key,
                 "error_message": None,
             }
-                
+
+        except ValueError as e:
+            return {
+                "success": False,
+                "object_key": object_key,
+                "error_message": str(e),
+            }
         except Exception as e:
-            error_msg = f"Error deleting file from S3: {file_url} - {str(e)}"
+            error_msg = f"Error deleting file from S3: {object_key} - {str(e)}"
             logger.exception(error_msg)
             return {
                 "success": False,
-                "file_url": file_url,
+                "object_key": object_key,
                 "error_message": error_msg,
             }
 
-# Global instance
+
 bucket = S3Bucket()

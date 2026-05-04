@@ -1,9 +1,10 @@
 """
 POD attachment normalizer — port of old.services.attachment_normalizer.
 
-Downloads each URL, classifies by MIME: PDFs pass through; images are
+Downloads each attachment reference (HTTPS or S3 object key), classifies by MIME: PDFs pass through; images are
 prefiltered then optionally vision-classified; unsupported types rejected.
-Valid PDFs and images merge into one PDF and upload to S3.
+Valid PDFs and images merge into one PDF and upload to S3 as a private object; the
+returned ``pod_merged_pdf_object_key`` field holds the S3 object key.
 
 **Single attachment:** PDFs skip merge/classifier and are re-uploaded as
 ``pod_{shipmentId}.pdf``. Images use the same classify + PDF conversion path
@@ -29,7 +30,7 @@ from openai import OpenAI
 from PIL import Image
 
 from app.core.config import settings
-from app.services.s3bucket_service import bucket
+from app.services.s3bucket_service import bucket, normalize_object_key
 
 logger = logging.getLogger(__name__)
 
@@ -92,21 +93,21 @@ class AttachmentNormalizerService:
 
     def normalize(
         self,
-        pod_urls: List[str],
+        pod_object_keys: List[str],
         shipment_number: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if not pod_urls:
+        if not pod_object_keys:
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": [],
                 "classification_results": [],
                 "rejected": [],
                 "source_attachments_cleanup": {"rejected": [], "valid_source": []},
-                "error": "No pod_urls provided",
+                "error": "No pod_object_keys provided",
             }
 
-        non_empty = [(u or "").strip() for u in pod_urls if (u or "").strip()]
+        non_empty = [(u or "").strip() for u in pod_object_keys if (u or "").strip()]
         if len(non_empty) == 1:
             return self._normalize_single_attachment(
                 non_empty[0], shipment_number=shipment_number
@@ -118,47 +119,56 @@ class AttachmentNormalizerService:
         classification_results: List[Dict[str, Any]] = []
         source_attachment_ids: List[str] = []
 
-        for url in pod_urls:
-            url = (url or "").strip()
-            if not url:
+        for raw in pod_object_keys:
+            attachment_ref = (raw or "").strip()
+            if not attachment_ref:
                 continue
 
-            attachment_id = self._extract_attachment_id(url, shipment_number)
+            attachment_id = self._extract_attachment_id(attachment_ref, shipment_number)
             if attachment_id:
                 source_attachment_ids.append(attachment_id)
 
-            file_bytes = self._download(url)
+            file_bytes = self._download(attachment_ref)
             if not file_bytes:
-                logger.error("attachment_normalizer.download_failed url=%s", url)
-                rejected.append(self._rejection_entry(url, "download_failed", 1.0))
+                logger.error(
+                    "attachment_normalizer.download_failed attachment_ref=%s",
+                    attachment_ref,
+                )
+                rejected.append(
+                    self._rejection_entry(attachment_ref, "download_failed", 1.0)
+                )
                 continue
 
             mime_type = self._detect_mime(file_bytes)
             logger.info(
-                "attachment.type_detected url=%s mime=%s size=%s",
-                url[:80],
+                "attachment.type_detected attachment_ref=%s mime=%s size=%s",
+                attachment_ref[:80],
                 mime_type,
                 len(file_bytes),
             )
 
             if mime_type == "application/pdf":
-                valid_pdfs.append((url, file_bytes))
+                valid_pdfs.append((attachment_ref, file_bytes))
                 continue
 
             if mime_type in SUPPORTED_IMAGE_MIMES:
                 image_bytes = self._normalize_image_bytes(file_bytes, mime_type)
                 if image_bytes is None:
-                    logger.warning("attachment_normalizer.heic_conversion_failed url=%s", url)
-                    rejected.append(self._rejection_entry(url, "image_conversion_failed", 1.0))
+                    rejected.append(
+                        self._rejection_entry(
+                            attachment_ref, "image_conversion_failed", 1.0
+                        )
+                    )
                     continue
 
                 prefilter = self._prefilter_image(image_bytes)
                 if prefilter is not None:
-                    logger.info("attachment.prefilter_rejected url=%s reason=%s", url, prefilter)
-                    rejected.append(self._rejection_entry(url, prefilter, 1.0))
+                    rejected.append(
+                        self._rejection_entry(attachment_ref, prefilter, 1.0)
+                    )
                     classification_results.append(
                         {
-                            "url": url,
+                            "attachment_ref": attachment_ref,
                             "is_valid_document": False,
                             "confidence": 1.0,
                             "reasoning": prefilter,
@@ -169,15 +179,15 @@ class AttachmentNormalizerService:
                     continue
 
                 cls_result = self._classify_image(image_bytes)
-                cls_result["url"] = url
+                cls_result["attachment_ref"] = attachment_ref
                 classification_results.append(cls_result)
 
                 if self._accept_image(cls_result):
-                    valid_images.append((url, image_bytes))
+                    valid_images.append((attachment_ref, image_bytes))
                 else:
                     rejected.append(
                         self._rejection_entry(
-                            url,
+                            attachment_ref,
                             cls_result.get("reasoning", "rejected_by_classifier"),
                             float(cls_result.get("confidence", 0.0)),
                         )
@@ -185,14 +195,20 @@ class AttachmentNormalizerService:
                 continue
 
             logger.warning(
-                "attachment_normalizer.unsupported_type url=%s mime=%s", url[:80], mime_type
+                "attachment_normalizer.unsupported_type attachment_ref=%s mime=%s",
+                attachment_ref[:80],
+                mime_type,
             )
-            rejected.append(self._rejection_entry(url, f"unsupported_type: {mime_type}", 1.0))
+            rejected.append(
+                self._rejection_entry(
+                    attachment_ref, f"unsupported_type: {mime_type}", 1.0
+                )
+            )
 
         if not valid_pdfs and not valid_images:
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -208,7 +224,7 @@ class AttachmentNormalizerService:
         if merged_bytes is None:
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -236,14 +252,13 @@ class AttachmentNormalizerService:
             filename=merged_filename,
             folder="pod_attachments",
             content_type="application/pdf",
-            public=True,
         )
-        merged_pdf_url = upload_result.get("file_url") if upload_result.get("success") else None
+        pod_merged_pdf_object_key = upload_result.get("object_key") if upload_result.get("success") else None
 
-        if not merged_pdf_url:
+        if not pod_merged_pdf_object_key:
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -251,14 +266,14 @@ class AttachmentNormalizerService:
                 "error": upload_result.get("error_message") or "Failed to upload merged PDF to S3",
             }
 
-        valid_source = [self._valid_source_entry(u) for u, _ in valid_pdfs] + [
-            self._valid_source_entry(u) for u, _ in valid_images
-        ]
+        valid_source = [
+            self._valid_source_entry(ref) for ref, _ in valid_pdfs
+        ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
         cleanup = {"rejected": rejected, "valid_source": valid_source}
 
         return {
             "success": True,
-            "merged_pdf_url": merged_pdf_url,
+            "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
             "source_attachment_ids": source_attachment_ids,
             "classification_results": classification_results,
             "rejected": rejected,
@@ -268,7 +283,7 @@ class AttachmentNormalizerService:
 
     def _normalize_single_attachment(
         self,
-        url: str,
+        attachment_ref: str,
         shipment_number: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -278,16 +293,21 @@ class AttachmentNormalizerService:
         """
         rejected: List[Dict[str, Any]] = []
         classification_results: List[Dict[str, Any]] = []
-        attachment_id = self._extract_attachment_id(url, shipment_number)
+        attachment_id = self._extract_attachment_id(attachment_ref, shipment_number)
         source_attachment_ids = [attachment_id] if attachment_id else []
 
-        file_bytes = self._download(url)
+        file_bytes = self._download(attachment_ref)
         if not file_bytes:
-            logger.error("attachment_normalizer.single.download_failed url=%s", url)
-            rejected.append(self._rejection_entry(url, "download_failed", 1.0))
+            logger.error(
+                "attachment_normalizer.single.download_failed attachment_ref=%s",
+                attachment_ref,
+            )
+            rejected.append(
+                self._rejection_entry(attachment_ref, "download_failed", 1.0)
+            )
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -307,7 +327,7 @@ class AttachmentNormalizerService:
         merged_filename = (
             pod_merged_filename(shipment_number)
             if shipment_number
-            else f"pod_{self._deterministic_merged_id(source_attachment_ids or [url])}.pdf"
+            else f"pod_{self._deterministic_merged_id(source_attachment_ids or [attachment_ref])}.pdf"
         )
 
         pdf_bytes: Optional[bytes] = None
@@ -317,10 +337,14 @@ class AttachmentNormalizerService:
         elif mime_type in SUPPORTED_IMAGE_MIMES:
             image_bytes = self._normalize_image_bytes(file_bytes, mime_type)
             if image_bytes is None:
-                rejected.append(self._rejection_entry(url, "image_conversion_failed", 1.0))
+                rejected.append(
+                    self._rejection_entry(
+                        attachment_ref, "image_conversion_failed", 1.0
+                    )
+                )
                 return {
                     "success": False,
-                    "merged_pdf_url": None,
+                    "pod_merged_pdf_object_key": None,
                     "source_attachment_ids": source_attachment_ids,
                     "classification_results": classification_results,
                     "rejected": rejected,
@@ -331,10 +355,12 @@ class AttachmentNormalizerService:
 
             prefilter = self._prefilter_image(image_bytes)
             if prefilter is not None:
-                rejected.append(self._rejection_entry(url, prefilter, 1.0))
+                rejected.append(
+                    self._rejection_entry(attachment_ref, prefilter, 1.0)
+                )
                 classification_results.append(
                     {
-                        "url": url,
+                        "attachment_ref": attachment_ref,
                         "is_valid_document": False,
                         "confidence": 1.0,
                         "reasoning": prefilter,
@@ -344,7 +370,7 @@ class AttachmentNormalizerService:
                 )
                 return {
                     "success": False,
-                    "merged_pdf_url": None,
+                    "pod_merged_pdf_object_key": None,
                     "source_attachment_ids": source_attachment_ids,
                     "classification_results": classification_results,
                     "rejected": rejected,
@@ -354,20 +380,20 @@ class AttachmentNormalizerService:
                 }
 
             cls_result = self._classify_image(image_bytes)
-            cls_result["url"] = url
+            cls_result["attachment_ref"] = attachment_ref
             classification_results.append(cls_result)
 
             if not self._accept_image(cls_result):
                 rejected.append(
                     self._rejection_entry(
-                        url,
+                        attachment_ref,
                         cls_result.get("reasoning", "rejected_by_classifier"),
                         float(cls_result.get("confidence", 0.0)),
                     )
                 )
                 return {
                     "success": False,
-                    "merged_pdf_url": None,
+                    "pod_merged_pdf_object_key": None,
                     "source_attachment_ids": source_attachment_ids,
                     "classification_results": classification_results,
                     "rejected": rejected,
@@ -379,11 +405,13 @@ class AttachmentNormalizerService:
             pdf_bytes = self._merge_attachments([], [image_bytes])
         else:
             rejected.append(
-                self._rejection_entry(url, f"unsupported_type: {mime_type}", 1.0)
+                self._rejection_entry(
+                    attachment_ref, f"unsupported_type: {mime_type}", 1.0
+                )
             )
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -395,7 +423,7 @@ class AttachmentNormalizerService:
         if not pdf_bytes:
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -409,14 +437,13 @@ class AttachmentNormalizerService:
             filename=merged_filename,
             folder="pod_attachments",
             content_type="application/pdf",
-            public=True,
         )
-        merged_pdf_url = upload_result.get("file_url") if upload_result.get("success") else None
+        pod_merged_pdf_object_key = upload_result.get("object_key") if upload_result.get("success") else None
 
-        if not merged_pdf_url:
+        if not pod_merged_pdf_object_key:
             return {
                 "success": False,
-                "merged_pdf_url": None,
+                "pod_merged_pdf_object_key": None,
                 "source_attachment_ids": source_attachment_ids,
                 "classification_results": classification_results,
                 "rejected": rejected,
@@ -426,12 +453,12 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
-        valid_source = [self._valid_source_entry(url)]
+        valid_source = [self._valid_source_entry(attachment_ref)]
         cleanup = {"rejected": rejected, "valid_source": valid_source}
 
         return {
             "success": True,
-            "merged_pdf_url": merged_pdf_url,
+            "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
             "source_attachment_ids": source_attachment_ids,
             "classification_results": classification_results,
             "rejected": rejected,
@@ -546,17 +573,35 @@ class AttachmentNormalizerService:
             return None
 
     @staticmethod
-    def _download(url: str) -> Optional[bytes]:
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-                if not resp.content:
-                    return None
-                return resp.content
-        except Exception as e:
-            logger.error("attachment_normalizer.download_error url=%s err=%s", url[:80], e)
+    def _download(attachment_ref: str) -> Optional[bytes]:
+        """Fetch bytes from an HTTPS source or a private S3 object key."""
+        raw = (attachment_ref or "").strip()
+        if not raw:
             return None
+        if raw.startswith(("http://", "https://")):
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.get(raw)
+                    resp.raise_for_status()
+                    if not resp.content:
+                        return None
+                    return resp.content
+            except Exception as e:
+                logger.error(
+                    "attachment_normalizer.download_error attachment_ref=%s err=%s",
+                    raw[:80],
+                    e,
+                )
+                return None
+        got = bucket.download_object_bytes(raw)
+        if got.get("success") and got.get("body"):
+            return got["body"]
+        logger.error(
+            "attachment_normalizer.s3_download_failed object_key=%s err=%s",
+            raw[:120],
+            got.get("error_message"),
+        )
+        return None
 
     @staticmethod
     def _detect_mime(file_bytes: bytes) -> str:
@@ -614,18 +659,25 @@ class AttachmentNormalizerService:
 
     @staticmethod
     def _extract_attachment_id(
-        url: str, shipment_hint: Optional[str] = None
+        attachment_ref: str, shipment_hint: Optional[str] = None
     ) -> Optional[str]:
-        """Derive attachment id token from our S3 URL basename."""
-        parsed = urlparse(url)
-        path = parsed.path or ""
-        base = path.rstrip("/").rsplit("/", 1)[-1]
+        """Derive attachment id token from an S3 object key or an HTTP(S) attachment path."""
+        ref = (attachment_ref or "").strip()
+        if ref.startswith(("http://", "https://")):
+            path = (urlparse(ref).path or "").lstrip("/")
+            key = path
+        else:
+            try:
+                key = normalize_object_key(ref)
+            except ValueError:
+                return None
+        base = key.rstrip("/").rsplit("/", 1)[-1]
         if not base or "." not in base:
-            m = re.search(r"/pod_attachments/pod_([^.]+)\.\w+$", url)
+            m = re.search(r"pod_attachments/pod_([^.]+)\.\w+$", key)
             return m.group(1) if m else None
         stem, _, _ext = base.rpartition(".")
         if not stem.startswith("pod_"):
-            m = re.search(r"/pod_attachments/pod_([^.]+)\.\w+$", url)
+            m = re.search(r"pod_attachments/pod_([^.]+)\.\w+$", key)
             return m.group(1) if m else None
         rest = stem[4:]
         if shipment_hint:
@@ -646,12 +698,20 @@ class AttachmentNormalizerService:
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _rejection_entry(url: str, reason: str, confidence: float) -> Dict[str, Any]:
-        parsed = urlparse(url)
-        s3_key = parsed.path.lstrip("/")
+    def _rejection_entry(
+        attachment_ref: str, reason: str, confidence: float
+    ) -> Dict[str, Any]:
+        ref = (attachment_ref or "").strip()
+        if ref.startswith(("http://", "https://")):
+            object_key = ""
+        else:
+            try:
+                object_key = normalize_object_key(ref)
+            except ValueError:
+                object_key = ""
         return {
-            "attachment_url": url,
-            "s3_key": s3_key,
+            "attachment_ref": ref,
+            "object_key": object_key,
             "rejection_reason": reason,
             "confidence": confidence,
             "classified_at": datetime.now(timezone.utc).isoformat(),
@@ -659,13 +719,19 @@ class AttachmentNormalizerService:
 
     @staticmethod
     def _valid_source_entry(
-        url: str, reason: str = "merged_into_final_pdf"
+        attachment_ref: str, reason: str = "merged_into_final_pdf"
     ) -> Dict[str, Any]:
-        parsed = urlparse(url)
-        s3_key = parsed.path.lstrip("/")
+        ref = (attachment_ref or "").strip()
+        if ref.startswith(("http://", "https://")):
+            object_key = ""
+        else:
+            try:
+                object_key = normalize_object_key(ref)
+            except ValueError:
+                object_key = ""
         return {
-            "attachment_url": url,
-            "s3_key": s3_key,
+            "attachment_ref": ref,
+            "object_key": object_key,
             "reason": reason,
             "flagged_at": datetime.now(timezone.utc).isoformat(),
         }
