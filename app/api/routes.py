@@ -48,7 +48,7 @@ async def unipile_webhook(
             "webhook_name": raw.get("webhook_name"),
             **raw,
         }
-        if payload['webhook_name'] != "ayush-pod-mail-received-staging-2":
+        if payload['webhook_name'] != settings.UNIPILE_WEBHOOK_NAME:
             return {"message": "invalid webhook"}
 
         result = await workflow_service.run(

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     # LLM / observability
     LOGFIRE_TOKEN: Optional[str] = None
+    LOGFIRE_SERVICE_NAME: Optional[str] = "freightx-local"
     OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: Optional[str] = None
@@ -20,9 +21,6 @@ class Settings(BaseSettings):
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
 
-    # Pydantic Logfire (set LOGFIRE_TOKEN in .env to enable tracing)
-    LOGFIRE_TOKEN: Optional[str] = None
-    LOGFIRE_SERVICE_NAME: str = "freightx"
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
 
@@ -95,6 +93,7 @@ class Settings(BaseSettings):
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
+    UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

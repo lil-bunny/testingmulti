@@ -31,7 +31,7 @@ def shipment_router(state):
     if event_type == "email_received":
         shipment = state.data.get("shipment") or {}
         status_key = (
-            shipment.get("data", {})
+            shipment.get("details", {})
             .get("status", {})
             .get("code", {})
             .get("key")

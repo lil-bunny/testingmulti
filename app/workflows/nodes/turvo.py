@@ -51,8 +51,9 @@ def _merge_pod_exists_from_turvo(state) -> None:
 
 
 def get_shipment(state):
+    sid_state = resolve_shipment_id(state.data)
     shipment = get_shipment_tool(
-        state.data.get("shipment_id"),
+        sid_state,
         app_user_id=_turvo_app_user_id(state),
     )
 
