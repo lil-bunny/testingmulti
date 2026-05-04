@@ -27,7 +27,7 @@ ROUTER_REGISTRY = {
     "shipment_router": shipment_router,
     "pod_reply": pod_reply_router,
     "event_type": event_type_router,
-    "pod_request_triggered": pod_request_triggered_router,
+    "pod_request_triggered_router": pod_request_triggered_router,
     "pod_request_mark": pod_request_mark_router,
     "noop_always": noop_always_router,
     "noop_followup": noop_followup_route,

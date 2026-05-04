@@ -52,16 +52,16 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "convoy": "end",
                     "non_convoy": "check_pod_request_triggered",
-                },
-            },
-            "check_pod_request_triggered": {
-                "router": "pod_request_triggered",
-                "map": {
-                    "blocked": "end",
-                    "continue": "read_workflow_correlation",
                     # Pod reply workflow
                     "valid_shipment_status": "get_email_attachments",
                     "invalid_shipment_status": "end",
+                },
+            },
+            "check_pod_request_triggered": {
+                "router": "pod_request_triggered_router",
+                "map": {
+                    "blocked": "end",
+                    "continue": "read_workflow_correlation",
                 },
             },
             "check_existing_pod": {
