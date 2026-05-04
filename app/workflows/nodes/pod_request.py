@@ -8,7 +8,7 @@ State keys:
 
 from __future__ import annotations
 
-from app.services.reminder_scheduler import schedule_initial_pod_reminders
+from app.services.reminder_scheduler import schedule_pod_reminders
 from app.tools.workflow_runs import (
     record_workflow_run,
     reminder_run_event_type,
@@ -19,6 +19,12 @@ from app.tools.workflow_runs import (
 def _tenant_id(state):
     t = state.data.get("tenant_id")
     return str(t) if t is not None and str(t).strip() != "" else None
+
+
+def mark_pod_schedule_context(state):
+    """First POD ask is Celery-scheduled (steps 0–2); no synchronous Unipile send on this path."""
+    state.data["_pod_email_context"] = "route_completed_primary"
+    return state
 
 
 def check_pod_request_triggered(state):
@@ -123,7 +129,7 @@ def send_email_continue(state):
         if state.data.get("event_type") != "route_completed":
             state.data["event_type"] = "route_completed"
         try:
-            schedule_initial_pod_reminders(state.data)
+            schedule_pod_reminders(state.data)
         finally:
             state.data["event_type"] = prev
     return state

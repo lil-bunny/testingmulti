@@ -8,7 +8,7 @@ Idempotency:
 - Duplicate Turvo `route_completed` webhooks per `tenant_id` + `shipment_id` via partial unique.
   (Load-only webhooks are not keyed in this table.)
 
-Reminders persist as synthetic event strings `reminder_1`, `reminder_2`, … derived from scheduler
+Reminders persist as synthetic event strings `reminder_0`, `reminder_1`, … derived from scheduler
 payload `reminder_step` — not duplicate `event_type` values per instance.
 
 `ensure_table` exists for local dev; Alembic owns the canonical schema.

@@ -128,6 +128,19 @@ def _build_recipients(
     return to_list, cc_list
 
 
+def _thread_email_summary(email: Dict) -> Dict[str, Any]:
+    """Compact dict for logs (no body)."""
+    subj = (email.get("subject") or "").strip()
+    return {
+        "role": email.get("role"),
+        "date": email.get("date"),
+        "id": email.get("id"),
+        "provider_id": email.get("provider_id"),
+        "message_id": email.get("message_id"),
+        "subject": subj[:200] + ("…" if len(subj) > 200 else ""),
+    }
+
+
 def _merge_cc(
     thread_cc: List[Dict[str, str]],
     upstream_cc: Optional[List[Dict[str, Any]]],
@@ -219,43 +232,40 @@ def send_email(
         print(f"[EMAIL] to={to}, subject={subject} (no account_id)")
         return
 
-    try:
-        if tid:
-            reply_to_thread(
-                thread_id=tid,
-                body=body,
-                account_id=acc,
-                # subject=subject,
-            )
-            return
-
-        to_addr = (str(to).strip() if to else "") or ""
-        if "@" in to_addr:
-            unipile = Unipile()
-            recipients: List[Dict[str, str]] = [
-                {
-                    "identifier": to_addr,
-                    "display_name": to_addr.split("@", 1)[0],
-                }
-            ]
-            out = unipile.send_email(
-                to=recipients,
-                subject=subject,
-                body=body,
-                account_id=acc,
-            )
-            if not out.get("success"):
-                logger.warning("send_email: Unipile send failed: %s", out.get("error"))
-            return
-
-        logger.warning(
-            "send_email: no thread_id and no valid `to` address; nothing sent (subject=%r)",
-            subject,
+    if tid:
+        reply_to_thread(
+            thread_id=tid,
+            body=body,
+            account_id=acc,
+            # subject=subject,
         )
-    except UnipileException as e:
-        logger.warning("send_email failed: %s", e)
-    except Exception:
-        logger.exception("send_email unexpected error")
+        return
+
+    to_addr = (str(to).strip() if to else "") or ""
+    if "@" in to_addr:
+        unipile = Unipile()
+        recipients: List[Dict[str, str]] = [
+            {
+                "identifier": to_addr,
+                "display_name": to_addr.split("@", 1)[0],
+            }
+        ]
+        out = unipile.send_email(
+            to=recipients,
+            subject=subject,
+            body=body,
+            account_id=acc,
+        )
+        if not out.get("success"):
+            err = out.get("error") or "Unipile send_email failed"
+            logger.warning("send_email: Unipile send failed: %s", err)
+            raise UnipileException(str(err))
+        return
+
+    raise UnipileException(
+        "send_email: no thread_id and no valid `to` address; nothing sent "
+        f"(subject={subject!r})"
+    )
 
 
 def reply_to_thread(
@@ -293,8 +303,24 @@ def reply_to_thread(
     sorted_emails = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
     latest_email = sorted_emails[0]
 
+    role_counts: Dict[str, int] = {}
+    for e in emails:
+        r = str(e.get("role") or "?")
+        role_counts[r] = role_counts.get(r, 0) + 1
+    logger.info(
+        "reply_to_thread: thread_id=%s account_id=%s message_count=%s role_counts=%s "
+        "latest_by_date=%s explicit_reply_to_message_id=%s",
+        thread_id,
+        account_id,
+        len(emails),
+        role_counts,
+        _thread_email_summary(latest_email),
+        reply_to_message_id,
+    )
+
     # 3) Resolve parent message id
     reply_to_id = _resolve_parent_id(unipile, latest_email, reply_to_message_id, account_id)
+    logger.info("reply_to_thread: resolved reply_to_id=%s", reply_to_id)
 
     # 4) Subject: use latest email's subject unless upstream overrides
     original_subject = (latest_email.get("subject") or "").strip()
@@ -320,7 +346,23 @@ def reply_to_thread(
 
     result.setdefault("thread_id", thread_id)
     result.setdefault("reply_to_message_id", reply_to_id)
-    print(f"[reply_to_thread] thread_id={thread_id}, to={[r['identifier'] for r in to_list]}, cc={[c['identifier'] for c in (cc_final or [])]}, subject={effective_subject}")
+    if not result.get("success", True):
+        logger.warning(
+            "reply_to_thread: Unipile send failed thread_id=%s reply_to_id=%s err=%s details=%s",
+            thread_id,
+            reply_to_id,
+            result.get("error"),
+            result.get("error_details"),
+        )
+    else:
+        logger.info(
+            "reply_to_thread: sent ok thread_id=%s to=%s cc=%s subject=%s tracking_id=%s",
+            thread_id,
+            [r["identifier"] for r in to_list],
+            [c["identifier"] for c in (cc_final or [])],
+            effective_subject,
+            result.get("tracking_id") or result.get("message_id"),
+        )
     return result
 
 def ingest_email(payload):

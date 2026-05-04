@@ -10,6 +10,7 @@ WORKFLOW_CONFIGS = {
             "check_existing_pod",
             "refresh_pod_before_send_email",
             "send_email",
+            "mark_pod_schedule_context",
             "branch_after_send_email_pod_request",
             "send_email_continue",
             "noop_pod_followup_marker",
@@ -34,6 +35,7 @@ WORKFLOW_CONFIGS = {
             ["upload_to_turvo", "update_shipment"],
             ["update_shipment", "end"],
             ["send_email", "branch_after_send_email_pod_request"],
+            ["mark_pod_schedule_context", "branch_after_send_email_pod_request"],
             ["branch_after_send_email_pod_request", "send_email_continue"],
             ["send_email_continue", "end"],
             ["noop_pod_followup_marker", "refresh_pod_before_send_email"],
@@ -65,12 +67,22 @@ WORKFLOW_CONFIGS = {
                 },
             },
             "check_existing_pod": {
-                "router": "pod_exists",
-                "map": {"exists": "end", "missing": "send_email"},
+                "router": "pod_missing_dispatch",
+                "map": {
+                    "exists": "end",
+                    "schedule_initial": "mark_pod_schedule_context",
+                    "send_now": "send_email",
+                    "skip_send": "end",
+                },
             },
             "refresh_pod_before_send_email": {
-                "router": "pod_exists",
-                "map": {"exists": "end", "missing": "send_email"},
+                "router": "pod_missing_dispatch",
+                "map": {
+                    "exists": "end",
+                    "schedule_initial": "mark_pod_schedule_context",
+                    "send_now": "send_email",
+                    "skip_send": "end",
+                },
             },
             "check_email_attachments": {
                 "router": "pod_reply",

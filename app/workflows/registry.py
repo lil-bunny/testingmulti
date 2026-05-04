@@ -5,6 +5,7 @@ from app.workflows.nodes.noop import noop_pod_followup_marker
 from app.workflows.nodes.pod_request import (
     branch_after_send_email_pod_request,
     check_pod_request_triggered,
+    mark_pod_schedule_context,
     send_email_continue,
 )
 from app.workflows.nodes.workflow_correlation import read_workflow_correlation, update_workflow_correlation
@@ -24,6 +25,7 @@ NODE_REGISTRY = {
     "upload_to_turvo": upload_to_turvo,
     "update_shipment": update_shipment,
     "send_email": send_email,
+    "mark_pod_schedule_context": mark_pod_schedule_context,
     "noop_pod_followup_marker": noop_pod_followup_marker,
     "check_pod_request_triggered": check_pod_request_triggered,
     "branch_after_send_email_pod_request": branch_after_send_email_pod_request,

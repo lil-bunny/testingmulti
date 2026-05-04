@@ -37,8 +37,10 @@ class Settings(BaseSettings):
     WORKFLOW_CORRELATION_TABLE: str
     DOCUMENTS_TABLE: str = "documents"
     DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
-    REMINDER_1_HOURS: int
-    REMINDER_2_HOURS: int
+    # Fractional hours supported (e.g. 30s ≈ 0.00833333). Integers in .env still parse (24 → 24.0).
+    REMINDER_0_HOURS: float = 0.0
+    REMINDER_1_HOURS: float
+    REMINDER_2_HOURS: float
     POD_REMINDER_EMAIL_BODY: str = "Please send pod"
     # After nominal reminder time (ETA), Celery discards the task if not yet executed.
     REMINDER_EXPIRE_GRACE_HOURS: int = 2

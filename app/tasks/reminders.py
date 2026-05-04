@@ -2,6 +2,9 @@ import asyncio
 from typing import Any
 
 from app.celery_app import celery_app
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @celery_app.task(name="app.tasks.reminders.trigger_pod_reminder", ignore_result=True)
@@ -18,6 +21,19 @@ def trigger_pod_reminder(payload: dict[str, Any]):
         workflow_repo=WorkflowRepository(),
         tenant_repo=TenantRepository(),
     )
+    logger.info(
+        "trigger_pod_reminder start reminder_step=%s tenant_id=%s workflow_instance_id=%s "
+        "shipment_id=%s thread_id=%s account_id=%s subject=%r",
+        payload.get("reminder_step"),
+        payload.get("tenant_id"),
+        payload.get("workflow_instance_id"),
+        payload.get("shipment_id"),
+        payload.get("thread_id"),
+        payload.get("account_id"),
+        payload.get("subject"),
+    )
+    logger.info("trigger_pod_reminder full_payload=%s", payload)
+
     asyncio.run(
         service.run(
             tenant_id=payload["tenant_id"],

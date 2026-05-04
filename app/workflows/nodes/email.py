@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Tuple
 
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
 from app.tools.email import ingest_email as ingest_email_tool
-from app.services.reminder_scheduler import schedule_initial_pod_reminders
 from app.services.s3bucket_service import bucket
 from app.services.attachment_normalizer import pod_individual_attachment_filename
 from app.models.document import DocumentType

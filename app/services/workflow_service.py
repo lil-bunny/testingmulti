@@ -10,6 +10,7 @@ from app.workflows.graph.routers import (
     noop_followup_route,
     shipment_router,
     pod_exists_router,
+    pod_missing_dispatch_router,
     pod_reply_router,
     pod_request_mark_router,
     pod_request_triggered_router,
@@ -23,6 +24,7 @@ from langsmith import traceable
 
 ROUTER_REGISTRY = {
     "pod_exists": pod_exists_router,
+    "pod_missing_dispatch": pod_missing_dispatch_router,
     "convoy": convoy_router,
     "shipment_router": shipment_router,
     "pod_reply": pod_reply_router,

@@ -2,6 +2,25 @@ def pod_exists_router(state):
     return "exists" if state.data.get("pod_exists") else "missing"
 
 
+def pod_missing_dispatch_router(state):
+    """
+    POD missing:
+    - route_completed (not process_pod follow-up): schedule Celery steps 0–2 only.
+    - reminder_due: send email in this run (after Turvo check), i.e. queued reminder fired.
+    - anything else (e.g. follow-up refresh): no send; only scheduled reminders may mail.
+    """
+    if state.data.get("pod_exists"):
+        return "exists"
+    if (
+        state.data.get("event_type") == "route_completed"
+        and state.data.get("_pod_email_context") != "process_pod_followup"
+    ):
+        return "schedule_initial"
+    if state.data.get("event_type") == "reminder_due":
+        return "send_now"
+    return "skip_send"
+
+
 def convoy_router(state):
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
 

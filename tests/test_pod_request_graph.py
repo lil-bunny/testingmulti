@@ -17,8 +17,11 @@ def test_pod_lifecycle_pod_request_graph():
     routers = graph["routers"]
     assert "check_pod_request_triggered" in routers
     assert routers["check_pod_request_triggered"]["router"] == "pod_request_triggered"
-    assert "branch_after_send_email_pod_request" in routers
-    assert routers["refresh_pod_before_send_email"]["map"]["missing"] == "send_email"
+    refresh_map = routers["refresh_pod_before_send_email"]["map"]
+    assert refresh_map["send_now"] == "send_email"
+    assert refresh_map["skip_send"] == "end"
+    assert "check_existing_pod" in routers
+    assert routers["check_existing_pod"]["map"]["skip_send"] == "end"
 
     edges = [tuple(e) for e in graph["edges"]]
     assert ("send_email", "branch_after_send_email_pod_request") in edges
