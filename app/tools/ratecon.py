@@ -6,7 +6,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.services.attachment_normalizer import ratecon_shipment_object_basename
-from app.services.s3bucket_service import bucket
+from app.services.s3bucket_service import bucket, public_url_for_object_key
 from app.tools.email import detect_attachment_bytes_type, get_email_attachments
 
 logger = get_logger(__name__)
@@ -92,14 +92,15 @@ def upload_ratecon_email_attachments_to_s3(
             filename=object_basename,
             content_type=content_type,
             folder=_RATECON_S3_FOLDER,
-            public=True,
         )
+        object_key = upload_result.get("object_key") if upload_result.get("success") else None
+        file_url = public_url_for_object_key(object_key) if object_key else None
         results.append(
             {
                 "attachment_id": attachment_id,
                 "success": bool(upload_result.get("success")),
-                "file_url": upload_result.get("file_url"),
-                "object_key": upload_result.get("object_key"),
+                "file_url": file_url or None,
+                "object_key": object_key,
                 "error_message": upload_result.get("error_message"),
                 "original_filename": original_filename or None,
                 "content_type": content_type,

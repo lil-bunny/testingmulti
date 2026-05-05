@@ -61,8 +61,8 @@ def main() -> None:
 
     if corr.get("in_workflow_correlation"):
         print(
-            "\n(4) Route outcome: ignored - already_in_workflow_correlation "
-            "(workflow not started). shipment_id:",
+            "\n(4) Route outcome: pod_lifecycle workflow (existing correlation; same as "
+            "`POST /webhook/unipile` for mail_received). shipment_id:",
             corr.get("shipment_id"),
         )
     else:
