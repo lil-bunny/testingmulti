@@ -237,17 +237,17 @@ def load_id_to_shipment_id(
 
 def update_shipment(data: dict[str, Any]) -> None:
     """Placeholder for Turvo shipment update; replace with real endpoint when wired."""
-    logger.info("[SHIPMENT UPDATE] %s", data)
+    logger.info("[SHIPMENT UPDATE] shipment_id=%s (update not wired)", data.get("shipment_id"))
 
 
 def upload_to_turvo(data: dict[str, Any]) -> None:
     """Push merged POD to Turvo for the shipment in ``data``.
 
-    Workflow passes ``state.data`` (e.g. ``pod_merged_pdf_url``, ``shipment_id``).
+    Workflow passes ``state.data`` (e.g. merged POD S3 object key in ``pod_merged_pdf_object_key``).
     Document upload via Turvo Public API is not implemented yet; logs only.
     """
     shipment_id = data.get("shipment_id")
-    merged = data.get("pod_merged_pdf_url")
+    merged = data.get("pod_merged_pdf_object_key")
     logger.info(
         "[TURVO POD UPLOAD] shipment_id=%s merged_url_present=%s (upload not wired)",
         shipment_id,

@@ -21,6 +21,7 @@ from psycopg import errors as pg_errors
 from app.core.config import settings
 from app.models.document import DocumentType
 from app.services.s3bucket_service import public_url_for_object_key
+from app.services.s3bucket_service import normalize_object_key
 
 logger = logging.getLogger(__name__)
 
@@ -52,39 +53,17 @@ def _ensure_pg_table() -> None:
                     type TEXT NOT NULL
                         CHECK (type IN ({_DOC_TYPE_SQL_IN})),
                     shipment_id TEXT NOT NULL,
-                    url TEXT,
-                    email_id TEXT,
-                    attachment_id TEXT,
+                    object_key TEXT NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
-            )
-            cur.execute(
-                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS email_id TEXT"
-            )
-            cur.execute(
-                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS attachment_id TEXT"
             )
             cur.execute(
                 f"CREATE INDEX IF NOT EXISTS idx_{t}_shipment_id ON {t}(shipment_id)"
             )
             cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_type ON {t}(type)")
             cur.execute(
-                f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS object_key TEXT"
-            )
-            cur.execute(
-                f"""
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_{t}_object_key
-                ON {t}(object_key)
-                WHERE object_key IS NOT NULL AND BTRIM(object_key) <> ''
-                """
-            )
-            cur.execute(
-                f"""
-                CREATE INDEX IF NOT EXISTS idx_{t}_unipile_source
-                ON {t}(email_id, attachment_id)
-                WHERE email_id IS NOT NULL AND attachment_id IS NOT NULL
-                """
+                f"CREATE UNIQUE INDEX IF NOT EXISTS uq_{t}_object_key ON {t}(object_key)"
             )
         conn.commit()
         _PG_READY = True
@@ -96,21 +75,33 @@ def _ensure_pg_table() -> None:
 def insert_document(
     doc_type: DocumentType,
     shipment_id: str,
-    url: str,
+    object_key: str,
     *,
     email_id: Optional[str] = None,
     attachment_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Insert one ``documents`` row. Returns ``{stored, id?, type?, created_at?, error?}``."""
+    """Upsert one ``documents`` row by ``object_key``.
 
-    if not shipment_id or not url:
+    Returns ``{stored, id?, type?, shipment_id?, object_key?, created_at?, error?}``.
+
+    ``object_key`` is the S3 object key (e.g. ``freightx/pod_attachments/...``), stored in the ``object_key`` column.
+    """
+
+    if not shipment_id or not object_key:
         logger.warning(
-            "insert_document: skip persist (type=%s shipment_id=%r url_set=%s)",
+            "insert_document: skip persist (type=%s shipment_id=%r object_key_set=%s)",
             doc_type.value,
             shipment_id,
-            bool(url),
+            bool(object_key),
         )
-        return {"stored": False, "id": None, "error": "missing_shipment_id_or_url"}
+        return {"stored": False, "id": None, "error": "missing_shipment_id_or_object_key"}
+
+    try:
+        key = normalize_object_key(object_key)
+    except ValueError as exc:
+        return {"stored": False, "id": None, "error": str(exc)}
+    if not key:
+        return {"stored": False, "id": None, "error": "empty_object_key"}
 
     _ensure_pg_table()
     doc_id = str(uuid.uuid4())
@@ -120,23 +111,35 @@ def insert_document(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                INSERT INTO {t} (id, type, shipment_id, url, email_id, attachment_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id, type, created_at
+                INSERT INTO {t} (id, type, shipment_id, object_key)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (object_key) DO UPDATE
+                SET
+                    type = documents.type,
+                    shipment_id = documents.shipment_id
+                RETURNING id, type, shipment_id, object_key, created_at
                 """,
-                (doc_id, doc_type.value, shipment_id, url, email_id, attachment_id),
+                (doc_id, doc_type.value, shipment_id, key),
             )
             row = cur.fetchone()
         conn.commit()
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
         logger.info(
-            "insert_document: stored id=%s type=%s shipment_id=%s",
+            "insert_document: stored id=%s type=%s shipment_id=%s object_key=%s",
             row[0],
             row[1],
-            shipment_id,
+            row[2],
+            row[3],
         )
-        return {"stored": True, "id": row[0], "type": str(row[1]), "created_at": row[2]}
+        return {
+            "stored": True,
+            "id": row[0],
+            "type": str(row[1]),
+            "shipment_id": row[2],
+            "object_key": row[3],
+            "created_at": row[4],
+        }
     except Exception as exc:
         logger.exception(
             "insert_document: failed type=%s shipment_id=%s",
@@ -225,11 +228,11 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
     """
     Load the latest ``documents`` row for ``shipment_id`` and ``doc_type``.
 
-    ``doc_type`` is a :class:`~app.models.document.DocumentType` value.
-    Rows may store ``url`` (POD flows) or ``object_key`` (ratecon). When only
-    ``object_key`` is set, ``url`` in the result is derived for downloads.
+    The ``object_key`` column stores the S3 object key.
 
-    Returns ``{found, id, url, shipment_id, type, created_at, error}``.
+    Rate confirmation artifacts use basename ``ratecon_{shipmentId}.pdf`` (sanitized).
+
+    Returns ``{found, id, object_key, shipment_id, type, created_at, error}``.
     """
 
     sid = (shipment_id or "").strip()
@@ -237,7 +240,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         return {
             "found": False,
             "id": None,
-            "url": None,
+            "object_key": None,
             "shipment_id": shipment_id,
             "type": doc_type.value,
             "created_at": None,
@@ -251,13 +254,10 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT id, url, object_key, type, shipment_id, created_at
+                SELECT id, object_key, type, shipment_id, created_at
                 FROM {t}
                 WHERE shipment_id = %s AND type = %s
-                  AND (
-                    (url IS NOT NULL AND BTRIM(url) <> '')
-                    OR (object_key IS NOT NULL AND BTRIM(object_key) <> '')
-                  )
+                  AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,
@@ -273,7 +273,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             return {
                 "found": False,
                 "id": None,
-                "url": None,
+                "object_key": None,
                 "shipment_id": sid,
                 "type": doc_type.value,
                 "created_at": None,
@@ -289,10 +289,10 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         return {
             "found": True,
             "id": row[0],
-            "url": effective_url,
-            "type": str(row[3]),
-            "shipment_id": row[4],
-            "created_at": row[5],
+            "object_key": row[1],
+            "type": str(row[2]),
+            "shipment_id": row[3],
+            "created_at": row[4],
             "error": None,
         }
     except Exception as exc:
@@ -304,7 +304,7 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
         return {
             "found": False,
             "id": None,
-            "url": None,
+            "object_key": None,
             "shipment_id": sid,
             "type": doc_type.value,
             "created_at": None,

@@ -29,28 +29,6 @@ def _merge_pod_exists_from_turvo(state) -> None:
         state.data["pod_exists"] = webhook_pod
 
 
-def _turvo_app_user_id(state) -> str | None:
-    """Prefer run state; fall back to env default (same choice as previous tool behavior)."""
-    if state.data.get("app_user_id"):
-        return str(state.data["app_user_id"])
-    return settings.TURVO_DEFAULT_APP_USER_ID or None
-
-
-def _merge_pod_exists_from_turvo(state) -> None:
-    """Set ``pod_exists`` from webhook hint plus Turvo documents when the check succeeds."""
-    webhook_pod = bool(state.data.get("existing_pod"))
-    shipment_id = state.data.get("shipment_id")
-    if not shipment_id:
-        state.data["pod_exists"] = webhook_pod
-        return
-    result = check_pod_tool(shipment_id, app_user_id=_turvo_app_user_id(state))
-    state.data["turvo_pod_check"] = result
-    if result.get("success"):
-        state.data["pod_exists"] = webhook_pod or bool(result.get("pod_exists"))
-    else:
-        state.data["pod_exists"] = webhook_pod
-
-
 def get_shipment(state):
     sid_state = resolve_shipment_id(state.data)
     shipment = get_shipment_tool(

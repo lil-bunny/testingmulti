@@ -5,8 +5,6 @@ Revises: 20260502_01_drop_turvo
 Create Date: 2026-05-02
 
 Schema decisions (POD DB design chat a70ecf21-b177-4018-abf9-2a6fd53cd89b):
-
-- url is non nullable for S3 backed artifacts
 """
 
 from typing import Sequence, Union
@@ -39,9 +37,7 @@ def upgrade() -> None:
             id TEXT PRIMARY KEY,
             type document_type NOT NULL,
             shipment_id TEXT NOT NULL,
-            url TEXT,
-            email_id TEXT,
-            attachment_id TEXT,
+            object_key TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
@@ -53,13 +49,8 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(type)"
     )
     op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_documents_unipile_source
-        ON documents(email_id, attachment_id)
-        WHERE email_id IS NOT NULL AND attachment_id IS NOT NULL
-        """
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_documents_object_key ON documents(object_key)"
     )
-
 
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS documents")
