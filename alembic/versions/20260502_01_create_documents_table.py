@@ -37,7 +37,7 @@ def upgrade() -> None:
             id TEXT PRIMARY KEY,
             type document_type NOT NULL,
             shipment_id TEXT NOT NULL,
-            object_key TEXT,
+            object_key TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
@@ -47,6 +47,9 @@ def upgrade() -> None:
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(type)"
+    )
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_documents_object_key ON documents(object_key)"
     )
 
 def downgrade() -> None:

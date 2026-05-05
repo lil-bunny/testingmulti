@@ -46,7 +46,7 @@ def _ensure_pg_table() -> None:
                     type TEXT NOT NULL
                         CHECK (type IN ({_DOC_TYPE_SQL_IN})),
                     shipment_id TEXT NOT NULL,
-                    object_key TEXT,
+                    object_key TEXT NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
                 """
@@ -55,6 +55,9 @@ def _ensure_pg_table() -> None:
                 f"CREATE INDEX IF NOT EXISTS idx_{t}_shipment_id ON {t}(shipment_id)"
             )
             cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_type ON {t}(type)")
+            cur.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS uq_{t}_object_key ON {t}(object_key)"
+            )
         conn.commit()
         _PG_READY = True
         logger.info("documents: ensured table %s exists", t)
@@ -70,7 +73,9 @@ def insert_document(
     email_id: Optional[str] = None,
     attachment_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Insert one ``documents`` row. Returns ``{stored, id?, type?, created_at?, error?}``.
+    """Upsert one ``documents`` row by ``object_key``.
+
+    Returns ``{stored, id?, type?, shipment_id?, object_key?, created_at?, error?}``.
 
     ``object_key`` is the S3 object key (e.g. ``freightx/pod_attachments/...``), stored in the ``object_key`` column.
     """
@@ -88,6 +93,8 @@ def insert_document(
         key = normalize_object_key(object_key)
     except ValueError as exc:
         return {"stored": False, "id": None, "error": str(exc)}
+    if not key:
+        return {"stored": False, "id": None, "error": "empty_object_key"}
 
     _ensure_pg_table()
     doc_id = str(uuid.uuid4())
@@ -99,7 +106,11 @@ def insert_document(
                 f"""
                 INSERT INTO {t} (id, type, shipment_id, object_key)
                 VALUES (%s, %s, %s, %s)
-                RETURNING id, type, created_at
+                ON CONFLICT (object_key) DO UPDATE
+                SET
+                    type = documents.type,
+                    shipment_id = documents.shipment_id
+                RETURNING id, type, shipment_id, object_key, created_at
                 """,
                 (doc_id, doc_type.value, shipment_id, key),
             )
@@ -108,12 +119,20 @@ def insert_document(
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
         logger.info(
-            "insert_document: stored id=%s type=%s shipment_id=%s",
+            "insert_document: stored id=%s type=%s shipment_id=%s object_key=%s",
             row[0],
             row[1],
-            shipment_id,
+            row[2],
+            row[3],
         )
-        return {"stored": True, "id": row[0], "type": str(row[1]), "created_at": row[2]}
+        return {
+            "stored": True,
+            "id": row[0],
+            "type": str(row[1]),
+            "shipment_id": row[2],
+            "object_key": row[3],
+            "created_at": row[4],
+        }
     except Exception as exc:
         logger.exception(
             "insert_document: failed type=%s shipment_id=%s",

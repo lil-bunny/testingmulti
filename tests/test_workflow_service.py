@@ -7,7 +7,7 @@ from app.repositories.workflow_repo import WorkflowRepository
 from app.services.workflow_service import WorkflowService
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.validators import validate_graph_definition
-from app.services.s3bucket_service import S3Bucket
+from app.services.s3bucket_service import S3Bucket, normalize_object_key
 from app.workflows.nodes import email as email_nodes
 from botocore.stub import Stubber
 
@@ -21,7 +21,7 @@ def mock_attachment_upload(monkeypatch):
     def fake_upload_file(**kwargs):
         return {
             "success": True,
-            "file_url": "https://mock-s3.local/pod_attachments/pod.pdf",
+            "object_key": "freightx/pod_attachments/pod_attId.pdf",
             "error_message": None,
         }
 
@@ -193,6 +193,38 @@ def test_upload_file_puts_object_to_s3():
             content_type="application/pdf",
         )
     assert result["success"] is True
-    assert result["file_url"] == ("https://test-bucket.s3.us-west-2.amazonaws.com/freightx/pod_attachments/pod_attId.pdf")
+    assert result["object_key"] == "freightx/pod_attachments/pod_attId.pdf"
     assert result["error_message"] is None
+    stubber.assert_no_pending_responses()
+
+
+def test_normalize_object_key_strips_and_rejects_urls():
+    assert normalize_object_key("  freightx/pod_attachments/a.pdf ") == (
+        "freightx/pod_attachments/a.pdf"
+    )
+    assert normalize_object_key("/freightx/pod_attachments/a.pdf") == (
+        "freightx/pod_attachments/a.pdf"
+    )
+    with pytest.raises(ValueError, match="object key"):
+        normalize_object_key("https://example.com/o.pdf")
+
+
+def test_delete_file_accepts_bare_object_key():
+    fake_s3_client = boto3.client(
+        "s3",
+        region_name="us-west-2",
+        aws_access_key_id="testing",
+        aws_secret_access_key="testing",
+    )
+    stubber = Stubber(fake_s3_client)
+    stubber.add_response(
+        "delete_object",
+        {},
+        {"Bucket": "test-bucket", "Key": "freightx/pod_attachments/x.pdf"},
+    )
+    bucket = S3Bucket(s3_client=fake_s3_client, bucket_name="test-bucket")
+    with stubber:
+        result = bucket.delete_file("freightx/pod_attachments/x.pdf")
+    assert result["success"] is True
+    assert result["object_key"] == "freightx/pod_attachments/x.pdf"
     stubber.assert_no_pending_responses()
