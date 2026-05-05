@@ -94,4 +94,30 @@ WORKFLOW_CONFIGS = {
             }
         },
     },
+    "ratecon": {
+        "entry": "route_event",
+        "exit": "end",
+        "nodes": [
+            "route_event",
+            "resolve_load_to_shipment",
+            "check_ratecon_workflow_correlation",
+            "add_thread_for_shipment",
+            "end",
+        ],
+        "edges": [
+            ["resolve_load_to_shipment", "check_ratecon_workflow_correlation"],
+            ["check_ratecon_workflow_correlation", "add_thread_for_shipment"],
+            ["add_thread_for_shipment", "end"],
+        ],
+        "routers": {
+            "route_event": {
+                "router": "event_type",
+                "map": {
+                    "route_completed": "resolve_load_to_shipment",
+                    "email_received": "resolve_load_to_shipment",
+                    "reminder_due": "resolve_load_to_shipment",
+                },
+            },
+        },
+    },
 }

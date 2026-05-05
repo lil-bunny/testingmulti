@@ -14,6 +14,9 @@ from app.core.config import settings
 from app.core.logger import get_logger
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.documents import check_pod_by_shipment_id as check_pod_by_shipment_id_async
+from app.integrations.turvo.load_to_shipment import (
+    load_id_to_shipment_id_async,
+)
 from app.integrations.turvo.shipments import get_shipment as get_shipment_async
 
 logger = get_logger(__name__)
@@ -21,6 +24,7 @@ logger = get_logger(__name__)
 __all__ = (
     "check_pod_by_shipment_id",
     "get_shipment",
+    "load_id_to_shipment_id",
     "update_shipment",
     "upload_to_turvo",
 )
@@ -149,6 +153,85 @@ def check_pod_by_shipment_id(
             "pod_documents": [],
             "all_documents_count": 0,
             "message": "Failed to check POD: unexpected_error",
+        }
+
+
+def load_id_to_shipment_id(
+    load_id: Any,
+    app_user_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Resolve Turvo load/custom id to canonical ``shipment_id`` via search + shipment API.
+
+    Uses the same per-user OAuth as ``get_shipment``. When ``app_user_id`` is
+    omitted, uses ``TURVO_DEFAULT_APP_USER_ID`` if set.
+    """
+    empty = {
+        "success": False,
+        "load_id": "",
+        "shipment_id": None,
+        "message": "load_id is required",
+    }
+    if load_id is None or not str(load_id).strip():
+        return empty
+
+    lid = str(load_id).strip()
+    effective_user = (app_user_id or settings.TURVO_DEFAULT_APP_USER_ID or "").strip() or None
+
+    if not effective_user or not _is_turvo_configured():
+        logger.info(
+            "Turvo not configured or app_user_id missing; skipping load_id resolution for %s",
+            lid,
+        )
+        return {
+            "success": False,
+            "load_id": lid,
+            "shipment_id": None,
+            "message": "Turvo not configured or app_user_id missing",
+        }
+
+    try:
+        sid = asyncio.run(load_id_to_shipment_id_async(effective_user, lid))
+        if sid is None:
+            return {
+                "success": False,
+                "load_id": lid,
+                "shipment_id": None,
+                "message": "No shipment found for load_id or could not extract shipment_id",
+            }
+        return {
+            "success": True,
+            "load_id": lid,
+            "shipment_id": sid,
+            "message": "ok",
+        }
+    except TurvoApiError as e:
+        logger.warning(
+            "Turvo load_id_to_shipment_id failed load_id=%s status=%s body=%s",
+            lid,
+            e.status_code,
+            e.body,
+        )
+        return {
+            "success": False,
+            "load_id": lid,
+            "shipment_id": None,
+            "message": f"Failed to resolve load_id: {e}",
+        }
+    except ValueError as e:
+        logger.warning("Invalid Turvo load_id_to_shipment_id call: %s", e)
+        return {
+            "success": False,
+            "load_id": lid,
+            "shipment_id": None,
+            "message": str(e),
+        }
+    except Exception:
+        logger.exception("Unexpected error resolving Turvo load_id %s", lid)
+        return {
+            "success": False,
+            "load_id": lid,
+            "shipment_id": None,
+            "message": "Failed to resolve load_id: unexpected_error",
         }
 
 

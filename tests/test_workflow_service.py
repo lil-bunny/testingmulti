@@ -5,10 +5,12 @@ import boto3
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
 from app.services.workflow_service import WorkflowService
+from app.tools import workflow_correlation as wc_module
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.validators import validate_graph_definition
 from app.services.s3bucket_service import S3Bucket
 from app.workflows.nodes import email as email_nodes
+from app.workflows.nodes import turvo as turvo_nodes
 from botocore.stub import Stubber
 
 
@@ -129,6 +131,51 @@ async def test_required_payload_keys_enforced():
             workflow_name="pod_lifecycle",
             payload={"shipment_id": "S1"},
         )
+
+
+@pytest.mark.asyncio
+async def test_ratecon_requires_load_id():
+    service = WorkflowService(WorkflowRepository(), TenantRepository())
+    with pytest.raises(Exception, match="load_id"):
+        await service.run(
+            tenant_id="t3ra",
+            workflow_name="ratecon",
+            payload={"event_type": "route_completed"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_ratecon_runs_resolve_load_to_shipment(monkeypatch):
+    def fake_load_id_to_shipment(load_id, app_user_id=None):
+        return {
+            "success": True,
+            "load_id": str(load_id),
+            "shipment_id": "SHIP-99",
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(
+        turvo_nodes, "load_id_to_shipment_id_tool", fake_load_id_to_shipment
+    )
+    monkeypatch.setattr(
+        wc_module,
+        "persist_correlation_thread_for_shipment",
+        lambda sid, lid, tid, **kwargs: {
+            "stored": True,
+            "workflow_correlation": {"key": sid, "payload": {}},
+        },
+    )
+
+    service = WorkflowService(WorkflowRepository(), TenantRepository())
+    result = await service.run(
+        tenant_id="t3ra",
+        workflow_name="ratecon",
+        payload={"load_id": "L42", "app_user_id": "user-1"},
+    )
+
+    assert result["data"]["shipment_id"] == "SHIP-99"
+    assert result["data"]["load_id_to_shipment"]["shipment_id"] == "SHIP-99"
+    assert result["data"]["load_id_to_shipment"]["success"] is True
 
 
 @pytest.mark.asyncio

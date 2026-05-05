@@ -22,4 +22,20 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "reminder_step",
         ],
     ),
+    "ratecon": WorkflowTemplateContract(
+        workflow_name="ratecon",
+        operation="ratecon",
+        version="1.0.0",
+        description="Rate confirmation workflow; resolves Turvo load_id to shipment_id (extend later).",
+        event_types=["route_completed", "email_received", "reminder_due"],
+        required_state_keys=["load_id"],
+        optional_state_keys=[
+            "event_type",
+            "app_user_id",
+            "thread_id",
+            "shipment_id",
+            "workflow_correlation_payload",
+            "ratecon_correlation_thread_persist",
+        ],
+    ),
 }
