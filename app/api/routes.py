@@ -15,10 +15,22 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+async def _run_pod_lifecycle_email_workflow(
+    workflow_service: WorkflowService,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Unipile mail_received body → ``pod_lifecycle`` for tenant ``t3ra``."""
+    return await workflow_service.run(
+        tenant_id="t3ra",
+        workflow_name="pod_lifecycle",
+        payload=payload,
+    )
+
+
 def _merge_ratecon_classification_into_workflow_payload(
     payload: dict[str, Any], rc: dict[str, Any]
 ) -> None:
-    """Copy ``check_ratecon_mail_payload`` fields onto the webhook dict for ``ratecon`` workflow."""
+    """Copy ``check_ratecon_mail_payload`` fields onto the webhook dict (ratecon / pod_lifecycle paths)."""
     for src, dest in (
         ("thread_id", "thread_id"),
         ("attachment_name", "ratecon_attachment_name"),
@@ -58,7 +70,7 @@ async def run_workflow(
         logger.exception("Workflow execution failed")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/webhook/unipile/mail_thread_capture")
+@router.post("/webhook/unipile")
 async def unipile_mail_thread_capture(
     request: Request,
     workflow_service: WorkflowService = Depends(get_workflow_service)
@@ -79,13 +91,22 @@ async def unipile_mail_thread_capture(
         
         corr = ratecon_shipment_in_workflow_correlation(rc["load_id"], app_user_id=app_user)
         if corr["in_workflow_correlation"]:
-            return {
-                "message": "ignored",
-                "reason": "already_in_workflow_correlation",
-                "in_workflow_correlation": True,
-                "shipment_id": corr["shipment_id"],
-                "load_id": corr["load_id"] or rc["load_id"],
-            }
+            payload["load_id"] = corr["load_id"] or rc["load_id"]
+            if corr.get("shipment_id"):
+                payload["shipment_id"] = str(corr["shipment_id"]).strip()
+            _merge_ratecon_classification_into_workflow_payload(payload, rc)
+            logger.info(
+                "mail_thread_capture: existing ratecon correlation — running pod_lifecycle "
+                "shipment_id=%s load_id=%s",
+                corr.get("shipment_id"),
+                payload.get("load_id"),
+            )
+            result = await _run_pod_lifecycle_email_workflow(workflow_service, payload)
+            if isinstance(result, dict):
+                result["ran_pod_lifecycle_for_existing_correlation"] = True
+                data = result.get("data") if isinstance(result.get("data"), dict) else {}
+                result["shipment_id"] = corr.get("shipment_id") or data.get("shipment_id")
+            return result
         payload["load_id"] = rc["load_id"]
         if corr.get("shipment_id"):
             payload["shipment_id"] = str(corr["shipment_id"]).strip()
@@ -97,32 +118,33 @@ async def unipile_mail_thread_capture(
         )
         if isinstance(result, dict):
             result["ran_ratecon_for_new_correlation"] = True
-            result["shipment_id"] = corr["shipment_id"]
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            result["shipment_id"] = corr.get("shipment_id") or data.get("shipment_id")
         return result
     except Exception as e:
         logger.exception("Unipile mail thread capture failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-@router.post("/webhook/unipile")
-async def unipile_webhook(
-    request: Request,
-    workflow_service: WorkflowService = Depends(get_workflow_service)
-):
-    try:
-        if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
-            raise HTTPException(status_code=401, detail="Unauthorized")
-        raw = await request.json()
-        payload = {**raw, "event_type": "email_received"}
-        if payload['webhook_name'] != settings.UNIPILE_WEBHOOK_NAME:
-            return {"message": "invalid webhook"}
+# @router.post("/webhook/unipile")
+# async def unipile_webhook(
+#     request: Request,
+#     workflow_service: WorkflowService = Depends(get_workflow_service)
+# ):
+#     try:
+#         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
+#             raise HTTPException(status_code=401, detail="Unauthorized")
+#         raw = await request.json()
+#         payload = {**raw, "event_type": "email_received"}
+#         if payload['webhook_name'] != settings.UNIPILE_WEBHOOK_NAME:
+#             return {"message": "invalid webhook"}
         
-        result = await workflow_service.run(
-            tenant_id="t3ra",
-            workflow_name="pod_lifecycle",
-            payload=payload,
-        )
-        return result
+#         result = await workflow_service.run(
+#             tenant_id="t3ra",
+#             workflow_name="pod_lifecycle",
+#             payload=payload,
+#         )
+#         return result
 
-    except Exception as e:
-        logger.exception("Unipile webhook processing failed")
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         logger.exception("Unipile webhook processing failed")
+#         raise HTTPException(status_code=500, detail=str(e))
