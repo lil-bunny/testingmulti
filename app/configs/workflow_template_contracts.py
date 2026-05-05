@@ -18,6 +18,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "to",
             "subject",
             "body",
+            "account_id",
+            "reminder_step",
         ],
     ),
 }

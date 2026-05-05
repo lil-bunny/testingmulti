@@ -1,7 +1,14 @@
+from dotenv import load_dotenv
+
+load_dotenv(override=False)
+
 from fastapi import FastAPI
 from app.api.routes import router
+from app.api.user_turvo import router as user_turvo_router
+from app.api.webhooks import router as webhooks_router
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.core.observability import configure_observability
 
 logger = get_logger(__name__)
 
@@ -12,11 +19,11 @@ def create_app() -> FastAPI:
         docs_url="/docs"
     )
 
-    @app.get("/")
-    async def welcome():
-        return "Welcome to Freightx"
-
     app.include_router(router, prefix="/api")
+    app.include_router(webhooks_router, prefix="/api")
+    app.include_router(user_turvo_router, prefix="/api")
+
+    configure_observability(app)
 
     @app.on_event("startup")
     async def startup():

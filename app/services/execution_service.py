@@ -2,9 +2,12 @@ import uuid
 import asyncio
 from app.domain.state import WorkflowState
 
+from langsmith import traceable
+
 
 class ExecutionService:
 
+    @traceable(run_type="chain", name="workflow_execute")
     async def execute(
         self,
         graph,
