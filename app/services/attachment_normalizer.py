@@ -83,6 +83,11 @@ def pod_individual_attachment_filename(
     )
 
 
+def ratecon_shipment_object_basename(shipment_id: Optional[str]) -> str:
+    """S3 object basename for ratecon uploads: ``ratecon_{shipmentId}.pdf`` (sanitized)."""
+    return f"ratecon_{_sanitize_path_segment(shipment_id or 'unknown')}.pdf"
+
+
 def pod_merged_filename(shipment_id: Optional[str]) -> str:
     """Final merged POD PDF basename: ``pod_{shipmentId}.pdf``."""
     return f"pod_{_sanitize_path_segment(shipment_id or 'unknown')}.pdf"

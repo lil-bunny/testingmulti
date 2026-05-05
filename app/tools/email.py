@@ -1,3 +1,5 @@
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import settings
@@ -6,11 +8,189 @@ from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
 
+_RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
+_CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET = "carrier_rate_confirmation"
+
 
 # Private helpers
 
 def _normalize_email(e: Any) -> str:
     return (str(e) if e else "").strip().lower()
+
+
+def _subject_mentions_rate_confirmation(subject: str) -> bool:
+    return _RATE_CONFIRMATION_SUBJECT_SNIPPET in (subject or "").lower()
+
+
+def _attachment_display_filename(att: Any) -> str:
+    """Resolve Unipile attachment display name (``name`` / ``filename`` / ``file_name``)."""
+    if not isinstance(att, dict):
+        return ""
+    for key in ("name", "filename", "file_name"):
+        v = att.get(key)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return ""
+
+
+def _attachment_is_pdf(att: dict, filename: str) -> bool:
+    mime = str(att.get("mime") or att.get("content_type") or "").lower()
+    if mime == "application/pdf":
+        return True
+    return filename.lower().endswith(".pdf")
+
+
+def _attachment_uri(att: dict) -> Optional[str]:
+    """Best-effort HTTP URL if Unipile includes one (raw ``mail_received`` webhooks usually do not)."""
+    if not isinstance(att, dict):
+        return None
+    for key in (
+        "url",
+        "uri",
+        "download_url",
+        "attachment_url",
+        "link",
+        "href",
+        "public_url",
+        "file_url",
+    ):
+        v = att.get(key)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+    return None
+
+
+def _unipile_attachment_fetch_context(
+    payload: dict[str, Any], att: dict[str, Any]
+) -> dict[str, str]:
+    """IDs needed for Unipile ``get_email_attachment`` / download APIs (webhook has no file URL)."""
+    ctx: dict[str, str] = {}
+    eid = payload.get("email_id")
+    if eid is not None and str(eid).strip():
+        ctx["email_id"] = str(eid).strip()
+    acc = payload.get("account_id")
+    if acc is not None and str(acc).strip():
+        ctx["account_id"] = str(acc).strip()
+    tid = att.get("id")
+    if tid is not None and str(tid).strip():
+        ctx["attachment_id"] = str(tid).strip()
+    return ctx
+
+
+def _attachment_meta_unipile(att: dict[str, Any]) -> dict[str, Any]:
+    """Subset of Unipile attachment object (``id``, ``name``, ``mime``, ``extension``, ``size``)."""
+    if not isinstance(att, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key in ("id", "name", "mime", "extension", "size"):
+        if key not in att:
+            continue
+        val = att.get(key)
+        if val is None:
+            continue
+        if key == "size":
+            try:
+                out[key] = int(val)
+            except (TypeError, ValueError):
+                out[key] = val
+        else:
+            s = str(val).strip()
+            if s:
+                out[key] = s
+    return out
+
+
+def _extract_load_id_from_ratecon_basename(filename: str) -> Optional[str]:
+    """Take last contiguous digit run from basename stem (tweak if filenames gain extra trailing digits)."""
+    stem = Path(filename).stem
+    runs = re.findall(r"\d+", stem)
+    if not runs:
+        return None
+    return runs[-1]
+
+
+def check_ratecon_mail_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Classify a Unipile ``mail_received``-style webhook dict.
+
+    Unipile attachments are typically ``id``, ``name``, ``mime``, ``extension``, ``size`` — not a
+    download URL. Use ``unipile_attachment_fetch`` (email_id, account_id, attachment_id) with the
+    Unipile API to retrieve bytes. ``attachment_uri`` is set only when the payload includes a URL.
+    Root-level ``thread_id`` is echoed for workflow correlation when present.
+    """
+    subject = str(payload.get("subject") or "").strip()
+    attachments = payload.get("attachments")
+    if not isinstance(attachments, list):
+        attachments = []
+
+    has_raw = payload.get("has_attachments")
+    if has_raw is None:
+        has_attachments = bool(attachments)
+    else:
+        has_attachments = bool(has_raw)
+
+    raw_thread = payload.get("thread_id")
+    if raw_thread is None:
+        thread_id = None
+    else:
+        thread_id = str(raw_thread).strip() or None
+
+    empty = {
+        "is_ratecon_mail": False,
+        "load_id": None,
+        "subject": subject or None,
+        "thread_id": thread_id,
+        "attachment_name": None,
+        "attachment_uri": None,
+        "attachment_id": None,
+        "attachment_mime": None,
+        "attachment_unipile": None,
+        "unipile_attachment_fetch": None,
+    }
+
+    if not _subject_mentions_rate_confirmation(subject):
+        return empty
+    if not has_attachments:
+        return empty
+
+    qualifying_att: Optional[dict] = None
+    qualifying_name: Optional[str] = None
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        name = _attachment_display_filename(att)
+        if not name:
+            continue
+        if _CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET not in name.lower():
+            continue
+        if not _attachment_is_pdf(att, name):
+            continue
+        qualifying_att = att
+        qualifying_name = name
+        break
+
+    if not qualifying_name or qualifying_att is None:
+        return empty
+
+    load_id = _extract_load_id_from_ratecon_basename(qualifying_name)
+    if not load_id:
+        return empty
+
+    meta = _attachment_meta_unipile(qualifying_att)
+    fetch = _unipile_attachment_fetch_context(payload, qualifying_att)
+
+    return {
+        "is_ratecon_mail": True,
+        "load_id": load_id,
+        "subject": subject or None,
+        "thread_id": thread_id,
+        "attachment_name": qualifying_name,
+        "attachment_uri": _attachment_uri(qualifying_att),
+        "attachment_id": meta.get("id"),
+        "attachment_mime": meta.get("mime"),
+        "attachment_unipile": meta or None,
+        "unipile_attachment_fetch": fetch or None,
+    }
 
 
 def _attendee_to_recipient(att: Any) -> Optional[Dict[str, str]]:
@@ -386,6 +566,21 @@ def ingest_email(payload):
         "in_reply_to": source.get("in_reply_to"),
         "date": source.get("date"),
     }
+
+
+def detect_attachment_bytes_type(file_content: bytes) -> tuple[str, str]:
+    """Infer file extension and MIME type from magic bytes (email / ratecon uploads)."""
+    if file_content.startswith(b"%PDF"):
+        return "pdf", "application/pdf"
+    if file_content.startswith(b"\xff\xd8\xff"):
+        return "jpg", "image/jpeg"
+    if file_content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png", "image/png"
+    if file_content.startswith((b"GIF87a", b"GIF89a")):
+        return "gif", "image/gif"
+    if file_content.startswith(b"RIFF") and len(file_content) >= 12 and file_content[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return "bin", "application/octet-stream"
 
 
 def get_email_attachments(email_id, attachment_id, account_id):

@@ -5,10 +5,14 @@ import boto3
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
 from app.services.workflow_service import WorkflowService
+from app.tools import workflow_correlation as wc_module
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.validators import validate_graph_definition
 from app.services.s3bucket_service import S3Bucket, normalize_object_key
 from app.workflows.nodes import email as email_nodes
+from app.workflows.nodes import turvo as turvo_nodes
+from app.workflows.nodes import ratecon as ratecon_node
+from app.models.document import DocumentType
 from botocore.stub import Stubber
 
 
@@ -19,6 +23,7 @@ def mock_attachment_upload(monkeypatch):
         return b"%PDF-1.4 mock pod file"
 
     def fake_upload_file(**kwargs):
+        # Match ``S3Bucket.upload_file`` contract: all four keys, every time.
         return {
             "success": True,
             "object_key": "freightx/pod_attachments/pod_attId.pdf",
@@ -129,6 +134,123 @@ async def test_required_payload_keys_enforced():
             workflow_name="pod_lifecycle",
             payload={"shipment_id": "S1"},
         )
+
+
+@pytest.mark.asyncio
+async def test_ratecon_requires_load_id():
+    service = WorkflowService(WorkflowRepository(), TenantRepository())
+    with pytest.raises(Exception, match="load_id"):
+        await service.run(
+            tenant_id="t3ra",
+            workflow_name="ratecon",
+            payload={"event_type": "route_completed"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_ratecon_runs_resolve_load_to_shipment(monkeypatch):
+    def fake_load_id_to_shipment(load_id, app_user_id=None):
+        return {
+            "success": True,
+            "load_id": str(load_id),
+            "shipment_id": "SHIP-99",
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(
+        turvo_nodes, "load_id_to_shipment_id_tool", fake_load_id_to_shipment
+    )
+    monkeypatch.setattr(
+        wc_module,
+        "persist_correlation_thread_for_shipment",
+        lambda sid, lid, tid, **kwargs: {
+            "stored": True,
+            "workflow_correlation": {"key": sid, "payload": {}},
+        },
+    )
+
+    service = WorkflowService(WorkflowRepository(), TenantRepository())
+    result = await service.run(
+        tenant_id="t3ra",
+        workflow_name="ratecon",
+        payload={"load_id": "L42", "app_user_id": "user-1"},
+    )
+
+    assert result["data"]["shipment_id"] == "SHIP-99"
+    assert result["data"]["load_id_to_shipment"]["shipment_id"] == "SHIP-99"
+    assert result["data"]["load_id_to_shipment"]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_ratecon_upload_persists_documents_object_key(monkeypatch):
+    def fake_load_id_to_shipment(load_id, app_user_id=None):
+        return {
+            "success": True,
+            "load_id": str(load_id),
+            "shipment_id": "SHIP-99",
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(
+        turvo_nodes, "load_id_to_shipment_id_tool", fake_load_id_to_shipment
+    )
+    monkeypatch.setattr(
+        wc_module,
+        "persist_correlation_thread_for_shipment",
+        lambda sid, lid, tid, **kwargs: {
+            "stored": True,
+            "workflow_correlation": {"key": sid, "payload": {}},
+        },
+    )
+
+    expect_key = "freightx/pod_attachments/ratecon_SHIP-99.pdf"
+    persisted: list[tuple] = []
+
+    def fake_upload_to_s3(**kwargs):
+        return {
+            "results": [
+                {
+                    "attachment_id": "att-1",
+                    "success": True,
+                    "file_url": "https://mock.example/file",
+                    "object_key": expect_key,
+                    "error_message": None,
+                    "original_filename": "Carrier_rate_confirmation.pdf",
+                    "content_type": "application/pdf",
+                    "extension": "pdf",
+                }
+            ],
+            "ratecon_upload_urls": ["https://mock.example/file"],
+            "all_succeeded": True,
+        }
+
+    def fake_insert(doc_type, shipment_id, object_key):
+        persisted.append((doc_type, shipment_id, object_key))
+        return {"stored": True, "id": "doc-row-1"}
+
+    monkeypatch.setattr(
+        ratecon_node,
+        "upload_ratecon_email_attachments_to_s3",
+        fake_upload_to_s3,
+    )
+    monkeypatch.setattr(ratecon_node, "insert_document_object_key", fake_insert)
+
+    service = WorkflowService(WorkflowRepository(), TenantRepository())
+    result = await service.run(
+        tenant_id="t3ra",
+        workflow_name="ratecon",
+        payload={
+            "load_id": "L42",
+            "app_user_id": "user-1",
+            "email_id": "email-1",
+            "attachments": [{"id": "att-1"}],
+        },
+    )
+
+    assert persisted == [(DocumentType.RATECON, "SHIP-99", expect_key)]
+    r0 = result["data"]["ratecon_s3_upload"]["results"][0]
+    assert r0["document_persist"]["stored"] is True
+    assert r0["document_persist"]["id"] == "doc-row-1"
 
 
 @pytest.mark.asyncio

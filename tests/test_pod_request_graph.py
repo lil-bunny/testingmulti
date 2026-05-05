@@ -28,3 +28,24 @@ def test_pod_lifecycle_pod_request_graph():
     assert ("noop_pod_followup_marker", "refresh_pod_before_send_email") in edges
     assert ("process_pod", "noop_pod_followup_marker") not in edges
     assert ("check_existing_pod", "send_email") not in edges
+
+
+def test_ratecon_graph():
+    graph = WORKFLOW_CONFIGS["ratecon"]
+    validate_graph_definition(graph)
+
+    assert graph["entry"] == "resolve_load_to_shipment"
+    assert graph["exit"] == "end"
+    assert graph["nodes"] == [
+        "resolve_load_to_shipment",
+        "upload_ratecon_attachments",
+        "check_ratecon_workflow_correlation",
+        "add_thread_for_shipment",
+        "end",
+    ]
+    edges = [tuple(e) for e in graph["edges"]]
+    assert ("resolve_load_to_shipment", "upload_ratecon_attachments") in edges
+    assert ("upload_ratecon_attachments", "check_ratecon_workflow_correlation") in edges
+    assert ("check_ratecon_workflow_correlation", "add_thread_for_shipment") in edges
+    assert ("add_thread_for_shipment", "end") in edges
+    assert graph.get("routers") == {}
