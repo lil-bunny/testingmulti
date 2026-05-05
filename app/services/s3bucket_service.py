@@ -58,6 +58,12 @@ class S3Bucket:
     ) -> Dict[str, Any]:
         """Upload file content to S3 bucket.
 
+        Stable result shape (always present; use ``None`` when not applicable):
+        ``success``, ``file_url``, ``object_key``, ``error_message``.
+        Callers may persist ``object_key`` only; ``file_url`` is still returned
+        for flows that expect a direct URL (same rules as
+        ``public_url_for_object_key``).
+
         Args:
             file_content: Binary content of the file
             filename: Original filename
@@ -66,7 +72,7 @@ class S3Bucket:
             public: Whether the file should be publicly accessible
 
         Returns:
-            Upload result with success status, file URL, and error message.
+            Dict with ``success``, ``file_url``, ``object_key``, ``error_message``.
         """
         try:           
             if not self.s3_client or not self.bucket_name:
@@ -78,14 +84,13 @@ class S3Bucket:
                     "error_message": error_msg,
                 }
 
-            # Use the original filename with global prefix
-            unique_filename = f"{self.BUCKET_PREFIX}/{folder}/{filename}"
+            object_key = f"{self.BUCKET_PREFIX}/{folder}/{filename}"
 
             # Prepare upload args. Public access is controlled by bucket policy or CDN,
             # because buckets with Object Ownership enforced reject per-object ACLs.
             put_args = {
                 'Bucket': self.bucket_name,
-                'Key': unique_filename,
+                'Key': object_key,
                 'Body': file_content,
                 'ContentType': content_type,
             }
@@ -93,19 +98,18 @@ class S3Bucket:
             # Upload to S3
             self.s3_client.put_object(**put_args)
 
-            # Generate public URL
+            # Generate public URL (mirror ``public_url_for_object_key``)
             if settings.BUCKET_ENDPOINT:
-                # Custom endpoint (DO Spaces) - bucket might be in domain
-                file_url = f"{settings.BUCKET_ENDPOINT}/{unique_filename}"
+                base = str(settings.BUCKET_ENDPOINT).rstrip("/")
+                file_url = f"{base}/{object_key}"
             else:
-                # AWS S3 - use standard URL format
                 region = getattr(settings, 'BUCKET_REGION', 'us-west-2')
-                file_url = f"https://{self.bucket_name}.s3.{region}.amazonaws.com/{unique_filename}"
+                file_url = f"https://{self.bucket_name}.s3.{region}.amazonaws.com/{object_key}"
 
             return {
                 "success": True,
                 "file_url": file_url,
-                "object_key": unique_filename,
+                "object_key": object_key,
                 "error_message": None,
             }
 

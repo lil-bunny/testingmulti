@@ -2,6 +2,11 @@
 
 Mirrors the pattern in ``app.tools.workflow_correlation``: optional runtime
 ``CREATE TABLE IF NOT EXISTS`` for dev, configurable table name via settings.
+
+S3 alignment: ``S3Bucket.upload_file`` always returns both ``file_url`` and
+``object_key``; this module can store ``url`` (POD), ``object_key`` (ratecon), or
+both, and ``read_document`` resolves a download URL via stored ``url`` or
+``public_url_for_object_key(object_key)``.
 """
 
 from __future__ import annotations

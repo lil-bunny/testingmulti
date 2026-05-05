@@ -23,6 +23,7 @@ def mock_attachment_upload(monkeypatch):
         return b"%PDF-1.4 mock pod file"
 
     def fake_upload_file(**kwargs):
+        # Match ``S3Bucket.upload_file`` contract: all four keys, every time.
         return {
             "success": True,
             "file_url": "https://mock-s3.local/pod_attachments/pod.pdf",
