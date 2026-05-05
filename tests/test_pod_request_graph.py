@@ -39,12 +39,14 @@ def test_ratecon_graph():
     assert graph["nodes"] == [
         "route_event",
         "resolve_load_to_shipment",
+        "upload_ratecon_attachments",
         "check_ratecon_workflow_correlation",
         "add_thread_for_shipment",
         "end",
     ]
     edges = [tuple(e) for e in graph["edges"]]
-    assert ("resolve_load_to_shipment", "check_ratecon_workflow_correlation") in edges
+    assert ("resolve_load_to_shipment", "upload_ratecon_attachments") in edges
+    assert ("upload_ratecon_attachments", "check_ratecon_workflow_correlation") in edges
     assert ("check_ratecon_workflow_correlation", "add_thread_for_shipment") in edges
     assert ("add_thread_for_shipment", "end") in edges
 

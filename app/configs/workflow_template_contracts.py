@@ -34,8 +34,13 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "app_user_id",
             "thread_id",
             "shipment_id",
+            "email_id",
+            "account_id",
+            "attachments",
+            "has_attachments",
             "workflow_correlation_payload",
             "ratecon_correlation_thread_persist",
+            "ratecon_s3_upload",
         ],
     ),
 }

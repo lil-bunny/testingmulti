@@ -1,4 +1,5 @@
 # from app.workflows.nodes.process_pod import process_pod
+from app.workflows.nodes.ratecon import upload_ratecon_attachments
 from app.workflows.nodes.pod import classify_attachments, ratecon_analysis, pod_analysis, pod_vs_ratecon_analysis
 from app.workflows.nodes.email import check_email_attachments, ingest_email, send_email, get_email_attachments
 from app.workflows.nodes.noop import noop_pod_followup_marker
@@ -46,6 +47,7 @@ NODE_REGISTRY = {
     "pod_vs_ratecon_analysis": pod_vs_ratecon_analysis,
     "read_workflow_correlation": read_workflow_correlation,
     "check_ratecon_workflow_correlation": check_ratecon_workflow_correlation,
+    "upload_ratecon_attachments": upload_ratecon_attachments,
     "add_thread_for_shipment": add_thread_for_shipment,
     "update_workflow_correlation": update_workflow_correlation,
     "route_event": route_event,

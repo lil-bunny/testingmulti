@@ -568,6 +568,21 @@ def ingest_email(payload):
     }
 
 
+def detect_attachment_bytes_type(file_content: bytes) -> tuple[str, str]:
+    """Infer file extension and MIME type from magic bytes (email / ratecon uploads)."""
+    if file_content.startswith(b"%PDF"):
+        return "pdf", "application/pdf"
+    if file_content.startswith(b"\xff\xd8\xff"):
+        return "jpg", "image/jpeg"
+    if file_content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png", "image/png"
+    if file_content.startswith((b"GIF87a", b"GIF89a")):
+        return "gif", "image/gif"
+    if file_content.startswith(b"RIFF") and len(file_content) >= 12 and file_content[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return "bin", "application/octet-stream"
+
+
 def get_email_attachments(email_id, attachment_id, account_id):
     unipile = Unipile()
     file_content = unipile.get_email_attachment(email_id, attachment_id, account_id)

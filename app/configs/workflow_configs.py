@@ -100,12 +100,14 @@ WORKFLOW_CONFIGS = {
         "nodes": [
             "route_event",
             "resolve_load_to_shipment",
+            "upload_ratecon_attachments",
             "check_ratecon_workflow_correlation",
             "add_thread_for_shipment",
             "end",
         ],
         "edges": [
-            ["resolve_load_to_shipment", "check_ratecon_workflow_correlation"],
+            ["resolve_load_to_shipment", "upload_ratecon_attachments"],
+            ["upload_ratecon_attachments", "check_ratecon_workflow_correlation"],
             ["check_ratecon_workflow_correlation", "add_thread_for_shipment"],
             ["add_thread_for_shipment", "end"],
         ],
