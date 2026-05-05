@@ -26,8 +26,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
         workflow_name="ratecon",
         operation="ratecon",
         version="1.0.0",
-        description="Rate confirmation workflow; resolves Turvo load_id to shipment_id (extend later).",
-        event_types=["route_completed", "email_received", "reminder_due"],
+        description="Rate confirmation workflow; triggered by Unipile mail (email_received).",
+        event_types=["email_received"],
         required_state_keys=["load_id"],
         optional_state_keys=[
             "event_type",

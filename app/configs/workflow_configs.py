@@ -95,10 +95,9 @@ WORKFLOW_CONFIGS = {
         },
     },
     "ratecon": {
-        "entry": "route_event",
+        "entry": "resolve_load_to_shipment",
         "exit": "end",
         "nodes": [
-            "route_event",
             "resolve_load_to_shipment",
             "upload_ratecon_attachments",
             "check_ratecon_workflow_correlation",
@@ -111,15 +110,6 @@ WORKFLOW_CONFIGS = {
             ["check_ratecon_workflow_correlation", "add_thread_for_shipment"],
             ["add_thread_for_shipment", "end"],
         ],
-        "routers": {
-            "route_event": {
-                "router": "event_type",
-                "map": {
-                    "route_completed": "resolve_load_to_shipment",
-                    "email_received": "resolve_load_to_shipment",
-                    "reminder_due": "resolve_load_to_shipment",
-                },
-            },
-        },
+        "routers": {},
     },
 }

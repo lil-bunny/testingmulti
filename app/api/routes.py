@@ -67,11 +67,8 @@ async def unipile_mail_thread_capture(
         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
             raise HTTPException(status_code=401, detail="Unauthorized")
         raw = await request.json()
-        payload = {
-            "event_type": "email_received",
-            "webhook_name": raw.get("webhook_name"),
-            **raw,
-        }
+        # Merge Unipile body first so event_type cannot be overridden by raw.
+        payload = {**raw, "event_type": "email_received"}
         if payload['webhook_name'] != settings.UNIPILE_MAIL_THREAD_CAPTURE_WEBHOOK_NAME:
             raise HTTPException(status_code=400, detail="Invalid webhook")
         logger.info("Unipile mail thread capture payload: %s", payload)
@@ -115,11 +112,7 @@ async def unipile_webhook(
         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
             raise HTTPException(status_code=401, detail="Unauthorized")
         raw = await request.json()
-        payload = {
-            "event_type": "email_received",
-            "webhook_name": raw.get("webhook_name"),
-            **raw,
-        }
+        payload = {**raw, "event_type": "email_received"}
         if payload['webhook_name'] != settings.UNIPILE_WEBHOOK_NAME:
             return {"message": "invalid webhook"}
         

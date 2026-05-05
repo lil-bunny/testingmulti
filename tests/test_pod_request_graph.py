@@ -34,10 +34,9 @@ def test_ratecon_graph():
     graph = WORKFLOW_CONFIGS["ratecon"]
     validate_graph_definition(graph)
 
-    assert graph["entry"] == "route_event"
+    assert graph["entry"] == "resolve_load_to_shipment"
     assert graph["exit"] == "end"
     assert graph["nodes"] == [
-        "route_event",
         "resolve_load_to_shipment",
         "upload_ratecon_attachments",
         "check_ratecon_workflow_correlation",
@@ -49,8 +48,4 @@ def test_ratecon_graph():
     assert ("upload_ratecon_attachments", "check_ratecon_workflow_correlation") in edges
     assert ("check_ratecon_workflow_correlation", "add_thread_for_shipment") in edges
     assert ("add_thread_for_shipment", "end") in edges
-
-    rmap = graph["routers"]["route_event"]["map"]
-    assert rmap["route_completed"] == "resolve_load_to_shipment"
-    assert rmap["email_received"] == "resolve_load_to_shipment"
-    assert rmap["reminder_due"] == "resolve_load_to_shipment"
+    assert graph.get("routers") == {}
