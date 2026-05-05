@@ -32,7 +32,6 @@ def trigger_pod_reminder(payload: dict[str, Any]):
         payload.get("account_id"),
         payload.get("subject"),
     )
-    logger.info("trigger_pod_reminder full_payload=%s", payload)
 
     asyncio.run(
         service.run(
