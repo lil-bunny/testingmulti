@@ -124,27 +124,3 @@ async def unipile_mail_thread_capture(
     except Exception as e:
         logger.exception("Unipile mail thread capture failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-# @router.post("/webhook/unipile")
-# async def unipile_webhook(
-#     request: Request,
-#     workflow_service: WorkflowService = Depends(get_workflow_service)
-# ):
-#     try:
-#         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
-#             raise HTTPException(status_code=401, detail="Unauthorized")
-#         raw = await request.json()
-#         payload = {**raw, "event_type": "email_received"}
-#         if payload['webhook_name'] != settings.UNIPILE_WEBHOOK_NAME:
-#             return {"message": "invalid webhook"}
-        
-#         result = await workflow_service.run(
-#             tenant_id="t3ra",
-#             workflow_name="pod_lifecycle",
-#             payload=payload,
-#         )
-#         return result
-
-#     except Exception as e:
-#         logger.exception("Unipile webhook processing failed")
-#         raise HTTPException(status_code=500, detail=str(e))
