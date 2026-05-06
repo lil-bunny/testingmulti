@@ -225,5 +225,24 @@ class S3Bucket:
                 "error_message": error_msg,
             }
 
+def public_url_for_object_key(object_key: str) -> str:
+    """
+    Public GET URL for an S3 key, matching URL rules in ``S3Bucket.upload_file``.
 
+    Used when ``documents`` stores only ``object_key`` (e.g. ratecon rows) so readers
+    still get a download URL without persisting it.
+    """
+    key = (object_key or "").strip().lstrip("/")
+    if not key:
+        return ""
+    if settings.BUCKET_ENDPOINT:
+        return f"{str(settings.BUCKET_ENDPOINT).rstrip('/')}/{key}"
+    bucket_name = getattr(settings, "BUCKET_NAME", None) or ""
+    region = getattr(settings, "BUCKET_REGION", "us-west-2")
+    if not bucket_name:
+        return ""
+    return f"https://{bucket_name}.s3.{region}.amazonaws.com/{key}"
+
+
+# Global instance
 bucket = S3Bucket()

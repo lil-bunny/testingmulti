@@ -6,5 +6,11 @@ TENANT_CONFIGS = {
             "remove_edges": [],
             "disable_nodes": [],
         },
+        "ratecon": {
+            "replace": {},
+            "add_edges": [],
+            "remove_edges": [],
+            "disable_nodes": [],
+        },
     },
 }

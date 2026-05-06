@@ -1,7 +1,7 @@
 """create documents table (POD / ratecon artifact rows)
 
 Revision ID: 20260502_01
-Revises: 20260501_01
+Revises: 20260502_01_drop_turvo
 Create Date: 2026-05-02
 
 Schema decisions (POD DB design chat a70ecf21-b177-4018-abf9-2a6fd53cd89b):
@@ -13,7 +13,7 @@ from alembic import op
 
 
 revision: str = "20260502_01"
-down_revision: Union[str, Sequence[str], None] = "20260501_01"
+down_revision: Union[str, Sequence[str], None] = "20260502_01_drop_turvo"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

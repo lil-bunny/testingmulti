@@ -1,6 +1,7 @@
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
+from app.tools.email import detect_attachment_bytes_type
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
 from app.tools.email import ingest_email as ingest_email_tool
 from app.services.s3bucket_service import bucket
@@ -44,21 +45,6 @@ def check_email_attachments(state):
 
     state.data["is_pod_attached"] = has_attachments
     return state
-
-
-def _detect_upload_type(file_content: bytes) -> Tuple[str, str]:
-    """Infer extension and content type from file magic bytes."""
-    if file_content.startswith(b"%PDF"):
-        return "pdf", "application/pdf"
-    if file_content.startswith(b"\xff\xd8\xff"):
-        return "jpg", "image/jpeg"
-    if file_content.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "png", "image/png"
-    if file_content.startswith((b"GIF87a", b"GIF89a")):
-        return "gif", "image/gif"
-    if file_content.startswith(b"RIFF") and file_content[8:12] == b"WEBP":
-        return "webp", "image/webp"
-    return "bin", "application/octet-stream"
 
 
 def get_email_attachments(state):
@@ -107,7 +93,7 @@ def get_email_attachments(state):
                 })
                 continue
 
-            extension, content_type = _detect_upload_type(file_content)
+            extension, content_type = detect_attachment_bytes_type(file_content)
             filename = pod_individual_attachment_filename(
                 str(attachment_id), ship_token, extension
             )

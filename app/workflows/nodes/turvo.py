@@ -1,6 +1,7 @@
 from app.core.config import settings
 from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
+from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool
 from app.tools.turvo import update_shipment as update_shipment_tool
 from app.tools.turvo import upload_to_turvo as upload_to_turvo_tool
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipment_id_for_fetch
@@ -49,6 +50,19 @@ def get_shipment(state):
         else bool(shipment.get("convoy", False))
     )
 
+    return state
+
+
+def resolve_load_to_shipment(state):
+    """Resolve ``load_id`` to Turvo ``shipment_id``; stores tool result under ``load_id_to_shipment``."""
+    load_id = state.data.get("load_id")
+    result = load_id_to_shipment_id_tool(
+        load_id,
+        app_user_id=_turvo_app_user_id(state),
+    )
+    state.data["load_id_to_shipment"] = result
+    if result.get("success") and result.get("shipment_id"):
+        state.data["shipment_id"] = result["shipment_id"]
     return state
 
 

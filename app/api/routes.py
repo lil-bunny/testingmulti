@@ -1,14 +1,39 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.services.workflow_service import WorkflowService
 from app.api.deps import get_workflow_service
 from app.core.logger import get_logger
+from app.tools.email import check_ratecon_mail_payload
 
 from app.core.config import settings
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+
+
+def _merge_ratecon_classification_into_workflow_payload(
+    payload: dict[str, Any], rc: dict[str, Any]
+) -> None:
+    """Copy ``check_ratecon_mail_payload`` fields onto the webhook dict (ratecon / pod_lifecycle paths)."""
+    for src, dest in (
+        ("thread_id", "thread_id"),
+        ("attachment_name", "ratecon_attachment_name"),
+        ("attachment_uri", "ratecon_attachment_uri"),
+        ("attachment_id", "ratecon_attachment_id"),
+        ("attachment_mime", "ratecon_attachment_mime"),
+    ):
+        val = rc.get(src)
+        if val is not None:
+            payload[dest] = val
+    if rc.get("attachment_unipile"):
+        payload["ratecon_attachment_unipile"] = rc["attachment_unipile"]
+    if rc.get("unipile_attachment_fetch"):
+        payload["ratecon_unipile_attachment_fetch"] = rc["unipile_attachment_fetch"]
 
 
 class RunWorkflowRequest(BaseModel):
@@ -35,7 +60,7 @@ async def run_workflow(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/webhook/unipile")
-async def unipile_webhook(
+async def unipile_mail_thread_capture(
     request: Request,
     workflow_service: WorkflowService = Depends(get_workflow_service)
 ):
@@ -43,21 +68,33 @@ async def unipile_webhook(
         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
             raise HTTPException(status_code=401, detail="Unauthorized")
         raw = await request.json()
-        payload = {
-            "event_type": "email_received",
-            "webhook_name": raw.get("webhook_name"),
-            **raw,
-        }
-        if payload['webhook_name'] != settings.UNIPILE_WEBHOOK_NAME:
+        # Merge Unipile body first so event_type cannot be overridden by raw.
+        #webhook name coming from raw 
+        payload = {**raw, "event_type": "email_received"}
+
+        rc = check_ratecon_mail_payload(payload)
+       
+        if rc["is_ratecon_mail"] and payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
+            payload["load_id"] = rc["load_id"]
+            _merge_ratecon_classification_into_workflow_payload(payload, rc)
+            result = await workflow_service.run(
+                tenant_id="t3ra",
+                workflow_name="ratecon",
+                payload=payload,
+            )
+            if isinstance(result, dict):
+                data = result.get("data") if isinstance(result.get("data"), dict) else {}
+                result["shipment_id"] = data.get("shipment_id")
+            return result
+        elif payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
+            result =await workflow_service.run(
+        tenant_id="t3ra",
+        workflow_name="pod_lifecycle",
+        payload=payload,
+    )
+            return result
+        else:
             return {"message": "invalid webhook"}
-
-        result = await workflow_service.run(
-            tenant_id="t3ra",
-            workflow_name="pod_lifecycle",
-            payload=payload,
-        )
-        return result
-
     except Exception as e:
-        logger.exception("Unipile webhook processing failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Unipile mail thread capture failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e

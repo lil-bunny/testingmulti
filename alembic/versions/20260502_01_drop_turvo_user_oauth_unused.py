@@ -1,6 +1,6 @@
 """Drop turvo_user_oauth (unused; OAuth lives in tenants.config).
 
-Revision ID: 20260502_01
+Revision ID: 20260502_01_drop_turvo
 Revises: 20260501_01
 Create Date: 2026-05-02
 """
@@ -9,7 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "20260502_01"
+revision: str = "20260502_01_drop_turvo"
 down_revision: Union[str, Sequence[str], None] = "20260501_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -94,4 +94,22 @@ WORKFLOW_CONFIGS = {
             }
         },
     },
+    "ratecon": {
+        "entry": "resolve_load_to_shipment",
+        "exit": "end",
+        "nodes": [
+            "resolve_load_to_shipment",
+            "upload_ratecon_attachments",
+            "check_ratecon_workflow_correlation",
+            "add_thread_for_shipment",
+            "end",
+        ],
+        "edges": [
+            ["resolve_load_to_shipment", "upload_ratecon_attachments"],
+            ["upload_ratecon_attachments", "check_ratecon_workflow_correlation"],
+            ["check_ratecon_workflow_correlation", "add_thread_for_shipment"],
+            ["add_thread_for_shipment", "end"],
+        ],
+        "routers": {},
+    },
 }

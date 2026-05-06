@@ -2,6 +2,9 @@
 
 Mirrors the pattern in ``app.tools.workflow_correlation``: optional runtime
 ``CREATE TABLE IF NOT EXISTS`` for dev, configurable table name via settings.
+
+S3 alignment: ``S3Bucket.upload_file`` returns ``object_key``; this module stores
+keys on each row for idempotent upserts by ``object_key``.
 """
 
 from __future__ import annotations
