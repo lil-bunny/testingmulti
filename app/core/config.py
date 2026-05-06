@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600
     BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
     # Webhooks
-    UNIPILE_WEBHOOK_SECRET: str="123456"
+    UNIPILE_WEBHOOK_SECRET: str
     UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
