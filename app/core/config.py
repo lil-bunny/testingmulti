@@ -92,11 +92,10 @@ class Settings(BaseSettings):
     BUCKET_REGION: str = "us-west-2"
     # Presigned GetObject TTL (seconds)
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600
-
+    BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
     # Webhooks
-    UNIPILE_WEBHOOK_SECRET: str
+    UNIPILE_WEBHOOK_SECRET: str="123456"
     UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"
-    UNIPILE_MAIL_THREAD_CAPTURE_WEBHOOK_NAME: str = "langraphmailtest"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

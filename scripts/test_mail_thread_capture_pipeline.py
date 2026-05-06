@@ -41,7 +41,7 @@ def main() -> None:
 
     print("=== Mail thread capture - same checks as POST /api/webhook/unipile ===\n")
     wn = payload.get("webhook_name")
-    exp = settings.UNIPILE_MAIL_THREAD_CAPTURE_WEBHOOK_NAME
+    exp = settings.UNIPILE_WEBHOOK_NAME
     print(f"webhook_name: {wn!r}\nexpected:     {exp!r}\nmatch:        {wn == exp}")
     if wn != exp:
         print("\nStop: webhook name would 400 in API.")

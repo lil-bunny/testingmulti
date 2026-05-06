@@ -3,10 +3,8 @@
 Mirrors the pattern in ``app.tools.workflow_correlation``: optional runtime
 ``CREATE TABLE IF NOT EXISTS`` for dev, configurable table name via settings.
 
-S3 alignment: ``S3Bucket.upload_file`` always returns both ``file_url`` and
-``object_key``; this module can store ``url`` (POD), ``object_key`` (ratecon), or
-both, and ``read_document`` resolves a download URL via stored ``url`` or
-``public_url_for_object_key(object_key)``.
+S3 alignment: ``S3Bucket.upload_file`` returns ``object_key``; this module stores
+keys on each row for idempotent upserts by ``object_key``.
 """
 
 from __future__ import annotations
@@ -16,11 +14,9 @@ import uuid
 from typing import Any, Optional
 
 import psycopg
-from psycopg import errors as pg_errors
 
 from app.core.config import settings
 from app.models.document import DocumentType
-from app.services.s3bucket_service import public_url_for_object_key
 from app.services.s3bucket_service import normalize_object_key
 
 logger = logging.getLogger(__name__)
@@ -151,79 +147,6 @@ def insert_document(
         conn.close()
 
 
-def insert_document_object_key(
-    doc_type: DocumentType,
-    shipment_id: str,
-    object_key: str,
-) -> dict[str, Any]:
-    """
-    Insert one ``documents`` row keyed by S3 object key (no persisted URL).
-
-    Returns ``{stored, id?, type?, created_at?, object_key?, error?}``.
-    """
-    sid = (shipment_id or "").strip()
-    ok = (object_key or "").strip()
-    if not sid or not ok:
-        logger.warning(
-            "insert_document_object_key: skip (type=%s shipment_id_set=%s key_set=%s)",
-            doc_type.value,
-            bool(sid),
-            bool(ok),
-        )
-        return {"stored": False, "id": None, "error": "missing_shipment_id_or_object_key"}
-
-    _ensure_pg_table()
-    doc_id = str(uuid.uuid4())
-    t = _table_name()
-    conn = _try_pg_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                INSERT INTO {t} (id, type, shipment_id, object_key)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id, type, created_at
-                """,
-                (doc_id, doc_type.value, sid, ok),
-            )
-            row = cur.fetchone()
-        conn.commit()
-        if not row:
-            return {"stored": False, "id": None, "error": "insert_returned_no_row"}
-        logger.info(
-            "insert_document_object_key: stored id=%s type=%s shipment_id=%s key=%s",
-            row[0],
-            row[1],
-            sid,
-            ok,
-        )
-        return {
-            "stored": True,
-            "id": row[0],
-            "type": str(row[1]),
-            "created_at": row[2],
-            "object_key": ok,
-        }
-    except pg_errors.UniqueViolation:
-        conn.rollback()
-        logger.info(
-            "insert_document_object_key: duplicate object_key type=%s key=%s",
-            doc_type.value,
-            ok,
-        )
-        return {"stored": False, "id": None, "error": "duplicate_object_key"}
-    except Exception as exc:
-        conn.rollback()
-        logger.exception(
-            "insert_document_object_key: failed type=%s shipment_id=%s",
-            doc_type.value,
-            sid,
-        )
-        return {"stored": False, "id": None, "error": str(exc)}
-    finally:
-        conn.close()
-
-
 def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
     """
     Load the latest ``documents`` row for ``shipment_id`` and ``doc_type``.
@@ -279,13 +202,6 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
                 "created_at": None,
                 "error": None,
             }
-        stored_url = row[1]
-        obj_key = row[2]
-        effective_url = (
-            (stored_url and str(stored_url).strip())
-            or public_url_for_object_key(str(obj_key or "").strip())
-            or None
-        )
         return {
             "found": True,
             "id": row[0],

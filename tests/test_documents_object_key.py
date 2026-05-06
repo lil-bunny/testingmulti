@@ -1,4 +1,4 @@
-"""Tests for documents.object_key insert/read and URL derivation."""
+"""Tests for documents.object_key insert/read."""
 
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ class _FakeCursor:
     def fetchone(self):
         return (
             "id-1",
-            None,
-            "freightx/pod_attachments/ratecon_SHIP-1.pdf",
+            "freightx/ratecon_attachments/ratecon_SHIP-1.pdf",
             "ratecon",
             "SHIP-1",
             None,
@@ -52,18 +51,10 @@ def patch_documents_pg(monkeypatch):
     monkeypatch.setattr(doc_mod, "_try_pg_connection", lambda: _FakeConn())
 
 
-def test_read_document_derives_url_from_object_key(monkeypatch, patch_documents_pg):
-    monkeypatch.setattr(
-        doc_mod,
-        "public_url_for_object_key",
-        lambda key: f"https://example-bucket.test/{key}",
-    )
+def test_read_document_returns_latest_row(monkeypatch, patch_documents_pg):
     out = doc_mod.read_document("SHIP-1", DocumentType.RATECON)
     assert out["found"] is True
-    assert (
-        out["url"]
-        == "https://example-bucket.test/freightx/pod_attachments/ratecon_SHIP-1.pdf"
-    )
     assert out["id"] == "id-1"
+    assert out["object_key"] == "freightx/ratecon_attachments/ratecon_SHIP-1.pdf"
     assert out["shipment_id"] == "SHIP-1"
     assert out["type"] == "ratecon"

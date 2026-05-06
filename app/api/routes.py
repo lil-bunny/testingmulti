@@ -14,16 +14,6 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-async def _run_pod_lifecycle_email_workflow(
-    workflow_service: WorkflowService,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    """Unipile mail_received body → ``pod_lifecycle`` for tenant ``t3ra``."""
-    return await workflow_service.run(
-        tenant_id="t3ra",
-        workflow_name="pod_lifecycle",
-        payload=payload,
-    )
 
 
 def _merge_ratecon_classification_into_workflow_payload(
@@ -79,12 +69,12 @@ async def unipile_mail_thread_capture(
             raise HTTPException(status_code=401, detail="Unauthorized")
         raw = await request.json()
         # Merge Unipile body first so event_type cannot be overridden by raw.
+        #webhook name coming from raw 
         payload = {**raw, "event_type": "email_received"}
-        if payload['webhook_name'] != settings.UNIPILE_MAIL_THREAD_CAPTURE_WEBHOOK_NAME:
-            raise HTTPException(status_code=400, detail="Invalid webhook")
-        logger.info("Unipile mail thread capture payload: %s", payload)
+
         rc = check_ratecon_mail_payload(payload)
-        if rc["is_ratecon_mail"]:
+       
+        if rc["is_ratecon_mail"] and payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
             payload["load_id"] = rc["load_id"]
             _merge_ratecon_classification_into_workflow_payload(payload, rc)
             result = await workflow_service.run(
@@ -96,9 +86,15 @@ async def unipile_mail_thread_capture(
                 data = result.get("data") if isinstance(result.get("data"), dict) else {}
                 result["shipment_id"] = data.get("shipment_id")
             return result
-
-        _merge_ratecon_classification_into_workflow_payload(payload, rc)
-        return await _run_pod_lifecycle_email_workflow(workflow_service, payload)
+        elif payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
+            result =await workflow_service.run(
+        tenant_id="t3ra",
+        workflow_name="pod_lifecycle",
+        payload=payload,
+    )
+            return result
+        else:
+            return {"message": "invalid webhook"}
     except Exception as e:
         logger.exception("Unipile mail thread capture failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
