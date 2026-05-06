@@ -13,6 +13,13 @@ ENV UV_COMPILE_BYTECODE=1
 # Set the working directory inside the container
 WORKDIR /code
 
+# --- INSTALL SYSTEM DEPENDENCIES  ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    poppler-utils \
+    libmagic1 \
+    libheif-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy ONLY your dependency files first. 
 # Docker caches layers. By doing this before copying your code, changing a python file won't force a full re-install of all packages.
 COPY pyproject.toml uv.lock ./
