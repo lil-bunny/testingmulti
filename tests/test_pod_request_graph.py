@@ -16,7 +16,7 @@ def test_pod_lifecycle_pod_request_graph():
 
     routers = graph["routers"]
     assert "check_pod_request_triggered" in routers
-    assert routers["check_pod_request_triggered"]["router"] == "pod_request_triggered"
+    assert routers["check_pod_request_triggered"]["router"] == "pod_request_triggered_router"
     refresh_map = routers["refresh_pod_before_send_email"]["map"]
     assert refresh_map["send_now"] == "send_email"
     assert refresh_map["skip_send"] == "end"

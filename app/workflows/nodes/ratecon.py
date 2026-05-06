@@ -2,7 +2,7 @@
 
 from app.core.logger import get_logger
 from app.models.document import DocumentType
-from app.tools.documents import insert_document_object_key
+from app.tools.documents import insert_document
 from app.tools.ratecon import upload_ratecon_email_attachments_to_s3
 from app.workflows.shipment_resolver import resolve_shipment_id
 
@@ -12,7 +12,8 @@ logger = get_logger(__name__)
 def upload_ratecon_attachments(state):
     """
     When the run includes Unipile attachment metadata + ``email_id``, download each
-    file and upload to S3. Result is stored on ``state.data['ratecon_s3_upload']``.
+    file and upload to S3. Persists ``documents`` rows via ``insert_document``.
+    Result is stored on ``state.data['ratecon_s3_upload']``.
     """
     attachments = state.data.get("attachments") or []
     if not attachments:
@@ -50,6 +51,8 @@ def upload_ratecon_attachments(state):
         attachments=list(attachments),
         shipment_id=str(shipment_id),
     )
+    eid = state.data.get("email_id")
+    eid_s = str(eid).strip() if eid is not None else None
     for item in result.get("results") or []:
         if not item.get("success") or not item.get("object_key"):
             item["document_persist"] = {
@@ -58,10 +61,13 @@ def upload_ratecon_attachments(state):
                 "reason": "no_successful_upload_or_object_key",
             }
             continue
-        persist = insert_document_object_key(
+        aid = item.get("attachment_id")
+        persist = insert_document(
             DocumentType.RATECON,
             str(shipment_id),
             str(item["object_key"]),
+            email_id=eid_s,
+            attachment_id=str(aid) if aid is not None else None,
         )
         item["document_persist"] = {
             "stored": bool(persist.get("stored")),

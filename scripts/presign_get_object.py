@@ -1,0 +1,70 @@
+"""
+Print a presigned HTTPS GET URL for an S3 object key (private bucket).
+
+Uses ``S3Bucket.presign_get_object`` (same credentials as the app).
+
+Usage:
+
+  uv run python scripts/presign_get_object.py
+  uv run python scripts/presign_get_object.py freightx/ratecon_attachments/ratecon_1000315335.pdf
+  uv run python scripts/presign_get_object.py --expires 3600 my/key.pdf
+
+Requires ``.env`` at repo root with BUCKET_* settings.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from dotenv import load_dotenv
+
+load_dotenv(ROOT / ".env", override=False)
+
+DEFAULT_OBJECT_KEY = "freightx/ratecon_attachments/ratecon_1000315335.pdf"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Presign S3 GetObject URL for an object key.")
+    parser.add_argument(
+        "object_key",
+        nargs="?",
+        default=DEFAULT_OBJECT_KEY,
+        help=f"S3 object key (default: {DEFAULT_OBJECT_KEY})",
+    )
+    parser.add_argument(
+        "--expires",
+        type=int,
+        default=None,
+        help="TTL seconds (default: settings.BUCKET_PRESIGN_EXPIRES_SECONDS)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print JSON instead of plain URL",
+    )
+    args = parser.parse_args()
+
+    from app.services.s3bucket_service import bucket
+
+    result = bucket.presign_get_object(args.object_key, expires_in=args.expires)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0 if result.get("success") else 2
+
+    if not result.get("success"):
+        print(f"[presign_get_object] FAILED: {result.get('error_message')}", file=sys.stderr)
+        return 2
+
+    print(result["url"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
