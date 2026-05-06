@@ -7,7 +7,6 @@ from app.services.workflow_service import WorkflowService
 from app.api.deps import get_workflow_service
 from app.core.logger import get_logger
 from app.tools.email import check_ratecon_mail_payload
-from app.tools.workflow_correlation import ratecon_shipment_in_workflow_correlation
 
 from app.core.config import settings
 
@@ -85,42 +84,21 @@ async def unipile_mail_thread_capture(
             raise HTTPException(status_code=400, detail="Invalid webhook")
         logger.info("Unipile mail thread capture payload: %s", payload)
         rc = check_ratecon_mail_payload(payload)
-        if not rc["is_ratecon_mail"]:
-            return {"message": "ignored", "reason": "not_ratecon_mail"}
-        app_user = settings.TURVO_DEFAULT_APP_USER_ID
-        
-        corr = ratecon_shipment_in_workflow_correlation(rc["load_id"], app_user_id=app_user)
-        if corr["in_workflow_correlation"]:
-            payload["load_id"] = corr["load_id"] or rc["load_id"]
-            if corr.get("shipment_id"):
-                payload["shipment_id"] = str(corr["shipment_id"]).strip()
+        if rc["is_ratecon_mail"]:
+            payload["load_id"] = rc["load_id"]
             _merge_ratecon_classification_into_workflow_payload(payload, rc)
-            logger.info(
-                "mail_thread_capture: existing ratecon correlation — running pod_lifecycle "
-                "shipment_id=%s load_id=%s",
-                corr.get("shipment_id"),
-                payload.get("load_id"),
+            result = await workflow_service.run(
+                tenant_id="t3ra",
+                workflow_name="ratecon",
+                payload=payload,
             )
-            result = await _run_pod_lifecycle_email_workflow(workflow_service, payload)
             if isinstance(result, dict):
-                result["ran_pod_lifecycle_for_existing_correlation"] = True
                 data = result.get("data") if isinstance(result.get("data"), dict) else {}
-                result["shipment_id"] = corr.get("shipment_id") or data.get("shipment_id")
+                result["shipment_id"] = data.get("shipment_id")
             return result
-        payload["load_id"] = rc["load_id"]
-        if corr.get("shipment_id"):
-            payload["shipment_id"] = str(corr["shipment_id"]).strip()
+
         _merge_ratecon_classification_into_workflow_payload(payload, rc)
-        result = await workflow_service.run(
-            tenant_id="t3ra",
-            workflow_name="ratecon",
-            payload=payload,
-        )
-        if isinstance(result, dict):
-            result["ran_ratecon_for_new_correlation"] = True
-            data = result.get("data") if isinstance(result.get("data"), dict) else {}
-            result["shipment_id"] = corr.get("shipment_id") or data.get("shipment_id")
-        return result
+        return await _run_pod_lifecycle_email_workflow(workflow_service, payload)
     except Exception as e:
         logger.exception("Unipile mail thread capture failed")
         raise HTTPException(status_code=500, detail=str(e)) from e

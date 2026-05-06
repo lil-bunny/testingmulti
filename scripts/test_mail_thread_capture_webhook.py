@@ -1,6 +1,6 @@
 """
 POST the Unipile ``mail_thread_capture`` webhook — same handler as
-``app.api.routes.unipile_mail_thread_capture`` (``POST /api/webhook/unipile/mail_thread_capture``).
+``app.api.routes.unipile_mail_thread_capture`` (``POST /api/webhook/unipile``).
 
 Default body is a sample ``mail_received`` ratecon email (subject #30381, attachment id
 from Unipile). Override with ``--payload-file path.json``.
@@ -101,7 +101,7 @@ MAIL_RECEIVED_BODY: dict[str, Any] = {
     "deprecated_id": "w4F_ECliWSK0TRYMPV8TvQ",
 }
 
-PATH = "/api/webhook/unipile/mail_thread_capture"
+PATH = "/api/webhook/unipile"
 
 _STUBS_ATTACHED = False
 
@@ -278,8 +278,7 @@ def main() -> int:
 
     if isinstance(body, dict) and body.get("message") == "ignored":
         print(
-            "\n(note: workflow did not run — see reason above, e.g. "
-            "not_ratecon_mail or already_in_workflow_correlation.)",
+            "\n(note: workflow did not run — see reason above.)",
             file=sys.stderr,
         )
         return 0
