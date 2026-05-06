@@ -39,7 +39,7 @@ def main() -> None:
         **raw,
     }
 
-    print("=== Mail thread capture - same checks as POST /api/webhook/unipile/mail_thread_capture ===\n")
+    print("=== Mail thread capture - same checks as POST /api/webhook/unipile ===\n")
     wn = payload.get("webhook_name")
     exp = settings.UNIPILE_MAIL_THREAD_CAPTURE_WEBHOOK_NAME
     print(f"webhook_name: {wn!r}\nexpected:     {exp!r}\nmatch:        {wn == exp}")
@@ -71,7 +71,7 @@ def main() -> None:
             corr.get("shipment_id"),
         )
         print(
-            "    Full graph: POST /api/webhook/unipile/mail_thread_capture with Authorization header."
+            "    Full graph: POST /api/webhook/unipile with Authorization header."
         )
 
 
