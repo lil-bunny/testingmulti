@@ -1,11 +1,12 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from app.services.workflow_service import WorkflowService
 from app.api.deps import get_workflow_service
 from app.core.logger import get_logger
+from app.tasks.workflows import run_workflow_async
 from app.tools.email import check_ratecon_mail_payload
 
 from app.core.config import settings
@@ -54,15 +55,15 @@ async def run_workflow(
             payload=request.payload,
         )
         return result
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Workflow execution failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal error") from e
 
 @router.post("/webhook/unipile")
 async def unipile_mail_thread_capture(
     request: Request,
-    workflow_service: WorkflowService = Depends(get_workflow_service)
 ):
     try:
         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
@@ -77,24 +78,27 @@ async def unipile_mail_thread_capture(
         if rc["is_ratecon_mail"] and payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
             payload["load_id"] = rc["load_id"]
             _merge_ratecon_classification_into_workflow_payload(payload, rc)
-            result = await workflow_service.run(
-                tenant_id="t3ra",
-                workflow_name="ratecon",
-                payload=payload,
+            run_workflow_async.apply_async(
+                kwargs={
+                    "tenant_id": "t3ra",
+                    "workflow_name": "ratecon",
+                    "payload": payload,
+                }
             )
-            if isinstance(result, dict):
-                data = result.get("data") if isinstance(result.get("data"), dict) else {}
-                result["shipment_id"] = data.get("shipment_id")
-            return result
+            return Response(status_code=status.HTTP_200_OK)
         elif payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
-            result =await workflow_service.run(
-        tenant_id="t3ra",
-        workflow_name="pod_lifecycle",
-        payload=payload,
-    )
-            return result
+            run_workflow_async.apply_async(
+                kwargs={
+                    "tenant_id": "t3ra",
+                    "workflow_name": "pod_lifecycle",
+                    "payload": payload,
+                }
+            )
+            return Response(status_code=status.HTTP_200_OK)
         else:
             return {"message": "invalid webhook"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Unipile mail thread capture failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal error") from e

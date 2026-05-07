@@ -46,6 +46,7 @@ if settings.CELERY_BROKER_URL.startswith("redis"):
 # Import after ``celery_app`` exists: ``include=`` during Celery() runs too early (circular import)
 # and autodiscover alone loads only ``app.tasks.tasks``, which is a separate import from ``reminders``.
 import app.tasks.reminders  # noqa: E402
+import app.tasks.workflows  # noqa: E402
 
 # Resolves ``app.tasks.tasks`` (shim re-export) for deployments that rely on autodiscover Related name.
 celery_app.autodiscover_tasks(["app.tasks"])
