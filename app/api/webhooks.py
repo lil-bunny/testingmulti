@@ -96,14 +96,24 @@ async def listen_turvo_status(
         payload["thread_id"] = thread.strip()
 
     try:
-        run_workflow_async.apply_async(
+        task = run_workflow_async.apply_async(
             kwargs={
                 "tenant_id": workflow_tenant,
                 "workflow_name": WORKFLOW_NAME,
                 "payload": payload,
             }
         )
+        logger.info(
+            "Turvo webhook queued task_id=%s workflow_name=%s tenant_id=%s shipment_id=%s thread_id=%s",
+            task.id,
+            WORKFLOW_NAME,
+            workflow_tenant,
+            payload.get("shipment_id"),
+            payload.get("thread_id"),
+        )
         return Response(status_code=status.HTTP_200_OK)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Turvo webhook queueing failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal error") from e

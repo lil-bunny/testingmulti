@@ -1,10 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
-
-from app.services.workflow_service import WorkflowService
-from app.api.deps import get_workflow_service
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from app.core.logger import get_logger
 from app.tasks.workflows import run_workflow_async
 from app.tools.email import check_ratecon_mail_payload
@@ -37,30 +33,6 @@ def _merge_ratecon_classification_into_workflow_payload(
         payload["ratecon_unipile_attachment_fetch"] = rc["unipile_attachment_fetch"]
 
 
-class RunWorkflowRequest(BaseModel):
-    tenant_id: str
-    workflow_name: str
-    payload: dict = Field(default_factory=dict)
-
-
-@router.post("/workflows/run")
-async def run_workflow(
-    request: RunWorkflowRequest,
-    workflow_service: WorkflowService = Depends(get_workflow_service)
-):
-    try:
-        result = await workflow_service.run(
-            tenant_id=request.tenant_id,
-            workflow_name=request.workflow_name,
-            payload=request.payload,
-        )
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Workflow execution failed")
-        raise HTTPException(status_code=500, detail="Internal error") from e
-
 @router.post("/webhook/unipile")
 async def unipile_mail_thread_capture(
     request: Request,
@@ -78,21 +50,37 @@ async def unipile_mail_thread_capture(
         if rc["is_ratecon_mail"] and payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
             payload["load_id"] = rc["load_id"]
             _merge_ratecon_classification_into_workflow_payload(payload, rc)
-            run_workflow_async.apply_async(
+            task = run_workflow_async.apply_async(
                 kwargs={
                     "tenant_id": "t3ra",
                     "workflow_name": "ratecon",
                     "payload": payload,
                 }
             )
+            logger.info(
+                "Unipile webhook queued task_id=%s workflow_name=%s tenant_id=%s thread_id=%s load_id=%s",
+                task.id,
+                "ratecon",
+                "t3ra",
+                payload.get("thread_id"),
+                payload.get("load_id"),
+            )
             return Response(status_code=status.HTTP_200_OK)
         elif payload['webhook_name'] == settings.UNIPILE_WEBHOOK_NAME:
-            run_workflow_async.apply_async(
+            task = run_workflow_async.apply_async(
                 kwargs={
                     "tenant_id": "t3ra",
                     "workflow_name": "pod_lifecycle",
                     "payload": payload,
                 }
+            )
+            logger.info(
+                "Unipile webhook queued task_id=%s workflow_name=%s tenant_id=%s thread_id=%s shipment_id=%s",
+                task.id,
+                "pod_lifecycle",
+                "t3ra",
+                payload.get("thread_id"),
+                payload.get("shipment_id"),
             )
             return Response(status_code=status.HTTP_200_OK)
         else:
