@@ -44,8 +44,44 @@ class WorkflowService:
         self.tenant_repo = tenant_repo
         self.execution = ExecutionService()
 
-    @traceable(run_type="chain", name="workflow_service_run")
     async def run(
+        self,
+        tenant_id: str,
+        workflow_name: str,
+        payload: Optional[dict] = None,
+    ):
+        payload = payload or {}
+        workflow_instance_id = self._resolve_workflow_instance_id(
+            tenant_id=tenant_id,
+            payload=payload,
+        )
+        payload["workflow_instance_id"] = workflow_instance_id
+        payload["workflow_name"] = workflow_name
+        if payload.get("thread_id"):
+            map_thread_to_workflow(payload["thread_id"], workflow_instance_id)
+
+        event_type = payload.get("event_type")
+        traced = traceable(
+            run_type="chain",
+            name=f"workflow:{workflow_name}",
+        )(self._run_impl)
+        return await traced(
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            payload=payload,
+            langsmith_extra={
+                "metadata": {
+                    "workflow_instance_id": workflow_instance_id,
+                    "tenant_id": tenant_id,
+                    "event_type": event_type,
+                    "shipment_id": payload.get("shipment_id"),
+                    "load_id": payload.get("load_id"),
+                    "email_thread_id": payload.get("email_thread_id") or payload.get("thread_id"),
+                }
+            },
+        )
+
+    async def _run_impl(
         self,
         tenant_id: str,
         workflow_name: str,
@@ -56,20 +92,15 @@ class WorkflowService:
             raise Exception(f"Unknown workflow contract: {workflow_name}")
 
         payload = payload or {}
+        workflow_instance_id = str(
+            payload.get("workflow_instance_id")
+            or self._resolve_workflow_instance_id(tenant_id=tenant_id, payload=payload)
+        )
         missing_keys = [k for k in contract.required_state_keys if k not in payload]
         if missing_keys:
             raise Exception(
                 f"Missing required payload keys for '{workflow_name}': {missing_keys}"
             )
-
-        workflow_instance_id = self._resolve_workflow_instance_id(
-            tenant_id=tenant_id,
-            payload=payload,
-        )
-        payload["workflow_instance_id"] = workflow_instance_id
-        payload["workflow_name"] = workflow_name
-        if payload.get("thread_id"):
-            map_thread_to_workflow(payload["thread_id"], workflow_instance_id)
 
         base_graph = self.workflow_repo.get(workflow_name)
         tenant_config = self.tenant_repo.get_config(tenant_id).get(workflow_name, {})
