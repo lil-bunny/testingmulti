@@ -5,24 +5,17 @@ def pod_exists_router(state):
 def pod_missing_dispatch_router(state):
     """
     POD missing:
-    - route_completed (not process_pod follow-up): schedule Celery steps 0–2 only.
+    - route_completed: schedule Celery steps 0–2 only (no synchronous email).
     - reminder_due: send email in this run (after Turvo check), i.e. queued reminder fired.
-    - anything else (e.g. follow-up refresh): no send; only scheduled reminders may mail.
+    - anything else: no send; only scheduled reminders may mail.
     """
     if state.data.get("pod_exists"):
         return "exists"
-    if (
-        state.data.get("event_type") == "route_completed"
-        and state.data.get("_pod_email_context") != "process_pod_followup"
-    ):
+    if state.data.get("event_type") == "route_completed":
         return "schedule_initial"
     if state.data.get("event_type") == "reminder_due":
         return "send_now"
     return "skip_send"
-
-
-def convoy_router(state):
-    return "convoy" if state.data.get("is_convoy") else "non_convoy"
 
 
 def shipment_router(state):
@@ -42,15 +35,18 @@ def shipment_router(state):
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
 
 
-def pod_reply_router(state):
-    return "is_reply" if state.data.get("is_pod_attached") else "missing"
-
-def read_workflow_correlation_router(state):
+def read_workflow_lifecycle_router(state):
     event_type = event_type_router(state)
     if event_type == "email_received":
-        return "is_found" if state.data.get("workflow_correlation").get("found") else "missing"
-    
-    return "check_existing_pod"
+        lifecycle = (
+            state.data.get("lookup_workflow_lifecycle")
+            or state.data.get("workflow_lifecycle_payload")
+            or state.data.get("ratecon_workflow_lifecycle")
+            or {}
+        )
+        return "is_found" if lifecycle.get("found") else "missing"
+    return "missing"
+
 
 def event_type_router(state):
     event_type = state.data.get("event_type")
@@ -63,17 +59,3 @@ def event_type_router(state):
 
 def pod_request_triggered_router(state):
     return "blocked" if state.data.get("pod_request_blocked") else "continue"
-
-
-def pod_request_mark_router(state):
-    return "marked" if state.data.get("_schedule_pod_reminders_after_email") else "skipped_mark"
-
-
-def noop_always_router(state):
-    """Single-key router for fan-in when two nodes must lead to one target."""
-    return "go"
-
-
-def noop_followup_route(state):
-    return "followup" if state.data.get("_pod_request_from_followup") else "main"
-

@@ -255,7 +255,7 @@ class AttachmentNormalizerService:
         upload_result = bucket.upload_file(
             file_content=merged_bytes,
             filename=merged_filename,
-            folder="pod_attachments",
+            folder=settings.BUCKET_POD_ATTACHMENTS_FOLDER,
             content_type="application/pdf",
         )
         pod_merged_pdf_object_key = upload_result.get("object_key") if upload_result.get("success") else None
@@ -440,7 +440,7 @@ class AttachmentNormalizerService:
         upload_result = bucket.upload_file(
             file_content=pdf_bytes,
             filename=merged_filename,
-            folder="pod_attachments",
+            folder=settings.BUCKET_POD_ATTACHMENTS_FOLDER,
             content_type="application/pdf",
         )
         pod_merged_pdf_object_key = upload_result.get("object_key") if upload_result.get("success") else None
@@ -678,11 +678,11 @@ class AttachmentNormalizerService:
                 return None
         base = key.rstrip("/").rsplit("/", 1)[-1]
         if not base or "." not in base:
-            m = re.search(r"pod_attachments/pod_([^.]+)\.\w+$", key)
+            m = re.search(rf"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_([^.]+)\.\w+$", key)
             return m.group(1) if m else None
         stem, _, _ext = base.rpartition(".")
         if not stem.startswith("pod_"):
-            m = re.search(r"pod_attachments/pod_([^.]+)\.\w+$", key)
+            m = re.search(rf"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_([^.]+)\.\w+$", key)
             return m.group(1) if m else None
         rest = stem[4:]
         if shipment_hint:

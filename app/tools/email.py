@@ -364,29 +364,6 @@ def reply_to_thread(
         )
     return result
 
-def ingest_email(payload):
-    # Prefer nested webhook payload to keep workflow state uncluttered.
-    source = payload
-
-    return {
-        "attachments": source.get("attachments"),
-        "thread_id": source.get("thread_id"),
-        "body": source.get("body"),
-        "subject": source.get("subject"),
-        "has_attachments": source.get("has_attachments"),
-        "role": source.get("role"),
-        "email_id": source.get("email_id"),
-        "account_id": source.get("account_id"),
-        "provider_id": source.get("provider_id"),
-        "message_id": source.get("message_id"),
-        "from_attendee": source.get("from_attendee"),
-        "to_attendees": source.get("to_attendees"),
-        "cc_attendees": source.get("cc_attendees"),
-        "in_reply_to": source.get("in_reply_to"),
-        "date": source.get("date"),
-    }
-
-
 def detect_attachment_bytes_type(file_content: bytes) -> tuple[str, str]:
     """Infer file extension and MIME type from magic bytes (email / ratecon uploads)."""
     if file_content.startswith(b"%PDF"):

@@ -39,7 +39,8 @@ load_dotenv(ROOT / ".env", override=False)
 
 from app.services.s3bucket_service import bucket  # noqa: E402
 
-DEFAULT_OBJECT_KEY = "freightx/ratecon_attachments/ratecon_1000315335.pdf"
+DEFAULT_OBJECT_KEY = "freightx/pod_attachments/pod_1000324868.pdf"
+# DEFAULT_OBJECT_KEY = "freightx/ratecon_attachments/ratecon_1000315335.pdf"
 
 
 def parse_args() -> argparse.Namespace:

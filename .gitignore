@@ -27,3 +27,5 @@ build/
 .codex
 
 langsmith_init.py
+.agents
+.github

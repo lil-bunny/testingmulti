@@ -29,7 +29,7 @@ def test_reminder_offset_label_fractional_hours() -> None:
 def test_build_reminder_payload_subjects() -> None:
     base = {
         "tenant_id": "t1",
-        "workflow_instance_id": "w1",
+        "workflow_lifecycle_id": "w1",
         "subject": "Load 123 POD",
     }
     p0 = _build_reminder_payload(base, 0.00833333, 0)

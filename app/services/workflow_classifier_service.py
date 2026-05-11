@@ -173,7 +173,7 @@ class WorkflowClassifierService:
     def has_rate_confirmation_subject(self, subject: str) -> bool:
         return has_rate_confirmation_subject(subject)
 
-    def classify_workflow_type(payload: dict[str, Any]) -> dict[str, Any] | None:
+    def classify_workflow_type(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """
         Classify incoming email webhook into a workflow.
             1. "rate confirmation" keyword in subject
@@ -183,7 +183,6 @@ class WorkflowClassifierService:
             3.2 reply email : in_reply_to exists
                 trigger pod reply workflow
         """
-        
 
         subject = str(payload.get("subject") or "").strip()
         if not has_rate_confirmation_subject(subject):

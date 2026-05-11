@@ -19,9 +19,9 @@ def _strip_shipment_id(value: Any) -> str:
 
 
 def resolve_shipment_id_for_fetch(data: dict[str, Any]) -> str | None:
-    """Resolve id for Turvo shipment fetch: correlation payload, then root ``shipment_id``."""
-    payload = (data.get("workflow_correlation") or {}).get("payload") or {}
-    sid = _strip_shipment_id(payload.get("shipment_id"))
+    """Resolve id for Turvo shipment fetch: lifecycle data, then root ``shipment_id``."""
+    lifecycle = data.get("workflow_lifecycle") or {}
+    sid = _strip_shipment_id(lifecycle.get("shipment_id"))
     if sid:
         return sid
     sid = _strip_shipment_id(data.get("shipment_id"))
