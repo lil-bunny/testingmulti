@@ -20,7 +20,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
@@ -46,31 +46,31 @@ jobs:
     # DEPLOY BLUE ENVIRONMENT 
     # --------------------------------------------------------- 
     - name: Force ECS to deploy new image to Blue Service 
-    run: | 
-      aws ecs update-service \
-        --cluster ${{ env.ECS_CLUSTER }} \
-        --service ${{ env.BLUE_SERVICE }} \
-        --force-new-deployment
+      run: | 
+        aws ecs update-service \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --service ${{ env.BLUE_SERVICE }} \
+          --force-new-deployment
 
     - name: Wait for Blue Service to become stable
-    run: |
-      aws ecs wait services-stable \
-        --cluster ${{ env.ECS_CLUSTER }} \
-        --services ${{ env.BLUE_SERVICE }}
+      run: |
+        aws ecs wait services-stable \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.BLUE_SERVICE }}
     
     # --------------------------------------------------------- 
     # DEPLOY GREEN ENVIRONMENT 
     # --------------------------------------------------------- 
 
     - name: Force ECS to deploy new image to Green Service
-    run: |
-      aws ecs update-service \
-        --cluster ${{ env.ECS_CLUSTER }} \
-        --service ${{ env.GREEN_SERVICE }} \
-        --force-new-deployment
+      run: |
+        aws ecs update-service \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --service ${{ env.GREEN_SERVICE }} \
+          --force-new-deployment
 
     - name: Wait for Green Service to become stable
-    run: |
-      aws ecs wait services-stable \
-        --cluster ${{ env.ECS_CLUSTER }} \
-        --services ${{ env.GREEN_SERVICE }}
+      run: |
+        aws ecs wait services-stable \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.GREEN_SERVICE }}
