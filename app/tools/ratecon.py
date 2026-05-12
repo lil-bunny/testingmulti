@@ -29,7 +29,7 @@ def upload_ratecon_email_attachments_to_s3(
     ship_token = (shipment_id or "").strip() or "unknown"
     object_basename = ratecon_shipment_object_basename(ship_token)
     folder = (
-        (settings.BUCKET_RATECON_ATTACHMENTS_FOLDER or "").strip() or "ratecon_attachments"
+        (settings.BUCKET_RATECON_ATTACHMENTS_FOLDER or "").strip() 
     )
     results: list[dict[str, Any]] = []
 

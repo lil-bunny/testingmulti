@@ -35,7 +35,7 @@ def _build_reminder_payload(
         "event_type": "reminder_due",
         "reminder_step": step,
         "tenant_id": data.get("tenant_id"),
-        "workflow_instance_id": data.get("workflow_instance_id"),
+        "workflow_lifecycle_id": data.get("workflow_lifecycle_id"),
         "shipment_id": data.get("shipment_id"),
         "load_id": data.get("load_id"),
         "thread_id": data.get("thread_id"),
@@ -58,7 +58,7 @@ def schedule_pod_reminders(data: dict[str, Any]) -> None:
         return
     if data.get("reminders_scheduled"):
         return
-    if not data.get("workflow_instance_id") or not data.get("tenant_id"):
+    if not data.get("workflow_lifecycle_id") or not data.get("tenant_id"):
         return
 
     specs: list[tuple[float, int]] = [

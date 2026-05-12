@@ -22,11 +22,11 @@ def trigger_pod_reminder(payload: dict[str, Any]):
         tenant_repo=TenantRepository(),
     )
     logger.info(
-        "trigger_pod_reminder start reminder_step=%s tenant_id=%s workflow_instance_id=%s "
+        "trigger_pod_reminder start reminder_step=%s tenant_id=%s workflow_lifecycle_id=%s "
         "shipment_id=%s thread_id=%s account_id=%s subject=%r",
         payload.get("reminder_step"),
         payload.get("tenant_id"),
-        payload.get("workflow_instance_id"),
+        payload.get("workflow_lifecycle_id"),
         payload.get("shipment_id"),
         payload.get("thread_id"),
         payload.get("account_id"),

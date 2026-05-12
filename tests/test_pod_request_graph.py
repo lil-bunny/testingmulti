@@ -10,24 +10,21 @@ def test_pod_lifecycle_pod_request_graph():
 
     names = graph["nodes"]
     assert "check_pod_request_triggered" in names
-    assert "branch_after_send_email_pod_request" in names
-    assert "refresh_pod_before_send_email" in names
-    assert "noop_pod_followup_marker" in names
+    assert "record_and_schedule_pod_request" in names
+    assert "record_reminder_run" in names
 
     routers = graph["routers"]
     assert "check_pod_request_triggered" in routers
     assert routers["check_pod_request_triggered"]["router"] == "pod_request_triggered_router"
-    refresh_map = routers["refresh_pod_before_send_email"]["map"]
-    assert refresh_map["send_now"] == "send_email"
-    assert refresh_map["skip_send"] == "end"
     assert "check_existing_pod" in routers
     assert routers["check_existing_pod"]["map"]["skip_send"] == "end"
+    assert routers["check_existing_pod"]["map"]["schedule_initial"] == "record_and_schedule_pod_request"
+    assert routers["check_existing_pod"]["map"]["send_now"] == "send_email"
 
     edges = [tuple(e) for e in graph["edges"]]
-    assert ("send_email", "branch_after_send_email_pod_request") in edges
-    assert ("noop_pod_followup_marker", "refresh_pod_before_send_email") in edges
-    assert ("process_pod", "noop_pod_followup_marker") not in edges
-    assert ("check_existing_pod", "send_email") not in edges
+    assert ("send_email", "record_reminder_run") in edges
+    assert ("record_reminder_run", "end") in edges
+    assert ("record_and_schedule_pod_request", "end") in edges
 
 
 def test_ratecon_graph():
@@ -38,14 +35,14 @@ def test_ratecon_graph():
     assert graph["exit"] == "end"
     assert graph["nodes"] == [
         "resolve_load_to_shipment",
+        "resolve_workflow_lifecycle",
         "upload_ratecon_attachments",
-        "check_ratecon_workflow_correlation",
-        "add_thread_for_shipment",
+        "check_ratecon_workflow_lifecycle",
         "end",
     ]
     edges = [tuple(e) for e in graph["edges"]]
-    assert ("resolve_load_to_shipment", "upload_ratecon_attachments") in edges
-    assert ("upload_ratecon_attachments", "check_ratecon_workflow_correlation") in edges
-    assert ("check_ratecon_workflow_correlation", "add_thread_for_shipment") in edges
-    assert ("add_thread_for_shipment", "end") in edges
+    assert ("resolve_load_to_shipment", "resolve_workflow_lifecycle") in edges
+    assert ("resolve_workflow_lifecycle", "upload_ratecon_attachments") in edges
+    assert ("upload_ratecon_attachments", "check_ratecon_workflow_lifecycle") in edges
+    assert ("check_ratecon_workflow_lifecycle", "end") in edges
     assert graph.get("routers") == {}

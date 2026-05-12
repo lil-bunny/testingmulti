@@ -31,14 +31,12 @@ class Settings(BaseSettings):
     DATABASE_USER: str
     DATABASE_PASSWORD: str
 
-    # Workflow correlation persistence
-    WORKFLOW_CORRELATION_TABLE: str
     DOCUMENTS_TABLE: str = "documents"
     DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
     # Fractional hours supported (e.g. 30s ≈ 0.00833333). Integers in .env still parse (24 → 24.0).
-    REMINDER_0_HOURS: float = 0.0
-    REMINDER_1_HOURS: float
-    REMINDER_2_HOURS: float
+    REMINDER_0_HOURS:float = 0           # immediate
+    REMINDER_1_HOURS:float = 0.01666666  # 1m later
+    REMINDER_2_HOURS:float = 0.03333332  # 2m later
     POD_REMINDER_EMAIL_BODY: str = "Please send pod"
     # After nominal reminder time (ETA), Celery discards the task if not yet executed.
     REMINDER_EXPIRE_GRACE_HOURS: int = 2
@@ -47,27 +45,14 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
 
-    # Unipile (optional; POD reminder replies in thread when set)
-    UNIPILE_API_KEY: Optional[str] = None
+    # Unipile (required for POD reminder replies in thread)
+    UNIPILE_API_KEY: str
     UNIPILE_BASE_URL: str = "https://api16.unipile.com:14674"
-    UNIPILE_ACCOUNT_ID: Optional[str] = None
+    UNIPILE_ACCOUNT_ID: str
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
     STUDIO_TENANT_ID: str = "t3ra"
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
-
-    # Turvo Public API OAuth (optional until Turvo is configured)
-    TURVO_PUBLICAPI_URL: Optional[str] = None
-    TURVO_PUBLICAPI_CLIENT_ID: Optional[str] = None
-    TURVO_PUBLICAPI_CLIENT_SECRET: Optional[str] = None
-    TURVO_X_API_KEY: Optional[str] = None
-    TURVO_TENANT_REF: Optional[str] = None
-    # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
-    TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
-    # Optional fallback app user id used by workflow tools when the workflow state
-    # does not carry one (e.g. Turvo webhook-triggered runs).
-    TURVO_DEFAULT_APP_USER_ID: Optional[str] = None
-    # Turvo tokens + password: persisted under tenants.config (JSON), keyed by app_user_id
     TENANTS_TABLE: str = "tenants"
 
     # Turvo
@@ -78,6 +63,12 @@ class Settings(BaseSettings):
     TURVO_USERNAME: str
     TURVO_PASSWORD: str
     TURVO_X_API_KEY: str
+    TURVO_TENANT_REF: Optional[str] = None
+    # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
+    TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
+    # Optional fallback app user id used by workflow tools when the workflow state does not carry one (e.g. Turvo webhook-triggered runs).
+    # Turvo tokens + password: persisted under tenants.config (JSON), keyed by app_user_id
+    TURVO_DEFAULT_APP_USER_ID: Optional[str] = "deb-test"
 
     # Unipile
     UNIPILE_API_KEY: str
@@ -90,9 +81,10 @@ class Settings(BaseSettings):
     BUCKET_KEY: str
     BUCKET_NAME: str
     BUCKET_REGION: str = "us-west-2"
-    # Presigned GetObject TTL (seconds)
-    BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600
+    BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600 # Presigned GetObject TTL (seconds)
     BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
+    BUCKET_POD_ATTACHMENTS_FOLDER: str = "pod_attachments" # also default folder for all uploads if not provided in args of S3 service
+
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
     UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"

@@ -7,16 +7,8 @@ from app.workflows.compiler.compiler import compile_graph
 from app.workflows.graph.builder import build_graph
 
 
-def studio_graph():
-    """
-    Return a compiled graph for LangGraph Studio.
-
-    Override defaults with:
-    - STUDIO_TENANT_ID
-    - STUDIO_WORKFLOW_NAME
-    """
+def _build_studio_graph(*, workflow_name: str):
     tenant_id = os.getenv("STUDIO_TENANT_ID", "t3ra")
-    workflow_name = os.getenv("STUDIO_WORKFLOW_NAME", "pod_lifecycle")
 
     workflow_repo = WorkflowRepository()
     tenant_repo = TenantRepository()
@@ -26,3 +18,17 @@ def studio_graph():
 
     compiled = compile_graph(base_graph, tenant_overlay)
     return build_graph(compiled, ROUTER_REGISTRY)
+
+
+def studio_graph():
+    """
+    Return the pod_lifecycle graph for LangGraph Studio.
+
+    Override tenant with STUDIO_TENANT_ID.
+    """
+    return _build_studio_graph(workflow_name="pod_lifecycle")
+
+
+def ratecon_studio_graph():
+    """Return the ratecon graph for LangGraph Studio (see langgraph.json ``graphs.ratecon``)."""
+    return _build_studio_graph(workflow_name="ratecon")

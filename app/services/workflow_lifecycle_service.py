@@ -141,6 +141,117 @@ class WorkflowLifecycleService:
             (thread_id, shipment_id, load_id, lifecycle_id),
         )
 
+    def read_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        thread_id: str | None = None,
+        shipment_id: str | None = None,
+        load_id: str | None = None,
+    ) -> dict:
+        """Read-only lookup. Returns lifecycle data if found, no row creation."""
+        tid = self._clean(tenant_id)
+        wn = self._clean(workflow_name)
+        if not tid or not wn:
+            return {"found": False}
+
+        t = self._clean(thread_id)
+        s = self._clean(shipment_id)
+        l = self._clean(load_id)
+
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                lifecycle_id = self._find_existing_lifecycle_id(
+                    cur,
+                    tenant_id=tid,
+                    workflow_name=wn,
+                    thread_id=t,
+                    shipment_id=s,
+                    load_id=l,
+                )
+                if not lifecycle_id:
+                    return {"found": False}
+
+                cur.execute(
+                    f"""
+                    SELECT shipment_id, load_id, email_thread_id, workflow_name
+                    FROM {self.TABLE_NAME}
+                    WHERE id = %s
+                    """,
+                    (lifecycle_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return {"found": False}
+
+                return {
+                    "found": True,
+                    "lifecycle_id": lifecycle_id,
+                    "shipment_id": row[0] or "",
+                    "load_id": row[1] or "",
+                    "email_thread_id": row[2] or "",
+                    "workflow_name": row[3] or "",
+                }
+        finally:
+            conn.close()
+
+    def update_lifecycle_keys(
+        self,
+        *,
+        lifecycle_id: str,
+        thread_id: str | None = None,
+        shipment_id: str | None = None,
+        load_id: str | None = None,
+    ) -> None:
+        """Backfill lifecycle keys onto an existing lifecycle row."""
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                self._update_lifecycle_keys(
+                    cur,
+                    lifecycle_id=lifecycle_id,
+                    thread_id=self._clean(thread_id),
+                    shipment_id=self._clean(shipment_id),
+                    load_id=self._clean(load_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def check_lifecycle_exists(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_id: str | None = None,
+        load_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict:
+        """Check if a lifecycle row exists for given keys."""
+        tid = self._clean(tenant_id)
+        wn = self._clean(workflow_name)
+        if not tid or not wn:
+            return {"exists": False}
+
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                lifecycle_id = self._find_existing_lifecycle_id(
+                    cur,
+                    tenant_id=tid,
+                    workflow_name=wn,
+                    thread_id=self._clean(thread_id),
+                    shipment_id=self._clean(shipment_id),
+                    load_id=self._clean(load_id),
+                )
+                if lifecycle_id:
+                    return {"exists": True, "lifecycle_id": lifecycle_id}
+                return {"exists": False}
+        finally:
+            conn.close()
+
     def resolve_or_create_lifecycle(
         self,
         *,

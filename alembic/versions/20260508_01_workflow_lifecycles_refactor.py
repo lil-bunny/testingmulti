@@ -105,7 +105,29 @@ def upgrade() -> None:
         """
     )
 
-    # 5) Rename workflow_runs.workflow_instance_id -> workflow_lifecycle_id.
+    # 5) Add tenant_id column if missing (WorkflowLifecycleService requires it).
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'workflow_lifecycles'
+                  AND column_name = 'tenant_id'
+            ) THEN
+                ALTER TABLE workflow_lifecycles
+                ADD COLUMN tenant_id TEXT;
+
+                CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_tenant_id
+                ON workflow_lifecycles(tenant_id);
+            END IF;
+        END $$;
+        """
+    )
+
+    # 6) Rename workflow_runs.workflow_instance_id -> workflow_lifecycle_id.
+    #    (was step 5 before tenant_id addition)
     op.execute(
         """
         DO $$
