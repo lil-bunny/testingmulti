@@ -1,0 +1,59 @@
+{
+  "event": "mail_received",
+  "email_id": "aOr8krAFX5mibIfC0G3aaQ",
+  "account_id": "7jKV_5jBQVG8med4nvXHJw",
+  "webhook_name": "pod_lifecycle_email_received_webhook",
+  "date": "2026-05-09T12:42:3 1.000Z",
+  "from_attendee": {
+    "display_name": "Ayush",
+    "identifier": "kansalayush28@gmail.com",
+    "identifier_type": "EMAIL_ADDRESS"
+  },
+  "to_attendees": [
+    {
+      "display_name": "Ayush Kansal",
+      "identifier": "ayush@freightx.ai",
+      "identifier_type": "EMAIL_ADDRESS"
+    },
+    {
+      "display_name": "Ayush Kansal",
+      "identifier": "ayushkansal303+fxRatecon@gmail.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    }
+  ],
+  "bcc_attendees": [],
+  "cc_attendees": [
+    {
+      "display_name": "Ayush",
+      "identifier": "kansalayush28@gmail.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    }
+  ],
+  "reply_to_attendees": [],
+  "message_id": "<CALMV8BatAUxurSUFHwkaU9=baHuBWbJhF5v=5qfN03=SrFozRw@mail.gmail.com>",
+  "provider_id": "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jKfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8hoHTdAABMQ4TnAAA=",
+  "has_attachments": true,
+  "subject": "Rate confirmation for shipment: #30388",
+  "body": "here's the ratecon<br>",
+  "body_plain": "here's the ratecon\r\n",
+  "attachments": [
+    {
+      "id": "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jKfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8hoHTdAABMQ4TnAAABEgAQANtEIhFtXJlPpH3ui0wTU40=",
+      "name": "Carrier_rate_confirmation_-__30388.pdf",
+      "extension": "pdf",
+      "size": 55359,
+      "mime": "application/pdf"
+    }
+  ],
+  "folders": [
+    "Inbox"
+  ],
+  "folderIds": [
+    "AQMkAGMwYzU5OQAxMy1mMzgyLTRmOWEtODAxNy05ZWQ5MDlhNzhkN2YALgAAA6UXqMp9F_tHj-r_uBxoof8BAEQhuCiuXUBDoqtlryGgdN0AAAIBDAAAAA=="
+  ],
+  "role": "inbox",
+  "read_date": "2026-05-13T13:50:50.924Z",
+  "thread_id": "AAQkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgAQABxAr0cyvx5FrB66vJtVzcQ=",
+  "origin": "external",
+  "categories": []
+}

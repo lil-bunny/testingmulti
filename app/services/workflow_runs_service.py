@@ -1,12 +1,14 @@
 """Service layer for workflow_runs table.
 
 Pure execution log — one row per graph invocation, keyed by execution_id (PK).
+The row is inserted before ``graph.invoke``; the HTTP handler awaits the graph, so
+no separate run status column is required for completion signaling.
 Dedup for route_completed is handled via read-based checks, not insert constraints.
 """
 
 from __future__ import annotations
 
-import uuid
+from typing import Any
 
 import psycopg
 
@@ -130,5 +132,36 @@ class WorkflowRunsService:
                     (self._clean(shipment_id), run_id),
                 )
             conn.commit()
+        finally:
+            conn.close()
+
+    def fetch_workflow_run_by_id(self, *, run_id: str) -> dict[str, Any] | None:
+        """Return one execution row by primary key."""
+        rid = self._clean(run_id)
+        if not rid:
+            return None
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id, tenant_id, event_type, workflow_lifecycle_id, shipment_id,
+                           created_at
+                    FROM {self.TABLE_NAME}
+                    WHERE id = %s
+                    """,
+                    (rid,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "id": row[0],
+                    "tenant_id": row[1],
+                    "event_type": row[2],
+                    "workflow_lifecycle_id": row[3],
+                    "shipment_id": row[4],
+                    "created_at": row[5],
+                }
         finally:
             conn.close()

@@ -1,0 +1,40 @@
+{
+    "tenantId": "1203",
+    "eventName": "SHIPMENT_STATUS_UPDATE",
+    "eventTime": "2026-05-10T12:44:44.856Z",
+    "eventPayload": {
+        "id": 1000324868,
+        "status": {
+            "updatedBy": {
+                "name": "App FreightX",
+                "id": 23047806
+            },
+            "code": {
+                "id": 116038,
+                "key": "2116",
+                "value": "Route complete"
+            },
+            "notes": "",
+            "description": "Route complete",
+            "location": {}
+        },
+        "customerOrder": [
+            {
+                "id": 975587,
+                "deleted": false,
+                "customer": {
+                    "id": 850901
+                }
+            }
+        ],
+        "carrierOrder": [
+            {
+                "id": 652958,
+                "deleted": false,
+                "carrier": {
+                    "id": 848297
+                }
+            }
+        ]
+    }
+}

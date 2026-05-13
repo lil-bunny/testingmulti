@@ -98,9 +98,17 @@ class WorkflowService:
 
         graph = build_graph(compiled, ROUTER_REGISTRY)
 
+        pre_assigned = payload.pop("execution_id", None)
+        execution_id = (
+            pre_assigned.strip()
+            if isinstance(pre_assigned, str) and pre_assigned.strip()
+            else None
+        )
+
         return await self.execution.execute(
             graph=graph,
             tenant_id=tenant_id,
             workflow_lifecycle_id=workflow_lifecycle_id,
             payload=payload,
+            execution_id=execution_id,
         )

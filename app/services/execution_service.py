@@ -18,8 +18,12 @@ class ExecutionService:
         tenant_id: str,
         workflow_lifecycle_id: str,
         payload: dict,
+        execution_id: str | None = None,
     ):
-        execution_id = str(uuid.uuid4())
+        if execution_id and str(execution_id).strip():
+            execution_id = str(execution_id).strip()
+        else:
+            execution_id = str(uuid.uuid4())
 
         state = WorkflowState(
             tenant_id=tenant_id,

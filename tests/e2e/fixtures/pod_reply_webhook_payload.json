@@ -1,0 +1,61 @@
+{
+    "event": "mail_received",
+    "email_id": "fIBaipyeVRqu8jXirmNajQ",
+    "account_id": "7jKV_5jBQVG8med4nvXHJw",
+    "webhook_name": "pod_lifecycle_email_received_webhook",
+    "date": "2026-05-13T08:52:21.000Z",
+    "from_attendee": {
+        "display_name": "Ayush Kansal",
+        "identifier": "ayushkansal303+fxRatecon@gmail.com",
+        "identifier_type": "EMAIL_ADDRESS"
+    },
+    "to_attendees": [
+        {
+            "display_name": "Ayush Kansal",
+            "identifier": "ayush@freightx.ai",
+            "identifier_type": "EMAIL_ADDRESS"
+        }
+    ],
+    "cc_attendees": [
+        {
+            "display_name": "kansalayush28@gmail.com",
+            "identifier": "kansalayush28@gmail.com",
+            "identifier_type": "EMAIL_ADDRESS"
+        }
+    ],
+    "bcc_attendees": [],
+    "reply_to_attendees": [],
+    "subject": "Re: Rate confirmation for shipment: #30388",
+    "body": "<html><head>\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"></head><body><div dir=\"ltr\">there you go</div><br><div class=\"gmail_quote gmail_quote_container\"><div dir=\"ltr\" class=\"gmail_attr\">On Mon, May 11, 2026 at 11:28 AM Ayush Kansal &lt;<a href=\"mailto:ayush@freightx.ai\">ayush@freightx.ai</a>&gt; wrote:<br></div><blockquote class=\"gmail_quote\" style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div>Please send pod </div></blockquote></div></body></html>",
+    "body_plain": "",
+    "message_id": "<CAKXV1EcNQo9rh+2sSqRMSZdk1wZDMh12L4b+JKMW7ZPytwMwxQ@mail.gmail.com>",
+    "provider_id": "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jKfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8hoHTdAABOrn55AAA=",
+    "read_date": null,
+    "is_complete": true,
+    "has_attachments": true,
+    "attachments": [
+        {
+            "id": "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jKfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8hoHTdAABOrn55AAABEgAQAK6ZCjq_UjdEjEiMnthZtn4=",
+            "name": "Diamond Pet Foods (dragged) 3.pdf",
+            "extension": "pdf",
+            "size": 1422756,
+            "mime": "application/pdf"
+        },
+        {
+            "id": "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jKfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8hoHTdAABOrn55AAABEgAQADJafA95pehAu67rHs8C2zY=",
+            "name": "IMG_8905 (2).HEIC",
+            "extension": "HEIC",
+            "size": 2560131,
+            "mime": "application/octet-stream"
+        }
+    ],
+    "folders": [
+        "Inbox"
+    ],
+    "role": "inbox",
+    "in_reply_to": {
+        "message_id": "<LV0PR02MB11112F1731FE1247EA411D172B1382@LV0PR02MB11112.namprd02.prod.outlook.com>",
+        "id": "Mnbn3g1JVvGdiObOku6DYQ"
+    },
+    "thread_id": "AAQkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgAQABxAr0cyvx5FrB66vJtVzcQ="
+}

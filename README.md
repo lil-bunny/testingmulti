@@ -50,3 +50,12 @@ Create a new revision:
 ```
 
 Note: LangGraph checkpoint tables are still managed by `PostgresSaver.setup()` at runtime. Alembic here is for app/business tables.
+
+## Test POD_LIFECYCLE E2E
+```bash
+uv run pytest -c tests/pytest.ini \
+  tests/e2e/scenarios/test_ratecon_workflow.py::test_ratecon_email_received_unipile_webhook \
+  tests/e2e/scenarios/test_pod_lifecycle_route_complete_workflow.py::test_pod_lifecycle_route_complete_turvo_webhook \
+  tests/e2e/scenarios/test_pod_lifecycle_email_received_workflow.py::test_pod_lifecycle_email_received_unipile_webhook \
+  -v
+```

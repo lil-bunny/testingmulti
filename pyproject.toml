@@ -30,6 +30,7 @@ dependencies = [
     "poppler-utils>=0.1.0",
     "thefuzz>=0.22.1",
     "pillow-heif>=1.3.0",
+    "pytest-order>=1.4.0",
 ]
 
 [dependency-groups]
