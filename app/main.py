@@ -1,8 +1,10 @@
+import asyncio
 from dotenv import load_dotenv
+from fastapi.responses import JSONResponse
 
 load_dotenv(override=False)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from app.api.routes import router
 from app.api.user_turvo import router as user_turvo_router
 from app.core.config import settings
@@ -17,6 +19,23 @@ def create_app() -> FastAPI:
         version="1.0.0",
         docs_url="/docs"
     )
+
+    @app.get("/test")
+    async def aws_ecs_test():
+        logger.info("AWS ECS health check")
+        await asyncio.sleep(60)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "OK"},
+        )
+
+    @app.get("/health", summary="Health check (returns 'Running')")
+    async def health():
+        return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"status": "Running"},
+    )
+
 
     app.include_router(router, prefix="/api")
     app.include_router(user_turvo_router, prefix="/api")

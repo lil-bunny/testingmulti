@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -44,11 +45,13 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
             return candidate
     return "t3ra"
 
-
-@router.post("/webhook/unipile")
+@router.post(
+    "/webhook/unipile",
+    summary="Unipile mail gateway webhook handler",
+    description="Receives Unipile 'email_received' webhook events, classifies workflow type, and schedules the corresponding workflow for execution."
+)
 async def unipile_mail_thread_capture(
-    request: Request,
-    workflow_service: WorkflowService = Depends(get_workflow_service),
+    request: Request
 ):
     try:
         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
@@ -105,7 +108,7 @@ async def unipile_mail_thread_capture(
 
 @router.post(
     "/webhook/turvo",
-    summary="[v2] Turvo status webhook (no query params; see header + env for tenant)",
+    summary="Turvo status webhook (no query params; see header + env for tenant)",
     openapi_extra={
         "parameters": [
             {
