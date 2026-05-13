@@ -39,7 +39,6 @@ async def run_workflow(
 @router.post("/webhook/unipile")
 async def unipile_mail_thread_capture(
     request: Request,
-    workflow_service: WorkflowService = Depends(get_workflow_service)
 ):
     try:
         if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
@@ -74,4 +73,4 @@ async def unipile_mail_thread_capture(
         return result
     except Exception as e:
         logger.exception("Unipile mail thread capture failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Internal error") from e

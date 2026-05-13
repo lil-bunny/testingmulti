@@ -1,9 +1,8 @@
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
-from app.api.deps import get_workflow_service
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
@@ -16,12 +15,6 @@ logger = get_logger(__name__)
 WORKFLOW_NAME = "pod_lifecycle"
 # Bump if you change the POST handler contract (OpenAPI / clients can compare).
 WEBHOOK_HANDLER_VERSION = "v2-request-no-query-tenant"
-
-
-class TurvoWebhookAck(BaseModel):
-    status: str
-    detail: str | None = None
-    result: dict[str, Any] | None = None
 
 
 def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
@@ -57,7 +50,6 @@ def turvo_webhook_handler_version() -> dict[str, Any]:
 
 @router.post(
     "/listen_turvo_status",
-    response_model=TurvoWebhookAck,
     summary="[v2] Turvo status webhook (no query params; see header + env for tenant)",
     openapi_extra={
         "parameters": [
@@ -73,8 +65,7 @@ def turvo_webhook_handler_version() -> dict[str, Any]:
 )
 async def listen_turvo_status(
     request: Request,
-    workflow_service: WorkflowService = Depends(get_workflow_service),
-) -> TurvoWebhookAck:
+) -> Response:
     """
     Accepts raw Turvo webhook JSON (POST body only; **no** `tenant_id` query param).
 
@@ -91,10 +82,7 @@ async def listen_turvo_status(
     payload = map_turvo_status_webhook_to_payload(body)
     if payload is None or not payload.get("shipment_id"):
         logger.info("Turvo webhook skipped: status key is not 2116 or shipment/load id missing")
-        return TurvoWebhookAck(
-            status="skipped",
-            detail="eventPayload.status.code.key must be 2116 and shipment_id/load_id must be present",
-        )
+        return Response(status_code=status.HTTP_200_OK)
 
     lifecycle_service = WorkflowLifecycleService()
     lifecycle = lifecycle_service.read_lifecycle(
@@ -112,16 +100,24 @@ async def listen_turvo_status(
         payload["thread_id"] = thread.strip()
 
     try:
-        result = await workflow_service.run(
-            tenant_id=workflow_tenant,
-            workflow_name=WORKFLOW_NAME,
-            payload=payload,
+        task = run_workflow_async.apply_async(
+            kwargs={
+                "tenant_id": workflow_tenant,
+                "workflow_name": WORKFLOW_NAME,
+                "payload": payload,
+            }
         )
-        return TurvoWebhookAck(
-            status="ok",
-            result=result if isinstance(result, dict) else {"data": result},
+        logger.info(
+            "Turvo webhook queued task_id=%s workflow_name=%s tenant_id=%s shipment_id=%s thread_id=%s",
+            task.id,
+            WORKFLOW_NAME,
+            workflow_tenant,
+            payload.get("shipment_id"),
+            payload.get("thread_id"),
         )
-
+        return Response(status_code=status.HTTP_200_OK)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Turvo webhook workflow failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        logger.exception("Turvo webhook queueing failed")
+        raise HTTPException(status_code=500, detail="Internal error") from e
