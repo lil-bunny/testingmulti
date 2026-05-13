@@ -56,7 +56,7 @@ class S3Bucket:
         file_content: bytes,
         filename: str,
         content_type: str,
-        folder: str = "pod_attachments",
+        folder: str = settings.BUCKET_POD_ATTACHMENTS_FOLDER,
     ) -> Dict[str, Any]:
         """Upload bytes to the bucket (private objects). Persist the returned ``object_key``."""
         try:

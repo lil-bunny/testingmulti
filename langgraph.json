@@ -3,7 +3,8 @@
     "."
   ],
   "graphs": {
-    "pod_lifecycle": "./app/studio.py:studio_graph"
+    "pod_lifecycle": "./app/studio.py:studio_graph",
+    "ratecon": "./app/studio.py:ratecon_studio_graph"
   },
   "env": ".env"
 }

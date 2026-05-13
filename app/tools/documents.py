@@ -1,6 +1,6 @@
 """Postgres persistence for `documents` (POD / ratecon artifacts).
 
-Mirrors the pattern in ``app.tools.workflow_correlation``: optional runtime
+Mirrors the service-layer pattern: optional runtime
 ``CREATE TABLE IF NOT EXISTS`` for dev, configurable table name via settings.
 
 S3 alignment: ``S3Bucket.upload_file`` returns ``object_key``; this module stores
@@ -80,7 +80,7 @@ def insert_document(
 
     Returns ``{stored, id?, type?, shipment_id?, object_key?, created_at?, error?}``.
 
-    ``object_key`` is the S3 object key (e.g. ``freightx/pod_attachments/...``), stored in the ``object_key`` column.
+    ``object_key`` is the S3 object key (e.g. ``freightx/{BUCKET_POD_ATTACHMENTS_FOLDER}/...``), stored in the ``object_key`` column.
     """
 
     if not shipment_id or not object_key:

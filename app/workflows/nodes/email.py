@@ -1,9 +1,9 @@
 import logging
 from typing import Any, Dict, List
 
+from app.core.config import settings
 from app.tools.email import detect_attachment_bytes_type
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
-from app.tools.email import ingest_email as ingest_email_tool
 from app.services.s3bucket_service import bucket
 from app.services.attachment_normalizer import pod_individual_attachment_filename
 from app.models.document import DocumentType
@@ -20,30 +20,6 @@ def send_email(state):
         thread_id=state.data.get("thread_id"),
         account_id=state.data.get("account_id"),
     )
-
-    evt = state.data.get("event_type")
-    if evt == "route_completed" and "_pod_email_context" not in state.data:
-        state.data["_pod_email_context"] = "route_completed_primary"
-    elif evt == "reminder_due":
-        state.data["_pod_email_context"] = "route_completed_primary"
-
-    return state
-
-
-def ingest_email(state):
-    # result = ingest_email_tool(state.data)
-    # state.data.update(result)
-
-    return state
-
-
-def check_email_attachments(state):
-    attachments = state.data.get("attachments",[])
-    has_attachments = state.data.get("has_attachments", False)
-    if has_attachments is None:
-        has_attachments = bool(attachments)
-
-    state.data["is_pod_attached"] = has_attachments
     return state
 
 
@@ -101,7 +77,7 @@ def get_email_attachments(state):
             upload_result = bucket.upload_file(
                 file_content=file_content,
                 filename=filename,
-                folder="pod_attachments",
+                folder=settings.BUCKET_POD_ATTACHMENTS_FOLDER,
                 content_type=content_type,
             )
             uploaded_key = upload_result.get("object_key")
