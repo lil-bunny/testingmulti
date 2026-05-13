@@ -1,0 +1,125 @@
+---
+description: FreightX — Python LangGraph logistics automation; architecture, quality, and industry practices for the team
+globs:
+  - "app/**/*.py"
+  - "alembic/**/*.py"
+  - "scripts/**/*.py"
+  - "tests/**/*.py"
+  - "pyproject.toml"
+alwaysApply: true
+---
+
+# FreightX — Cursor rules (team + architecture)
+
+This repo is **FreightX**: Python **LangGraph** workflows for **freight / logistics automation** (multi-tenant B2B, TMS and email integrations, webhooks, Celery).
+
+**Default to reusable code.** Before adding anything new, search for an existing node, service, repository method, router, validator, or integration helper to extend. Avoid copy-paste across workflows, APIs, and tasks. Prefer **one shared implementation** registered once and referenced from many places.
+
+## Where code belongs (dependency direction)
+
+Keep a **one-way** flow. No cycles.
+
+| Layer | Responsibility | Must not |
+|-------|----------------|----------|
+| `app/api/` | HTTP: validate, auth, enqueue or call one service entrypoint | Compile graphs, raw SQL, heavy business rules |
+| `app/tasks/` | Celery: args in, call service, log boundary | Own graph topology or duplicate orchestration |
+| `app/services/` | Use cases: orchestrate repos, integrations, workflow runs | No raw SQL; call repositories only |
+| `app/repositories/` | DB access: **SQLAlchemy 2.0** (ORM, sessions, transactions); migrate legacy SQL when changing a module | HTTP, Celery publish, LangGraph |
+| `app/integrations/<provider>/` | Vendor HTTP, auth, retries, DTO mapping | Workflow routing, tenant business rules |
+| `app/tools/` | Stateless helpers (parsing, small pure functions); **prefer no new DB** | Replace services for orchestration |
+| `app/workflows/` | Graph definition, **thin** nodes, **pure** routers, validators, state | Hide persistence or vendor calls without going through services/repos |
+| `app/configs/` | Declarative workflow graphs and tenant overlays | Imperative side effects at import time |
+| `app/domain/` | State and domain types shared by graph and services | Import from `api` or `tasks` |
+
+**Preferred call chain:** `api | task → service → repository | integration | compiled graph`  
+**Nodes:** call **services** (or thin wrappers), not SQL and not deep integration stacks inline.
+
+**Imports:** `app/domain/` and `app/workflows/` must not import from `app/api/` or `app/tasks/` (avoids cycles and keeps the graph runnable from workers without pulling the HTTP stack).
+
+## LangGraph
+
+- **Single state contract** (`WorkflowState` / documented `state.data` keys). New keys: document in contract or template config; avoid magic strings only in one node.
+- **Routers:** pure `state → str` route keys. **No I/O**, DB, HTTP, or `time.sleep` / random in routers.
+- **Nodes:** short—read/write state, delegate to services. Same step in two graphs → **one shared node** + **service** (see **Reusability** below); never copy-paste node bodies.
+- **`thread_id`:** stable per **logical workflow instance** (e.g. lifecycle id). Align with DB lifecycle rows so checkpoints and ops tooling match.
+- **Graphs vs subgraphs:** one graph + entry routers is fine until branches are huge or reused; then extract **compiled subgraphs** or separate workflow names—don’t over-abstract early.
+
+## Multi-tenant logistics
+
+- Every path that touches data or external APIs is **tenant-scoped** (and app-user / account where applicable). Never trust tenant id from body alone without auth alignment.
+- **Idempotency** for webhooks and Celery (`acks_late`, retries): explicit keys, store “already processed” in DB, guard side effects.
+- **Batch work** (e.g. spreadsheet rows): prefer **one durable job per business unit** (per tender row) with **bounded parallelism**; optional batch id to group imports—not one unbounded mega-graph unless trivial.
+
+## Webhooks & async
+
+- Respond **fast**: validate → idempotency touch → **enqueue** workflow work unless the provider requires sync behavior.
+- **HTTP errors:** 401 for auth; 2xx for accepted or intentional no-op; 500 only for unexpected failures—**never** return stack traces or secrets in JSON bodies.
+- **Celery tasks:** assume **duplicates and retries** (`acks_late`). Keep payloads **small and explicit**; log tenant + task name + stable business ids at start; one clear **service** entrypoint per task.
+
+## Data
+
+- **Alembic** owns schema. Prefer **not** adding new `CREATE TABLE IF NOT EXISTS` in application helpers for production paths.
+- Migrations + indexes for columns you filter on; validate JSON at write boundaries.
+- **SQLAlchemy 2.0:** Use **ORM-mapped models** and repository-scoped **sessions** for **new** persistence and for any repository you **substantially change**. Do not add new ad-hoc `psycopg` usage in services, nodes, or tools.
+- **Legacy:** Existing raw SQL / `psycopg` in repositories may remain until that code path is migrated; when you touch it, **move to SQLAlchemy** rather than extending raw SQL.
+- **Exceptions:** Tuned or complex queries may use **SQLAlchemy Core** or limited raw SQL **only inside** `app/repositories/` (same module as the rest of that persistence)—not scattered across the app.
+
+## Data contracts
+
+- **Validate all external inputs** using **Pydantic** models at HTTP and webhook boundaries (and for Celery task payloads where the shape is known).
+- **Convert vendor payloads** into **internal DTOs** (Pydantic or clear typed structures) inside **`app/integrations/`** before business logic in services; do not let raw vendor JSON drive decisions deep in the stack.
+- **Prefer typed models** over passing raw `dict` across **service and repository boundaries**; narrow types at the edges of a use case.
+- **LangGraph `state.data`** may stay dict-shaped for the graph; when a node hands off to a service for non-trivial work, **parse or validate** into a model at that boundary rather than threading opaque dicts through multiple service layers.
+
+## Observability
+
+- **Logging:** structured fields where possible (tenant, workflow name, lifecycle id, event type, shipment/load/tender ids). No tokens, passwords, or full PII payloads in logs.
+- **LangSmith / traces:** parent name reflects **workflow or product use case**; **metadata** for filterable business ids; **tags** sparingly (env, workflow family)—do not duplicate full metadata into tags.
+
+## Code quality & reusability (for the whole team)
+
+- **Small, focused modules.** One obvious responsibility per file; split when a file mixes graph, HTTP, and SQL.
+- **DRY at the right layer:** duplicate logic between nodes → lift to a **service**; duplicate SQL → **repository**; duplicate HTTP for one vendor → **integration** module.
+- **Type hints** on public service and repository functions; narrow types at boundaries (`dict[str, Any]` only where unavoidable).
+- **LLM / extraction:** validate structured output (schema, required fields) **before** persisting or sending email; retries and timeouts belong at **integration or service** boundaries, not inside individual nodes.
+- **Errors:** prefer explicit exceptions or result types at boundaries; avoid bare `except:`; don’t swallow `HTTPException` in API layers.
+- **Config:** tenant behavior and workflow shape in **`app/configs/`** and settings—not scattered magic strings in nodes.
+- **Tests:** pure routers and idempotency helpers get **unit tests**; change contracts → update **`tests/`** and template contracts together.
+
+### Reusability — what to implement (not optional for new work)
+
+- **Nodes:** If two workflows share a step, use **one** node function under `app/workflows/nodes/`, register it **once** in `app/workflows/registry.py`, and point both graphs at the same node name in `workflow_configs`. Do not fork duplicate node bodies. Nodes stay **thin**; shared behavior lives in **services** or stateless helpers in `app/tools/` (no new DB in tools).
+- **Routers:** One router function per routing concept in `app/workflows/graph/routers.py` (or a small sibling module). Never duplicate the same conditional in multiple routers—compose or call a shared helper.
+- **Services & repositories:** Expose reusable methods (e.g. “resolve lifecycle”, “record run”, “send thread reply”) so nodes and tasks call the same code paths.
+- **Integrations:** Put vendor-specific HTTP and parsing in `app/integrations/<provider>/`; do not reimplement the same client logic in a node or a second tool file.
+- **Contracts:** Shared payload and graph rules belong in `app/configs/` template contracts, `app/workflows/validators.py`, and `app/domain/` types—reuse across API, Celery payloads, and graph state.
+- **Subgraphs / shared graph chunks:** After a second workflow truly needs the same long sequence, extract a compiled subgraph or shared config fragment—do not keep cloning edge lists.
+
+**Registry:** Every `nodes[]` entry in workflow config must map to `NODE_REGISTRY`. Typos break reuse; fix at compile/build time.
+
+## Security
+
+- Secrets from env / secrets manager only. Least privilege for cloud resources. Minimize PII in logs and traces.
+
+## Planning before implementation
+
+For **non-trivial** changes (new workflows, multi-file features, schema or API contract shifts, integration behavior, refactors that move responsibilities across layers), **do not jump straight to a large diff**.
+
+First:
+
+1. Analyze the requirement and relevant existing code.
+2. Summarize the proposed design and architecture approach.
+3. List files to create or modify.
+4. Identify database, workflow, API, and integration impacts.
+5. Note assumptions, risks, and open questions.
+6. If the user did **not** ask to implement, apply, or ship in the same message **or** asked for **plan only** / **no code**, **stop after the plan** and wait for explicit approval before editing files.
+
+If the user **already** asked to implement, apply changes, or go ahead (and did not ask for plan-only), give a **short plan** then proceed without a second confirmation round.
+
+**Implement immediately without a prior plan** only for small, localized work: typo fixes, single obvious bug fixes, one-line logging, or other narrowly scoped edits where risk is minimal.
+
+## When unsure
+
+Prefer **extra clarity** (naming, one docstring on non-obvious invariants) over clever one-liners. Prefer **explicit** lifecycle and idempotency over implicit “run once” assumptions.
+
+Ship **clear layers, testable routers, thin nodes, durable async, tenant-safe logistics automation.**

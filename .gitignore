@@ -8,7 +8,10 @@ docs/turvo-integration.md
 # Workflow architecture guide (local-only; remove this line to commit docs/workflows.md)
 docs/workflows.md
 
-.cursor/
+# Cursor local state; team rules under .cursor/rules/ are tracked
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 __pycache__/
 *.pyc
 .DS_Store
