@@ -24,11 +24,11 @@ class _FakeTenantsRepo:
 def test_resolver_returns_uuid_when_repo_present() -> None:
     fake = _FakeTenantsRepo("uuid-from-db")
     tid = resolve_email_data_import_tenant_id(
-        payload={"webhook_name": "gellita"},
+        payload={"webhook_name": "gelita"},
         tenants_repo=fake,
     )
     assert tid == "uuid-from-db"
-    assert fake.seen_hook == "gellita"
+    assert fake.seen_hook == "gelita"
 
 
 def test_resolver_passes_payload_webhook_name_to_repo_before_strip_matches_db() -> None:
@@ -44,7 +44,7 @@ def test_resolver_passes_payload_webhook_name_to_repo_before_strip_matches_db() 
 def test_resolver_returns_none_when_repo_empty() -> None:
     fake = _FakeTenantsRepo(None)
     tid = resolve_email_data_import_tenant_id(
-        payload={"webhook_name": "gellita"},
+        payload={"webhook_name": "gelita"},
         tenants_repo=fake,
     )
     assert tid is None

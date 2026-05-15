@@ -11,7 +11,7 @@ How an inbound **mail** webhook (currently **Unipile**) becomes **stored tenders
 | **Classification** | **Load tendering** when **`webhook_name`** maps to a tenant **and** the email has **`has_attachments`**, **`attachments[].extension == xlsx`**, etc. (see `WorkflowClassifierService`). |
 | **Ingest path** | Unipile bytes are fetched with **`email_id`**, **`account_id`**, **`attachment_id`** from the webhook (`build_unipile_attachment_fetch_context`). |
 
-Operational note: configure the Unipile webhook so its **`webhook_name`** matches the value you store under **`email_webhook_name`** in **`tenants.config`** (for example `"gellita"` on both sides).
+Operational note: configure the Unipile webhook so its **`webhook_name`** matches the value you store under **`email_webhook_name`** in **`tenants.config`** (for example `"gelita"` on both sides).
 
 ## High-level sequence
 
@@ -85,13 +85,26 @@ flowchart TD
 | **`app/services/workflow_classifier_service.py`** | **`load_tendering`** iff tenant mapping exists + `.xlsx` attachment rules. |
 | **`app/services/email_webhook_attachment_ingestion.py`** | Fetch bytes, **`ingest_data`**, record **`data_imports`**. |
 | **`app/services/email_import_projection.py`** | **`load_email_data_import_projection`**, **`persist_tender_rows_from_email_import_projection`** (wrapped in try/log). |
-| **`app/services/data_imports_read_service.py`** | Parsed spreadsheet → normalized projected dicts (`LOAD_TENDERING_ROW_PROJECTION`). |
+| **`app/services/data_imports_read_service.py`** | Parsed spreadsheet → **`get_projected_rows(..., projection=LOAD_TENDERING_ROW_PROJECTION)`**; call from code (workflows, scripts, tasks)—no dedicated HTTP route. |
 | **`app/domain/*`** | Projection, tabular iteration, **`load_tendering_tender_rows`** mapping into DB shape. |
 | **`app/repositories/tenders_repository.py`** | **`tenders` batch inserts**. |
 | **Migration** | **`alembic/versions/20260515_01_tenders_table_and_load_type_enum.py`** defines **`tenders`** and related enum (run **`alembic upgrade head`** after merge). |
 
-## Read API
+## Reading projected rows (library reuse)
 
-Projected spreadsheet rows without running the webhook:
+Reuse the service directly instead of REST:
 
-- **`GET /api/data-imports/{data_import_id}/load-tendering-rows?tenant_id=...`** (tenant UUID must align with **`data_imports.tenant_id`**).
+```python
+from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
+from app.services.data_imports_read_service import DataImportsReadService
+
+rows, meta = DataImportsReadService().get_projected_rows(
+    tenant_id,
+    data_import_id,
+    projection=LOAD_TENDERING_ROW_PROJECTION,
+)
+# rows is None if no data_import for (tenant_id, id); else list[dict].
+```
+
+Ingest-facing code can use **`load_email_data_import_projection`** in **`app/services/email_import_projection.py`** (same projection, guarded I/O).
+

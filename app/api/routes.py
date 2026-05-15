@@ -1,8 +1,7 @@
 import uuid
 from typing import Any, Optional
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -15,7 +14,6 @@ from app.services.data_import_tenant_resolution import resolve_email_data_import
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
-from app.services.data_imports_read_service import DataImportsReadService
 from app.services.email_import_projection import (
     load_email_data_import_projection,
     persist_tender_rows_from_email_import_projection,
@@ -77,7 +75,7 @@ async def unipile_mail_thread_capture(
         data_import_tenant_id = resolve_email_data_import_tenant_id(payload=payload)
         if not data_import_tenant_id:
             return {"message": "invalid webhook"}
-
+        logger.info(f"Data import tenant id: {data_import_tenant_id}")
         # classify workflow_type before langgraph exec: ratecon or pod_lifecycle
         workflow_classifier = WorkflowClassifierService()
 
@@ -243,27 +241,3 @@ async def listen_turvo_status(
         raise HTTPException(status_code=500, detail="Internal error") from e
 
 
-@router.get(
-    "/data-imports/{data_import_id}/load-tendering-rows",
-    summary="Load tendering spreadsheet rows for a data import (tenant-scoped)",
-    tags=["data-imports"],
-)
-def get_load_tendering_import_rows(
-    data_import_id: UUID,
-    tenant_id: UUID = Query(
-        ...,
-        description="tenants.id UUID; must match the data_imports.tenant_id row",
-    ),
-) -> dict[str, Any]:
-    svc = DataImportsReadService()
-    rows, _meta = svc.get_projected_rows(
-        tenant_id=str(tenant_id),
-        data_import_id=str(data_import_id),
-        projection=LOAD_TENDERING_ROW_PROJECTION,
-    )
-    if rows is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="data import not found",
-        )
-    return {"rows": rows}
