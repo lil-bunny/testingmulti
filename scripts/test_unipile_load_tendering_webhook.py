@@ -2,9 +2,10 @@
 POST /api/webhook/unipile with a sample Unipile payload shaped for load_tendering.
 
 Prerequisites (local server must match):
-  - UNIPILE_WEBHOOK_SECRET=123456  (same value as --token below)
-  - GELLITA_UNIPILE_ID=W7Xyw8gLT2mvog37VsGHZQ  (must match payload account_id)
-  - UNIPILE_WEBHOOK_NAME=pod_lifecycle_email_received_webhook  (must match payload webhook_name)
+  - UNIPILE_WEBHOOK_SECRET — same as ``--token`` below
+  - ``tenants.config.email_webhook_name`` must equal the payload's ``webhook_name`` (this sample
+    uses ``gellita``; adjust payload or DB to match). Route auth is Bearer-only; tenant/import
+    routing is DB-driven from that name.
 
 Run API:  uv run uvicorn app.main:app --reload --port 8000
 Run script:  uv run python scripts/test_unipile_load_tendering_webhook.py
@@ -25,7 +26,7 @@ SAMPLE_LOAD_TENDERING_PAYLOAD = {
     "event": "mail_received",
     "email_id": "lPFp14lSWJS0Geg_xmt_jA",
     "account_id": "W7Xyw8gLT2mvog37VsGHZQ",
-    "webhook_name": "pod_lifecycle_email_received_webhook",
+    "webhook_name": "gellita",
     "date": "2026-05-14T11:31:25.000Z",
     "from_attendee": {
         "display_name": "Debdut Bhaduri",

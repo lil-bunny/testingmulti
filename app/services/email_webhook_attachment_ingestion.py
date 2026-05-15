@@ -69,7 +69,7 @@ async def _fetch_and_record_excel_attachment(
     fetch_ctx: dict[str, Any],
     file_name: str | None,
     mime_type: str | None,
-) -> None:
+) -> Optional[str]:
     try:
         file_bytes = await asyncio.to_thread(
             get_email_attachments,
@@ -84,7 +84,7 @@ async def _fetch_and_record_excel_attachment(
             fetch_ctx.get("email_id"),
             fetch_ctx.get("attachment_id"),
         )
-        return
+        return None
 
     ingest_result = ingest_service.ingest_data(
         source_type=ingest_source_type,
@@ -95,7 +95,7 @@ async def _fetch_and_record_excel_attachment(
         data=file_bytes,
         parse_spreadsheet=True,
     )
-    DataImportsService().record_email_load_tendering_import(
+    return DataImportsService().record_email_load_tendering_import(
         tenant_id=data_import_tenant_id,
         source_type=ingest_source_type,
         file_name=file_name,
@@ -111,8 +111,10 @@ async def process_email_webhook_attachment_import(
     data_import_tenant_id: str,
     data_import_data_type: Optional[str] = None,
     ingest_source_type: Optional[str] = None,
-) -> None:
+) -> Optional[str]:
     """If the payload has an ingestible attachment, fetch bytes and persist import rows.
+
+    Returns the ``data_imports.id`` (text UUID) when a row was inserted, else ``None``.
 
     ``data_import_data_type`` is stored as ``data_imports.data_type`` (via ingest). When
     omitted or blank, ``"excel"`` is used so existing behavior is unchanged.
@@ -128,7 +130,7 @@ async def process_email_webhook_attachment_import(
     source_label = (ingest_source_type or "").strip() or "email"
     attachment = email_first_attachment(payload)
     if attachment is None:
-        return
+        return None
 
     fetch_ctx = build_unipile_attachment_fetch_context(payload, attachment)
     if not _attachment_fetch_ctx_complete(fetch_ctx):
@@ -136,7 +138,7 @@ async def process_email_webhook_attachment_import(
             "unipile webhook: attachment present but incomplete fetch context workflow_name=%s; skipping ingest",
             workflow_name,
         )
-        return
+        return None
 
     meta = extract_email_attachment_metadata(attachment)
     file_name = ((meta.get("name") if meta else None) or "").strip() or None
@@ -144,7 +146,7 @@ async def process_email_webhook_attachment_import(
     ingest_kind = infer_email_attachment_ingest_kind(attachment, file_name, mime_type)
 
     if ingest_kind == "excel":
-        await _fetch_and_record_excel_attachment(
+        return await _fetch_and_record_excel_attachment(
             workflow_name=workflow_name,
             data_import_tenant_id=tid,
             ingest_source_type=source_label,
@@ -153,7 +155,6 @@ async def process_email_webhook_attachment_import(
             file_name=file_name,
             mime_type=mime_type,
         )
-        return
 
     # elif ingest_kind == "pdf":
     #     await _fetch_and_record_pdf_attachment(...)
@@ -165,3 +166,4 @@ async def process_email_webhook_attachment_import(
         file_name,
         ingest_kind,
     )
+    return None

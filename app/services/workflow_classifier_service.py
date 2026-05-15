@@ -2,8 +2,8 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from app.core.config import settings
 from app.core.logger import get_logger
+from app.repositories.tenants_db_repository import find_tenant_id_by_config_email_webhook_name
 logger = get_logger(__name__)
 
 
@@ -225,14 +225,15 @@ def unipile_first_attachment_by_extension(
     return None
 
 
-def _is_gellita_load_tendering_unipile(payload: dict[str, Any]) -> bool:
-
-    expected = (settings.GELLITA_UNIPILE_ID or "").strip()
-    logger.info(f"Expected Gellita Unipile ID: {expected}")
-    if not expected:
+def _is_load_tendering_unipile(payload: dict[str, Any]) -> bool:
+    """
+    Load tendering when Unipile ``webhook_name`` maps to ``tenants.config.email_webhook_name``
+    and the payload carries a qualifying .xlsx attachment.
+    """
+    webhook_name = str(payload.get("webhook_name") or "").strip()
+    if not webhook_name:
         return False
-    account_id = str(payload.get("account_id") or "").strip()
-    if account_id != expected:
+    if not find_tenant_id_by_config_email_webhook_name(webhook_name):
         return False
     if not payload.get("has_attachments"):
         return False
@@ -259,8 +260,11 @@ class WorkflowClassifierService:
                 trigger pod reply workflow
         """
 
-        if _is_gellita_load_tendering_unipile(payload):
-            logger.info(f"Load tendering workflow triggered for payload: {payload}")
+        if _is_load_tendering_unipile(payload):
+            logger.info(
+                "Load tendering workflow triggered webhook_name=%r",
+                payload.get("webhook_name"),
+            )
             return {"workflow_name": "load_tendering"}
 
         subject = str(payload.get("subject") or "").strip()

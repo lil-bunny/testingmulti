@@ -79,8 +79,9 @@ def test_webhook_rejects_invalid_bearer():
     assert "401" in str(detail) or "Unauthorized" in str(detail)
 
 
-def test_webhook_invalid_webhook_name_returns_message_and_skips_workflow():
-    bad = {**RATECON_WEBHOOK_PAYLOAD, "webhook_name": "not_registered_webhook_name"}
+def test_webhook_missing_webhook_name_returns_message_and_skips_workflow():
+    bad = {**RATECON_WEBHOOK_PAYLOAD}
+    bad.pop("webhook_name", None)
 
     with TestClient(app) as client:
         r = client.post("/api/webhook/unipile", json=bad, headers=_auth_headers())
@@ -275,7 +276,12 @@ def assert_ratecon_post_webhook_db_state(*, execution_id: str) -> dict[str, Any]
 @pytest.mark.integration
 def test_ratecon_email_received_unipile_webhook(
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.setattr(
+        "app.api.routes.resolve_email_data_import_tenant_id",
+        lambda **_kwargs: "aadc75f4-3f79-45d7-84c3-aa778e226e93",
+    )
     # Keep real workflow service override disabled for this integration path.
     app.dependency_overrides.pop(get_workflow_service, None)
 

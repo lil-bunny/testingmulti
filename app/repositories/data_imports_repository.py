@@ -53,3 +53,33 @@ class DataImportsRepository:
         if not row or not row[0]:
             raise RuntimeError("data_imports insert returned no id")
         return str(row[0])
+
+    def fetch_raw_data_by_id(
+        self, *, tenant_id: str, data_import_id: str
+    ) -> dict[str, Any] | None:
+        tid = tenant_id.strip()
+        did = data_import_id.strip()
+        if not tid or not did:
+            raise ValueError("tenant_id and data_import_id are required")
+
+        conn = psycopg.connect(settings.DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT raw_data
+                    FROM {self.TABLE_NAME}
+                    WHERE id = %s::uuid AND tenant_id = %s::uuid
+                    """,
+                    (did, tid),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if not row or row[0] is None:
+            return None
+        raw = row[0]
+        if isinstance(raw, dict):
+            return raw
+        raise TypeError("data_imports.raw_data must decode to a dict")
