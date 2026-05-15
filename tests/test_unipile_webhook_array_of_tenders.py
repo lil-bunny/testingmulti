@@ -22,7 +22,7 @@ def noop_tenders_persist(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def stub_data_import_tenant_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Avoid live DB for tenants.config ``email_webhook_name`` lookup in route tests."""
+    """Avoid live DB for tenants.settings ``email_webhook_name`` lookup in route tests."""
 
     monkeypatch.setattr(
         "app.api.routes.resolve_email_data_import_tenant_id",

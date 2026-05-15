@@ -59,7 +59,7 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     summary="Unipile mail gateway webhook handler",
     description=(
         "Receives Unipile 'email_received' webhook events after Bearer auth. The payload "
-        "`webhook_name` must match `tenants.config.email_webhook_name` for some row; otherwise "
+        "`webhook_name` must match `tenants.settings.email_webhook_name` for some row; otherwise "
         "the request is rejected as an invalid webhook. Then the workflow type is classified."
     ),
 )
@@ -75,7 +75,7 @@ async def unipile_mail_thread_capture(
         data_import_tenant_id = resolve_email_data_import_tenant_id(payload=payload)
         if not data_import_tenant_id:
             return {"message": "invalid webhook"}
-        logger.info(f"Data import tenant id: {data_import_tenant_id}")
+        
         # classify workflow_type before langgraph exec: ratecon or pod_lifecycle
         workflow_classifier = WorkflowClassifierService()
 

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import Depends, Header, HTTPException
 
@@ -34,12 +34,15 @@ def require_turvo_public_api_config() -> None:
 
 
 def get_app_user_id(
-    x_app_user_id: Annotated[str, Header(alias="X-App-User-Id")],
+    x_app_user_id: Annotated[Optional[str], Header(alias="X-App-User-Id")] = None,
 ) -> str:
     s = (x_app_user_id or "").strip()
-    if not s:
-        raise HTTPException(
-            status_code=400,
-            detail="Header X-App-User-Id is required for this request.",
-        )
-    return s
+    if s:
+        return s
+    fb = (settings.TURVO_DEFAULT_APP_USER_ID or "").strip()
+    if fb:
+        return fb
+    raise HTTPException(
+        status_code=400,
+        detail="Header X-App-User-Id is required, or set TURVO_DEFAULT_APP_USER_ID.",
+    )

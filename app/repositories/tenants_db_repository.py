@@ -1,4 +1,4 @@
-"""Postgres ``tenants`` table lookups (app-level tenant UUID ``id``, JSON ``config``)."""
+"""Postgres ``tenants`` table lookups (app-level tenant UUID ``id``, JSON ``settings``)."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ def _table() -> str:
     return t if t else "tenants"
 
 
-def find_tenant_id_by_config_email_webhook_name(webhook_name: str) -> Optional[str]:
+def find_tenant_id_by_settings_email_webhook_name(webhook_name: str) -> Optional[str]:
     """
-    Return ``tenants.id`` (UUID string) where ``config`` JSON contains
+    Return ``tenants.id`` (UUID string) where ``settings`` JSON contains
     ``email_webhook_name`` equal to ``webhook_name`` (exact match).
 
     Ignores whitespace-only ``webhook_name``. If multiple rows match, logs and returns the
@@ -35,8 +35,8 @@ def find_tenant_id_by_config_email_webhook_name(webhook_name: str) -> Optional[s
 
     sql = (
         f"SELECT id::text FROM {_table()} "
-        "WHERE config IS NOT NULL "
-        "AND (config::jsonb ->> 'email_webhook_name') = %s "
+        "WHERE settings IS NOT NULL "
+        "AND (settings::jsonb ->> 'email_webhook_name') = %s "
         "ORDER BY id LIMIT 3"
     )
     with _conn() as conn:
@@ -59,4 +59,4 @@ class TenantsDbRepository:
     """Thin class wrapper for dependency injection / tests."""
 
     def find_tenant_id_by_email_webhook_name(self, webhook_name: str) -> Optional[str]:
-        return find_tenant_id_by_config_email_webhook_name(webhook_name)
+        return find_tenant_id_by_settings_email_webhook_name(webhook_name)

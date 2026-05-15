@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logger import get_logger
-from app.repositories.tenants_db_repository import find_tenant_id_by_config_email_webhook_name
+from app.repositories.tenants_db_repository import find_tenant_id_by_settings_email_webhook_name
 logger = get_logger(__name__)
 
 
@@ -227,13 +227,13 @@ def unipile_first_attachment_by_extension(
 
 def _is_load_tendering_unipile(payload: dict[str, Any]) -> bool:
     """
-    Load tendering when Unipile ``webhook_name`` maps to ``tenants.config.email_webhook_name``
+    Load tendering when Unipile ``webhook_name`` maps to ``tenants.settings.email_webhook_name``
     and the payload carries a qualifying .xlsx attachment.
     """
     webhook_name = str(payload.get("webhook_name") or "").strip()
     if not webhook_name:
         return False
-    if not find_tenant_id_by_config_email_webhook_name(webhook_name):
+    if not find_tenant_id_by_settings_email_webhook_name(webhook_name):
         return False
     if not payload.get("has_attachments"):
         return False

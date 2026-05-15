@@ -39,7 +39,7 @@ def mapped_load_tender_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
         return "db-tenant-uuid" if name == _LOAD_TENDER_WEBHOOK else None
 
     monkeypatch.setattr(
-        "app.services.workflow_classifier_service.find_tenant_id_by_config_email_webhook_name",
+        "app.services.workflow_classifier_service.find_tenant_id_by_settings_email_webhook_name",
         fake_lookup,
     )
 
@@ -89,7 +89,7 @@ def test_is_load_tendering_when_webhook_maps_and_xlsx_present(
 
 def test_is_load_tendering_false_when_webhook_not_in_db(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "app.services.workflow_classifier_service.find_tenant_id_by_config_email_webhook_name",
+        "app.services.workflow_classifier_service.find_tenant_id_by_settings_email_webhook_name",
         lambda _: None,
     )
     assert _is_load_tendering_unipile(sample_payload()) is False

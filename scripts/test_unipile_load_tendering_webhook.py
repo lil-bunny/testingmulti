@@ -3,7 +3,7 @@ POST /api/webhook/unipile with a sample Unipile payload shaped for load_tenderin
 
 Prerequisites (local server must match):
   - UNIPILE_WEBHOOK_SECRET — same as ``--token`` below
-  - ``tenants.config.email_webhook_name`` must equal the payload's ``webhook_name`` (this sample
+  - ``tenants.settings.email_webhook_name`` must equal the payload's ``webhook_name`` (this sample
     uses ``gelita``; adjust payload or DB to match). Route auth is Bearer-only; tenant/import
     routing is DB-driven from that name.
 
