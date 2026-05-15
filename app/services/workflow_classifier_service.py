@@ -2,6 +2,11 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from app.core.config import settings
+from app.core.logger import get_logger
+logger = get_logger(__name__)
+
+
 _RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
 _CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET = "carrier_rate_confirmation"
 
@@ -15,6 +20,24 @@ def _get_attachment_display_filename(attachment: Any) -> str:
         if value is not None and str(value).strip():
             return str(value).strip()
     return ""
+
+
+def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[str]:
+    """
+    Filename for generic Unipile ``mail_received`` bodies: first attachment with a display
+    name, else top-level ``file_name`` / ``filename``.
+    """
+    attachments = payload.get("attachments")
+    if isinstance(attachments, list):
+        for attachment in attachments:
+            display = _get_attachment_display_filename(attachment)
+            if display:
+                return display
+    for key in ("file_name", "filename"):
+        raw = payload.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    return None
 
 
 def _is_pdf_attachment(attachment: dict, filename: str) -> bool:
@@ -44,7 +67,7 @@ def _get_attachment_uri(attachment: dict) -> Optional[str]:
     return None
 
 
-def _build_unipile_attachment_fetch_context(
+def build_unipile_attachment_fetch_context(
     payload: dict[str, Any], attachment: dict[str, Any]
 ) -> dict[str, str]:
     """IDs needed for Unipile ``get_email_attachment`` / download APIs (webhook has no file URL)."""
@@ -61,7 +84,7 @@ def _build_unipile_attachment_fetch_context(
     return fetch_context
 
 
-def _extract_unipile_attachment_metadata(attachment: dict[str, Any]) -> dict[str, Any]:
+def extract_email_attachment_metadata(attachment: dict[str, Any]) -> dict[str, Any]:
     """Subset of Unipile attachment object (``id``, ``name``, ``mime``, ``extension``, ``size``)."""
     if not isinstance(attachment, dict):
         return {}
@@ -146,8 +169,8 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
     if not load_id:
         return empty_result
 
-    attachment_metadata = _extract_unipile_attachment_metadata(matching_attachment)
-    attachment_fetch_context = _build_unipile_attachment_fetch_context(payload, matching_attachment)
+    attachment_metadata = extract_email_attachment_metadata(matching_attachment)
+    attachment_fetch_context = build_unipile_attachment_fetch_context(payload, matching_attachment)
 
     return {
         "is_ratecon_mail": True,
@@ -164,6 +187,58 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
 
 def has_rate_confirmation_subject(subject: str) -> bool:
     return _RATE_CONFIRMATION_SUBJECT_SNIPPET in (subject or "").lower()
+
+
+def _normalize_attachment_extension(value: Any) -> str:
+    return str(value or "").strip().lower().lstrip(".")
+
+
+def email_first_attachment(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """First attachment dict that has an ``id`` (any file type), in list order."""
+    attachments = payload.get("attachments")
+    if not isinstance(attachments, list):
+        return None
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        if attachment.get("id") is not None and str(attachment.get("id")).strip():
+            return attachment
+    return None
+
+
+def unipile_first_attachment_by_extension(
+    payload: dict[str, Any], extension: str
+) -> Optional[dict[str, Any]]:
+    """First attachment whose ``extension`` matches (e.g. ``\"xlsx\"``), after normalization."""
+    want = _normalize_attachment_extension(extension)
+    if not want:
+        return None
+    attachments = payload.get("attachments")
+    if not isinstance(attachments, list):
+        return None
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        ext = _normalize_attachment_extension(attachment.get("extension"))
+        if ext == want:
+            return attachment
+    return None
+
+
+def _is_gellita_load_tendering_unipile(payload: dict[str, Any]) -> bool:
+
+    expected = (settings.GELLITA_UNIPILE_ID or "").strip()
+    logger.info(f"Expected Gellita Unipile ID: {expected}")
+    if not expected:
+        return False
+    account_id = str(payload.get("account_id") or "").strip()
+    if account_id != expected:
+        return False
+    if not payload.get("has_attachments"):
+        return False
+    if not isinstance(payload.get("attachments"), list):
+        return False
+    return unipile_first_attachment_by_extension(payload, "xlsx") is not None
 
 
 class WorkflowClassifierService:
@@ -183,6 +258,10 @@ class WorkflowClassifierService:
             3.2 reply email : in_reply_to exists
                 trigger pod reply workflow
         """
+
+        if _is_gellita_load_tendering_unipile(payload):
+            logger.info(f"Load tendering workflow triggered for payload: {payload}")
+            return {"workflow_name": "load_tendering"}
 
         subject = str(payload.get("subject") or "").strip()
         if not has_rate_confirmation_subject(subject):

@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
     UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"
+    GELLITA_UNIPILE_ID: Optional[str] = "W7Xyw8gLT2mvog37VsGHZQ"
+    GELLITA_TENANT_ID: str = "aadc75f4-3f79-45d7-84c3-aa778e226e93"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
