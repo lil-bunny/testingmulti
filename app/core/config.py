@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote_plus
 import os
 
@@ -31,8 +33,6 @@ class Settings(BaseSettings):
     DATABASE_USER: str
     DATABASE_PASSWORD: str
 
-    DOCUMENTS_TABLE: str = "documents"
-    DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
     # Fractional hours supported (e.g. 30s ≈ 0.00833333). Integers in .env still parse (24 → 24.0).
     REMINDER_0_HOURS:float = 0           # immediate
     REMINDER_1_HOURS:float = 0.01666666  # 1m later
@@ -51,9 +51,8 @@ class Settings(BaseSettings):
     UNIPILE_ACCOUNT_ID: str
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
-    STUDIO_TENANT_ID: str = "t3ra"
+    STUDIO_TENANT_SLUG: str = "t3ra"
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
-    TENANTS_TABLE: str = "tenants"
 
     # Turvo
     TURVO_APP_URL: str = "https://app.turvo.com"
@@ -87,7 +86,15 @@ class Settings(BaseSettings):
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
-    UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"
+    T3RA_EMAIL_WEBHOOK_NAME: str = Field(
+        default="pod_lifecycle_email_received_webhook",
+        validation_alias=AliasChoices(
+            "T3RA_EMAIL_WEBHOOK_NAME",
+            "UNIPILE_WEBHOOK_NAME",
+        ),
+    )
+
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

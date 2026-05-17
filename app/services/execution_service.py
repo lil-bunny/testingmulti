@@ -16,21 +16,24 @@ class ExecutionService:
         self,
         graph,
         tenant_id: str,
+        tenant_slug: str,
         workflow_lifecycle_id: str,
         payload: dict,
         execution_id: str | None = None,
     ):
-        if execution_id and str(execution_id).strip():
-            execution_id = str(execution_id).strip()
-        else:
+        execution_id = str(execution_id).strip() if execution_id else ""
+
+        if not execution_id:
             execution_id = str(uuid.uuid4())
 
         state = WorkflowState(
             tenant_id=tenant_id,
+            tenant_slug=tenant_slug,
             execution_id=execution_id,
             data=payload,
         )
         state.data["tenant_id"] = tenant_id
+        state.data["tenant_slug"] = tenant_slug
         self.runs_service.record_workflow_run(
             run_id=execution_id,
             tenant_id=tenant_id,
