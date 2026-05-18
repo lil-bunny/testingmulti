@@ -35,6 +35,10 @@ The POD flow schedules two ETA reminders (24h and 48h) when the initial POD requ
 .venv/bin/celery -A app.celery_app:celery_app worker --loglevel=info
 ```
 
+```bash windows
+uv run celery -A app.celery_app:celery_app worker --loglevel=info --pool=solo
+```
+
 ## Business DB migrations (Alembic)
 
 Run business table migrations (for example `workflow_correlation`) with:

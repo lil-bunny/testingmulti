@@ -4,7 +4,8 @@
   ],
   "graphs": {
     "pod_lifecycle": "./app/studio.py:studio_graph",
-    "ratecon": "./app/studio.py:ratecon_studio_graph"
+    "ratecon": "./app/studio.py:ratecon_studio_graph",
+    "load_tendering": "./app/studio.py:load_tendering_studio_graph"
   },
   "env": ".env"
 }

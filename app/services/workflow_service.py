@@ -6,6 +6,8 @@ from app.workflows.graph.builder import build_graph
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.graph.routers import (
     event_type_router,
+    tender_status_router,
+    load_type_router,
     shipment_router,
     pod_exists_router,
     pod_missing_dispatch_router,
@@ -24,6 +26,8 @@ ROUTER_REGISTRY = {
     "event_type": event_type_router,
     "pod_request_triggered_router": pod_request_triggered_router,
     "read_workflow_lifecycle_router": read_workflow_lifecycle_router,
+    "load_type_router": load_type_router,
+    "tender_status_router": tender_status_router,
 }
 
 

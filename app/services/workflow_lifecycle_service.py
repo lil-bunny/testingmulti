@@ -7,7 +7,10 @@ from typing import Any, Optional
 import psycopg
 
 from app.core.config import settings
-
+from app.models.status import (
+    StatusType,
+    StatusSubType
+)
 
 @dataclass(frozen=True)
 class LifecycleResolution:
@@ -314,5 +317,125 @@ class WorkflowLifecycleService:
                     workflow_lifecycle_id=new_id,
                     existed=False,
                 )
+        finally:
+            conn.close()
+
+    def read_lifecycle_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
+        """Return tenant_id, workflow_name, status, sub_status, email_thread_id for a lifecycle PK."""
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            return None
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT tenant_id::text, workflow_name, status, sub_status, email_thread_id
+                    FROM {self.TABLE_NAME}
+                    WHERE id = %s::uuid
+                    """,
+                    (lid,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "tenant_id": row[0],
+                    "workflow_name": row[1],
+                    "status": row[2],
+                    "sub_status": row[3],
+                    "email_thread_id": row[4],
+                }
+        finally:
+            conn.close()
+
+
+    def update_lifecycle_status(
+        self,
+        *,
+        lifecycle_id: str,
+        status: StatusType | None = None,
+        sub_status: StatusSubType | None = None,
+    ) -> bool:
+        """
+        Update lifecycle status fields.
+
+        - ``None`` means "leave unchanged".
+        - Uses enum types internally.
+        - Serializes enums only at DB boundary.
+        - Returns whether any row was updated.
+        """
+
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if status is not None:
+            updates.append("status = %s")
+            params.append(status.value)
+
+        if sub_status is not None:
+            updates.append("sub_status = %s")
+            params.append(sub_status.value)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = NOW()")
+
+        params.append(lid)
+
+        sql = f"""
+            UPDATE {self.TABLE_NAME}
+            SET {", ".join(updates)}
+            WHERE id = %s::uuid
+        """
+
+        conn = self._conn()
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                updated = cur.rowcount > 0
+
+            conn.commit()
+            return updated
+
+        finally:
+            conn.close()
+
+    def update_lifecycle_sub_status(
+        self,
+        *,
+        lifecycle_id: str,
+        new_sub_status: StatusSubType,
+    ) -> bool:
+        """Set ``sub_status`` unconditionally. Returns whether a row was updated."""
+
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+
+        sql = f"""
+            UPDATE {self.TABLE_NAME}
+            SET
+                sub_status = %s,
+                updated_at = NOW()
+            WHERE id = %s::uuid
+        """
+
+        conn = self._conn()
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, (new_sub_status.value, lid))
+                updated = cur.rowcount > 0
+
+            conn.commit()
+            return updated
+
         finally:
             conn.close()

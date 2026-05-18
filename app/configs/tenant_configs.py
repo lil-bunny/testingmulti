@@ -13,4 +13,12 @@ TENANT_CONFIGS = {
             "disable_nodes": [],
         },
     },
+    "gelita": {
+        "load_tendering": {
+            "replace": {},
+            "add_edges": [],
+            "remove_edges": [],
+            "disable_nodes": [],
+        },
+    }
 }
