@@ -55,8 +55,32 @@ def find_tenant_id_by_settings_email_webhook_name(webhook_name: str) -> Optional
     return str(rows[0][0])
 
 
+def get_settings_workflow_graph_tenant_id(tenant_uuid: str) -> Optional[str]:
+    """
+    Return ``settings.workflow_graph_tenant_id`` from ``tenants`` row ``id``.
+    Blank or unset values return ``None``.
+    """
+    needle = tenant_uuid.strip()
+    if not needle:
+        return None
+    sql = (
+        f"SELECT NULLIF(trim(settings::jsonb ->> 'workflow_graph_tenant_id'), '') "
+        f"FROM {_table()} WHERE id = %s::uuid LIMIT 1"
+    )
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (needle,))
+            row = cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    return str(row[0]).strip() or None
+
+
 class TenantsDbRepository:
     """Thin class wrapper for dependency injection / tests."""
 
     def find_tenant_id_by_email_webhook_name(self, webhook_name: str) -> Optional[str]:
         return find_tenant_id_by_settings_email_webhook_name(webhook_name)
+
+    def get_settings_workflow_graph_tenant_id(self, tenant_uuid: str) -> Optional[str]:
+        return get_settings_workflow_graph_tenant_id(tenant_uuid)

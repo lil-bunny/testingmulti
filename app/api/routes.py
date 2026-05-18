@@ -19,6 +19,7 @@ from app.services.email_import_projection import (
     persist_tender_rows_from_email_import_projection,
 )
 from app.services.workflow_classifier_service import WorkflowClassifierService
+from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_service import WorkflowService
 from app.tasks.workflows import run_workflow_async
@@ -52,6 +53,16 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
         if candidate:
             return candidate
     return "t3ra"
+
+
+def _load_tendering_row_correlation_load_id(
+    data_import_id: Optional[str],
+    row_index: int,
+    tender_row: dict[str, Any],
+) -> str:
+    did = str(data_import_id or "").strip() or "no-import"
+    order = str(tender_row.get("order_number") or "").strip() or "no-order"
+    return f"{did}:{row_index}:{order}"
 
 
 @router.post(
@@ -101,7 +112,11 @@ async def unipile_mail_thread_capture(
                 data_import_id=data_import_id,
                 projection=LOAD_TENDERING_ROW_PROJECTION,
             )
-            logger.info(f"Array of tenders: {array_of_tenders}")
+            logger.info(
+                "Array of tenders: projected_row_count=%s data_import_id=%s",
+                len(array_of_tenders),
+                data_import_id,
+            )
             tenders_inserted = persist_tender_rows_from_email_import_projection(
                 tenant_id=data_import_tenant_id,
                 data_import_id=data_import_id,
@@ -113,9 +128,69 @@ async def unipile_mail_thread_capture(
                     tenders_inserted,
                     data_import_id,
                 )
+
+            graph_tenant_id = resolve_workflow_graph_tenant_id(
+                data_import_tenant_id=data_import_tenant_id,
+                webhook_name=str(payload.get("webhook_name") or ""),
+            )
+
+            shared_payload: dict[str, Any] = {
+                **payload,
+                **workflow_classification_result,
+            }
+            mail_thread_src = shared_payload.pop("thread_id", None)
+            if mail_thread_src is not None:
+                stripe = str(mail_thread_src).strip()
+                if stripe:
+                    shared_payload["source_email_thread_id"] = stripe
+
+            execution_ids: list[str] = []
+            for row_index, tender_row in enumerate(array_of_tenders):
+                workflow_payload_row: dict[str, Any] = {
+                    **shared_payload,
+                    "load_id": _load_tendering_row_correlation_load_id(
+                        data_import_id, row_index, tender_row
+                    ),
+                    "tender_row": tender_row,
+                    "tender_row_index": row_index,
+                }
+                if data_import_id:
+                    workflow_payload_row["data_import_id"] = data_import_id
+                execution_row_id = str(uuid.uuid4())
+                workflow_payload_row["execution_id"] = execution_row_id
+                execution_ids.append(execution_row_id)
+                task = run_workflow_async.apply_async(
+                    kwargs={
+                        "tenant_id": graph_tenant_id,
+                        "workflow_name": workflow_name,
+                        "payload": workflow_payload_row,
+                    }
+                )
+                logger.debug(
+                    "Unipile load_tendering row task_id=%s execution_id=%s row_index=%s",
+                    task.id,
+                    execution_row_id,
+                    row_index,
+                )
+
+            logger.info(
+                "unipile webhook load_tendering: queued_tasks=%s data_import_id=%s "
+                "graph_tenant_id=%s source_email_thread_id=%s",
+                len(execution_ids),
+                data_import_id,
+                graph_tenant_id,
+                bool(shared_payload.get("source_email_thread_id")),
+            )
+
+            body: dict[str, Any] = {
+                "message": "success",
+                "execution_ids": execution_ids,
+            }
+            if data_import_id:
+                body["data_import_id"] = data_import_id
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
-                content={"message": "success", "data_import_id": data_import_id},
+                content=body,
             )
         workflow_payload = (
             {**payload, **workflow_classification_result}
@@ -123,12 +198,10 @@ async def unipile_mail_thread_capture(
             else payload
         )
 
-        # data_import id for workflows; array_of_tenders is load_tendering-only for now
+        # data_import id for workflows
         if data_import_id:
             workflow_payload = {**workflow_payload, "data_import_id": data_import_id}
-            if workflow_name == "load_tendering":
-                workflow_payload["array_of_tenders"] = array_of_tenders
-        
+
         execution_id = str(uuid.uuid4())
         workflow_payload = {**workflow_payload, "execution_id": execution_id}
         task = run_workflow_async.apply_async(

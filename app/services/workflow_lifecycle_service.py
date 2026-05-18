@@ -48,10 +48,6 @@ class WorkflowLifecycleService:
     def _extract_shipment_id(payload: dict[str, Any]) -> Optional[str]:
         return WorkflowLifecycleService._clean(payload.get("shipment_id"))
 
-    @staticmethod
-    def _extract_load_id(payload: dict[str, Any]) -> Optional[str]:
-        return WorkflowLifecycleService._clean(payload.get("load_id"))
-
     def _find_existing_lifecycle_id(
         self,
         cur,
@@ -60,13 +56,12 @@ class WorkflowLifecycleService:
         workflow_name: str,
         thread_id: Optional[str],
         shipment_id: Optional[str],
-        load_id: Optional[str],
     ) -> Optional[str]:
-        # Priority order: thread (email thread id) -> shipment -> load.
+        # Priority order: thread (email thread id) -> shipment.
+        # ``load_id`` is not persisted on ``workflow_lifecycles``; correlate via shipment when needed.
         for field_name, field_value in (
             ("email_thread_id", thread_id),
             ("shipment_id", shipment_id),
-            ("load_id", load_id),
         ):
             if not field_value:
                 continue
@@ -96,7 +91,6 @@ class WorkflowLifecycleService:
         workflow_name: str,
         thread_id: Optional[str],
         shipment_id: Optional[str],
-        load_id: Optional[str],
     ) -> None:
         cur.execute(
             f"""
@@ -105,9 +99,8 @@ class WorkflowLifecycleService:
                 tenant_id,
                 workflow_name,
                 email_thread_id,
-                shipment_id,
-                load_id
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                shipment_id
+            ) VALUES (%s, %s, %s, %s, %s)
             """,
             (
                 lifecycle_id,
@@ -115,7 +108,6 @@ class WorkflowLifecycleService:
                 workflow_name,
                 thread_id,
                 shipment_id,
-                load_id,
             ),
         )
 
@@ -126,7 +118,6 @@ class WorkflowLifecycleService:
         lifecycle_id: str,
         thread_id: Optional[str],
         shipment_id: Optional[str],
-        load_id: Optional[str],
     ) -> None:
         cur.execute(
             f"""
@@ -134,11 +125,10 @@ class WorkflowLifecycleService:
             SET
                 email_thread_id = COALESCE(%s, email_thread_id),
                 shipment_id = COALESCE(%s, shipment_id),
-                load_id = COALESCE(%s, load_id),
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (thread_id, shipment_id, load_id, lifecycle_id),
+            (thread_id, shipment_id, lifecycle_id),
         )
 
     def read_lifecycle(
@@ -150,7 +140,10 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
     ) -> dict:
-        """Read-only lookup. Returns lifecycle data if found, no row creation."""
+        """Read-only lookup. Returns lifecycle data if found, no row creation.
+
+        ``load_id`` is accepted for API compatibility but lifecycles are not keyed by ``load_id`` in the DB.
+        """
         tid = self._clean(tenant_id)
         wn = self._clean(workflow_name)
         if not tid or not wn:
@@ -158,7 +151,6 @@ class WorkflowLifecycleService:
 
         t = self._clean(thread_id)
         s = self._clean(shipment_id)
-        l = self._clean(load_id)
 
         conn = self._conn()
         try:
@@ -169,14 +161,13 @@ class WorkflowLifecycleService:
                     workflow_name=wn,
                     thread_id=t,
                     shipment_id=s,
-                    load_id=l,
                 )
                 if not lifecycle_id:
                     return {"found": False}
 
                 cur.execute(
                     f"""
-                    SELECT shipment_id, load_id, email_thread_id, workflow_name
+                    SELECT shipment_id, email_thread_id, workflow_name
                     FROM {self.TABLE_NAME}
                     WHERE id = %s
                     """,
@@ -190,9 +181,9 @@ class WorkflowLifecycleService:
                     "found": True,
                     "lifecycle_id": lifecycle_id,
                     "shipment_id": row[0] or "",
-                    "load_id": row[1] or "",
-                    "email_thread_id": row[2] or "",
-                    "workflow_name": row[3] or "",
+                    "load_id": "",
+                    "email_thread_id": row[1] or "",
+                    "workflow_name": row[2] or "",
                 }
         finally:
             conn.close()
@@ -205,7 +196,7 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
     ) -> None:
-        """Backfill lifecycle keys onto an existing lifecycle row."""
+        """Backfill lifecycle keys onto an existing lifecycle row. ``load_id`` is ignored (not stored)."""
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -214,7 +205,6 @@ class WorkflowLifecycleService:
                     lifecycle_id=lifecycle_id,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
-                    load_id=self._clean(load_id),
                 )
             conn.commit()
         finally:
@@ -229,7 +219,7 @@ class WorkflowLifecycleService:
         load_id: str | None = None,
         thread_id: str | None = None,
     ) -> dict:
-        """Check if a lifecycle row exists for given keys."""
+        """Check if a lifecycle row exists for given keys. ``load_id`` is ignored."""
         tid = self._clean(tenant_id)
         wn = self._clean(workflow_name)
         if not tid or not wn:
@@ -244,7 +234,6 @@ class WorkflowLifecycleService:
                     workflow_name=wn,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
-                    load_id=self._clean(load_id),
                 )
                 if lifecycle_id:
                     return {"exists": True, "lifecycle_id": lifecycle_id}
@@ -272,7 +261,6 @@ class WorkflowLifecycleService:
 
         thread_id = self._extract_thread_id(payload)
         shipment_id = self._extract_shipment_id(payload)
-        load_id = self._extract_load_id(payload)
 
         conn = self._conn()
         try:
@@ -283,7 +271,6 @@ class WorkflowLifecycleService:
                     workflow_name=workflow_name_clean,
                     thread_id=thread_id,
                     shipment_id=shipment_id,
-                    load_id=load_id,
                 )
                 if existing_id:
                     self._update_lifecycle_keys(
@@ -291,7 +278,6 @@ class WorkflowLifecycleService:
                         lifecycle_id=existing_id,
                         thread_id=thread_id,
                         shipment_id=shipment_id,
-                        load_id=load_id,
                     )
                     conn.commit()
                     return LifecycleResolution(
@@ -307,7 +293,6 @@ class WorkflowLifecycleService:
                     workflow_name=workflow_name_clean,
                     thread_id=thread_id,
                     shipment_id=shipment_id,
-                    load_id=load_id,
                 )
                 conn.commit()
                 return LifecycleResolution(

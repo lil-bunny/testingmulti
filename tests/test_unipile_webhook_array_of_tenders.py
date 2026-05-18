@@ -56,7 +56,7 @@ def test_unipile_webhook_ratecon_carries_import_id_but_not_array_of_tenders(
     webhook_headers: dict[str, str],
     celery_capture: list[dict],
 ) -> None:
-    """``array_of_tenders`` is only attached for workflow ``load_tendering`` (not ratecon/pod)."""
+    """``array_of_tenders`` must not attach to Celery payloads for ratecon/pod."""
 
     from tests.e2e.fixtures.main import RATECON_WEBHOOK_PAYLOAD
 
