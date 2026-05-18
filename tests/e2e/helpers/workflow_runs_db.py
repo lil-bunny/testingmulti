@@ -7,6 +7,7 @@ from typing import Any
 import psycopg
 
 from app.core.config import settings
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 _WORKFLOW_RUNS_TABLE = "workflow_runs"
 
@@ -14,36 +15,50 @@ _WORKFLOW_RUNS_TABLE = "workflow_runs"
 def _conn() -> psycopg.Connection:
     return psycopg.connect(settings.DATABASE_URL)
 
+
+def _tenant_uuid_for_queries(tenant_id: str) -> str:
+    tid = tenant_id.strip()
+    if not tid:
+        raise ValueError("tenant_id required")
+    u = resolve_graph_tenant_to_uuid(tid)
+    if not u:
+        raise ValueError(
+            f"No tenants.slug match for graph tenant_id={tenant_id!r} (workflow_runs uses UUID)."
+        )
+    return u
+
+
 def fetch_latest_workflow_run_for_tenant_shipment(
     tenant_id: str,
     shipment_id: str,
 ) -> dict[str, Any] | None:
-    """Latest ``workflow_runs`` row for tenant + shipment (newest ``created_at`` first)."""
-    tid = str(tenant_id).strip()
+    """Latest ``workflow_runs`` row tied to lifecycle rows with this shipment (newest ``created_at``)."""
+    tenant_uuid = _tenant_uuid_for_queries(tenant_id)
     sid = str(shipment_id).strip()
-    if not tid or not sid:
+    if not sid:
         return None
     conn = _conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT id, tenant_id, event_type, workflow_lifecycle_id, shipment_id
-                FROM {_WORKFLOW_RUNS_TABLE}
-                WHERE tenant_id = %s AND shipment_id IS NOT DISTINCT FROM %s
-                ORDER BY created_at DESC
+                SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id, wl.shipment_id
+                FROM {_WORKFLOW_RUNS_TABLE} wr
+                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+                WHERE wr.tenant_id = %s::uuid AND wl.shipment_id IS NOT DISTINCT FROM %s
+                ORDER BY wr.created_at DESC
                 LIMIT 1
                 """,
-                (tid, sid),
+                (tenant_uuid, sid),
             )
             row = cur.fetchone()
             if row is None:
                 return None
             return {
-                "id": row[0],
-                "tenant_id": row[1],
+                "id": str(row[0]),
+                "tenant_id": str(row[1]),
                 "event_type": row[2],
-                "workflow_lifecycle_id": row[3],
+                "workflow_lifecycle_id": str(row[3]),
                 "shipment_id": row[4],
             }
     finally:
@@ -64,10 +79,11 @@ def list_workflow_runs_for_lifecycle_event_type(
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT id, tenant_id, event_type, workflow_lifecycle_id, shipment_id, created_at
-                FROM {_WORKFLOW_RUNS_TABLE}
-                WHERE workflow_lifecycle_id = %s AND event_type = %s
-                ORDER BY created_at ASC
+                SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id,
+                       wr.created_at, wr.status
+                FROM {_WORKFLOW_RUNS_TABLE} wr
+                WHERE wr.workflow_lifecycle_id = %s::uuid AND wr.event_type = %s
+                ORDER BY wr.created_at ASC
                 """,
                 (wl, et),
             )
@@ -76,12 +92,13 @@ def list_workflow_runs_for_lifecycle_event_type(
             for row in rows:
                 out.append(
                     {
-                        "id": row[0],
-                        "tenant_id": row[1],
+                        "id": str(row[0]),
+                        "tenant_id": str(row[1]),
                         "event_type": row[2],
-                        "workflow_lifecycle_id": row[3],
-                        "shipment_id": row[4],
-                        "created_at": row[5],
+                        "workflow_lifecycle_id": str(row[3]),
+                        "created_at": row[4],
+                        "status": row[5],
+                        "shipment_id": None,
                     }
                 )
             return out

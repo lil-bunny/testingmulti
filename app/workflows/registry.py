@@ -12,6 +12,7 @@ from app.workflows.nodes.workflow_lifecycle import (
     resolve_workflow_lifecycle,
 )
 from app.workflows.nodes.system import end, route_event
+from app.workflows.nodes.load_tendering import log_load_tendering_context
 from app.workflows.nodes.turvo import (
     check_existing_pod,
     get_shipment,
@@ -53,6 +54,7 @@ NODE_REGISTRY = {
     "check_ratecon_workflow_lifecycle": check_ratecon_workflow_lifecycle,
     "upload_ratecon_attachments": upload_ratecon_attachments,
     "resolve_workflow_lifecycle": resolve_workflow_lifecycle,
+    "log_load_tendering_context": log_load_tendering_context,
     "route_event": route_event,
     "calculate_tender_params": calculate_tender_params,
     "send_tender_email": send_tender_email,

@@ -93,6 +93,13 @@ WORKFLOW_CONFIGS = {
         "routers": {},
     },
     "load_tendering": {
+        "entry": "log_load_tendering_context",
+        "exit": "end",
+        "nodes": ["log_load_tendering_context", "end"],
+        "edges": [["log_load_tendering_context", "end"]],
+        "routers": {},
+    },
+    "load_tendering": {
         "entry": "route_event",
         "exit": "end",
         "nodes": [
