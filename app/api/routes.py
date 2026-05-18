@@ -10,6 +10,7 @@ from app.api.deps import get_workflow_service
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
+from app.services.tenants_service import TenantsService
 from app.services.workflow_classifier_service import WorkflowClassifierService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_service import WorkflowService
@@ -32,14 +33,14 @@ class RunWorkflowRequest(BaseModel):
 def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     """
     Webhooks (e.g. Turvo) often cannot send custom query params. Precedence: optional
-    X-Workflow-Tenant-Id header, then TURVO_WEBHOOK_WORKFLOW_TENANT_ID, then STUDIO_TENANT_ID.
+    X-Workflow-Tenant-Id header, then TURVO_WEBHOOK_WORKFLOW_TENANT_ID, then STUDIO_TENANT_SLUG.
 
     Note: body `tenantId` is Turvo's id, not necessarily app/configs/tenant_configs.py keys.
     """
     for candidate in (
         (override or "").strip() or None,
         (settings.TURVO_WEBHOOK_WORKFLOW_TENANT_ID or "").strip() or None,
-        (settings.STUDIO_TENANT_ID or "").strip() or None,
+        (settings.STUDIO_TENANT_SLUG or "").strip() or None,
     ):
         if candidate:
             return candidate
@@ -59,29 +60,34 @@ async def unipile_mail_thread_capture(
         raw = await request.json()
         payload = {**raw, "event_type": "email_received"}
 
-        if not payload["webhook_name"] == settings.UNIPILE_WEBHOOK_NAME:
-            return {"message": "invalid webhook"}
+        # if not payload["webhook_name"] == settings.T3RA_EMAIL_WEBHOOK_NAME:
+        #     return {"message": "invalid webhook"}
 
-        # classify workflow_type before langgraph exec: ratecon or pod_lifecycle
-        workflow_classifier = WorkflowClassifierService()
-        workflow_classification_result = workflow_classifier.classify_workflow_type(payload)
+        # # classify workflow_type before langgraph exec: ratecon or pod_lifecycle
+        # workflow_classifier = WorkflowClassifierService()
+        # workflow_classification_result = workflow_classifier.classify_workflow_type(payload)
 
-        workflow_name = workflow_classification_result.get("workflow_name")
+        # workflow_name = workflow_classification_result.get("workflow_name")
 
-        if workflow_name not in {"ratecon", "pod_lifecycle"}:
-            return {"message": "invalid workflow type"}
+        # if workflow_name not in {"ratecon", "pod_lifecycle",'load_tendering'}:
+        #     return {"message": "invalid workflow type"}
 
-        workflow_payload = (
-            {**payload, **workflow_classification_result}
-            if workflow_name == "ratecon"
-            else payload
-        )
+        
+        # if workflow_name == "ratecon":
+        #     workflow_payload={**payload, **workflow_classification_result}
+        # elif workflow_name == "load_tendering":
+        workflow_payload = {**payload, "event_type": "carrier_email_received"}
+        # else:
+        #     workflow_payload = payload
+    
+
+
         execution_id = str(uuid.uuid4())
         workflow_payload = {**workflow_payload, "execution_id": execution_id}
         task = run_workflow_async.apply_async(
             kwargs={
-                "tenant_id": "t3ra",
-                "workflow_name": workflow_name,
+                "tenant_slug": "gelita",
+                "workflow_name": "load_tendering",
                 "payload": workflow_payload,
             }
         )
@@ -90,8 +96,8 @@ async def unipile_mail_thread_capture(
             "Unipile webhook queued task_id=%s execution_id=%s workflow_name=%s tenant_id=%s thread_id=%s load_id=%s",
             task.id,
             execution_id,
-            workflow_name,
-            payload.get("tenant_id"),
+            "load_tendering",
+            "gelita",
             payload.get("thread_id"),
             payload.get("load_id"),
         )
@@ -116,7 +122,7 @@ async def unipile_mail_thread_capture(
                 "in": "header",
                 "required": False,
                 "schema": {"type": "string"},
-                "description": "Optional. Workflow tenant key from app/configs/tenant_configs.py (e.g. t3ra). If omitted, uses TURVO_WEBHOOK_WORKFLOW_TENANT_ID, then STUDIO_TENANT_ID, else t3ra.",
+                "description": "Optional. Workflow tenant key from app/configs/tenant_configs.py (e.g. t3ra). If omitted, uses TURVO_WEBHOOK_WORKFLOW_TENANT_ID, then STUDIO_TENANT_SLUG, else t3ra.",
             }
         ]
     },
@@ -128,7 +134,7 @@ async def listen_turvo_status(
     Accepts raw Turvo webhook JSON (POST body only; **no** `tenant_id` query param).
 
     Optional header `X-Workflow-Tenant-Id` overrides the workflow tenant; otherwise
-    use env: `TURVO_WEBHOOK_WORKFLOW_TENANT_ID` → `STUDIO_TENANT_ID` → default `t3ra`.
+    use env: `TURVO_WEBHOOK_WORKFLOW_TENANT_ID` → `STUDIO_TENANT_SLUG` → default `t3ra`.
     """
     try:
         body: dict[str, Any] = await request.json()
