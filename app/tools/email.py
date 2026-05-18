@@ -259,7 +259,7 @@ def send_email(
             err = out.get("error") or "Unipile send_email failed"
             logger.warning("send_email: Unipile send failed: %s", err)
             raise UnipileException(str(err))
-        return
+        return out
 
     raise UnipileException(
         "send_email: no thread_id and no valid `to` address; nothing sent "
