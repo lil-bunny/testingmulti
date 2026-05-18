@@ -92,17 +92,21 @@ def test_mapper_invalid_pack_code_becomes_null_column() -> None:
 def test_ingest_service_noop_without_import_id() -> None:
     repo = MagicMock()
     svc = TendersIngestService(repository=repo)
-    assert svc.persist_from_projected_rows(
-        tenant_id="t",
-        data_import_id=None,
-        projected_rows=[{"order_number": "1"}],
-    ) == 0
+    assert (
+        svc.persist_from_projected_rows(
+            tenant_id="t",
+            data_import_id=None,
+            projected_rows=[{"order_number": "1"}],
+        )
+        == []
+    )
     repo.insert_batch.assert_not_called()
 
 
 def test_ingest_service_batches_valid_rows() -> None:
     repo = MagicMock()
-    repo.insert_batch.return_value = 1
+    tender_uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    repo.insert_batch.return_value = [tender_uuid]
     svc = TendersIngestService(repository=repo)
     rows = [
         {
@@ -113,12 +117,12 @@ def test_ingest_service_batches_valid_rows() -> None:
         },
         {"order_number": ""},
     ]
-    n = svc.persist_from_projected_rows(
+    ids_by_row = svc.persist_from_projected_rows(
         tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
         data_import_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
         projected_rows=rows,
     )
-    assert n == 1
+    assert ids_by_row == [tender_uuid, None]
     repo.insert_batch.assert_called_once()
     batch = repo.insert_batch.call_args[0][0]
     assert len(batch) == 1

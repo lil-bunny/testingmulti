@@ -12,9 +12,11 @@ from app.core.config import settings
 class TendersRepository:
     TABLE_NAME = "tenders"
 
-    def insert_batch(self, rows: list[dict[str, Any]]) -> int:
+    def insert_batch(self, rows: list[dict[str, Any]]) -> list[str]:
+        """Insert rows in order; return ``tenders.id`` for each inserted row."""
+
         if not rows:
-            return 0
+            return []
 
         conn = psycopg.connect(settings.DATABASE_URL)
         sql = f"""
@@ -48,7 +50,9 @@ class TendersRepository:
                 %s::load_type_enum,
                 %s::uuid
             )
+            RETURNING id
         """
+        inserted_ids: list[str] = []
         try:
             with conn.cursor() as cur:
                 for r in rows:
@@ -70,8 +74,11 @@ class TendersRepository:
                             r["data_import_id"],
                         ),
                     )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        inserted_ids.append(str(row[0]))
             conn.commit()
         finally:
             conn.close()
 
-        return len(rows)
+        return inserted_ids

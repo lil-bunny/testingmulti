@@ -117,11 +117,12 @@ async def unipile_mail_thread_capture(
                 len(array_of_tenders),
                 data_import_id,
             )
-            tenders_inserted = persist_tender_rows_from_email_import_projection(
+            tender_ids_by_row = persist_tender_rows_from_email_import_projection(
                 tenant_id=data_import_tenant_id,
                 data_import_id=data_import_id,
                 projected_rows=array_of_tenders,
             )
+            tenders_inserted = sum(1 for tid in tender_ids_by_row if tid)
             if tenders_inserted:
                 logger.info(
                     "unipile webhook: inserted %s tender row(s) data_import_id=%s",
@@ -156,9 +157,12 @@ async def unipile_mail_thread_capture(
                 }
                 if data_import_id:
                     workflow_payload_row["data_import_id"] = data_import_id
+                if row_index < len(tender_ids_by_row) and tender_ids_by_row[row_index]:
+                    workflow_payload_row["tender_id"] = tender_ids_by_row[row_index]
                 execution_row_id = str(uuid.uuid4())
                 workflow_payload_row["execution_id"] = execution_row_id
                 execution_ids.append(execution_row_id)
+                logger.info( "graph_tenant_id=%s", graph_tenant_id)
                 task = run_workflow_async.apply_async(
                     kwargs={
                         "tenant_id": graph_tenant_id,

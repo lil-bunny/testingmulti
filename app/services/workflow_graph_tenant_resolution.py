@@ -22,8 +22,8 @@ def resolve_workflow_graph_tenant_id(
     tenants_repo: TenantsDbRepository | None = None,
 ) -> str:
     """
-    Pick Celery/graph ``tenant_id``: persisted ``workflow_graph_tenant_id`` wins if valid,
-    else ``webhook_name`` when it matches a ``TENANT_CONFIGS`` key, else ``t3ra``.
+    Pick Celery/graph ``tenant_id``: ``tenants.slug`` wins when it equals a ``TENANT_CONFIGS``
+    top-level key, else ``webhook_name`` when it matches such a key, else ``t3ra``.
     """
     from app.repositories.tenants_db_repository import TenantsDbRepository as _TenantsDbRepository
 
@@ -34,22 +34,22 @@ def resolve_workflow_graph_tenant_id(
 
     stored_key: str | None = None
     if tenant_uuid:
-        raw = repo.get_settings_workflow_graph_tenant_id(tenant_uuid)
+        raw = repo.get_slug_for_tenant_uuid(tenant_uuid)
         if raw:
             cand = raw.strip()
             if cand in valid:
                 stored_key = cand
             elif cand:
                 logger.info(
-                    "workflow_graph_tenant: ignoring unknown workflow_graph_tenant_id=%r "
-                    "tenant_uuid=%s (not in TENANT_CONFIGS)",
+                    "workflow_graph_tenant: ignoring unknown slug=%r tenant_uuid=%s "
+                    "(not in TENANT_CONFIGS)",
                     cand,
                     tenant_uuid,
                 )
 
     if stored_key:
         logger.info(
-            "workflow_graph_tenant: tenant_id=%r resolved_from=tenants.settings "
+            "workflow_graph_tenant: tenant_id=%r resolved_from=tenants.slug "
             "data_import_tenant_id=%s",
             stored_key,
             tenant_uuid,

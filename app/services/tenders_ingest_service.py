@@ -21,15 +21,23 @@ class TendersIngestService:
         tenant_id: str,
         data_import_id: str | None,
         projected_rows: list[dict[str, Any]],
-    ) -> int:
+    ) -> list[str | None]:
+        """
+        Insert tender rows for valid projected rows.
+
+        Returns one entry per ``projected_rows`` index: ``tenders.id`` when inserted, else ``None``.
+        """
         tid = tenant_id.strip()
         did = (data_import_id or "").strip()
         if not tid or not did or not projected_rows:
-            return 0
+            return []
 
+        out: list[str | None] = [None] * len(projected_rows)
         batch: list[dict[str, Any]] = []
+        batch_row_indices: list[int] = []
         skipped = 0
-        for row in projected_rows:
+
+        for row_index, row in enumerate(projected_rows):
             mapped = projected_row_to_tender_insert(row)
             if mapped is None:
                 skipped += 1
@@ -41,6 +49,7 @@ class TendersIngestService:
                     "data_import_id": did,
                 }
             )
+            batch_row_indices.append(row_index)
 
         if skipped:
             logger.warning(
@@ -49,6 +58,17 @@ class TendersIngestService:
                 did,
             )
         if not batch:
-            return 0
+            return out
 
-        return self._repository.insert_batch(batch)
+        inserted_ids = self._repository.insert_batch(batch)
+        if len(inserted_ids) != len(batch):
+            logger.error(
+                "tenders ingest: id count mismatch inserted=%s batch=%s data_import_id=%s",
+                len(inserted_ids),
+                len(batch),
+                did,
+            )
+        for idx, tender_id in zip(batch_row_indices, inserted_ids, strict=False):
+            out[idx] = tender_id
+
+        return out

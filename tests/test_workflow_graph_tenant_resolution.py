@@ -8,22 +8,22 @@ from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph
 
 
 class _RepoEmpty:
-    def get_settings_workflow_graph_tenant_id(self, _: str):
+    def get_slug_for_tenant_uuid(self, _: str):
         return None
 
 
 class _RepoGelita:
-    def get_settings_workflow_graph_tenant_id(self, _: str):
+    def get_slug_for_tenant_uuid(self, _: str):
         return "gelita"
 
 
-class _RepoUnknown:
-    def get_settings_workflow_graph_tenant_id(self, _: str):
+class _RepoUnknownSlug:
+    def get_slug_for_tenant_uuid(self, _: str):
         return "not_a_graph_tenant_key"
 
 
-def test_resolve_uses_tenants_settings_when_key_valid() -> None:
-    """Persisted workflow_graph_tenant_id wins even if webhook_name is not a config key."""
+def test_resolve_uses_tenant_slug_when_key_valid() -> None:
+    """``tenants.slug`` wins even if webhook_name is not a TENANT_CONFIGS key."""
     out = resolve_workflow_graph_tenant_id(
         data_import_tenant_id="00000000-0000-0000-0000-000000000001",
         webhook_name="something_else",
@@ -32,11 +32,11 @@ def test_resolve_uses_tenants_settings_when_key_valid() -> None:
     assert out == "gelita"
 
 
-def test_resolve_unknown_settings_key_falls_back_to_webhook_name() -> None:
+def test_resolve_unknown_slug_falls_back_to_webhook_name() -> None:
     out = resolve_workflow_graph_tenant_id(
         data_import_tenant_id="00000000-0000-0000-0000-000000000002",
         webhook_name="gelita",
-        tenants_repo=_RepoUnknown(),
+        tenants_repo=_RepoUnknownSlug(),
     )
     assert out == "gelita"
 

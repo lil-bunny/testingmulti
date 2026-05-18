@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid as uuid_std
 from typing import Optional
 
 import psycopg
@@ -55,16 +56,50 @@ def find_tenant_id_by_settings_email_webhook_name(webhook_name: str) -> Optional
     return str(rows[0][0])
 
 
-def get_settings_workflow_graph_tenant_id(tenant_uuid: str) -> Optional[str]:
+def find_tenant_uuid_by_slug(slug: str) -> Optional[str]:
+    """Return ``tenants.id`` where ``slug`` matches (case-insensitive trim)."""
+
+    needle = slug.strip()
+    if not needle:
+        return None
+    sql = (
+        f"SELECT id::text FROM {_table()} "
+        "WHERE lower(trim(slug)) = lower(%s) "
+        "ORDER BY id LIMIT 3"
+    )
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (needle,))
+            rows = cur.fetchall()
+    if not rows:
+        return None
+    return str(rows[0][0])
+
+
+def resolve_graph_tenant_to_uuid(tenant_id: str | None) -> Optional[str]:
+    """Map graph/config key or UUID string to ``tenants.id`` (UUID hex)."""
+
+    cleaned = (tenant_id or "").strip()
+    if not cleaned:
+        return None
+    try:
+        uuid_std.UUID(cleaned)
+        return cleaned
+    except (ValueError, AttributeError):
+        return find_tenant_uuid_by_slug(cleaned)
+
+
+def get_slug_for_tenant_uuid(tenant_uuid: str) -> Optional[str]:
     """
-    Return ``settings.workflow_graph_tenant_id`` from ``tenants`` row ``id``.
-    Blank or unset values return ``None``.
+    Return ``tenants.slug`` for row ``id = tenant_uuid``.
+
+    Blank slug values return ``None``. Missing row yields ``None``.
     """
     needle = tenant_uuid.strip()
     if not needle:
         return None
     sql = (
-        f"SELECT NULLIF(trim(settings::jsonb ->> 'workflow_graph_tenant_id'), '') "
+        f"SELECT NULLIF(trim(slug), '') "
         f"FROM {_table()} WHERE id = %s::uuid LIMIT 1"
     )
     with _conn() as conn:
@@ -82,5 +117,11 @@ class TenantsDbRepository:
     def find_tenant_id_by_email_webhook_name(self, webhook_name: str) -> Optional[str]:
         return find_tenant_id_by_settings_email_webhook_name(webhook_name)
 
-    def get_settings_workflow_graph_tenant_id(self, tenant_uuid: str) -> Optional[str]:
-        return get_settings_workflow_graph_tenant_id(tenant_uuid)
+    def find_tenant_uuid_by_slug(self, slug: str) -> Optional[str]:
+        return find_tenant_uuid_by_slug(slug)
+
+    def resolve_graph_tenant_to_uuid(self, tenant_id: str | None) -> Optional[str]:
+        return resolve_graph_tenant_to_uuid(tenant_id)
+
+    def get_slug_for_tenant_uuid(self, tenant_uuid: str) -> Optional[str]:
+        return get_slug_for_tenant_uuid(tenant_uuid)

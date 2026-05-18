@@ -55,11 +55,12 @@ def persist_tender_rows_from_email_import_projection(
     tenant_id: str,
     data_import_id: str | None,
     projected_rows: list[dict[str, Any]],
-) -> int:
+) -> list[str | None]:
     """
     Insert tender rows derived from projected spreadsheet data.
 
-    On failure, logs and returns ``0``.
+    Returns one ``tenders.id`` (or ``None``) per projected row index. On failure, logs and
+    returns an empty list.
     """
     try:
         return TendersIngestService().persist_from_projected_rows(
@@ -73,4 +74,4 @@ def persist_tender_rows_from_email_import_projection(
             tenant_id,
             data_import_id,
         )
-        return 0
+        return []

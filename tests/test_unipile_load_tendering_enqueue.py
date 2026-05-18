@@ -30,11 +30,19 @@ def _load_tender_payload() -> dict:
     }
 
 
+def _stub_persist_tender_ids(**kwargs: object) -> list[str]:
+    rows = kwargs.get("projected_rows") or []
+    return [
+        f"11111111-1111-4111-8111-{i:012x}"[:36]
+        for i in range(len(rows))  # type: ignore[arg-type]
+    ]
+
+
 @pytest.fixture(autouse=True)
 def stub_persist(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.api.routes.persist_tender_rows_from_email_import_projection",
-        lambda **kwargs: 0,
+        _stub_persist_tender_ids,
     )
 
 
@@ -69,9 +77,9 @@ def tenant_resolution_stub(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_db_workflow_graph_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Avoid Postgres when resolver reads tenants.settings.workflow_graph_tenant_id."""
+    """Avoid Postgres when resolver reads tenants.slug."""
     monkeypatch.setattr(
-        "app.repositories.tenants_db_repository.get_settings_workflow_graph_tenant_id",
+        "app.repositories.tenants_db_repository.get_slug_for_tenant_uuid",
         lambda _tid: None,
     )
 
@@ -121,6 +129,7 @@ def test_load_tendering_enqueue_one_row_sets_source_thread_not_thread_id(
     assert wp["tender_row_index"] == 0
     assert wp["tender_row"]["order_number"] == "ORD-1"
     assert wp["load_id"] == "cccccccc-cccc-cccc-cccc-cccccccccccc:0:ORD-1"
+    assert wp["tender_id"] == "11111111-1111-4111-8111-000000000000"
     assert wp["execution_id"] == body["execution_ids"][0]
     assert "array_of_tenders" not in wp
 
@@ -162,6 +171,8 @@ def test_load_tendering_enqueue_multiple_rows_multiple_tasks(
     assert wp0["execution_id"] == body["execution_ids"][0]
     assert wp1["execution_id"] == body["execution_ids"][1]
     assert wp0["load_id"] != wp1["load_id"]
+    assert wp0["tender_id"] == "11111111-1111-4111-8111-000000000000"
+    assert wp1["tender_id"] == "11111111-1111-4111-8111-000000000001"
 
 
 @pytest.mark.usefixtures("tenant_resolution_stub")
@@ -196,13 +207,13 @@ def test_load_tendering_zero_rows_no_tasks(
 
 
 @pytest.mark.usefixtures("tenant_resolution_stub")
-def test_load_tendering_enqueue_respects_settings_graph_tenant_when_non_webhook_row(
+def test_load_tendering_enqueue_respects_tenant_slug_when_webhook_not_config_key(
     monkeypatch: pytest.MonkeyPatch,
     webhook_headers: dict[str, str],
     celery_capture: list[dict],
 ) -> None:
     monkeypatch.setattr(
-        "app.repositories.tenants_db_repository.get_settings_workflow_graph_tenant_id",
+        "app.repositories.tenants_db_repository.get_slug_for_tenant_uuid",
         lambda _tid: "gelita",
     )
     monkeypatch.setattr(

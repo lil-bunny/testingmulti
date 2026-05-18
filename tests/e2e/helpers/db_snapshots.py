@@ -7,7 +7,7 @@ from typing import Any
 import psycopg
 
 from app.core.config import settings
-
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 def _conn():
     return psycopg.connect(settings.DATABASE_URL)
@@ -192,19 +192,25 @@ def fetch_lifecycles_for_tenant_shipment(*, tenant_id: str, shipment_id: str) ->
 
 
 def count_workflow_runs_for_shipment(*, tenant_id: str, shipment_id: str) -> int:
-    """Count execution rows with this ``shipment_id`` (must match ``workflow_runs.shipment_id``)."""
-    tid = (tenant_id or "").strip()
+    """Count workflow_runs executions whose lifecycle ties this tenant UUID and shipment_id."""
+
+    tid_raw = (tenant_id or "").strip()
     sid = (shipment_id or "").strip()
-    if not tid or not sid:
+    if not tid_raw or not sid:
         return 0
+    tid = resolve_graph_tenant_to_uuid(tid_raw)
+    if not tid:
+        return 0
+
     conn = _conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT COUNT(*)::bigint
-                FROM workflow_runs
-                WHERE tenant_id = %s AND shipment_id = %s
+                FROM workflow_runs wr
+                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+                WHERE wr.tenant_id = %s::uuid AND wl.shipment_id = %s
                 """,
                 (tid, sid),
             )

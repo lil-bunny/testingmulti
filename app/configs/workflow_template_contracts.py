@@ -63,6 +63,7 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "workflow_lifecycle_payload",
             "tenant_id",
             "load_id",
+            "tender_id",
             "tender_row",
             "tender_row_index",
         ],
