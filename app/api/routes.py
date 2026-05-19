@@ -54,7 +54,7 @@ async def webhook_email(request: Request):
         if tenant is None:
             return {"message": "invalid webhook"}
         
-        # L1 routing by tenant slug
+        # L1 routing by tenant slug using webhook_name
         if tenant.tenant_slug == "gelita":
             return await GelitaInboundEmailService().handle(payload=payload, tenant=tenant)
         if tenant.tenant_slug == "t3ra":

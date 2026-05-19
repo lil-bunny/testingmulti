@@ -18,11 +18,12 @@ class StatusSubType(StrEnum):
     """Lifecycle drill-down; extend per workflow as columns stay a single TEXT field."""
 
     # Gelita load_tendering
-    AWAITING_RESPONSE = "awaiting_response"
-    AWAITING_RESPONSE_REMINDERS_QUEUED = "awaiting_response_reminders_queued"
+    TENDER_CREATED = "tender_created"
     TENDER_SENT = "tender_sent"
     TENDER_EMAIL_FAILED = "tender_email_failed"
+    AWAITING_RESPONSE = "awaiting_response"
     REMINDER_1_SENT = "reminder_1_sent"
     REMINDER_2_SENT = "reminder_2_sent"
     ACCEPTED = "accepted"
+    REJECTED = "rejected"
     ESCALATED = "escalated"
