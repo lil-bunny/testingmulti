@@ -155,12 +155,12 @@ def escalate_tender(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
             activity_type="tender_escalated",
-            message="Escalation email sent to operations (sample recipient in gelita_config)",
+            description="Escalation email sent to operations (sample recipient in gelita_config)",
             from_status=prev_status,
             to_status=prev_status,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.ESCALATED,
-            payload={
+            metadata={
                 "tender_id": tender_id or None,
                 "order_number": order_number or None,
                 "escalation_notify_email_domain": to_addr.split("@", 1)[-1]

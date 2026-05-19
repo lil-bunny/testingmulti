@@ -40,13 +40,11 @@ class TenderService:
     ) -> dict[str, Any] | None:
         """
         Load one tender scoped by tenant UUID, with ``pack_codes`` joined on
-        ``(t.tenant_id, t.pack_code)`` (composite FK to ``pack_codes``) and pickup/delivery
-        locations.
+        ``t.pack_code_id = pack_codes.id`` and pickup/delivery locations.
 
-        Numeric pack fields prefer the joined ``pack_codes`` row; if the join misses (orphan
-        ``pack_code``), fall back to ``tenders.metadata['pack_code']`` using ``qty_per_unit`` /
-        ``total_qty``, with legacy keys ``amount_inmost_pack`` / ``total_quantity`` /
-        ``amount_per_inmost_pack`` still accepted.
+        Numeric pack fields prefer the joined ``pack_codes`` row; if the join misses (null or
+        orphan ``pack_code_id``), fall back to ``tenders.metadata['pack_code']`` using
+        ``qty_per_unit`` / ``total_qty``.
         """
         tid = self._clean(tenant_id)
         tr = self._clean(tender_id)
@@ -69,7 +67,8 @@ class TenderService:
                         t.status,
                         t.load_type::text,
                         t.metadata,
-                        t.pack_code,
+                        t.pack_code_id,
+                        pc.pack_code,
                         pc.description AS pack_code_description,
                         pc.qty_per_unit,
                         pc.total_qty,
@@ -85,9 +84,7 @@ class TenderService:
                         dl.state AS delivery_state,
                         dl.state_code AS delivery_state_code
                     FROM {self.TABLE_NAME} t
-                    LEFT JOIN pack_codes pc
-                        ON pc.pack_code = t.pack_code
-                       AND pc.tenant_id = t.tenant_id
+                    LEFT JOIN pack_codes pc ON pc.id = t.pack_code_id
                     LEFT JOIN locations pl ON pl.id = t.pickup_location_id
                     LEFT JOIN locations dl ON dl.id = t.delivery_location_id
                     WHERE t.id = %s::uuid AND t.tenant_id = %s::uuid
@@ -108,8 +105,8 @@ class TenderService:
                     metadata = json.loads(meta)
 
                 pack_meta = (metadata.get("pack_code") or {}) if isinstance(metadata, dict) else {}
-                amount_from_pc = self._to_decimal(row[12])
-                total_from_pc = self._to_decimal(row[13])
+                amount_from_pc = self._to_decimal(row[13])
+                total_from_pc = self._to_decimal(row[14])
                 amount_raw = amount_from_pc or self._to_decimal(
                     pack_meta.get("qty_per_unit")
                 )
@@ -117,7 +114,7 @@ class TenderService:
                     pack_meta.get("total_qty")
                 )
 
-                desc = row[11] or ""
+                desc = row[12] or ""
                 return {
                     "id": str(row[0]),
                     "order_number": row[1] or "",
@@ -129,18 +126,19 @@ class TenderService:
                     "status": row[7] or "",
                     "load_type": row[8] or "",
                     "metadata": metadata,
-                    "pack_code": row[10] or "",
+                    "pack_code_id": str(row[10]) if row[10] else None,
+                    "pack_code": row[11] or "",
                     "pack_code_description": desc,
                     "pack_code_name": desc,
-                    "pickup_address": _fmt_location(row[19], row[20], row[21]),
-                    "delivery_address": _fmt_location(row[22], row[23], row[24]),
+                    "pickup_address": _fmt_location(row[20], row[21], row[22]),
+                    "delivery_address": _fmt_location(row[23], row[24], row[25]),
                     "qty_per_unit": amount_raw,
                     "total_qty": total_raw,
-                    "units_per_pallet": self._to_decimal(row[14]),
-                    "unit_dims": row[15] or "",
-                    "pallet_dims": row[16] or "",
-                    "pallet_type": row[17] or "",
-                    "pack_is_active": row[18],
+                    "units_per_pallet": self._to_decimal(row[15]),
+                    "unit_dims": row[16] or "",
+                    "pallet_dims": row[17] or "",
+                    "pallet_type": row[18] or "",
+                    "pack_is_active": row[19],
                 }
         finally:
             conn.close()

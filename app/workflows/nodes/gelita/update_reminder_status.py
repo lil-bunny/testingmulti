@@ -90,12 +90,12 @@ def update_reminder_status(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
             activity_type=activity_type,
-            message=message,
+            description=message,
             from_status=prev_status,
             to_status=prev_status,
             from_sub_status=prev_sub,
             to_sub_status=new_sub,
-            payload={
+            metadata={
                 "reminder_step": step,
                 "tender_id": state.data.get("tender_id"),
             },

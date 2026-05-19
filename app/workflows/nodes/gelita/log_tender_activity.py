@@ -42,7 +42,7 @@ def log_tender_activity(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
             activity_type="tender_email_sent",
-            message="Tender email sent to vendor",
+            description="Tender email sent to vendor",
             from_status=prev_status,
             to_status=StatusType.PROCESSING,
             from_sub_status=prev_sub,
@@ -60,11 +60,11 @@ def log_tender_activity(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
             activity_type="tender_email_failed",
-            message=str(err),
+            description=str(err),
             from_status=prev_status,
             to_status=StatusType.PROCESSING,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.TENDER_EMAIL_FAILED,
-            payload={"error": str(err)},
+            metadata={"error": str(err)},
         )
     return state
