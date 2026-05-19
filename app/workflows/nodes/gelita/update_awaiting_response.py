@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 from app.core.logger import get_logger
 from app.models.actor_type import ActorType
 from app.models.status import StatusSubType
@@ -77,11 +75,9 @@ def update_awaiting_response(state):
 
     if updated or thread_id:
         try:
-            actor_id = str(uuid.uuid4())
             ActivityLogService().insert(
                 tenant_id=tenant_id,
-                actor_type=ActorType.SYSTEM.value,
-                actor_id=actor_id,
+                actor_type=ActorType.SYSTEM,
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=str(state.execution_id),
                 activity_type="awaiting_response",

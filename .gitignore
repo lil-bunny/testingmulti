@@ -33,3 +33,4 @@ langsmith_init.py
 .agents
 
 docs
+*.sql

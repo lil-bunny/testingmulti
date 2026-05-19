@@ -44,7 +44,7 @@ def _resolve_parent_id(
         try:
             resolved = unipile.get_email(reply_to_message_id, account_id=account_id)
         except Exception:
-            print(f"[reply_to_thread] Could not resolve provider_id={reply_to_message_id}, using as-is")
+            logger.warning(f"[reply_to_thread] Could not resolve provider_id={reply_to_message_id}, using as-is")
 
         reply_to_id = (resolved.get("id") if isinstance(resolved, dict) else None) or reply_to_message_id
         return str(reply_to_id).strip()
@@ -306,16 +306,6 @@ def reply_to_thread(
     for e in emails:
         r = str(e.get("role") or "?")
         role_counts[r] = role_counts.get(r, 0) + 1
-    logger.info(
-        "reply_to_thread: thread_id=%s account_id=%s message_count=%s role_counts=%s "
-        "latest_by_date=%s explicit_reply_to_message_id=%s",
-        thread_id,
-        account_id,
-        len(emails),
-        role_counts,
-        _thread_email_summary(latest_email),
-        reply_to_message_id,
-    )
 
     # 3) Resolve parent message id
     reply_to_id = _resolve_parent_id(unipile, latest_email, reply_to_message_id, account_id)
@@ -352,15 +342,6 @@ def reply_to_thread(
             reply_to_id,
             result.get("error"),
             result.get("error_details"),
-        )
-    else:
-        logger.info(
-            "reply_to_thread: sent ok thread_id=%s to=%s cc=%s subject=%s tracking_id=%s",
-            thread_id,
-            [r["identifier"] for r in to_list],
-            [c["identifier"] for c in (cc_final or [])],
-            effective_subject,
-            result.get("tracking_id") or result.get("message_id"),
         )
     return result
 
