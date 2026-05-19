@@ -145,6 +145,34 @@ class TenderService:
         finally:
             conn.close()
 
+    def find_by_order_number(
+        self, *, tenant_id: str, order_number: str
+    ) -> dict[str, Any] | None:
+        """Return ``{id, order_number}`` for a tenant-scoped tender row, or ``None``."""
+        tid = self._clean(tenant_id)
+        order = self._clean(order_number)
+        if not tid or not order:
+            return None
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id::text, order_number
+                    FROM {self.TABLE_NAME}
+                    WHERE tenant_id = %s::uuid AND order_number = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (tid, order),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {"id": str(row[0]), "order_number": row[1] or ""}
+        finally:
+            conn.close()
+
     @staticmethod
     def _to_decimal(value: Any) -> Decimal | None:
         if value is None or value == "":

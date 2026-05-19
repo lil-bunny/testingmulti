@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import app.configs.gelita_config as gelita_config
-from app.core import logger
+from app.core.logger import get_logger
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.email import reply_to_thread
+
+logger = get_logger(__name__)
 
 
 def send_tender_reminder(state):

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import app.configs.gelita_config as gelita_config
-from app.core import logger
+from app.core.logger import get_logger
 from app.services.unipile_service import UnipileException
 from app.tools.email import send_email
 from app.workflows.nodes.gelita.load_tendering_helpers import build_gelita_tender_email
+
+logger = get_logger(__name__)
 
 
 def send_tender_email(state):

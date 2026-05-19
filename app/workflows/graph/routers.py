@@ -1,5 +1,7 @@
-from app.core import logger
+from app.core.logger import get_logger
 from app.models.status import StatusType
+
+logger = get_logger(__name__)
 
 
 def pod_exists_router(state):

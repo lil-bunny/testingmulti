@@ -93,13 +93,6 @@ WORKFLOW_CONFIGS = {
         "routers": {},
     },
     "load_tendering": {
-        "entry": "log_load_tendering_context",
-        "exit": "end",
-        "nodes": ["log_load_tendering_context", "end"],
-        "edges": [["log_load_tendering_context", "end"]],
-        "routers": {},
-    },
-    "load_tendering": {
         "entry": "route_event",
         "exit": "end",
         "nodes": [
@@ -139,7 +132,11 @@ WORKFLOW_CONFIGS = {
             },
             "calculate_tender_params": {
                 "router": "load_type_router",
-                "map": {"ltl_path": "send_tender_email", "ftl_path": "end"},
+                "map": {
+                    "ltl_path": "send_tender_email",
+                    "ftl_path": "end",
+                    "error_path": "end",
+                },
             },
             "read_tender_row": {
                 "router": "tender_status_router",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import app.configs.gelita_config as gelita_config
-from app.core import logger
+from app.core.logger import get_logger
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.unipile_service import UnipileException
@@ -13,6 +13,8 @@ from app.workflows.nodes.gelita.load_tendering_helpers import (
     status_type_from_db,
     sub_status_type_from_db,
 )
+
+logger = get_logger(__name__)
 
 
 def escalate_tender(state):

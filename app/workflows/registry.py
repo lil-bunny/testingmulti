@@ -21,7 +21,7 @@ from app.workflows.nodes.turvo import (
     update_shipment,
     upload_to_turvo,
 )
-from app.workflows.nodes.gelita.load_tendering import (
+from app.workflows.nodes.gelita.main import (
     calculate_tender_params,
     escalate_tender,
     log_tender_activity,

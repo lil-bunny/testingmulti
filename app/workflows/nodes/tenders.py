@@ -1,6 +1,8 @@
 """Nodes for Tenders table."""
-from app.core import logger
+from app.core.logger import get_logger
 from app.services.tender_service import TenderService
+
+logger = get_logger(__name__)
 
 def read_tender_row(state):
     """Read tender row from Tenders table and return it."""

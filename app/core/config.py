@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
-
+    TENANTS_TABLE: str = "tenants"
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int

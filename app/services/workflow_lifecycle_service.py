@@ -10,7 +10,8 @@ from app.core.config import settings
 from app.models.status import (
     StatusType,
     StatusSubType
-)from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
+)
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,7 @@ class WorkflowLifecycleService:
         thread_id: str | None = None,
         shipment_id: str | None = None,
         load_id: str | None = None,
+        tender_id: str | None = None,
     ) -> dict:
         """Read-only lookup. Returns lifecycle data if found, no row creation.
 
@@ -189,6 +191,7 @@ class WorkflowLifecycleService:
 
         t = self._clean(thread_id)
         s = self._clean(shipment_id)
+        tender = self._extract_tender_id({"tender_id": tender_id}) if tender_id else None
 
         conn = self._conn()
         try:
@@ -197,7 +200,7 @@ class WorkflowLifecycleService:
                     cur,
                     tenant_id=tid,
                     workflow_name=wn,
-                    tender_id=None,
+                    tender_id=tender,
                     thread_id=t,
                     shipment_id=s,
                 )
@@ -206,7 +209,7 @@ class WorkflowLifecycleService:
 
                 cur.execute(
                     f"""
-                    SELECT shipment_id, email_thread_id, workflow_name
+                    SELECT shipment_id, email_thread_id, workflow_name, tender_id::text
                     FROM {self.TABLE_NAME}
                     WHERE id = %s
                     """,
@@ -223,6 +226,7 @@ class WorkflowLifecycleService:
                     "load_id": "",
                     "email_thread_id": row[1] or "",
                     "workflow_name": row[2] or "",
+                    "tender_id": row[3] or "",
                 }
         finally:
             conn.close()
@@ -234,6 +238,7 @@ class WorkflowLifecycleService:
         thread_id: str | None = None,
         shipment_id: str | None = None,
         load_id: str | None = None,
+        tender_id: str | None = None,
     ) -> None:
         """Backfill lifecycle keys onto an existing lifecycle row. ``load_id`` is ignored (not stored)."""
         conn = self._conn()
@@ -242,7 +247,9 @@ class WorkflowLifecycleService:
                 self._update_lifecycle_keys(
                     cur,
                     lifecycle_id=lifecycle_id,
-                    tender_id=None,
+                    tender_id=self._extract_tender_id({"tender_id": tender_id})
+                    if tender_id
+                    else None,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
                 )
@@ -258,6 +265,7 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
         thread_id: str | None = None,
+        tender_id: str | None = None,
     ) -> dict:
         """Check if a lifecycle row exists for given keys. ``load_id`` is ignored."""
         tenant_raw = self._clean(tenant_id)
@@ -266,6 +274,8 @@ class WorkflowLifecycleService:
         if not tid or not wn:
             return {"exists": False}
 
+        tender = self._extract_tender_id({"tender_id": tender_id}) if tender_id else None
+
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -273,7 +283,7 @@ class WorkflowLifecycleService:
                     cur,
                     tenant_id=tid,
                     workflow_name=wn,
-                    tender_id=None,
+                    tender_id=tender,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
                 )
@@ -365,7 +375,8 @@ class WorkflowLifecycleService:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT tenant_id::text, workflow_name, status, sub_status, email_thread_id
+                    SELECT tenant_id::text, workflow_name, status, sub_status,
+                           email_thread_id, tender_id::text
                     FROM {self.TABLE_NAME}
                     WHERE id = %s::uuid
                     """,
@@ -380,6 +391,7 @@ class WorkflowLifecycleService:
                     "status": row[2],
                     "sub_status": row[3],
                     "email_thread_id": row[4],
+                    "tender_id": row[5] or "",
                 }
         finally:
             conn.close()

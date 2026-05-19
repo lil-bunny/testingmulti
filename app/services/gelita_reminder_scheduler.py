@@ -7,12 +7,14 @@ from datetime import timedelta
 from typing import Any
 
 import app.configs.gelita_config as gelita_config
-from app.core import logger
 from app.core.config import settings
+from app.core.logger import get_logger
 from app.models.status import StatusSubType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.reminders import trigger_gelita_tender_reminder
+
+logger = get_logger(__name__)
 
 
 def _build_payload(
