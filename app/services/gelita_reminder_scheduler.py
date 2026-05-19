@@ -125,10 +125,10 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
             workflow_lifecycle_id=wl_id,
             workflow_run_id=run_id,
             activity_type="tender_reminders_scheduled",
-            message="Queued reminder_due (1,2) and escalation_due Celery tasks",
-            from_sub_status=current_sub or StatusSubType.AWAITING_RESPONSE,
-            to_sub_status=StatusSubType.AWAITING_RESPONSE,
-            payload={"hours": [h for h, _, _ in specs]},
+            description="Queued reminder_due (1,2) and escalation_due Celery tasks",
+            from_sub_status=row.get("sub_status"),
+            to_sub_status=StatusSubType.AWAITING_RESPONSE_REMINDERS_QUEUED.value,
+            metadata={"hours": [h for h, _, _ in specs]},
         )
     except Exception:
         logger.exception(

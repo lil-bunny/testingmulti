@@ -42,10 +42,9 @@ class TenderService:
         Load one tender scoped by tenant UUID, with ``pack_codes`` joined on
         ``t.pack_code_id = pack_codes.id`` and pickup/delivery locations.
 
-        Numeric pack fields prefer the joined ``pack_codes`` row; if the join misses (orphan
-        ``pack_code_id``), fall back to ``tenders.metadata['pack_code']`` using ``qty_per_unit`` /
-        ``total_qty``, with legacy keys ``amount_inmost_pack`` / ``total_quantity`` /
-        ``amount_per_inmost_pack`` still accepted.
+        Numeric pack fields prefer the joined ``pack_codes`` row; if the join misses (null or
+        orphan ``pack_code_id``), fall back to ``tenders.metadata['pack_code']`` using
+        ``qty_per_unit`` / ``total_qty``.
         """
         tid = self._clean(tenant_id)
         tr = self._clean(tender_id)
@@ -116,7 +115,6 @@ class TenderService:
                 )
 
                 desc = row[12] or ""
-                pack_code_id = row[10]
                 return {
                     "id": str(row[0]),
                     "order_number": row[1] or "",
@@ -128,7 +126,7 @@ class TenderService:
                     "status": row[7] or "",
                     "load_type": row[8] or "",
                     "metadata": metadata,
-                    "pack_code_id": str(pack_code_id) if pack_code_id else None,
+                    "pack_code_id": str(row[10]) if row[10] else None,
                     "pack_code": row[11] or "",
                     "pack_code_description": desc,
                     "pack_code_name": desc,

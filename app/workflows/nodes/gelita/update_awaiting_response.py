@@ -81,10 +81,10 @@ def update_awaiting_response(state):
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=str(state.execution_id),
                 activity_type="awaiting_response",
-                message="Awaiting carrier acknowledgment on captured thread",
+                description="Awaiting carrier acknowledgment on captured thread",
                 from_sub_status=prev_sub_status,
                 to_sub_status=next_sub_status,
-                payload=(
+                metadata=(
                     {"thread_id": thread_id}
                     if thread_id
                     else {}

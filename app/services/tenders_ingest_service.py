@@ -7,6 +7,7 @@ from typing import Any, Optional
 from app.core.logger import get_logger
 from app.domain.load_tendering_tender_rows import projected_row_to_tender_insert
 from app.repositories.tenders_repository import TendersRepository
+from app.services.activity_log_service import ActivityLogService
 
 logger = get_logger(__name__)
 
@@ -68,7 +69,26 @@ class TendersIngestService:
                 len(batch),
                 did,
             )
+        activity_log_svc = ActivityLogService()
+        batch_by_row_index = dict(zip(batch_row_indices, batch, strict=False))
         for idx, tender_id in zip(batch_row_indices, inserted_ids, strict=False):
             out[idx] = tender_id
+            if not tender_id:
+                continue
+            row = batch_by_row_index.get(idx)
+            if not row:
+                continue
+            order_number = str(row.get("order_number") or "")
+            customer_name = str(row.get("customer_name") or "")
+            activity_log_svc.record_tender_created_action(
+                tenant_id=tid,
+                tender_id=tender_id,
+                order_number=order_number,
+                customer_name=customer_name,
+            )
+            activity_log_svc.record_tender_processing_status_change(
+                tenant_id=tid,
+                tender_id=tender_id,
+            )
 
         return out

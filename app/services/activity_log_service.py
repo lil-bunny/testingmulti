@@ -1,126 +1,254 @@
-"""Append-only writes to ``activity_logs`` (psycopg; matches ``WorkflowLifecycleService`` style)."""
+"""Record workflow audit events in ``activity_logs``.
+
+Callable from any workflow node, webhook handler, or Celery task. Resolves graph tenant
+keys (e.g. ``gelita``) to ``tenants.id`` before insert. Failures are logged and return
+``None`` so graph execution is not blocked.
+"""
 
 from __future__ import annotations
 
-import json
 import uuid
-from typing import Any
+from typing import Any, Optional
 
-import psycopg
+from app.core.logger import get_logger
+from app.domain.activity_log_constants import (
+    ACTIVITY_TYPE_ACTION,
+    ACTIVITY_TYPE_STATUS_CHANGE,
+    ACTOR_TYPE_SYSTEM,
+    NONE_STATUS,
+    TENDER_STATUS_PROCESSING,
+    TENDER_SUB_STATUS_CREATED,
+)
+from app.domain.activity_log_descriptions import (
+    format_status_updated_to_processing,
+    format_tender_created_action,
+)
+from app.repositories.activity_logs_repository import ActivityLogsRepository
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
-from app.core.config import settings
-from app.models.status import StatusSubType
-from app.models.status import StatusType
-from app.models.actor_type import ActorType
+logger = get_logger(__name__)
+
 
 class ActivityLogService:
-    TABLE_NAME = "activity_logs"
-
-    def _conn(self):
-        return psycopg.connect(settings.DATABASE_URL)
+    def __init__(self, repository: Optional[ActivityLogsRepository] = None) -> None:
+        self._repository = repository or ActivityLogsRepository()
 
     @staticmethod
-    def _status_value(
-        value: StatusType | StatusSubType | str | None,
-    ) -> str | None:
+    def _clean(value: Any) -> str | None:
         if value is None:
             return None
-        if isinstance(value, (StatusType, StatusSubType)):
-            return value.value
+        if hasattr(value, "value"):
+            value = value.value
         s = str(value).strip()
-        return s or None
+        return s if s else None
 
     @staticmethod
-    def _clean_uuid(value: str | None) -> str | None:
-        if value is None:
-            return None
-        s = str(value).strip()
-        if not s:
+    def _uuid_or_none(value: Any, *, field_name: str) -> str | None:
+        raw = ActivityLogService._clean(value)
+        if not raw:
             return None
         try:
-            uuid.UUID(s)
-        except ValueError:
+            return str(uuid.UUID(raw))
+        except (ValueError, AttributeError):
+            logger.warning(
+                "activity_log skipped invalid %s=%r (expected UUID)",
+                field_name,
+                value,
+            )
             return None
-        return s
 
-    def insert(
+    def _tenant_uuid_or_none(self, tenant_id: str | None) -> str | None:
+        return resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+
+    def record_activity(
         self,
         *,
         tenant_id: str,
+        activity_type: str,
         workflow_lifecycle_id: str | None = None,
         workflow_run_id: str | None = None,
-        activity_type: str,
-        message: str | None = None,
-        from_status: StatusType | None = None,
-        to_status: StatusType | None = None,
-        from_sub_status: StatusSubType | None = None,
-        to_sub_status: StatusSubType | None = None,
-        actor_type: ActorType = ActorType.SYSTEM.value,
+        description: str | None = None,
+        from_status: str | None = None,
+        to_status: str | None = None,
+        from_sub_status: str | None = None,
+        to_sub_status: str | None = None,
+        actor_type: str | None = None,
         actor_id: str | None = None,
-        payload: dict[str, Any] | None = None,
-    ) -> None:
-        tid = self._clean_uuid(tenant_id)
-        if not tid:
-            raise ValueError("tenant_id must be a UUID string")
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
+        """
+        Insert one ``activity_logs`` row.
 
-        wl = self._clean_uuid(workflow_lifecycle_id) if workflow_lifecycle_id else None
-        wr = self._clean_uuid(workflow_run_id) if workflow_run_id else None
-        aid = self._clean_uuid(actor_id) if actor_id else str(uuid.uuid4())
-
-        payload_json = json.dumps(payload or {})
-        
-
-        conn = self._conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.TABLE_NAME} (
-                        id,
-                        tenant_id,
-                        workflow_lifecycle_id,
-                        workflow_run_id,
-                        activity_type,
-                        message,
-                        from_status,
-                        to_status,
-                        from_sub_status,
-                        to_sub_status,
-                        actor_type,
-                        actor_id,
-                        payload
-                    )
-                    VALUES (
-                        gen_random_uuid(),
-                        %s::uuid,
-                        %s::uuid,
-                        %s::uuid,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s::uuid,
-                        %s::jsonb
-                    )
-                    """,
-                    (
-                        tid,
-                        wl,
-                        wr,
-                        activity_type,
-                        message,
-                        self._status_value(from_status),
-                        self._status_value(to_status),
-                        self._status_value(from_sub_status),
-                        self._status_value(to_sub_status),
-                        self._status_value(actor_type) or ActorType.SYSTEM.value,
-                        aid,
-                        payload_json,
-                    ),
+        Returns the new row id, or ``None`` when required fields are missing or insert fails.
+        """
+        tid_uuid = self._tenant_uuid_or_none(tenant_id)
+        at = self._clean(activity_type)
+        if not tid_uuid:
+            if self._clean(tenant_id):
+                logger.warning(
+                    "activity_log skipped: cannot resolve tenant_id=%r to tenants.id (UUID)",
+                    tenant_id,
                 )
-            conn.commit()
-        finally:
-            conn.close()
+            return None
+        if not at:
+            logger.warning("activity_log skipped: activity_type is required")
+            return None
+
+        wl = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        actor = self._uuid_or_none(actor_id, field_name="actor_id")
+
+        if not wl and not wr:
+            logger.info(
+                "activity_log: no workflow_lifecycle_id or workflow_run_id "
+                "(activity_type=%r tenant_id=%s)",
+                at,
+                tid_uuid,
+            )
+
+        try:
+            return self._repository.insert(
+                {
+                    "tenant_id": tid_uuid,
+                    "workflow_lifecycle_id": wl,
+                    "workflow_run_id": wr,
+                    "activity_type": at,
+                    "description": self._clean(description),
+                    "from_status": self._clean(from_status),
+                    "to_status": self._clean(to_status),
+                    "from_sub_status": self._clean(from_sub_status),
+                    "to_sub_status": self._clean(to_sub_status),
+                    "actor_type": self._clean(actor_type),
+                    "actor_id": actor,
+                    "metadata": metadata if metadata is not None else {},
+                }
+            )
+        except Exception:
+            logger.exception(
+                "activity_log insert failed activity_type=%r tenant_id=%s",
+                at,
+                tid_uuid,
+            )
+            return None
+
+    def insert(self, **kwargs: Any) -> str | None:
+        """Alias for ``record_activity`` (gelita nodes and schedulers)."""
+        return self.record_activity(**kwargs)
+
+    def record_tender_created_action(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        order_number: str,
+        customer_name: str,
+    ) -> str | None:
+        """Insert 1: action log immediately after tender row exists (no lifecycle/run)."""
+        return self.record_activity(
+            tenant_id=tenant_id,
+            activity_type=ACTIVITY_TYPE_ACTION,
+            description=format_tender_created_action(
+                tender_id=tender_id,
+                order_number=order_number,
+                customer_name=customer_name,
+            ),
+            from_status=NONE_STATUS,
+            to_status=NONE_STATUS,
+            from_sub_status=NONE_STATUS,
+            to_sub_status=NONE_STATUS,
+            actor_type=ACTOR_TYPE_SYSTEM,
+            metadata={"tender_id": tender_id},
+        )
+
+    def record_tender_processing_status_change(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+    ) -> None:
+        """Insert 2 + ``tenders.status = processing`` in one DB transaction."""
+        tid_uuid = self._tenant_uuid_or_none(tenant_id)
+        if not tid_uuid:
+            if self._clean(tenant_id):
+                logger.warning(
+                    "activity_log skipped status_change: cannot resolve tenant_id=%r",
+                    tenant_id,
+                )
+            return
+        tender_uuid = self._uuid_or_none(tender_id, field_name="tender_id")
+        if not tender_uuid:
+            return
+
+        log_row = {
+            "tenant_id": tid_uuid,
+            "workflow_lifecycle_id": None,
+            "workflow_run_id": None,
+            "activity_type": ACTIVITY_TYPE_STATUS_CHANGE,
+            "description": format_status_updated_to_processing(),
+            "from_status": NONE_STATUS,
+            "to_status": TENDER_STATUS_PROCESSING,
+            "from_sub_status": NONE_STATUS,
+            "to_sub_status": TENDER_SUB_STATUS_CREATED,
+            "actor_type": ACTOR_TYPE_SYSTEM,
+            "actor_id": None,
+            "metadata": {"tender_id": tender_uuid},
+            "tender_status": TENDER_STATUS_PROCESSING,
+        }
+        try:
+            self._repository.apply_tender_processing_with_status_change_log(
+                tenant_id=tid_uuid,
+                tender_id=tender_uuid,
+                log_row=log_row,
+            )
+        except Exception:
+            logger.exception(
+                "activity_log status_change txn failed tender_id=%s tenant_id=%s",
+                tender_uuid,
+                tid_uuid,
+            )
+
+    def record_from_workflow_state(
+        self,
+        state: Any,
+        *,
+        activity_type: str,
+        description: str | None = None,
+        from_status: str | None = None,
+        to_status: str | None = None,
+        from_sub_status: str | None = None,
+        to_sub_status: str | None = None,
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        workflow_lifecycle_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> str | None:
+        """Log from a LangGraph ``WorkflowState`` (reads tenant/lifecycle/run from state)."""
+
+        data = getattr(state, "data", None) or {}
+        tenant_raw = data.get("tenant_id") if isinstance(data, dict) else None
+        if not tenant_raw:
+            tenant_raw = getattr(state, "tenant_id", None)
+
+        wl = workflow_lifecycle_id
+        if wl is None and isinstance(data, dict):
+            wl = data.get("workflow_lifecycle_id")
+
+        wr = workflow_run_id
+        if wr is None:
+            wr = getattr(state, "execution_id", None)
+
+        return self.record_activity(
+            tenant_id=str(tenant_raw or ""),
+            activity_type=activity_type,
+            workflow_lifecycle_id=wl,
+            workflow_run_id=wr,
+            description=description,
+            from_status=from_status,
+            to_status=to_status,
+            from_sub_status=from_sub_status,
+            to_sub_status=to_sub_status,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            metadata=metadata,
+        )

@@ -62,12 +62,12 @@ def record_ack_received(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
             activity_type="ack_received",
-            message="Carrier acknowledgment recorded; tender marked complete",
+            description="Carrier acknowledgment recorded; tender marked complete",
             from_status=prev_status,
             to_status=StatusType.COMPLETED.value,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.ACCEPTED,
-            payload={"tender_id": tender_id, "tender_row_updated": tender_updated},
+            metadata={"tender_id": tender_id, "tender_row_updated": tender_updated},
         )
     except Exception:
         logger.exception(
