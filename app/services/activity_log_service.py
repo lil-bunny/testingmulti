@@ -19,6 +19,16 @@ class ActivityLogService:
     def _conn(self):
         return psycopg.connect(settings.DATABASE_URL)
 
+    @staticmethod
+    def _status_value(
+        value: StatusType | StatusSubType | str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, (StatusType, StatusSubType)):
+            return value.value
+        s = str(value).strip()
+        return s or None
 
     @staticmethod
     def _clean_uuid(value: str | None) -> str | None:
@@ -55,7 +65,7 @@ class ActivityLogService:
 
         wl = self._clean_uuid(workflow_lifecycle_id) if workflow_lifecycle_id else None
         wr = self._clean_uuid(workflow_run_id) if workflow_run_id else None
-        aid = self._clean_uuid(actor_id) if actor_id else None
+        aid = self._clean_uuid(actor_id) if actor_id else str(uuid.uuid4())
 
         payload_json = json.dumps(payload or {})
         
@@ -102,11 +112,11 @@ class ActivityLogService:
                         wr,
                         activity_type,
                         message,
-                        from_status.value if from_status else None,
-                        to_status.value if to_status else None,
-                        from_sub_status.value if from_sub_status else None,
-                        to_sub_status.value if to_sub_status else None,
-                        actor_type,
+                        self._status_value(from_status),
+                        self._status_value(to_status),
+                        self._status_value(from_sub_status),
+                        self._status_value(to_sub_status),
+                        self._status_value(actor_type) or ActorType.SYSTEM.value,
                         aid,
                         payload_json,
                     ),

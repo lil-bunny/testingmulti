@@ -16,6 +16,16 @@ from app.tasks.reminders import trigger_gelita_tender_reminder
 
 logger = get_logger(__name__)
 
+_SCHEDULE_SKIP_SUB_STATUSES = frozenset(
+    {
+        StatusSubType.REMINDER_1_SENT.value,
+        StatusSubType.REMINDER_2_SENT.value,
+        StatusSubType.ESCALATED.value,
+        StatusSubType.ACCEPTED.value,
+        StatusSubType.REJECTED.value,
+    }
+)
+
 
 def _build_payload(
     base: dict[str, Any],
@@ -35,7 +45,8 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
     After ``carrier_email_received``, enqueue three delayed ``WorkflowService.run`` calls
     for ``load_tendering`` with ``reminder_due`` (steps 1 and 2) and ``escalation_due``.
 
-    Idempotent: skips if lifecycle ``sub_status`` is already ``awaiting_response_reminders_queued``.
+    Idempotent: skips if lifecycle has already progressed past ``awaiting_response``
+    (reminder sent, escalated, or terminal ack).
     """
     if data.get("reminders_scheduled"):
         return
@@ -62,7 +73,8 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
     if not row:
         logger.warning("schedule_tender_reminders lifecycle not found id=%s", wl_id)
         return
-    if row.get("sub_status") == StatusSubType.AWAITING_RESPONSE_REMINDERS_QUEUED.value:
+    current_sub = str(row.get("sub_status") or "").strip()
+    if current_sub in _SCHEDULE_SKIP_SUB_STATUSES:
         data["reminders_scheduled"] = True
         return
 
@@ -106,11 +118,6 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
                 pass
         return
 
-    lifecycle_svc.update_lifecycle_status(
-        lifecycle_id=wl_id,
-        sub_status=StatusSubType.AWAITING_RESPONSE_REMINDERS_QUEUED,
-    )
-
     run_id = str(data.get("workflow_run_id") or "").strip() or None
     try:
         ActivityLogService().insert(
@@ -119,8 +126,8 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
             workflow_run_id=run_id,
             activity_type="tender_reminders_scheduled",
             message="Queued reminder_due (1,2) and escalation_due Celery tasks",
-            from_sub_status=row.get("sub_status"),
-            to_sub_status=StatusSubType.AWAITING_RESPONSE_REMINDERS_QUEUED.value,
+            from_sub_status=current_sub or StatusSubType.AWAITING_RESPONSE,
+            to_sub_status=StatusSubType.AWAITING_RESPONSE,
             payload={"hours": [h for h, _, _ in specs]},
         )
     except Exception:

@@ -53,18 +53,18 @@ def log_tender_activity(state):
         lifecycle_svc.update_lifecycle_status(
             lifecycle_id=wl_id,
             status=StatusType.PROCESSING,
-            sub_status=StatusSubType.TENDER_EMAIL_FAILED,
+            sub_status=StatusType.FAILED,
         )
-        activity_log_svc.insert(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl_id,
-            workflow_run_id=str(state.execution_id),
-            activity_type="tender_email_failed",
-            message=str(err),
-            from_status=prev_status,
-            to_status=StatusType.PROCESSING,
-            from_sub_status=prev_sub,
-            to_sub_status=StatusSubType.TENDER_EMAIL_FAILED,
-            payload={"error": str(err)},
-        )
+        # activity_log_svc.insert(
+        #     tenant_id=tenant_id,
+        #     workflow_lifecycle_id=wl_id,
+        #     workflow_run_id=str(state.execution_id),
+        #     activity_type="tender_email_failed",
+        #     message=str(err),
+        #     from_status=prev_status,
+        #     to_status=StatusType.PROCESSING,
+        #     from_sub_status=prev_sub,
+        #     to_sub_status=StatusSubType.TENDER_EMAIL_FAILED,
+        #     payload={"error": str(err)},
+        # )
     return state
