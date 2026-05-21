@@ -103,6 +103,7 @@ WORKFLOW_CONFIGS = {
             "log_tender_activity",
             "update_awaiting_response",
             "schedule_tender_reminders",
+            "classify_carrier_ack",
             "record_ack_received",
             "read_tender_row",
             "send_tender_reminder",
@@ -127,7 +128,7 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "tender_created": "record_tender_created_activity",
                     "carrier_email_received": "update_awaiting_response",
-                    "ack_received": "record_ack_received",
+                    "ack_received": "classify_carrier_ack",
                     "reminder_due": "read_tender_row",
                     "escalation_due": "read_tender_row",
                 },
@@ -147,6 +148,13 @@ WORKFLOW_CONFIGS = {
                     "reminder_due": "send_tender_reminder",
                     "escalation_due": "escalate_tender",
                     "missing": "end",
+                },
+            },
+            "classify_carrier_ack": {
+                "router": "carrier_ack_router",
+                "map": {
+                    "confirmed": "record_ack_received",
+                    "not_ack": "end",
                 },
             },
         },

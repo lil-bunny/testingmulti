@@ -48,7 +48,14 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
         operation="load_tendering",
         version="1.0.0",
         description="Load tendering: log ingest context after spreadsheet email import.",
-        event_types=["email_received"],
+        event_types=[
+            "email_received",
+            "tender_created",
+            "carrier_email_received",
+            "ack_received",
+            "reminder_due",
+            "escalation_due",
+        ],
         required_state_keys=["event_type"],
         optional_state_keys=[
             "workflow_name",
@@ -66,6 +73,10 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "tender_id",
             "tender_row",
             "tender_row_index",
+            "body",
+            "body_plain",
+            "thread_id",
+            "workflow_lifecycle_id",
         ],
     ),
 }

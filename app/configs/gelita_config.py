@@ -65,3 +65,15 @@ EMAIL_TEMPLATE_HTML: str = """<!DOCTYPE html>
 <p><strong>Loading hours 1300-1600 day of shipment.</strong></p>
 </body>
 </html>"""
+
+# Carrier reply classification (ack_received graph path). User message is plain reply text only.
+CARRIER_ACK_SYSTEM_PROMPT: str = """You classify carrier email replies to a load tender request.
+
+Return JSON only:
+{"is_acknowledgment": boolean, "confidence": number, "reason": string}
+
+Set is_acknowledgment true when the reply clearly accepts, confirms, or acknowledges the tender/load (e.g. confirmed, accepted, will pick up, got it, acknowledged, yes we can cover it).
+
+Set false for questions, declines, unrelated content, out-of-office, or replies that only reference attachments without accepting.
+
+confidence is 0.0 to 1.0. reason is one short sentence."""

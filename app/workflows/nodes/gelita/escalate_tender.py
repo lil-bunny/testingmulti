@@ -60,12 +60,12 @@ def escalate_tender(state):
         state.data["escalation_email_sent"] = False
         return state
 
-    account_id = str(gelita_config.GELITA_SENDER_ACCOUNT_ID or "").strip()
+    account_id = str(gelita_config.ANA_AT_GELITA_ACCOUNT_ID or "").strip()
     if not account_id:
         state.data["escalation_email_error"] = "missing_sender_account_id"
         state.data["escalation_email_sent"] = False
         logger.error(
-            "escalate_tender: no sender account id (GELITA_SENDER_ACCOUNT_ID / fallback) tender_id=%s",
+            "escalate_tender: no sender account id (ANA_AT_GELITA_ACCOUNT_ID / fallback) tender_id=%s",
             tender_id or None,
         )
         return state

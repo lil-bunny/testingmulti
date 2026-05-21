@@ -16,7 +16,7 @@ def send_tender_email(state):
 
     if not account_id:
         state.data["tender_email_error"] = "missing_sender_account_id"
-        logger.error("send_tender_email: GELITA_SENDER_ACCOUNT_ID / fallback account id not configured")
+        logger.error("send_tender_email: ANA_AT_GELITA_ACCOUNT_ID / fallback account id not configured")
         return state
 
     tender_data = {

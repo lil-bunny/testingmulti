@@ -5,6 +5,7 @@ from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.graph.routers import (
+    carrier_ack_router,
     event_type_router,
     tender_status_router,
     load_type_router,
@@ -28,6 +29,7 @@ ROUTER_REGISTRY = {
     "read_workflow_lifecycle_router": read_workflow_lifecycle_router,
     "load_type_router": load_type_router,
     "tender_status_router": tender_status_router,
+    "carrier_ack_router": carrier_ack_router,
 }
 
 

@@ -1,8 +1,12 @@
-"""Node: carrier ack validated — complete tender + lifecycle, activity log."""
+"""Nodes: classify carrier ack reply (LLM), then record completion."""
 
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.tools.gelita.email_parser import (
+    classify_carrier_acknowledgment,
+    normalize_carrier_reply_body,
+)
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
@@ -13,6 +17,25 @@ from app.workflows.nodes.gelita.load_tendering_helpers import (
 )
 
 logger = get_logger(__name__)
+
+
+def classify_carrier_ack(state):
+    """LLM gate: set ``carrier_ack_confirmed`` from plain reply body (Unipile webhook fields)."""
+    reply_text = normalize_carrier_reply_body(
+        body=state.data.get("body"),
+        body_plain=state.data.get("body_plain"),
+    )
+    result = classify_carrier_acknowledgment(reply_text)
+    state.data["carrier_ack_confirmed"] = bool(result.get("is_acknowledgment"))
+    state.data["carrier_ack_reason"] = str(result.get("reason") or "")
+    state.data["carrier_ack_llm"] = result
+    logger.info(
+        "classify_carrier_ack tender_id=%s confirmed=%s reason=%s",
+        state.data.get("tender_id"),
+        state.data["carrier_ack_confirmed"],
+        state.data["carrier_ack_reason"],
+    )
+    return state
 
 
 def record_ack_received(state):

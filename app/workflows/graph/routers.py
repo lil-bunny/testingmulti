@@ -115,3 +115,7 @@ def tender_status_router(state):
     if event_type in ("reminder_due", "escalation_due"):
         return event_type
     return "missing"
+
+
+def carrier_ack_router(state):
+    return "confirmed" if state.data.get("carrier_ack_confirmed") else "not_ack"

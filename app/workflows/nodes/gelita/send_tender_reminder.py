@@ -45,12 +45,12 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    gelita_sender_account_id = str(gelita_config.GELITA_SENDER_ACCOUNT_ID or "").strip()
+    gelita_sender_account_id = str(gelita_config.ANA_AT_GELITA_ACCOUNT_ID or "").strip()
     if not gelita_sender_account_id:
-        state.data["tender_reminder_error"] = "missing_gelita_sender_account_id"
+        state.data["tender_reminder_error"] = "missing_ANA_AT_GELITA_ACCOUNT_ID"
         state.data["tender_reminder_sent"] = False
         logger.error(
-            "send_tender_reminder: GELITA_SENDER_ACCOUNT_ID not configured (tender_id=%s)",
+            "send_tender_reminder: ANA_AT_GELITA_ACCOUNT_ID not configured (tender_id=%s)",
             state.data.get("tender_id"),
         )
         return state
