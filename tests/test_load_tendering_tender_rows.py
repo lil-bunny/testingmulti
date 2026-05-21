@@ -6,7 +6,10 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-from app.domain.load_tendering_tender_rows import projected_row_to_tender_insert
+from app.domain.load_tendering_tender_rows import (
+    projected_row_to_tender_insert,
+    resolve_pack_code_id,
+)
 from app.services.tenders_ingest_service import TendersIngestService
 
 
@@ -102,23 +105,48 @@ def test_mapper_skips_invalid_quantity() -> None:
     )
 
 
-def test_mapper_invalid_pack_code_becomes_null_column() -> None:
+def test_mapper_unknown_pack_code_text_becomes_null_id() -> None:
     row = {
         "order_number": "1",
         "customer_match": "B",
         "product_name": "P",
         "order_quantity": 1,
-        "pack_code_id": "not-a-uuid",
+        "pack_code": "9999",
     }
-    out = projected_row_to_tender_insert(row)
+    out = projected_row_to_tender_insert(row, active_pack_code_index={})
     assert out is not None
     assert out["pack_code_id"] is None
-    assert row["pack_code_id"] == "not-a-uuid"
+
+
+def test_mapper_resolves_pack_code_text_via_index() -> None:
+    row = {
+        "order_number": "1",
+        "customer_match": "B",
+        "product_name": "P",
+        "order_quantity": 1,
+        "pack_code": " 5137 ",
+    }
+    index = {"5137": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"}
+    out = projected_row_to_tender_insert(row, active_pack_code_index=index)
+    assert out is not None
+    assert out["pack_code_id"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+
+
+def test_resolve_pack_code_id_exact_match_trims_spaces_only() -> None:
+    index = {"5137": "uuid-5137"}
+    assert resolve_pack_code_id({"pack_code": " 5137 "}, active_pack_code_index=index) == "uuid-5137"
+    assert resolve_pack_code_id({"pack_code": "05137"}, active_pack_code_index=index) is None
+
+
+def _ingest_svc(repo: MagicMock) -> TendersIngestService:
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
+    return TendersIngestService(repository=repo, pack_codes_repository=pack_codes)
 
 
 def test_ingest_service_noop_without_import_id() -> None:
     repo = MagicMock()
-    svc = TendersIngestService(repository=repo)
+    svc = _ingest_svc(repo)
     assert (
         svc.persist_from_projected_rows(
             tenant_id="t",
@@ -134,7 +162,7 @@ def test_ingest_service_batches_valid_rows() -> None:
     repo = MagicMock()
     tender_uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
     repo.insert_batch.return_value = [tender_uuid]
-    svc = TendersIngestService(repository=repo)
+    svc = _ingest_svc(repo)
     rows = [
         {
             "order_number": "N1",
@@ -162,7 +190,7 @@ def test_ingest_service_batches_valid_rows() -> None:
 def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
     repo = MagicMock()
     repo.insert_batch.return_value = ["dddddddd-dddd-dddd-dddd-dddddddddddd"]
-    svc = TendersIngestService(repository=repo)
+    svc = _ingest_svc(repo)
     rows = [
         {
             "order_number": "N1",

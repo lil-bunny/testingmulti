@@ -55,12 +55,36 @@ def _pack_code_uuid(val: Any) -> str | None:
         return None
 
 
-def projected_row_to_tender_insert(row: dict[str, Any]) -> dict[str, Any] | None:
+def resolve_pack_code_id(
+    row: dict[str, Any],
+    *,
+    active_pack_code_index: dict[str, str] | None = None,
+) -> str | None:
+    """
+    Resolve ``pack_codes.id`` from a projected row.
+
+    Prefer explicit UUID in ``pack_code_id`` (tests). Otherwise match trimmed ``pack_code``
+    text exactly against ``active_pack_code_index`` (active rows only).
+    """
+    explicit = _pack_code_uuid(row.get("pack_code_id"))
+    if explicit:
+        return explicit
+    text = str(row.get("pack_code") or "").strip()
+    if not text or not active_pack_code_index:
+        return None
+    return active_pack_code_index.get(text)
+
+
+def projected_row_to_tender_insert(
+    row: dict[str, Any],
+    *,
+    active_pack_code_index: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
     """
     Build kwargs for ``TendersRepository.insert_batch`` (excluding tenant/data_import_id).
 
-    Returns ``None`` when required fields are missing or invalid. Optional ``pack_code_id``
-    is omitted from SQL when not a valid UUID.
+    Returns ``None`` when required fields are missing or invalid. ``pack_code_id`` is set when
+    the row supplies a UUID or when ``pack_code`` text resolves via ``active_pack_code_index``.
     """
     order_number = str(row.get("order_number") or "").strip()
     if not order_number:
@@ -77,7 +101,10 @@ def projected_row_to_tender_insert(row: dict[str, Any]) -> dict[str, Any] | None
 
     delivery = _parse_optional_date(row.get("delivery_date"))
     shipping = _parse_optional_date(row.get("shipping_date"))
-    pack_id = _pack_code_uuid(row.get("pack_code_id"))
+    pack_id = resolve_pack_code_id(
+        row,
+        active_pack_code_index=active_pack_code_index,
+    )
     po_number = str(row.get("po_number") or "").strip()
     metadata: dict[str, Any] = {"po_number": po_number} if po_number else {}
 

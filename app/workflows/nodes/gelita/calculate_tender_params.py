@@ -5,8 +5,16 @@ from __future__ import annotations
 from decimal import Decimal
 
 import app.configs.gelita_config as gelita_config
+from app.domain.delivery_address import format_usps_mailing_address
 from app.models.load_type import LoadType
 from app.services.tender_service import TenderService
+from app.workflows.nodes.gelita.load_tendering_helpers import record_tender_calc_failure
+
+
+def _fail(state, error_code: str):
+    state.data["tender_calc_error"] = error_code
+    record_tender_calc_failure(state, error_code=error_code)
+    return state
 
 
 def calculate_tender_params(state):
@@ -24,13 +32,10 @@ def calculate_tender_params(state):
     tender_id = str(state.data.get("tender_id") or "").strip()
 
     if not tenant_id:
-        state.data["tender_calc_error"] = "missing_tenant_id"
-        return state
+        return _fail(state, "missing_tenant_id")
     if not tender_id:
-        state.data["tender_calc_error"] = "missing_tender_id"
-        return state
+        return _fail(state, "missing_tender_id")
 
-    # TODO: confirm the value for this plus fetch from tenant config
     pallet_weight_lb = float(gelita_config.PALLET_WEIGHT_LBS)
     pallet_threshold = int(gelita_config.PALLET_THRESHOLD)
 
@@ -40,19 +45,25 @@ def calculate_tender_params(state):
         tender_id=tender_id,
     )
     if not row:
-        state.data["tender_calc_error"] = "tender_not_found"
-        return state
+        return _fail(state, "tender_not_found")
+
+    if not row.get("pack_code_id"):
+        tender_row = state.data.get("tender_row")
+        excel_pack = ""
+        if isinstance(tender_row, dict):
+            excel_pack = str(tender_row.get("pack_code") or "").strip()
+        if excel_pack:
+            state.data["pack_code"] = excel_pack
+        return _fail(state, "missing_pack_code")
 
     order_quantity = Decimal(str(row["order_quantity"]))
     qty_per_unit = row.get("qty_per_unit")
     total_qty = row.get("total_qty")
 
     if qty_per_unit is None or qty_per_unit == 0:
-        state.data["tender_calc_error"] = "missing_qty_per_unit"
-        return state
+        return _fail(state, "missing_qty_per_unit")
     if total_qty is None or total_qty == 0:
-        state.data["tender_calc_error"] = "missing_total_qty"
-        return state
+        return _fail(state, "missing_total_qty")
 
     qty_per_unit = Decimal(str(qty_per_unit))
     total_qty = Decimal(str(total_qty))
@@ -74,11 +85,25 @@ def calculate_tender_params(state):
         load_type=load_type_enum,
     )
 
-    # TODO: map Customer PO column when product confirms source
-    customer_po = "TBD"
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    customer_po = str(metadata.get("po_number") or "").strip()
+    if not customer_po:
+        tender_row = state.data.get("tender_row")
+        if isinstance(tender_row, dict):
+            customer_po = str(tender_row.get("po_number") or "").strip()
+    if not customer_po:
+        customer_po = "TBD"
 
     ship_date = row.get("shipping_date")
     ship_date_str = ship_date.isoformat() if hasattr(ship_date, "isoformat") else str(ship_date or "")
+
+    pickup_formatted = format_usps_mailing_address(gelita_config.GELITA_PICKUP_ADDRESS)
+    delivery_raw = row.get("delivery_address")
+    delivery_formatted = (
+        format_usps_mailing_address(delivery_raw)
+        if isinstance(delivery_raw, dict)
+        else ""
+    )
 
     state.data.update(
         {
@@ -87,8 +112,8 @@ def calculate_tender_params(state):
             "customer_po": customer_po,
             "product_name": row.get("product_name") or "",
             "ship_date": ship_date_str,
-            "pickup_address": row.get("pickup_address") or "",
-            "delivery_address": row.get("delivery_address") or "",
+            "pickup_address": pickup_formatted,
+            "delivery_address": delivery_formatted,
             "pieces_count": f"{pieces_dec:.2f}",
             "pallets_count": f"{pallets_dec:.2f}",
             "gross_weight_lbs": f"{gross_weight_dec:,.2f}",

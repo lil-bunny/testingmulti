@@ -1,12 +1,10 @@
-"""Activity log side effects during tender ingest."""
+"""Tender ingest no longer writes activity_logs (logged on workflow run instead)."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
 from app.services.tenders_ingest_service import TendersIngestService
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -23,12 +21,8 @@ def _projected_row() -> dict:
     }
 
 
-@patch("app.services.tenders_ingest_service.ActivityLogService")
 @patch("app.services.tenders_ingest_service.projected_row_to_tender_insert")
-def test_ingest_records_two_activity_logs_per_tender(
-    mock_map: MagicMock,
-    mock_activity_cls: MagicMock,
-) -> None:
+def test_ingest_does_not_write_activity_logs(mock_map: MagicMock) -> None:
     mock_map.return_value = {
         "order_number": "ORD-1",
         "customer_name": "Acme Corp",
@@ -43,8 +37,6 @@ def test_ingest_records_two_activity_logs_per_tender(
     }
     mock_repo = MagicMock()
     mock_repo.insert_batch.return_value = [TENDER_UUID]
-    mock_activity = MagicMock()
-    mock_activity_cls.return_value = mock_activity
 
     svc = TendersIngestService(repository=mock_repo)
     out = svc.persist_from_projected_rows(
@@ -54,74 +46,3 @@ def test_ingest_records_two_activity_logs_per_tender(
     )
 
     assert out == [TENDER_UUID]
-    mock_activity.record_tender_created_action.assert_called_once_with(
-        tenant_id=TENANT_UUID,
-        tender_id=TENDER_UUID,
-        order_number="ORD-1",
-        customer_name="Acme Corp",
-    )
-    mock_activity.record_tender_processing_status_change.assert_called_once_with(
-        tenant_id=TENANT_UUID,
-        tender_id=TENDER_UUID,
-    )
-    calls = [c[0] for c in mock_activity.method_calls]
-    assert calls.index("record_tender_created_action") < calls.index(
-        "record_tender_processing_status_change"
-    )
-
-
-@patch(
-    "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
-    return_value=TENANT_UUID,
-)
-def test_record_tender_created_action_fields(mock_resolve: MagicMock) -> None:
-    from app.services.activity_log_service import ActivityLogService
-
-    mock_repo = MagicMock()
-    mock_repo.insert.return_value = "log-id-1"
-    svc = ActivityLogService(repository=mock_repo)
-
-    svc.record_tender_created_action(
-        tenant_id=TENANT_UUID,
-        tender_id=TENDER_UUID,
-        order_number="ORD-1",
-        customer_name="Acme Corp",
-    )
-
-    row = mock_repo.insert.call_args[0][0]
-    assert row["activity_type"] == ActivityType.ACTION.value
-    assert "ORD-1" in row["description"]
-    assert "Acme Corp" in row["description"]
-    assert row["from_status"] == StatusType.NONE.value
-    assert row["to_status"] == StatusType.NONE.value
-    assert row["from_sub_status"] == StatusSubType.NONE.value
-    assert row["to_sub_status"] == StatusSubType.NONE.value
-    assert row["actor_type"] == ActorType.SYSTEM.value
-    assert row["workflow_lifecycle_id"] is None
-    assert row["workflow_run_id"] is None
-
-
-@patch(
-    "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
-    return_value=TENANT_UUID,
-)
-def test_record_tender_processing_status_change_inserts_log(
-    mock_resolve: MagicMock,
-) -> None:
-    from app.services.activity_log_service import ActivityLogService
-
-    mock_repo = MagicMock()
-    svc = ActivityLogService(repository=mock_repo)
-
-    svc.record_tender_processing_status_change(
-        tenant_id=TENANT_UUID,
-        tender_id=TENDER_UUID,
-    )
-
-    mock_repo.insert.assert_not_called()
-    mock_repo.insert_tender_processing_status_change_log.assert_called_once()
-    log_row = mock_repo.insert_tender_processing_status_change_log.call_args[0][0]
-    assert log_row["activity_type"] == ActivityType.STATUS_CHANGE.value
-    assert log_row["to_status"] == StatusType.PROCESSING.value
-    assert log_row["to_sub_status"] == StatusSubType.TENDER_CREATED.value
-    assert log_row["from_status"] == StatusType.NONE.value

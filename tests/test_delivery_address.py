@@ -107,13 +107,13 @@ def test_delivery_address_state_resolver_fills_state() -> None:
 
     def resolver(country: str | None, postal: object) -> str | None:
         seen.append((country, postal))
-        return "Iowa"
+        return "IA"
 
     out = delivery_address_from_location_row(
         _sioux_city_row(), state_resolver=resolver
     )
 
-    assert out["state"] == "Iowa"
+    assert out["state"] == "IA"
     assert seen == [("U.S.A.", "51105")]
 
 
@@ -134,7 +134,7 @@ def test_delivery_address_state_resolver_returning_blank_keeps_empty() -> None:
 def test_resolve_delivery_address_threads_state_resolver_through() -> None:
     index = DeliveryLocationsIndex([_sioux_city_row()])
     out = resolve_delivery_address(
-        "41000100", index, state_resolver=lambda _c, _p: "Iowa"
+        "41000100", index, state_resolver=lambda _c, _p: "IA"
     )
     assert out is not None
-    assert out["state"] == "Iowa"
+    assert out["state"] == "IA"

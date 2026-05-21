@@ -9,14 +9,6 @@ from typing import Any
 import psycopg
 
 from app.core.config import settings
-def _fmt_location(
-    city: str | None, state: str | None, state_code: str | None
-) -> str:
-    city = (city or "").strip()
-    region = (state_code or state or "").strip()
-    if city and region:
-        return f"{city}, {region}"
-    return city or region or ""
 
 
 class TenderService:
@@ -37,7 +29,7 @@ class TenderService:
     ) -> dict[str, Any] | None:
         """
         Load one tender scoped by tenant UUID, with ``pack_codes`` joined on
-        ``t.pack_code_id = pack_codes.id`` and pickup/delivery locations.
+        ``t.pack_code_id = pack_codes.id`` and ``t.delivery_address`` JSONB.
 
         Numeric pack fields prefer the joined ``pack_codes`` row; if the join misses (null or
         orphan ``pack_code_id``), fall back to ``tenders.metadata['pack_code']`` using
@@ -73,16 +65,9 @@ class TenderService:
                         pc.pallet_dims,
                         pc.pallet_type,
                         pc.is_active,
-                        pl.city AS pickup_city,
-                        pl.state AS pickup_state,
-                        pl.state_code AS pickup_state_code,
-                        dl.city AS delivery_city,
-                        dl.state AS delivery_state,
-                        dl.state_code AS delivery_state_code
+                        t.delivery_address
                     FROM {self.TABLE_NAME} t
                     LEFT JOIN pack_codes pc ON pc.id = t.pack_code_id
-                    LEFT JOIN locations pl ON pl.id = t.pickup_location_id
-                    LEFT JOIN locations dl ON dl.id = t.delivery_location_id
                     WHERE t.id = %s::uuid AND t.tenant_id = %s::uuid
                     LIMIT 1
                     """,
@@ -99,6 +84,14 @@ class TenderService:
                     metadata = {}
                 else:
                     metadata = json.loads(meta)
+
+                delivery_raw = row[19]
+                if isinstance(delivery_raw, dict):
+                    delivery_address = delivery_raw
+                elif delivery_raw in (None, ""):
+                    delivery_address = None
+                else:
+                    delivery_address = json.loads(delivery_raw)
 
                 pack_meta = (metadata.get("pack_code") or {}) if isinstance(metadata, dict) else {}
                 amount_from_pc = self._to_decimal(row[12])
@@ -125,8 +118,7 @@ class TenderService:
                     "pack_code": row[10] or "",
                     "pack_code_description": desc,
                     "pack_code_name": desc,
-                    "pickup_address": _fmt_location(row[19], row[20], row[21]),
-                    "delivery_address": _fmt_location(row[22], row[23], row[24]),
+                    "delivery_address": delivery_address,
                     "qty_per_unit": amount_raw,
                     "total_qty": total_raw,
                     "units_per_pallet": self._to_decimal(row[14]),

@@ -19,8 +19,12 @@ from app.domain.activity_log_descriptions import (
 )
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
+from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 
 logger = get_logger(__name__)
+
+# Sentinel UUID for ``actor_type=system`` when no user initiated the action (no FK).
+SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001"
 
 
 class ActivityLogService:
@@ -90,15 +94,19 @@ class ActivityLogService:
 
         wl = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
         wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
-        actor = self._uuid_or_none(actor_id, field_name="actor_id")
-
-        if not wl and not wr:
-            logger.info(
-                "activity_log: no workflow_lifecycle_id or workflow_run_id "
+        if not wl or not wr:
+            logger.warning(
+                "activity_log skipped: workflow_lifecycle_id and workflow_run_id required "
                 "(activity_type=%r tenant_id=%s)",
                 at,
                 tid_uuid,
             )
+            return None
+
+        actor = self._uuid_or_none(actor_id, field_name="actor_id")
+        actor_type_clean = self._clean(actor_type)
+        if not actor and actor_type_clean == ActorType.SYSTEM.value:
+            actor = SYSTEM_ACTOR_ID
 
         try:
             return self._repository.insert(
@@ -132,11 +140,15 @@ class ActivityLogService:
         tender_id: str,
         order_number: str,
         customer_name: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
     ) -> str | None:
-        """Insert 1: action log immediately after tender row exists (no lifecycle/run)."""
+        """Action log for a new tender on the workflow run that processes it."""
         return self.record_activity(
             tenant_id=tenant_id,
             activity_type=ActivityType.ACTION,
+            workflow_lifecycle_id=workflow_lifecycle_id,
+            workflow_run_id=workflow_run_id,
             description=format_tender_created_action(
                 tender_id=tender_id,
                 order_number=order_number,
@@ -155,42 +167,34 @@ class ActivityLogService:
         *,
         tenant_id: str,
         tender_id: str,
-    ) -> None:
-        """Insert status_change log after tender ingest (lifecycle owns progress)."""
-        tid_uuid = self._tenant_uuid_or_none(tenant_id)
-        if not tid_uuid:
-            if self._clean(tenant_id):
-                logger.warning(
-                    "activity_log skipped status_change: cannot resolve tenant_id=%r",
-                    tenant_id,
-                )
-            return
-        tender_uuid = self._uuid_or_none(tender_id, field_name="tender_id")
-        if not tender_uuid:
-            return
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+    ) -> str | None:
+        """Status_change log: processing / tender_created on the same workflow run."""
+        
+        wl = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        if not wl:
+            return None 
+        lifecycle_svc = WorkflowLifecycleService()
+        lifecycle_svc.update_lifecycle_status(
+            lifecycle_id=wl,
+            status=StatusType.PROCESSING,
+            sub_status=StatusSubType.TENDER_CREATED,
+        )
 
-        log_row = {
-            "tenant_id": tid_uuid,
-            "workflow_lifecycle_id": None,
-            "workflow_run_id": None,
-            "activity_type": ActivityType.STATUS_CHANGE.value,
-            "description": format_status_updated_to_processing(),
-            "from_status": StatusType.NONE.value,
-            "to_status": StatusType.PROCESSING.value,
-            "from_sub_status": StatusSubType.NONE.value,
-            "to_sub_status": StatusSubType.TENDER_CREATED.value,
-            "actor_type": ActorType.SYSTEM.value,
-            "actor_id": None,
-            "metadata": {"tender_id": tender_uuid},
-        }
-        try:
-            self._repository.insert_tender_processing_status_change_log(log_row)
-        except Exception:
-            logger.exception(
-                "activity_log status_change txn failed tender_id=%s tenant_id=%s",
-                tender_uuid,
-                tid_uuid,
-            )
+        return self.record_activity(
+            tenant_id=tenant_id,
+            activity_type=ActivityType.STATUS_CHANGE,
+            workflow_lifecycle_id=workflow_lifecycle_id,
+            workflow_run_id=workflow_run_id,
+            description=format_status_updated_to_processing(),
+            from_status=StatusType.NONE,
+            to_status=StatusType.PROCESSING,
+            from_sub_status=StatusSubType.NONE,
+            to_sub_status=StatusSubType.TENDER_CREATED,
+            actor_type=ActorType.SYSTEM,
+            metadata={"tender_id": tender_id},
+        )
 
     def record_from_workflow_state(
         self,

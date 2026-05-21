@@ -6,6 +6,9 @@ from app.workflows.nodes.gelita.calculate_tender_params import calculate_tender_
 from app.workflows.nodes.gelita.escalate_tender import escalate_tender
 from app.workflows.nodes.gelita.log_tender_activity import log_tender_activity
 from app.workflows.nodes.gelita.record_ack_received import record_ack_received
+from app.workflows.nodes.gelita.record_tender_created_activity import (
+    record_tender_created_activity,
+)
 from app.workflows.nodes.gelita.schedule_tender_reminders import schedule_tender_reminders
 from app.workflows.nodes.gelita.send_tender_email import send_tender_email
 from app.workflows.nodes.gelita.send_tender_reminder import send_tender_reminder
@@ -17,6 +20,7 @@ __all__ = [
     "escalate_tender",
     "log_tender_activity",
     "record_ack_received",
+    "record_tender_created_activity",
     "schedule_tender_reminders",
     "send_tender_email",
     "send_tender_reminder",

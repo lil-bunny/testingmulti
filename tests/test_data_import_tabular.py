@@ -87,12 +87,12 @@ def test_project_row_case_insensitive_and_aliases() -> None:
     row = {
         "  customer match  ": "X",
         "Order #": "N-99",
-        "pack_code_id": "P1",
+        "Pack code": "P1",
     }
     out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
     assert out["customer_match"] == "X"
     assert out["order_number"] == "N-99"
-    assert out["pack_code_id"] == "P1"
+    assert out["pack_code"] == "P1"
     assert out["product_name"] is None
     assert out["shipping_date"] is None
     assert out["delivery_date"] is None

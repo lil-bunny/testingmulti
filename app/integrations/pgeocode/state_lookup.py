@@ -1,20 +1,14 @@
-"""Resolve a state name from (country_name, postal_code) using ``pgeocode``.
+"""Resolve state from (country_name, postal_code) using ``pgeocode``.
 
-``pgeocode.Nominatim`` works offline against per-country GeoNames TSVs, which
-are downloaded to the local cache on first construction. We cache one
-``Nominatim`` instance per ISO2 code via :func:`functools.lru_cache` so that
-the download cost is paid at most once per country per process.
-
-Every failure mode here returns ``None`` (logged) so a flaky postal-code
-lookup never breaks the surrounding tender ingest — the caller falls back
-to ``state: ""``.
+Returns GeoNames ``state_code`` (e.g. ``IA``) when available, else ``state_name``.
 """
 
 from __future__ import annotations
 
 import functools
 import math
-from typing import Optional
+import re
+from typing import Any, Optional
 
 import pgeocode
 
@@ -26,11 +20,7 @@ logger = get_logger(__name__)
 
 @functools.lru_cache(maxsize=None)
 def _get_nominatim(iso2: str) -> Optional["pgeocode.Nominatim"]:
-    """Build (and cache) a ``pgeocode.Nominatim`` for one ISO2 country code.
-
-    Returns ``None`` if the country is unsupported or the GeoNames data
-    cannot be downloaded.
-    """
+    """Build (and cache) a ``pgeocode.Nominatim`` for one ISO2 country code."""
     try:
         return pgeocode.Nominatim(iso2.lower())
     except Exception:
@@ -52,40 +42,62 @@ def _normalize_postal(postal_code: object) -> str | None:
     return s or None
 
 
-def lookup_state(country_name: str | None, postal_code: object) -> str | None:
-    """Return the GeoNames ``state_name`` for a (country, postal_code) pair.
+def _postal_query_candidates(postal_code: object) -> list[str]:
+    """Postal strings to try with ``query_postal_code`` (full, then 5-digit US)."""
+    base = _normalize_postal(postal_code)
+    if base is None:
+        return []
+    candidates = [base]
+    digits = re.sub(r"\D", "", base)
+    if len(digits) >= 5:
+        five = digits[:5]
+        if five not in candidates:
+            candidates.append(five)
+    return candidates
 
-    ``None`` is returned for any failure: unmapped country, blank postal code,
-    pgeocode init failure, no postal match, or NaN result. This is intentional
-    so the caller can fall back to ``state: ""`` without special-casing.
+
+def _series_field(row: Any, key: str) -> str | None:
+    if row is None:
+        return None
+    val = row.get(key)
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    s = str(val).strip()
+    return s or None
+
+
+def lookup_state(country_name: str | None, postal_code: object) -> str | None:
+    """Return ``state_code`` (preferred) or ``state_name`` for (country, postal_code).
+
+    ``None`` on any failure so callers can fall back to ``state: ""``.
     """
     iso2 = get_country_iso(country_name)
     if iso2 is None:
-        return None
-
-    postal = _normalize_postal(postal_code)
-    if postal is None:
         return None
 
     nomi = _get_nominatim(iso2)
     if nomi is None:
         return None
 
-    try:
-        row = nomi.query_postal_code(postal)
-    except Exception:
-        logger.warning(
-            "pgeocode: query failed iso2=%s postal=%s",
-            iso2,
-            postal,
-            exc_info=True,
-        )
-        return None
+    for postal in _postal_query_candidates(postal_code):
+        try:
+            row = nomi.query_postal_code(postal)
+        except Exception:
+            logger.warning(
+                "pgeocode: query failed iso2=%s postal=%s",
+                iso2,
+                postal,
+                exc_info=True,
+            )
+            continue
 
-    state = row.get("state_name")
-    if state is None:
-        return None
-    if isinstance(state, float) and math.isnan(state):
-        return None
-    s = str(state).strip()
-    return s or None
+        code = _series_field(row, "state_code")
+        if code:
+            return code
+        name = _series_field(row, "state_name")
+        if name:
+            return name
+
+    return None

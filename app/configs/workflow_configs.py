@@ -97,6 +97,7 @@ WORKFLOW_CONFIGS = {
         "exit": "end",
         "nodes": [
             "route_event",
+            "record_tender_created_activity",
             "calculate_tender_params",
             "send_tender_email",
             "log_tender_activity",
@@ -110,6 +111,7 @@ WORKFLOW_CONFIGS = {
             "end",
         ],
         "edges": [
+            ["record_tender_created_activity", "calculate_tender_params"],
             ["send_tender_email", "log_tender_activity"],
             ["log_tender_activity", "end"],
             ["update_awaiting_response", "schedule_tender_reminders"],
@@ -123,7 +125,7 @@ WORKFLOW_CONFIGS = {
             "route_event": {
                 "router": "event_type",
                 "map": {
-                    "tender_created": "calculate_tender_params",
+                    "tender_created": "record_tender_created_activity",
                     "carrier_email_received": "update_awaiting_response",
                     "ack_received": "record_ack_received",
                     "reminder_due": "read_tender_row",

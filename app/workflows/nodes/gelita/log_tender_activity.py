@@ -27,15 +27,18 @@ def log_tender_activity(state):
 
     lifecycle_svc = WorkflowLifecycleService()
     prev = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
+    print("\n\nprev", prev)
     prev_status = status_type_from_db((prev or {}).get("status"))
+    print("\nprev_status", prev_status)
     prev_sub = sub_status_type_from_db((prev or {}).get("sub_status"))
+    print("\nprev_sub", prev_sub)
     activity_log_svc = ActivityLogService()
 
     sent = bool(state.data.get("tender_email_sent"))
     if sent:
         lifecycle_svc.update_lifecycle_status(
             lifecycle_id=wl_id,
-            status=StatusType.PROCESSING,
+            status=StatusType.PENDING_REVIEW,
             sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
         )
         activity_log_svc.record_activity(
@@ -45,17 +48,18 @@ def log_tender_activity(state):
             activity_type=ActivityType.STATUS_CHANGE,
             description="Tender email sent to vendor",
             from_status=prev_status,
-            to_status=StatusType.PROCESSING,
+            to_status=StatusType.PENDING_REVIEW,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
             actor_type=ActorType.SYSTEM,
+            metadata={"tender_id": state.data.get("tender_id")},
         )
     else:
         err = state.data.get("tender_email_error") or "tender_email_not_sent"
         lifecycle_svc.update_lifecycle_status(
             lifecycle_id=wl_id,
             status=StatusType.FAILED,
-            # sub_status=prev_sub,
+            sub_status=prev_sub,
         )
         activity_log_svc.record_activity(
             tenant_id=tenant_id,

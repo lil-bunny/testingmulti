@@ -33,7 +33,7 @@ def test_ingest_attaches_delivery_address_from_projected_code(
 ) -> None:
     monkeypatch.setattr(
         "app.services.tenders_ingest_service.lookup_state",
-        lambda _country, _postal: "Iowa",
+        lambda _country, _postal: "IA",
     )
 
     repo = MagicMock()
@@ -62,7 +62,7 @@ def test_ingest_attaches_delivery_address_from_projected_code(
     batch = repo.insert_batch.call_args[0][0]
     assert batch[0]["delivery_address"]["city"] == "SIOUX CITY"
     assert batch[0]["delivery_address"]["postal_code"] == "51105"
-    assert batch[0]["delivery_address"]["state"] == "Iowa"
+    assert batch[0]["delivery_address"]["state"] == "IA"
 
 
 @patch("app.services.tenders_ingest_service.ActivityLogService")

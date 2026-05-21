@@ -18,12 +18,25 @@ import app.integrations.pgeocode.state_lookup as sl
 class _FakeNomi:
     """Minimal stand-in for ``pgeocode.Nominatim`` for tests."""
 
-    def __init__(self, value: object, place: str = "X") -> None:
+    def __init__(
+        self,
+        value: object,
+        *,
+        state_code: object | None = None,
+        place: str = "X",
+    ) -> None:
         self._value = value
+        self._state_code = state_code
         self._place = place
 
     def query_postal_code(self, postal: str) -> pd.Series:
-        return pd.Series({"state_name": self._value, "place_name": self._place})
+        data: dict[str, object] = {
+            "state_name": self._value,
+            "place_name": self._place,
+        }
+        if self._state_code is not None:
+            data["state_code"] = self._state_code
+        return pd.Series(data)
 
 
 def _patch_nomi(monkeypatch: pytest.MonkeyPatch, nomi: Any) -> None:
@@ -31,6 +44,11 @@ def _patch_nomi(monkeypatch: pytest.MonkeyPatch, nomi: Any) -> None:
 
 
 def test_lookup_state_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_nomi(monkeypatch, _FakeNomi("Texas", state_code="TX"))
+    assert sl.lookup_state("U.S.A.", "76172") == "TX"
+
+
+def test_lookup_state_falls_back_to_state_name(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_nomi(monkeypatch, _FakeNomi("Texas"))
     assert sl.lookup_state("U.S.A.", "76172") == "Texas"
 
@@ -63,20 +81,35 @@ def test_lookup_state_missing_postal_returns_none() -> None:
 
 
 def test_lookup_state_handles_float_zip(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_nomi(monkeypatch, _FakeNomi("Iowa"))
-    assert sl.lookup_state("U.S.A.", "51105.0") == "Iowa"
+    _patch_nomi(monkeypatch, _FakeNomi("Iowa", state_code="IA"))
+    assert sl.lookup_state("U.S.A.", "51105.0") == "IA"
 
 
 def test_lookup_state_handles_int_zip(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_nomi(monkeypatch, _FakeNomi("Iowa"))
-    assert sl.lookup_state("U.S.A.", 51105) == "Iowa"
+    _patch_nomi(monkeypatch, _FakeNomi("Iowa", state_code="IA"))
+    assert sl.lookup_state("U.S.A.", 51105) == "IA"
 
 
 def test_lookup_state_strips_state_whitespace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_nomi(monkeypatch, _FakeNomi("  Texas  "))
-    assert sl.lookup_state("U.S.A.", "76172") == "Texas"
+    _patch_nomi(monkeypatch, _FakeNomi("  Texas  ", state_code="  TX  "))
+    assert sl.lookup_state("U.S.A.", "76172") == "TX"
+
+
+def test_lookup_state_retries_five_digit_zip(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class _RetryNomi:
+        def query_postal_code(self, postal: str) -> pd.Series:
+            calls.append(postal)
+            if postal == "27377-9":
+                return pd.Series({"state_code": math.nan, "state_name": math.nan})
+            return pd.Series({"state_code": "NC", "state_name": "North Carolina"})
+
+    _patch_nomi(monkeypatch, _RetryNomi())
+    assert sl.lookup_state("U.S.A.", "27377-9") == "NC"
+    assert calls == ["27377-9", "27377"]
 
 
 def test_lookup_state_swallows_pgeocode_errors(

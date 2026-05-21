@@ -11,7 +11,7 @@ LOAD_TENDERING_ROW_PROJECTION: Final[dict[str, tuple[str, ...]]] = {
     "shipping_date": ("Ship date", "Ship Date", "shipping date", "Shipping Date"),
     "delivery_date": ("delivery date", "Delivery Date"),
     "order_number": ("Order #", "Order Number"),
-    "pack_code_id": ("pack_code_id", "Pack code", "Pack Code Id", "Pack code id"),
+    "pack_code": ("Pack code", "pack_code", "Pack Code"),
     "delivery_address_code": ("Delivery address",),
     "po_number": ("BESTTXT",),
 }

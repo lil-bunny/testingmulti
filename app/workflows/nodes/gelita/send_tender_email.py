@@ -12,15 +12,6 @@ logger = get_logger(__name__)
 
 
 def send_tender_email(state):
-    email_body = gelita_config.EMAIL_TEMPLATE_HTML
-    email_body = email_body.format(
-        order_number=state.data.get("order_number"),
-        customer_po=state.data.get("customer_po"),
-        ship_date=state.data.get("ship_date"),
-        product_name=state.data.get("product_name"),
-        pieces=state.data.get("pieces_count"),
-    )
-
     account_id = gelita_config.ANA_GELITA_AT_FREIGHTX_AI_ACCOUNT_ID
 
     if not account_id:
@@ -49,17 +40,11 @@ def send_tender_email(state):
             calculated,
             gelita_config.EMAIL_TEMPLATE_HTML,
         )
-        recipients = [
-            {
-                "identifier": gelita_config.VENDOR_EMAIL,
-                "display_name": "Vendor",
-            }
-        ]
         result = send_email(
-            account_id=account_id,
-            to=recipients,
+            to=gelita_config.VENDOR_EMAIL,
             subject=built["subject"],
-            body_html=built["body_html"],
+            body=built["body_html"],
+            account_id=account_id,
         )
     except UnipileException as e:
         logger.warning(
@@ -82,5 +67,5 @@ def send_tender_email(state):
         return state
 
     state.data["tender_email_result"] = result
-    state.data["tender_email_sent"] = result.get("success", False)
+    state.data["tender_email_sent"] = bool(result and result.get("success", False))
     return state

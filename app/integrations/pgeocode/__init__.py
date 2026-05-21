@@ -2,7 +2,7 @@
 
 Public surface:
     * :func:`lookup_state` — given a sheet country name and postal code,
-      return the GeoNames ``state_name`` or ``None`` on any failure.
+      return GeoNames ``state_code`` (preferred) or ``state_name``, or ``None``.
 """
 
 from app.integrations.pgeocode.state_lookup import lookup_state

@@ -76,7 +76,7 @@ def test_record_activity_skips_empty_activity_type(mock_repo: MagicMock) -> None
     mock_repo.insert.assert_not_called()
 
 
-def test_record_activity_invalid_workflow_run_id_still_inserts(mock_repo: MagicMock) -> None:
+def test_record_activity_skips_without_lifecycle_and_run(mock_repo: MagicMock) -> None:
     svc = ActivityLogService(repository=mock_repo)
     with patch(
         "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
@@ -88,9 +88,89 @@ def test_record_activity_invalid_workflow_run_id_still_inserts(mock_repo: MagicM
             workflow_run_id="not-a-uuid",
         )
 
-    assert out == ACTIVITY_UUID
+    assert out is None
+    mock_repo.insert.assert_not_called()
+
+
+def test_record_activity_system_actor_defaults_actor_id(mock_repo: MagicMock) -> None:
+    from app.services.activity_log_service import SYSTEM_ACTOR_ID
+
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        svc.record_activity(
+            tenant_id=TENANT_UUID,
+            activity_type="test",
+            workflow_lifecycle_id=LIFECYCLE_UUID,
+            workflow_run_id=RUN_UUID,
+            actor_type="system",
+        )
+
     row = mock_repo.insert.call_args[0][0]
-    assert row["workflow_run_id"] is None
+    assert row["actor_id"] == SYSTEM_ACTOR_ID
+
+
+TENDER_UUID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+
+
+@patch(
+    "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_record_tender_created_action_requires_lifecycle_and_run(
+    mock_resolve: MagicMock,
+    mock_repo: MagicMock,
+) -> None:
+    from app.models.activity_type import ActivityType, ActorType
+    from app.models.status import StatusSubType, StatusType
+
+    svc = ActivityLogService(repository=mock_repo)
+    svc.record_tender_created_action(
+        tenant_id=TENANT_UUID,
+        tender_id=TENDER_UUID,
+        order_number="ORD-1",
+        customer_name="Acme Corp",
+        workflow_lifecycle_id=LIFECYCLE_UUID,
+        workflow_run_id=RUN_UUID,
+    )
+
+    row = mock_repo.insert.call_args[0][0]
+    assert row["activity_type"] == ActivityType.ACTION.value
+    assert row["workflow_lifecycle_id"] == LIFECYCLE_UUID
+    assert row["workflow_run_id"] == RUN_UUID
+    assert row["from_status"] == StatusType.NONE.value
+    assert row["actor_type"] == ActorType.SYSTEM.value
+    from app.services.activity_log_service import SYSTEM_ACTOR_ID
+
+    assert row["actor_id"] == SYSTEM_ACTOR_ID
+
+
+@patch(
+    "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_record_tender_processing_status_change_uses_record_activity(
+    mock_resolve: MagicMock,
+    mock_repo: MagicMock,
+) -> None:
+    from app.models.activity_type import ActivityType
+    from app.models.status import StatusSubType, StatusType
+
+    svc = ActivityLogService(repository=mock_repo)
+    svc.record_tender_processing_status_change(
+        tenant_id=TENANT_UUID,
+        tender_id=TENDER_UUID,
+        workflow_lifecycle_id=LIFECYCLE_UUID,
+        workflow_run_id=RUN_UUID,
+    )
+
+    mock_repo.insert.assert_called_once()
+    row = mock_repo.insert.call_args[0][0]
+    assert row["activity_type"] == ActivityType.STATUS_CHANGE.value
+    assert row["to_status"] == StatusType.PROCESSING.value
+    assert row["to_sub_status"] == StatusSubType.TENDER_CREATED.value
 
 
 def test_record_from_workflow_state(mock_repo: MagicMock) -> None:

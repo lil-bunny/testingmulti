@@ -8,8 +8,8 @@ from app.core.logger import get_logger
 from app.domain.delivery_address import resolve_delivery_address
 from app.domain.load_tendering_tender_rows import projected_row_to_tender_insert
 from app.integrations.pgeocode import lookup_state
+from app.repositories.pack_codes_repository import PackCodesRepository
 from app.repositories.tenders_repository import TendersRepository
-from app.services.activity_log_service import ActivityLogService
 from app.services.delivery_locations_service import DeliveryLocationsService
 
 logger = get_logger(__name__)
@@ -20,9 +20,11 @@ class TendersIngestService:
         self,
         repository: Optional[TendersRepository] = None,
         delivery_locations: Optional[DeliveryLocationsService] = None,
+        pack_codes_repository: Optional[PackCodesRepository] = None,
     ) -> None:
         self._repository = repository or TendersRepository()
         self._delivery_locations = delivery_locations or DeliveryLocationsService()
+        self._pack_codes = pack_codes_repository or PackCodesRepository()
 
     def persist_from_projected_rows(
         self,
@@ -42,6 +44,7 @@ class TendersIngestService:
             return []
 
         locations_index = self._delivery_locations.index_for_ingest_run()
+        pack_code_index = self._pack_codes.active_pack_code_id_index(tenant_id=tid)
 
         out: list[str | None] = [None] * len(projected_rows)
         batch: list[dict[str, Any]] = []
@@ -49,7 +52,10 @@ class TendersIngestService:
         skipped = 0
 
         for row_index, row in enumerate(projected_rows):
-            mapped = projected_row_to_tender_insert(row)
+            mapped = projected_row_to_tender_insert(
+                row,
+                active_pack_code_index=pack_code_index,
+            )
             if mapped is None:
                 skipped += 1
                 continue
@@ -84,26 +90,7 @@ class TendersIngestService:
                 len(batch),
                 did,
             )
-        activity_log_svc = ActivityLogService()
-        batch_by_row_index = dict(zip(batch_row_indices, batch, strict=False))
         for idx, tender_id in zip(batch_row_indices, inserted_ids, strict=False):
             out[idx] = tender_id
-            if not tender_id:
-                continue
-            row = batch_by_row_index.get(idx)
-            if not row:
-                continue
-            order_number = str(row.get("order_number") or "")
-            customer_name = str(row.get("customer_name") or "")
-            activity_log_svc.record_tender_created_action(
-                tenant_id=tid,
-                tender_id=tender_id,
-                order_number=order_number,
-                customer_name=customer_name,
-            )
-            activity_log_svc.record_tender_processing_status_change(
-                tenant_id=tid,
-                tender_id=tender_id,
-            )
 
         return out

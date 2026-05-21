@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from app.domain.delivery_locations import (
@@ -9,6 +10,7 @@ from app.domain.delivery_locations import (
     clean_cell_value,
     normalize_delivery_number,
 )
+from app.integrations.pgeocode.state_lookup import lookup_state
 
 # Delivery locations sheet column names (source spreadsheet headers).
 _SHEET_NAME = "Name"
@@ -100,3 +102,71 @@ def resolve_delivery_address(
     return delivery_address_from_location_row(
         location_row, state_resolver=state_resolver
     )
+
+
+def _line_str(val: Any) -> str:
+    cleaned = clean_cell_value(val)
+    if cleaned is None:
+        return ""
+    return str(cleaned).strip()
+
+
+def _optional_line(val: Any) -> str | None:
+    s = _line_str(val)
+    return s if s else None
+
+
+def _postal_for_usps_line(postal: str) -> str:
+    s = (postal or "").strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    s = s.replace(" ", "")
+    zip4 = re.match(r"^(\d{5})-(\d{1,4})$", s)
+    if zip4:
+        return f"{zip4.group(1)}-{zip4.group(2)}"
+    digits = re.sub(r"\D", "", s)
+    if len(digits) >= 5:
+        return digits[:5]
+    return s
+
+
+def format_usps_mailing_address(addr: dict[str, Any] | None) -> str:
+    """
+    Format structured address JSON into a multi-line USPS-style mailing block.
+
+    Used for Gelita tender email pickup (static config) and delivery (``tenders.delivery_address``).
+    """
+    if not addr or not isinstance(addr, dict):
+        return ""
+
+    lines: list[str] = []
+    name = _line_str(addr.get("name"))
+    if name:
+        lines.append(name)
+    name2 = _optional_line(addr.get("name2"))
+    if name2:
+        lines.append(name2)
+
+    address1 = _line_str(addr.get("address1"))
+    if address1:
+        lines.append(address1)
+    address2 = _optional_line(addr.get("address2"))
+    if address2:
+        lines.append(address2)
+
+    city = _line_str(addr.get("city")).upper()
+    postal_raw = _line_str(addr.get("postal_code"))
+    postal = _postal_for_usps_line(postal_raw)
+    state = (lookup_state(addr.get("country"), postal_raw) or "").strip()
+    if not state:
+        state_raw = _line_str(addr.get("state"))
+        if len(state_raw) == 2 and state_raw.isalpha():
+            state = state_raw.upper()
+        else:
+            state = state_raw
+
+    if city or state or postal:
+        csz_parts = [p for p in (city, state, postal) if p]
+        lines.append(" ".join(csz_parts))
+
+    return "\n".join(lines)
