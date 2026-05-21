@@ -29,7 +29,7 @@ def test_mapper_happy_path() -> None:
     assert out["delivery_date"] == date(2026, 6, 1)
     assert out["shipping_date"] == date(2026, 5, 15)
     assert out["pack_code_id"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
-    assert out["load_type"] == "ltl"
+    assert out["load_type"] == "LTL"
 
 
 def test_mapper_skips_blank_order_number() -> None:

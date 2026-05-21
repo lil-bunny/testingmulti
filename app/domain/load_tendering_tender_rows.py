@@ -7,6 +7,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from app.models.load_type import LoadType
+
 
 def _parse_optional_date(val: Any) -> date | None:
     if val is None:
@@ -88,5 +90,5 @@ def projected_row_to_tender_insert(row: dict[str, Any]) -> dict[str, Any] | None
         "delivery_location_id": None,
         "pack_code_id": pack_id,
         "status": "po_imported",
-        "load_type": "ltl",
+        "load_type": LoadType.LTL.value,
     }
