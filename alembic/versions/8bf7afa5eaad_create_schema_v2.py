@@ -129,7 +129,13 @@ def upgrade() -> None:
         """
         CREATE TABLE IF NOT EXISTS data_imports (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            tenant_id UUID NOT NULL REFERENCES tenants(id),
+            data_type TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            file_name TEXT,
+            raw_data JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
@@ -246,8 +252,6 @@ def upgrade() -> None:
 
             pack_code TEXT NOT NULL,
 
-            status TEXT NOT NULL DEFAULT 'processing',
-
             load_type load_type_enum,
 
             data_import_id UUID
@@ -311,8 +315,6 @@ def upgrade() -> None:
                 REFERENCES workflow_lifecycles(id) ON DELETE CASCADE,
 
             event_type TEXT,
-
-            status TEXT,
 
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -399,8 +401,6 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_tenders_status
-        ON tenders(status)
         """
     )
 
@@ -457,7 +457,6 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS idx_workflow_lifecycles_tender_id")
     op.execute("DROP INDEX IF EXISTS idx_workflow_lifecycles_shipment_id")
     op.execute("DROP INDEX IF EXISTS idx_workflow_lifecycles_tenant_id")
-    op.execute("DROP INDEX IF EXISTS idx_tenders_status")
     op.execute("DROP INDEX IF EXISTS idx_tenders_tenant_id")
     op.execute("DROP INDEX IF EXISTS idx_shipments_pack_code_id")
     op.execute("DROP INDEX IF EXISTS idx_shipments_tenant_id")

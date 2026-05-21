@@ -109,8 +109,7 @@ def pod_request_triggered_router(state):
 
 
 def tender_status_router(state):
-    tender_row = state.data.get("tender_row")
-    if tender_row and tender_row.get("status") == StatusType.COMPLETED.value:
+    if state.data.get("workflow_lifecycle_status") == StatusType.COMPLETED.value:
         return "completed"
     event_type = state.data.get("event_type")
     if event_type in ("reminder_due", "escalation_due"):

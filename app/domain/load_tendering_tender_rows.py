@@ -91,7 +91,6 @@ def projected_row_to_tender_insert(row: dict[str, Any]) -> dict[str, Any] | None
         "pickup_location_id": None,
         "delivery_location_id": None,
         "pack_code_id": pack_id,
-        "status": "po_imported",
         "load_type": LoadType.LTL.value,
         "metadata": metadata,
     }

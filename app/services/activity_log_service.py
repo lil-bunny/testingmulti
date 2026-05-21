@@ -162,7 +162,7 @@ class ActivityLogService:
         tenant_id: str,
         tender_id: str,
     ) -> None:
-        """Insert 2 + ``tenders.status = processing`` in one DB transaction."""
+        """Insert status_change log after tender ingest (lifecycle owns progress)."""
         tid_uuid = self._tenant_uuid_or_none(tenant_id)
         if not tid_uuid:
             if self._clean(tenant_id):
@@ -188,14 +188,9 @@ class ActivityLogService:
             "actor_type": ACTOR_TYPE_SYSTEM,
             "actor_id": None,
             "metadata": {"tender_id": tender_uuid},
-            "tender_status": TENDER_STATUS_PROCESSING,
         }
         try:
-            self._repository.apply_tender_processing_with_status_change_log(
-                tenant_id=tid_uuid,
-                tender_id=tender_uuid,
-                log_row=log_row,
-            )
+            self._repository.insert_tender_processing_status_change_log(log_row)
         except Exception:
             logger.exception(
                 "activity_log status_change txn failed tender_id=%s tenant_id=%s",

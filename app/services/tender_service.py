@@ -9,9 +9,6 @@ from typing import Any
 import psycopg
 
 from app.core.config import settings
-from app.models.status import StatusType
-
-
 def _fmt_location(
     city: str | None, state: str | None, state_code: str | None
 ) -> str:
@@ -64,7 +61,6 @@ class TenderService:
                         t.order_quantity,
                         t.shipping_date,
                         t.delivery_date,
-                        t.status,
                         t.load_type::text,
                         t.metadata,
                         t.pack_code_id,
@@ -96,7 +92,7 @@ class TenderService:
                 if not row:
                     return None
 
-                meta = row[9]
+                meta = row[8]
                 if isinstance(meta, dict):
                     metadata = meta
                 elif meta in (None, ""):
@@ -105,8 +101,8 @@ class TenderService:
                     metadata = json.loads(meta)
 
                 pack_meta = (metadata.get("pack_code") or {}) if isinstance(metadata, dict) else {}
-                amount_from_pc = self._to_decimal(row[13])
-                total_from_pc = self._to_decimal(row[14])
+                amount_from_pc = self._to_decimal(row[12])
+                total_from_pc = self._to_decimal(row[13])
                 amount_raw = amount_from_pc or self._to_decimal(
                     pack_meta.get("qty_per_unit")
                 )
@@ -114,7 +110,7 @@ class TenderService:
                     pack_meta.get("total_qty")
                 )
 
-                desc = row[12] or ""
+                desc = row[11] or ""
                 return {
                     "id": str(row[0]),
                     "order_number": row[1] or "",
@@ -123,22 +119,21 @@ class TenderService:
                     "order_quantity": row[4],
                     "shipping_date": row[5],
                     "delivery_date": row[6],
-                    "status": row[7] or "",
-                    "load_type": row[8] or "",
+                    "load_type": row[7] or "",
                     "metadata": metadata,
-                    "pack_code_id": str(row[10]) if row[10] else None,
-                    "pack_code": row[11] or "",
+                    "pack_code_id": str(row[9]) if row[9] else None,
+                    "pack_code": row[10] or "",
                     "pack_code_description": desc,
                     "pack_code_name": desc,
-                    "pickup_address": _fmt_location(row[20], row[21], row[22]),
-                    "delivery_address": _fmt_location(row[23], row[24], row[25]),
+                    "pickup_address": _fmt_location(row[19], row[20], row[21]),
+                    "delivery_address": _fmt_location(row[22], row[23], row[24]),
                     "qty_per_unit": amount_raw,
                     "total_qty": total_raw,
-                    "units_per_pallet": self._to_decimal(row[15]),
-                    "unit_dims": row[16] or "",
-                    "pallet_dims": row[17] or "",
-                    "pallet_type": row[18] or "",
-                    "pack_is_active": row[19],
+                    "units_per_pallet": self._to_decimal(row[14]),
+                    "unit_dims": row[15] or "",
+                    "pallet_dims": row[16] or "",
+                    "pallet_type": row[17] or "",
+                    "pack_is_active": row[18],
                 }
         finally:
             conn.close()
@@ -199,32 +194,6 @@ class TenderService:
                     WHERE id = %s::uuid AND tenant_id = %s::uuid
                     """,
                     (lt, tr, tid),
-                )
-                updated = cur.rowcount > 0
-            conn.commit()
-            return updated
-        finally:
-            conn.close()
-
-    def update_row_status(
-        self, *, tenant_id: str, tender_id: str, status: StatusType
-    ) -> bool:
-        """Set ``tenders.status`` (free-text column) for a tenant-scoped row."""
-        tid = self._clean(tenant_id)
-        tr = self._clean(tender_id)
-        st = status.value
-        if not tid or not tr or not status:
-            return False
-        conn = self._conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    UPDATE {self.TABLE_NAME}
-                    SET status = %s, updated_at = NOW()
-                    WHERE id = %s::uuid AND tenant_id = %s::uuid
-                    """,
-                    (st, tr, tid),
                 )
                 updated = cur.rowcount > 0
             conn.commit()

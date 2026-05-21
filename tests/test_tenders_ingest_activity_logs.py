@@ -37,7 +37,6 @@ def test_ingest_records_two_activity_logs_per_tender(
         "pickup_location_id": None,
         "delivery_location_id": None,
         "pack_code_id": None,
-        "status": "po_imported",
         "load_type": "ltl",
     }
     mock_repo = MagicMock()
@@ -105,7 +104,7 @@ def test_record_tender_created_action_fields(mock_resolve: MagicMock) -> None:
     "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
-def test_record_tender_processing_status_change_uses_transaction(
+def test_record_tender_processing_status_change_inserts_log(
     mock_resolve: MagicMock,
 ) -> None:
     from app.domain.activity_log_constants import NONE_STATUS
@@ -120,11 +119,8 @@ def test_record_tender_processing_status_change_uses_transaction(
     )
 
     mock_repo.insert.assert_not_called()
-    mock_repo.apply_tender_processing_with_status_change_log.assert_called_once()
-    _, kwargs = mock_repo.apply_tender_processing_with_status_change_log.call_args
-    assert kwargs["tenant_id"] == TENANT_UUID
-    assert kwargs["tender_id"] == TENDER_UUID
-    log_row = kwargs["log_row"]
+    mock_repo.insert_tender_processing_status_change_log.assert_called_once()
+    log_row = mock_repo.insert_tender_processing_status_change_log.call_args[0][0]
     assert log_row["activity_type"] == "status_change"
     assert log_row["to_status"] == "processing"
     assert log_row["to_sub_status"] == "tender_created"

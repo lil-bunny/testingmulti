@@ -32,7 +32,6 @@ class TendersRepository:
                 pickup_location_id,
                 delivery_location_id,
                 pack_code_id,
-                status,
                 load_type,
                 data_import_id,
                 delivery_address,
@@ -40,7 +39,6 @@ class TendersRepository:
             )
             VALUES (
                 %s::uuid,
-                %s,
                 %s,
                 %s,
                 %s,
@@ -74,7 +72,6 @@ class TendersRepository:
                             r.get("pickup_location_id"),
                             r.get("delivery_location_id"),
                             r.get("pack_code_id"),
-                            r["status"],
                             r["load_type"],
                             r["data_import_id"],
                             Json(r.get("delivery_address")),
