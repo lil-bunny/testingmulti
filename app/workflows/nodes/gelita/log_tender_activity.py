@@ -35,7 +35,7 @@ def log_tender_activity(state):
         lifecycle_svc.update_lifecycle_status(
             lifecycle_id=wl_id,
             status=StatusType.PROCESSING,
-            sub_status=StatusSubType.TENDER_SENT,
+            sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
         )
         activity_log_svc.insert(
             tenant_id=tenant_id,
@@ -46,7 +46,7 @@ def log_tender_activity(state):
             from_status=prev_status,
             to_status=StatusType.PROCESSING,
             from_sub_status=prev_sub,
-            to_sub_status=StatusSubType.TENDER_SENT,
+            to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
         )
     else:
         err = state.data.get("tender_email_error") or "tender_email_not_sent"

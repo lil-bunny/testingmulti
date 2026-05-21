@@ -45,7 +45,7 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
     After ``carrier_email_received``, enqueue three delayed ``WorkflowService.run`` calls
     for ``load_tendering`` with ``reminder_due`` (steps 1 and 2) and ``escalation_due``.
 
-    Idempotent: skips if lifecycle has already progressed past ``awaiting_response``
+    Idempotent: skips if lifecycle has already progressed past ``tender_sent_to_carrier``
     (reminder sent, escalated, or terminal ack).
     """
     if data.get("reminders_scheduled"):
@@ -120,14 +120,14 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
 
     run_id = str(data.get("workflow_run_id") or "").strip() or None
     try:
-        ActivityLogService().insert(
+        ActivityLogService().record_activity(
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=run_id,
             activity_type="tender_reminders_scheduled",
             description="Queued reminder_due (1,2) and escalation_due Celery tasks",
             from_sub_status=row.get("sub_status"),
-            to_sub_status=StatusSubType.AWAITING_RESPONSE_REMINDERS_QUEUED.value,
+            to_sub_status=row.get("sub_status"),
             metadata={"hours": [h for h, _, _ in specs]},
         )
     except Exception:

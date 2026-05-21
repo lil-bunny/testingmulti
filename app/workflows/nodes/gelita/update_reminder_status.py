@@ -85,7 +85,7 @@ def update_reminder_status(state):
     )
 
     try:
-        ActivityLogService().insert(
+        ActivityLogService().record_activity(
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),

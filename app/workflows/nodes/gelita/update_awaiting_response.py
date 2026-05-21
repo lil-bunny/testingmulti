@@ -15,7 +15,7 @@ def update_awaiting_response(state):
     """
     First inbound carrier thread:
     - persist thread id
-    - transition to awaiting_response
+    - transition to tender_sent_to_carrier
     - write activity log
     """
 
@@ -62,7 +62,7 @@ def update_awaiting_response(state):
 
     updated = lifecycle_svc.update_lifecycle_sub_status(
         lifecycle_id=wl_id,
-        new_sub_status=StatusSubType.AWAITING_RESPONSE,
+        new_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
     )
 
     row_after = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
@@ -75,7 +75,7 @@ def update_awaiting_response(state):
 
     if updated or thread_id:
         try:
-            ActivityLogService().insert(
+            ActivityLogService().record_activity(
                 tenant_id=tenant_id,
                 actor_type=ActorType.SYSTEM,
                 workflow_lifecycle_id=wl_id,

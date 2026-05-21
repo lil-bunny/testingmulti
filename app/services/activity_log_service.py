@@ -131,10 +131,6 @@ class ActivityLogService:
             )
             return None
 
-    def insert(self, **kwargs: Any) -> str | None:
-        """Alias for ``record_activity`` (gelita nodes and schedulers)."""
-        return self.record_activity(**kwargs)
-
     def record_tender_created_action(
         self,
         *,

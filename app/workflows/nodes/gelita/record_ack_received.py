@@ -57,7 +57,7 @@ def record_ack_received(state):
     )
 
     try:
-        ActivityLogService().insert(
+        ActivityLogService().record_activity(
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),

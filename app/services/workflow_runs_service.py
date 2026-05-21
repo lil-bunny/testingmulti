@@ -148,7 +148,7 @@ class WorkflowRunsService:
                 cur.execute(
                     f"""
                     SELECT id, tenant_id, event_type, workflow_lifecycle_id,
-                           created_at, status, updated_at
+                           created_at, updated_at
                     FROM {self.TABLE_NAME}
                     WHERE trim(both id::text) = trim(both %s::text)
                     """,
@@ -163,8 +163,7 @@ class WorkflowRunsService:
                     "event_type": row[2],
                     "workflow_lifecycle_id": str(row[3]),
                     "created_at": row[4],
-                    "status": row[5],
-                    "updated_at": row[6],
+                    "updated_at": row[5],
                 }
         finally:
             conn.close()

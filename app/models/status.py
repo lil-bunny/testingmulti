@@ -18,8 +18,8 @@ class StatusSubType(StrEnum):
     """Lifecycle drill-down; extend per workflow as columns stay a single TEXT field."""
 
     TENDER_CREATED = "tender_created"
-    TENDER_SENT = "tender_sent"
-    AWAITING_RESPONSE = "awaiting_response"
+    TENDER_SENT_TO_TENANT = "tender_sent_to_tenant"
+    TENDER_SENT_TO_CARRIER = "tender_sent_to_carrier"
     REMINDER_1_SENT = "reminder_1_sent"
     REMINDER_2_SENT = "reminder_2_sent"
     ACCEPTED = "accepted"

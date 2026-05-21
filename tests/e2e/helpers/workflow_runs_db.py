@@ -80,7 +80,7 @@ def list_workflow_runs_for_lifecycle_event_type(
             cur.execute(
                 f"""
                 SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id,
-                       wr.created_at, wr.status
+                       wr.created_at
                 FROM {_WORKFLOW_RUNS_TABLE} wr
                 WHERE wr.workflow_lifecycle_id = %s::uuid AND wr.event_type = %s
                 ORDER BY wr.created_at ASC
@@ -97,7 +97,6 @@ def list_workflow_runs_for_lifecycle_event_type(
                         "event_type": row[2],
                         "workflow_lifecycle_id": str(row[3]),
                         "created_at": row[4],
-                        "status": row[5],
                         "shipment_id": None,
                     }
                 )

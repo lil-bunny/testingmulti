@@ -7,6 +7,7 @@ from typing import Any, Optional
 import psycopg
 
 from app.core.config import settings
+from app.models.status import StatusSubType, StatusType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 
@@ -255,6 +256,7 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
         thread_id: str | None = None,
+        tender_id: str | None = None,
     ) -> dict:
         """Check if a lifecycle row exists for given keys. ``load_id`` is ignored."""
         tenant_raw = self._clean(tenant_id)
@@ -270,7 +272,7 @@ class WorkflowLifecycleService:
                     cur,
                     tenant_id=tid,
                     workflow_name=wn,
-                    tender_id=None,
+                    tender_id=tender_id,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
                 )
@@ -349,5 +351,117 @@ class WorkflowLifecycleService:
                     workflow_lifecycle_id=new_id,
                     existed=False,
                 )
+        finally:
+            conn.close()
+
+    def read_lifecycle_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
+        """Return tenant_id, workflow_name, status, sub_status, email_thread_id for a lifecycle PK."""
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            return None
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT tenant_id::text, workflow_name, status, sub_status,
+                           email_thread_id, tender_id::text
+                    FROM {self.TABLE_NAME}
+                    WHERE id = %s::uuid
+                    """,
+                    (lid,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "tenant_id": row[0],
+                    "workflow_name": row[1],
+                    "status": row[2],
+                    "sub_status": row[3],
+                    "email_thread_id": row[4],
+                    "tender_id": row[5] or "",
+                }
+        finally:
+            conn.close()
+
+    def update_lifecycle_status(
+        self,
+        *,
+        lifecycle_id: str,
+        status: StatusType | None = None,
+        sub_status: StatusSubType | None = None,
+    ) -> bool:
+        """
+        Update lifecycle status fields.
+
+        - ``None`` means "leave unchanged".
+        - Uses enum types internally.
+        - Serializes enums only at DB boundary.
+        - Returns whether any row was updated.
+        """
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if status is not None:
+            updates.append("status = %s")
+            params.append(status.value)
+
+        if sub_status is not None:
+            updates.append("sub_status = %s")
+            params.append(sub_status.value)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = NOW()")
+        params.append(lid)
+
+        sql = f"""
+            UPDATE {self.TABLE_NAME}
+            SET {", ".join(updates)}
+            WHERE id = %s::uuid
+        """
+
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
+        finally:
+            conn.close()
+
+    def update_lifecycle_sub_status(
+        self,
+        *,
+        lifecycle_id: str,
+        new_sub_status: StatusSubType,
+    ) -> bool:
+        """Set ``sub_status`` unconditionally. Returns whether a row was updated."""
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+
+        sql = f"""
+            UPDATE {self.TABLE_NAME}
+            SET
+                sub_status = %s,
+                updated_at = NOW()
+            WHERE id = %s::uuid
+        """
+
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, (new_sub_status.value, lid))
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
         finally:
             conn.close()
