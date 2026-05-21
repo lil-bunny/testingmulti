@@ -30,6 +30,33 @@ def test_mapper_happy_path() -> None:
     assert out["shipping_date"] == date(2026, 5, 15)
     assert out["pack_code_id"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
     assert out["load_type"] == "LTL"
+    assert out["metadata"] == {}
+
+
+def test_mapper_metadata_po_number_from_besttxt() -> None:
+    row = {
+        "order_number": "PO-1",
+        "customer_match": "Acme",
+        "product_name": "Widget",
+        "order_quantity": 1,
+        "po_number": "4500123456",
+    }
+    out = projected_row_to_tender_insert(row)
+    assert out is not None
+    assert out["metadata"] == {"po_number": "4500123456"}
+
+
+def test_mapper_metadata_empty_when_po_number_blank() -> None:
+    row = {
+        "order_number": "PO-1",
+        "customer_match": "Acme",
+        "product_name": "Widget",
+        "order_quantity": 1,
+        "po_number": "   ",
+    }
+    out = projected_row_to_tender_insert(row)
+    assert out is not None
+    assert out["metadata"] == {}
 
 
 def test_mapper_skips_blank_order_number() -> None:
@@ -129,3 +156,26 @@ def test_ingest_service_batches_valid_rows() -> None:
     assert batch[0]["tenant_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert batch[0]["data_import_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert batch[0]["order_number"] == "N1"
+    assert batch[0]["metadata"] == {}
+
+
+def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
+    repo = MagicMock()
+    repo.insert_batch.return_value = ["dddddddd-dddd-dddd-dddd-dddddddddddd"]
+    svc = TendersIngestService(repository=repo)
+    rows = [
+        {
+            "order_number": "N1",
+            "customer_match": "C",
+            "product_name": "P",
+            "order_quantity": 2,
+            "po_number": "BEST-PO-1",
+        },
+    ]
+    svc.persist_from_projected_rows(
+        tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        data_import_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        projected_rows=rows,
+    )
+    batch = repo.insert_batch.call_args[0][0]
+    assert batch[0]["metadata"] == {"po_number": "BEST-PO-1"}

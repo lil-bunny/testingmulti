@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Json
 
 from app.core.config import settings
 
@@ -33,7 +34,9 @@ class TendersRepository:
                 pack_code_id,
                 status,
                 load_type,
-                data_import_id
+                data_import_id,
+                delivery_address,
+                metadata
             )
             VALUES (
                 %s::uuid,
@@ -48,7 +51,9 @@ class TendersRepository:
                 %s,
                 %s,
                 %s::load_type_enum,
-                %s::uuid
+                %s::uuid,
+                %s,
+                %s
             )
             RETURNING id
         """
@@ -72,6 +77,8 @@ class TendersRepository:
                             r["status"],
                             r["load_type"],
                             r["data_import_id"],
+                            Json(r.get("delivery_address")),
+                            Json(r.get("metadata") or {}),
                         ),
                     )
                     row = cur.fetchone()

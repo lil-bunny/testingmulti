@@ -99,6 +99,19 @@ def test_project_row_case_insensitive_and_aliases() -> None:
     assert out["order_quantity"] is None
 
 
+def test_project_row_maps_besttxt_to_po_number() -> None:
+    row = {"BESTTXT": "PO-4500123", "Customer Match": "Acme"}
+    out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
+    assert out["po_number"] == "PO-4500123"
+    assert out["customer_match"] == "Acme"
+
+
+def test_project_row_besttxt_case_insensitive() -> None:
+    row = {" besttxt ": "  PO-99  "}
+    out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
+    assert out["po_number"] == "  PO-99  "
+
+
 def test_data_imports_read_service_none_when_missing_row() -> None:
     repo = MagicMock()
     repo.fetch_raw_data_by_id.return_value = None
