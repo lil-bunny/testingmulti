@@ -5,16 +5,24 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.domain.delivery_address import resolve_delivery_address
 from app.domain.load_tendering_tender_rows import projected_row_to_tender_insert
+from app.integrations.pgeocode import lookup_state
 from app.repositories.tenders_repository import TendersRepository
 from app.services.activity_log_service import ActivityLogService
+from app.services.delivery_locations_service import DeliveryLocationsService
 
 logger = get_logger(__name__)
 
 
 class TendersIngestService:
-    def __init__(self, repository: Optional[TendersRepository] = None) -> None:
+    def __init__(
+        self,
+        repository: Optional[TendersRepository] = None,
+        delivery_locations: Optional[DeliveryLocationsService] = None,
+    ) -> None:
         self._repository = repository or TendersRepository()
+        self._delivery_locations = delivery_locations or DeliveryLocationsService()
 
     def persist_from_projected_rows(
         self,
@@ -33,6 +41,8 @@ class TendersIngestService:
         if not tid or not did or not projected_rows:
             return []
 
+        locations_index = self._delivery_locations.index_for_ingest_run()
+
         out: list[str | None] = [None] * len(projected_rows)
         batch: list[dict[str, Any]] = []
         batch_row_indices: list[int] = []
@@ -43,6 +53,11 @@ class TendersIngestService:
             if mapped is None:
                 skipped += 1
                 continue
+            mapped["delivery_address"] = resolve_delivery_address(
+                row.get("delivery_address_code"),
+                locations_index,
+                state_resolver=lookup_state,
+            )
             batch.append(
                 {
                     **mapped,

@@ -76,6 +76,8 @@ def projected_row_to_tender_insert(row: dict[str, Any]) -> dict[str, Any] | None
     delivery = _parse_optional_date(row.get("delivery_date"))
     shipping = _parse_optional_date(row.get("shipping_date"))
     pack_id = _pack_code_uuid(row.get("pack_code_id"))
+    po_number = str(row.get("po_number") or "").strip()
+    metadata: dict[str, Any] = {"po_number": po_number} if po_number else {}
 
     return {
         "order_number": order_number,
@@ -89,4 +91,5 @@ def projected_row_to_tender_insert(row: dict[str, Any]) -> dict[str, Any] | None
         "pack_code_id": pack_id,
         "status": "po_imported",
         "load_type": "ltl",
+        "metadata": metadata,
     }

@@ -7,8 +7,8 @@ Prerequisites (local server must match):
     uses ``gelita``; adjust payload or DB to match). Route auth is Bearer-only; tenant/import
     routing is DB-driven from that name.
 
-Run API:  uv run uvicorn app.main:app --reload --port 8000
-Run script:  uv run python scripts/test_unipile_load_tendering_webhook.py
+Run API:  uv run uvicorn app.main:app --reload --port 8001
+Run script:  uv run python scripts/test_unipile_load_tendering_webhook.py --base-url http://127.0.0.1:8001
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ import sys
 
 import httpx
 
-DEFAULT_BASE = "http://127.0.0.1:8000"
+DEFAULT_BASE = "http://127.0.0.1:8001"
+WEBHOOK_PATH = "/api/webhook/email"
 DEFAULT_TOKEN = "123456"
 
 SAMPLE_LOAD_TENDERING_PAYLOAD = {
@@ -99,7 +100,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    url = f"{args.base_url.rstrip('/')}/api/webhook/unipile"
+    url = f"{args.base_url.rstrip('/')}{WEBHOOK_PATH}"
 
     if args.payload_file:
         with open(args.payload_file, encoding="utf-8") as f:
