@@ -342,7 +342,7 @@ def upgrade() -> None:
 
             activity_type TEXT,
 
-            message TEXT,
+            description TEXT,
 
             from_status TEXT,
             to_status TEXT,
@@ -354,7 +354,7 @@ def upgrade() -> None:
 
             actor_id UUID,
 
-            payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )

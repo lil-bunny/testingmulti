@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -54,7 +55,6 @@ def update_reminder_status(state):
         if step == 1
         else StatusSubType.REMINDER_2_SENT
     )
-    activity_type = "reminder_1_sent" if step == 1 else "reminder_2_sent"
     message = (
         "Tender reminder 1 sent on carrier thread"
         if step == 1
@@ -89,12 +89,13 @@ def update_reminder_status(state):
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
-            activity_type=activity_type,
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
             description=message,
             from_status=prev_status,
             to_status=prev_status,
             from_sub_status=prev_sub,
             to_sub_status=new_sub,
+            actor_type=ActorType.SYSTEM,
             metadata={
                 "reminder_step": step,
                 "tender_id": state.data.get("tender_id"),

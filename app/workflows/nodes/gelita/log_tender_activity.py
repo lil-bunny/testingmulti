@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -37,34 +38,36 @@ def log_tender_activity(state):
             status=StatusType.PROCESSING,
             sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
         )
-        activity_log_svc.insert(
+        activity_log_svc.record_activity(
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
-            activity_type="tender_email_sent",
+            activity_type=ActivityType.STATUS_CHANGE,
             description="Tender email sent to vendor",
             from_status=prev_status,
             to_status=StatusType.PROCESSING,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
+            actor_type=ActorType.SYSTEM,
         )
     else:
         err = state.data.get("tender_email_error") or "tender_email_not_sent"
         lifecycle_svc.update_lifecycle_status(
             lifecycle_id=wl_id,
-            status=StatusType.PROCESSING,
-            sub_status=StatusType.FAILED,
+            status=StatusType.FAILED,
+            # sub_status=prev_sub,
         )
-        # activity_log_svc.insert(
-        #     tenant_id=tenant_id,
-        #     workflow_lifecycle_id=wl_id,
-        #     workflow_run_id=str(state.execution_id),
-        #     activity_type="tender_email_failed",
-        #     message=str(err),
-        #     from_status=prev_status,
-        #     to_status=StatusType.PROCESSING,
-        #     from_sub_status=prev_sub,
-        #     to_sub_status=StatusSubType.TENDER_EMAIL_FAILED,
-        #     payload={"error": str(err)},
-        # )
+        activity_log_svc.record_activity(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=str(state.execution_id),
+            activity_type=ActivityType.STATUS_CHANGE,
+            description=str(err),
+            from_status=prev_status,
+            to_status=StatusType.FAILED,
+            # from_sub_status=prev_sub,
+            # to_sub_status=StatusSubType.FAILED,
+            actor_type=ActorType.SYSTEM,
+            metadata={"error": str(err)},
+        )
     return state

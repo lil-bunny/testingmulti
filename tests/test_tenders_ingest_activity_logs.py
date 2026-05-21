@@ -5,6 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from app.models.activity_type import ActivityType, ActorType
+from app.models.status import StatusSubType, StatusType
 from app.services.tenders_ingest_service import TendersIngestService
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -73,7 +75,6 @@ def test_ingest_records_two_activity_logs_per_tender(
     return_value=TENANT_UUID,
 )
 def test_record_tender_created_action_fields(mock_resolve: MagicMock) -> None:
-    from app.domain.activity_log_constants import NONE_STATUS
     from app.services.activity_log_service import ActivityLogService
 
     mock_repo = MagicMock()
@@ -88,14 +89,14 @@ def test_record_tender_created_action_fields(mock_resolve: MagicMock) -> None:
     )
 
     row = mock_repo.insert.call_args[0][0]
-    assert row["activity_type"] == "action"
+    assert row["activity_type"] == ActivityType.ACTION.value
     assert "ORD-1" in row["description"]
     assert "Acme Corp" in row["description"]
-    assert row["from_status"] == NONE_STATUS
-    assert row["to_status"] == NONE_STATUS
-    assert row["from_sub_status"] == NONE_STATUS
-    assert row["to_sub_status"] == NONE_STATUS
-    assert row["actor_type"] == "system"
+    assert row["from_status"] == StatusType.NONE.value
+    assert row["to_status"] == StatusType.NONE.value
+    assert row["from_sub_status"] == StatusSubType.NONE.value
+    assert row["to_sub_status"] == StatusSubType.NONE.value
+    assert row["actor_type"] == ActorType.SYSTEM.value
     assert row["workflow_lifecycle_id"] is None
     assert row["workflow_run_id"] is None
 
@@ -107,7 +108,6 @@ def test_record_tender_created_action_fields(mock_resolve: MagicMock) -> None:
 def test_record_tender_processing_status_change_inserts_log(
     mock_resolve: MagicMock,
 ) -> None:
-    from app.domain.activity_log_constants import NONE_STATUS
     from app.services.activity_log_service import ActivityLogService
 
     mock_repo = MagicMock()
@@ -121,7 +121,7 @@ def test_record_tender_processing_status_change_inserts_log(
     mock_repo.insert.assert_not_called()
     mock_repo.insert_tender_processing_status_change_log.assert_called_once()
     log_row = mock_repo.insert_tender_processing_status_change_log.call_args[0][0]
-    assert log_row["activity_type"] == "status_change"
-    assert log_row["to_status"] == "processing"
-    assert log_row["to_sub_status"] == "tender_created"
-    assert log_row["from_status"] == NONE_STATUS
+    assert log_row["activity_type"] == ActivityType.STATUS_CHANGE.value
+    assert log_row["to_status"] == StatusType.PROCESSING.value
+    assert log_row["to_sub_status"] == StatusSubType.TENDER_CREATED.value
+    assert log_row["from_status"] == StatusType.NONE.value

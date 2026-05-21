@@ -330,7 +330,7 @@ class GelitaInboundEmailService:
         self._lifecycle.update_lifecycle_keys(
             lifecycle_id=lifecycle_id,
             thread_id=thread_id,
-            tender_id=tender_id,
+            # tender_id=tender_id,
         )
 
         workflow_payload: dict[str, Any] = {

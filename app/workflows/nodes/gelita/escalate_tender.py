@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import app.configs.gelita_config as gelita_config
 from app.core.logger import get_logger
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.unipile_service import UnipileException
@@ -154,12 +155,13 @@ def escalate_tender(state):
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
-            activity_type="tender_escalated",
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
             description="Escalation email sent to operations (sample recipient in gelita_config)",
             from_status=prev_status,
             to_status=prev_status,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.ESCALATED,
+            actor_type=ActorType.SYSTEM,
             metadata={
                 "tender_id": tender_id or None,
                 "order_number": order_number or None,

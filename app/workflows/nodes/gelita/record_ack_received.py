@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -48,12 +49,13 @@ def record_ack_received(state):
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=str(state.execution_id),
-            activity_type="ack_received",
+            activity_type=ActivityType.STATUS_CHANGE,
             description="Carrier acknowledgment recorded; tender marked complete",
             from_status=prev_status,
-            to_status=StatusType.COMPLETED.value,
+            to_status=StatusType.COMPLETED,
             from_sub_status=prev_sub,
             to_sub_status=StatusSubType.ACCEPTED,
+            actor_type=ActorType.SYSTEM,
             metadata={"tender_id": tender_id},
         )
     except Exception:

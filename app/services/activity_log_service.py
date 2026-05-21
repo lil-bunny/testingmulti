@@ -11,14 +11,8 @@ import uuid
 from typing import Any, Optional
 
 from app.core.logger import get_logger
-from app.domain.activity_log_constants import (
-    ACTIVITY_TYPE_ACTION,
-    ACTIVITY_TYPE_STATUS_CHANGE,
-    ACTOR_TYPE_SYSTEM,
-    NONE_STATUS,
-    TENDER_STATUS_PROCESSING,
-    TENDER_SUB_STATUS_CREATED,
-)
+from app.models.activity_type import ActivityType, ActorType
+from app.models.status import StatusSubType, StatusType
 from app.domain.activity_log_descriptions import (
     format_status_updated_to_processing,
     format_tender_created_action,
@@ -142,17 +136,17 @@ class ActivityLogService:
         """Insert 1: action log immediately after tender row exists (no lifecycle/run)."""
         return self.record_activity(
             tenant_id=tenant_id,
-            activity_type=ACTIVITY_TYPE_ACTION,
+            activity_type=ActivityType.ACTION,
             description=format_tender_created_action(
                 tender_id=tender_id,
                 order_number=order_number,
                 customer_name=customer_name,
             ),
-            from_status=NONE_STATUS,
-            to_status=NONE_STATUS,
-            from_sub_status=NONE_STATUS,
-            to_sub_status=NONE_STATUS,
-            actor_type=ACTOR_TYPE_SYSTEM,
+            from_status=StatusType.NONE,
+            to_status=StatusType.NONE,
+            from_sub_status=StatusSubType.NONE,
+            to_sub_status=StatusSubType.NONE,
+            actor_type=ActorType.SYSTEM,
             metadata={"tender_id": tender_id},
         )
 
@@ -179,13 +173,13 @@ class ActivityLogService:
             "tenant_id": tid_uuid,
             "workflow_lifecycle_id": None,
             "workflow_run_id": None,
-            "activity_type": ACTIVITY_TYPE_STATUS_CHANGE,
+            "activity_type": ActivityType.STATUS_CHANGE.value,
             "description": format_status_updated_to_processing(),
-            "from_status": NONE_STATUS,
-            "to_status": TENDER_STATUS_PROCESSING,
-            "from_sub_status": NONE_STATUS,
-            "to_sub_status": TENDER_SUB_STATUS_CREATED,
-            "actor_type": ACTOR_TYPE_SYSTEM,
+            "from_status": StatusType.NONE.value,
+            "to_status": StatusType.PROCESSING.value,
+            "from_sub_status": StatusSubType.NONE.value,
+            "to_sub_status": StatusSubType.TENDER_CREATED.value,
+            "actor_type": ActorType.SYSTEM.value,
             "actor_id": None,
             "metadata": {"tender_id": tender_uuid},
         }

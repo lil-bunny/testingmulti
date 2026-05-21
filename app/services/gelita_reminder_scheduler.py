@@ -9,6 +9,7 @@ from typing import Any
 import app.configs.gelita_config as gelita_config
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -124,10 +125,11 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=run_id,
-            activity_type="tender_reminders_scheduled",
+            activity_type=ActivityType.ACTION,
             description="Queued reminder_due (1,2) and escalation_due Celery tasks",
             from_sub_status=row.get("sub_status"),
             to_sub_status=row.get("sub_status"),
+            actor_type=ActorType.SYSTEM,
             metadata={"hours": [h for h, _, _ in specs]},
         )
     except Exception:

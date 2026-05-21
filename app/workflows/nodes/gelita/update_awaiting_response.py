@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.models.actor_type import ActorType
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -80,7 +80,7 @@ def update_awaiting_response(state):
                 actor_type=ActorType.SYSTEM,
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=str(state.execution_id),
-                activity_type="awaiting_response",
+                activity_type=ActivityType.SUB_STATUS_CHANGE,
                 description="Awaiting carrier acknowledgment on captured thread",
                 from_sub_status=prev_sub_status,
                 to_sub_status=next_sub_status,
