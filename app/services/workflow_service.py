@@ -56,6 +56,7 @@ class WorkflowService:
 
         payload["tenant_id"] = tenant_id
         payload["tenant_slug"] = tenant_slug
+        payload["tenant_settings"] = tenant_row.get("settings") or {}
 
         lifecycle = self.lifecycle_service.resolve_or_create_lifecycle(
             tenant_id=tenant_id,

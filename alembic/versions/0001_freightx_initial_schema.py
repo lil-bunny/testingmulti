@@ -1,0 +1,472 @@
+"""FreightX initial schema (greenfield bootstrap, DDL only).
+
+Revision ID: 0001_freightx_initial
+Revises:
+Create Date: 2026-05-22
+
+Single revision for a new database: FreightX application tables only.
+Excludes LangGraph checkpoint tables and legacy tables (documents1, turvo_user_oauth).
+Schema derived from live PostgreSQL via MCP (head 20260522_02), with duplicate FKs
+deduplicated for a clean greenfield install.
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+
+revision: str = "0001_freightx_initial"
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    # -------------------------------------------------------------------------
+    # Extensions
+    # -------------------------------------------------------------------------
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+
+    # -------------------------------------------------------------------------
+    # Enums
+    # -------------------------------------------------------------------------
+    op.execute(
+        """
+        CREATE TYPE load_type_enum AS ENUM ('FTL', 'LTL', 'PARTIAL')
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE lifecycle_status AS ENUM (
+            'processing',
+            'completed',
+            'failed',
+            'pending_review',
+            'none'
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE lifecycle_sub_status AS ENUM (
+            'tender_created',
+            'tender_sent',
+            'awaiting_response',
+            'reminder_1_sent',
+            'reminder_2_sent',
+            'accepted',
+            'rejected',
+            'escalated',
+            'tender_sent_to_tenant',
+            'tender_sent_to_carrier',
+            'awaiting_response_reminders_queued',
+            'none',
+            'do_nothing'
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE activity_log_type AS ENUM (
+            'action',
+            'status_change',
+            'sub_status_change'
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE actor_type AS ENUM ('system', 'user')
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE document_type AS ENUM (
+            'pod_attachment',
+            'pod_merged_final',
+            'ratecon'
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE document_analysis_type AS ENUM (
+            'ratecon_extraction',
+            'pod_extraction',
+            'pod_vs_ratecon_comparison'
+        )
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE communication_channel AS ENUM ('email', 'slack', 'teams')
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE communication_direction AS ENUM ('inbound', 'outbound')
+        """
+    )
+
+    # -------------------------------------------------------------------------
+    # Tables (FK dependency order)
+    # -------------------------------------------------------------------------
+    op.execute(
+        """
+        CREATE TABLE tenants (
+            id UUID PRIMARY KEY,
+            name VARCHAR(255),
+            slug TEXT NOT NULL,
+            settings JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT uq_tenants_slug UNIQUE (slug)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email TEXT NOT NULL,
+            name TEXT,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT users_email_key UNIQUE (email)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE user_roles (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID NOT NULL
+                REFERENCES users(id) ON DELETE CASCADE,
+            role TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            created_by UUID REFERENCES users(id)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE locations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            city TEXT,
+            state TEXT,
+            state_code TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE organizations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE pack_codes (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            pack_code TEXT NOT NULL,
+            description TEXT,
+            units_per_pallet NUMERIC,
+            qty_per_unit NUMERIC,
+            total_qty NUMERIC,
+            unit_dims TEXT,
+            pallet_dims TEXT,
+            pallet_type TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT pack_codes_tenant_id_pack_code_key UNIQUE (tenant_id, pack_code)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE data_imports (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL REFERENCES tenants(id),
+            data_type TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            file_name TEXT,
+            raw_data JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE documents (
+            id TEXT PRIMARY KEY,
+            type document_type NOT NULL,
+            shipment_id TEXT NOT NULL,
+            object_key TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE document_analysis (
+            id TEXT PRIMARY KEY,
+            shipment_id TEXT NOT NULL,
+            analysis_type document_analysis_type NOT NULL,
+            status TEXT,
+            confidence_score DOUBLE PRECISION,
+            llm_model JSONB,
+            attachments_used JSONB,
+            findings JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT document_analysis_shipment_id_analysis_type_key
+                UNIQUE (shipment_id, analysis_type)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE shipments (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            shipper_organization_id UUID
+                REFERENCES organizations(id),
+            status TEXT,
+            pickup_location_id UUID REFERENCES locations(id),
+            delivery_location_id UUID REFERENCES locations(id),
+            pack_code_id UUID REFERENCES pack_codes(id),
+            notes TEXT,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE tenders (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            order_number TEXT NOT NULL,
+            customer_name TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            order_quantity NUMERIC NOT NULL,
+            shipping_date DATE,
+            delivery_date DATE,
+            pickup_location_id UUID REFERENCES locations(id),
+            delivery_location_id UUID REFERENCES locations(id),
+            load_type load_type_enum,
+            data_import_id UUID REFERENCES data_imports(id),
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            pack_code_id UUID REFERENCES pack_codes(id),
+            delivery_address JSONB NOT NULL DEFAULT '{}'::jsonb
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE workflow_lifecycles (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            workflow_name TEXT,
+            shipment_id UUID REFERENCES shipments(id),
+            tender_id UUID REFERENCES tenders(id) ON DELETE SET NULL,
+            status lifecycle_status,
+            sub_status lifecycle_sub_status,
+            load_id TEXT,
+            email_thread_id TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE workflow_runs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            workflow_lifecycle_id UUID NOT NULL
+                REFERENCES workflow_lifecycles(id) ON DELETE CASCADE,
+            event_type TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE activity_logs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            workflow_lifecycle_id UUID NOT NULL
+                REFERENCES workflow_lifecycles(id) ON DELETE CASCADE,
+            workflow_run_id UUID NOT NULL
+                REFERENCES workflow_runs(id) ON DELETE CASCADE,
+            activity_type activity_log_type NOT NULL,
+            description TEXT,
+            from_status lifecycle_status,
+            to_status lifecycle_status,
+            from_sub_status lifecycle_sub_status,
+            to_sub_status lifecycle_sub_status,
+            actor_type actor_type NOT NULL,
+            actor_id UUID NOT NULL,
+            metadata JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE communications (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            channel communication_channel NOT NULL,
+            direction communication_direction NOT NULL,
+            external_id TEXT,
+            thread_id TEXT,
+            content TEXT,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+    # -------------------------------------------------------------------------
+    # Indexes
+    # -------------------------------------------------------------------------
+    op.execute(
+        "CREATE INDEX idx_user_roles_user_id ON user_roles (user_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_pack_codes_tenant_id ON pack_codes (tenant_id)"
+    )
+    op.execute(
+        "CREATE UNIQUE INDEX uq_documents_object_key ON documents (object_key)"
+    )
+    op.execute(
+        "CREATE INDEX idx_document_analysis_shipment_id "
+        "ON document_analysis (shipment_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_document_analysis_analysis_type "
+        "ON document_analysis (analysis_type)"
+    )
+    op.execute(
+        "CREATE INDEX idx_shipments_tenant_id ON shipments (tenant_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_shipments_pack_code_id ON shipments (pack_code_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_tenders_tenant_id ON tenders (tenant_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_tenders_pack_code_id ON tenders (pack_code_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_lifecycles_tenant_id "
+        "ON workflow_lifecycles (tenant_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_lifecycles_shipment_id "
+        "ON workflow_lifecycles (shipment_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_lifecycles_tender_id "
+        "ON workflow_lifecycles (tender_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_lifecycles_load_id "
+        "ON workflow_lifecycles (load_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_lifecycles_email_thread_id "
+        "ON workflow_lifecycles (email_thread_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_runs_lifecycle_id "
+        "ON workflow_runs (workflow_lifecycle_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_workflow_runs_created_at "
+        "ON workflow_runs (created_at DESC)"
+    )
+    op.execute(
+        "CREATE INDEX idx_activity_logs_lifecycle_id "
+        "ON activity_logs (workflow_lifecycle_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_activity_logs_run_id ON activity_logs (workflow_run_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_communications_tenant_id ON communications (tenant_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_communications_thread_id ON communications (thread_id)"
+    )
+    op.execute(
+        "CREATE INDEX idx_communications_external_id "
+        "ON communications (external_id)"
+    )
+
+
+def downgrade() -> None:
+    op.execute("DROP TABLE IF EXISTS communications CASCADE")
+    op.execute("DROP TABLE IF EXISTS activity_logs CASCADE")
+    op.execute("DROP TABLE IF EXISTS workflow_runs CASCADE")
+    op.execute("DROP TABLE IF EXISTS workflow_lifecycles CASCADE")
+    op.execute("DROP TABLE IF EXISTS tenders CASCADE")
+    op.execute("DROP TABLE IF EXISTS shipments CASCADE")
+    op.execute("DROP TABLE IF EXISTS document_analysis CASCADE")
+    op.execute("DROP TABLE IF EXISTS documents CASCADE")
+    op.execute("DROP TABLE IF EXISTS data_imports CASCADE")
+    op.execute("DROP TABLE IF EXISTS pack_codes CASCADE")
+    op.execute("DROP TABLE IF EXISTS organizations CASCADE")
+    op.execute("DROP TABLE IF EXISTS locations CASCADE")
+    op.execute("DROP TABLE IF EXISTS user_roles CASCADE")
+    op.execute("DROP TABLE IF EXISTS users CASCADE")
+    op.execute("DROP TABLE IF EXISTS tenants CASCADE")
+
+    op.execute("DROP TYPE IF EXISTS communication_direction")
+    op.execute("DROP TYPE IF EXISTS communication_channel")
+    op.execute("DROP TYPE IF EXISTS document_analysis_type")
+    op.execute("DROP TYPE IF EXISTS document_type")
+    op.execute("DROP TYPE IF EXISTS actor_type")
+    op.execute("DROP TYPE IF EXISTS activity_log_type")
+    op.execute("DROP TYPE IF EXISTS lifecycle_sub_status")
+    op.execute("DROP TYPE IF EXISTS lifecycle_status")
+    op.execute("DROP TYPE IF EXISTS load_type_enum")
+
+    op.execute("DROP EXTENSION IF EXISTS pgcrypto")

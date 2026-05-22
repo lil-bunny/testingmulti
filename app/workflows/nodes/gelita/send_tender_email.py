@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import app.configs.gelita_config as gelita_config
 from app.core.logger import get_logger
+from app.domain.load_tendering_settings import action_settings
 from app.services.unipile_service import UnipileException
 from app.tools.email import send_email
 from app.workflows.nodes.gelita.load_tendering_helpers import build_gelita_tender_email
@@ -12,7 +12,8 @@ logger = get_logger(__name__)
 
 
 def send_tender_email(state):
-    account_id = gelita_config.ANA_GELITA_AT_FREIGHTX_AI_ACCOUNT_ID
+    cfg = action_settings(state, "send_tender_email")
+    account_id = str(cfg.get("ana_gelita_at_freightx_ai_account_id") or "").strip()
 
     if not account_id:
         state.data["tender_email_error"] = "missing_sender_account_id"
@@ -35,13 +36,23 @@ def send_tender_email(state):
 
     result = None
     try:
+        template = str(cfg.get("email_template_html") or "").strip()
+        if not template:
+            state.data["tender_email_error"] = "missing_tenant_settings_email_template_html"
+            logger.error("send_tender_email: email_template_html not configured")
+            return state
+        vendor_email = str(cfg.get("vendor_email") or "").strip()
+        if not vendor_email or "@" not in vendor_email:
+            state.data["tender_email_error"] = "missing_tenant_settings_vendor_email"
+            logger.error("send_tender_email: vendor_email not configured")
+            return state
         built = build_gelita_tender_email(
             tender_data,
             calculated,
-            gelita_config.EMAIL_TEMPLATE_HTML,
+            template,
         )
         result = send_email(
-            to=gelita_config.VENDOR_EMAIL,
+            to=vendor_email,
             subject=built["subject"],
             body=built["body_html"],
             account_id=account_id,

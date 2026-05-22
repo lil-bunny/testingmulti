@@ -77,6 +77,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "body_plain",
             "thread_id",
             "workflow_lifecycle_id",
+            "tenant_slug",
+            "tenant_settings",
         ],
     ),
 }

@@ -6,7 +6,6 @@ import re
 from html import unescape
 from typing import Any
 
-from app.configs import gelita_config
 from app.core.logger import get_logger
 from app.models.status import StatusSubType
 from app.tools.llm_client import LLMClientError, chat_json
@@ -87,23 +86,34 @@ def _normalize_carrier_ack_decision(raw: dict[str, Any]) -> str:
     return StatusSubType.DO_NOTHING.value
 
 
-def classify_carrier_acknowledgment(reply_text: str) -> dict[str, Any]:
+def classify_carrier_acknowledgment(
+    reply_text: str,
+    *,
+    system_prompt: str,
+) -> dict[str, Any]:
     """
     LLM gate for carrier ack replies.
 
     Returns ``decision`` (``accepted`` | ``rejected`` | ``do_nothing``), ``confidence``, ``reason``.
     """
     text = (reply_text or "").strip()
+    prompt = (system_prompt or "").strip()
     if not text:
         return {
             "decision": StatusSubType.DO_NOTHING.value,
             "confidence": 1.0,
             "reason": "empty reply body",
         }
+    if not prompt:
+        return {
+            "decision": StatusSubType.DO_NOTHING.value,
+            "confidence": 0.0,
+            "reason": "missing carrier_ack_system_prompt in tenant_settings",
+        }
 
     try:
         raw = chat_json(
-            gelita_config.CARRIER_ACK_SYSTEM_PROMPT,
+            prompt,
             text,
             temperature=0.1,
         )

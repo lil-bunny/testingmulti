@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import app.configs.gelita_config as gelita_config
 from app.core.logger import get_logger
+from app.domain.load_tendering_settings import action_settings
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.email import reply_to_thread
@@ -45,7 +45,8 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    gelita_sender_account_id = str(gelita_config.ANA_AT_GELITA_ACCOUNT_ID or "").strip()
+    cfg = action_settings(state, "send_tender_reminder")
+    gelita_sender_account_id = str(cfg.get("ana_at_gelita_account_id") or "").strip()
     if not gelita_sender_account_id:
         state.data["tender_reminder_error"] = "missing_ANA_AT_GELITA_ACCOUNT_ID"
         state.data["tender_reminder_sent"] = False
@@ -55,7 +56,7 @@ def send_tender_reminder(state):
         )
         return state
 
-    reminder_body_plain = str(gelita_config.REMINDER_BODY or "").strip() or (
+    reminder_body_plain = str(cfg.get("reminder_body") or "").strip() or (
         "Following up on the tender request."
     )
 

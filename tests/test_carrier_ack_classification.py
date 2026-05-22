@@ -34,8 +34,11 @@ def _state(*, decision: str | None = None, **data_extra):
     return SimpleNamespace(tenant_id=TENANT_UUID, execution_id=RUN_UUID, data=data)
 
 
+_PROMPT = "Classify the reply. Return JSON with decision, confidence, reason."
+
+
 def test_classify_carrier_acknowledgment_empty_is_do_nothing():
-    result = classify_carrier_acknowledgment("")
+    result = classify_carrier_acknowledgment("", system_prompt=_PROMPT)
     assert result["decision"] == StatusSubType.DO_NOTHING.value
 
 
@@ -46,7 +49,10 @@ def test_classify_carrier_acknowledgment_parses_decision(mock_chat: MagicMock):
         "confidence": 0.9,
         "reason": "carrier declined",
     }
-    result = classify_carrier_acknowledgment("We cannot cover this load.")
+    result = classify_carrier_acknowledgment(
+        "We cannot cover this load.",
+        system_prompt=_PROMPT,
+    )
     assert result["decision"] == StatusSubType.REJECTED.value
 
 
@@ -57,7 +63,7 @@ def test_classify_carrier_acknowledgment_legacy_boolean_accept(mock_chat: MagicM
         "confidence": 0.8,
         "reason": "legacy",
     }
-    result = classify_carrier_acknowledgment("Confirmed.")
+    result = classify_carrier_acknowledgment("Confirmed.", system_prompt=_PROMPT)
     assert result["decision"] == StatusSubType.ACCEPTED.value
 
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import app.configs.gelita_config as gelita_config
 from app.domain.delivery_address import format_usps_mailing_address
+from app.domain.load_tendering_settings import action_settings
 from app.models.load_type import LoadType
 from app.services.tender_service import TenderService
 from app.workflows.nodes.gelita.load_tendering_helpers import record_tender_calc_failure
@@ -36,8 +36,18 @@ def calculate_tender_params(state):
     if not tender_id:
         return _fail(state, "missing_tender_id")
 
-    pallet_weight_lb = float(gelita_config.PALLET_WEIGHT_LBS)
-    pallet_threshold = int(gelita_config.PALLET_THRESHOLD)
+    cfg = action_settings(state, "tender_calculate")
+    try:
+        pallet_weight_lb = float(cfg["pallet_weight_lbs"])
+    except (KeyError, TypeError, ValueError):
+        return _fail(state, "missing_tenant_settings_pallet_weight_lbs")
+    try:
+        pallet_threshold = int(cfg["pallet_threshold"])
+    except (KeyError, TypeError, ValueError):
+        return _fail(state, "missing_tenant_settings_pallet_threshold")
+    pickup_address = cfg.get("gelita_pickup_address")
+    if not isinstance(pickup_address, dict):
+        return _fail(state, "missing_tenant_settings_gelita_pickup_address")
 
     tender_svc = TenderService()
     row = tender_svc.read_row(
@@ -97,7 +107,7 @@ def calculate_tender_params(state):
     ship_date = row.get("shipping_date")
     ship_date_str = ship_date.isoformat() if hasattr(ship_date, "isoformat") else str(ship_date or "")
 
-    pickup_formatted = format_usps_mailing_address(gelita_config.GELITA_PICKUP_ADDRESS)
+    pickup_formatted = format_usps_mailing_address(pickup_address)
     delivery_raw = row.get("delivery_address")
     delivery_formatted = (
         format_usps_mailing_address(delivery_raw)

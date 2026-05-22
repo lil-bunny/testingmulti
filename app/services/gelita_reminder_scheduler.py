@@ -6,8 +6,8 @@ import copy
 from datetime import timedelta
 from typing import Any
 
-import app.configs.gelita_config as gelita_config
 from app.core.config import settings
+from app.domain.load_tendering_settings import action_settings
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
@@ -80,11 +80,21 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
         data["reminders_scheduled"] = True
         return
 
-    specs: list[tuple[float, str, float | None]] = [
-        (gelita_config.REMINDER_1_HOURS, "reminder_due", 1),
-        (gelita_config.REMINDER_2_HOURS, "reminder_due", 2),
-        (gelita_config.ESCALATION_HOURS, "escalation_due", None),
-    ]
+    reminder_cfg = action_settings(data, "send_tender_reminder")
+    escalation_cfg = action_settings(data, "escalate_tender")
+    try:
+        specs: list[tuple[float, str, float | None]] = [
+            (float(reminder_cfg["reminder_1_hours"]), "reminder_due", 1),
+            (float(reminder_cfg["reminder_2_hours"]), "reminder_due", 2),
+            (float(escalation_cfg["escalation_hours"]), "escalation_due", None),
+        ]
+    except (KeyError, TypeError, ValueError):
+        logger.error(
+            "schedule_tender_reminders missing reminder/escalation hours in tenant_settings "
+            "lifecycle_id=%s",
+            wl_id,
+        )
+        return
     max_cd_hours = max(h for h, _, _ in specs)
     expire_s = int(
         (
