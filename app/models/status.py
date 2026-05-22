@@ -26,4 +26,5 @@ class StatusSubType(StrEnum):
     REMINDER_2_SENT = "reminder_2_sent"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    DO_NOTHING = "do_nothing"
     ESCALATED = "escalated"

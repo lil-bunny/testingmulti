@@ -9,7 +9,7 @@ PALLET_WEIGHT_LBS: float = 45.0
 PALLET_THRESHOLD: int = 8
 
 VENDOR_EMAIL: str = "kansalayush28+fx@gmail.com"
-ANA_GELITA_AT_FREIGHTX_AI_ACCOUNT_ID: str = "7jKV_5jBQVG8med4nvXHJw"
+ANA_GELITA_AT_FREIGHTX_AI_ACCOUNT_ID: str = "8Lu6Ht9vTyyN1Zdb1mVtPw"
 
 REMINDER_BODY: str = "Following up on the request"
 REMINDER_1_HOURS: float = 0.0166666667
@@ -30,7 +30,7 @@ Order number: {order_number}
 """
 
 # Unipile account id for outbound mail (e.g. ana@gelita.com)
-ANA_AT_GELITA_ACCOUNT_ID: str = "7jKV_5jBQVG8med4nvXHJw"
+ANA_AT_GELITA_ACCOUNT_ID: str = "8Lu6Ht9vTyyN1Zdb1mVtPw"
 
 # Fixed Gelita ship-from (USPS mailing block built via ``format_usps_mailing_address``).
 GELITA_PICKUP_ADDRESS: dict[str, str | None] = {
@@ -65,10 +65,13 @@ EMAIL_TEMPLATE_HTML: str = """<!DOCTYPE html>
 CARRIER_ACK_SYSTEM_PROMPT: str = """You classify carrier email replies to a load tender request.
 
 Return JSON only:
-{"is_acknowledgment": boolean, "confidence": number, "reason": string}
+{"decision": string, "confidence": number, "reason": string}
 
-Set is_acknowledgment true when the reply clearly accepts, confirms, or acknowledges the tender/load (e.g. confirmed, accepted, will pick up, got it, acknowledged, yes we can cover it).
+decision must be exactly one of:
+- "accepted" — the carrier clearly accepts or commits to the load tender (e.g. we accept, confirmed, will pick up, yes we can cover this load).
+- "rejected" — clearly declines, cannot cover, passes, or refuses the tender.
+- "do_nothing" — use for: questions only; unrelated content; out-of-office; ambiguous; attachment-only without accept/decline; shipper/tenant meta-replies in the thread (e.g. "thanks for the reply", "thank you", replying to someone else's acknowledgment); short conversational "acknowledged" or "got it" that only confirms seeing a prior message rather than accepting the tender; acknowledging a reminder/follow-up ("following up") without accepting the load.
 
-Set false for questions, declines, unrelated content, out-of-office, or replies that only reference attachments without accepting.
+Only use "accepted" when the message is a carrier business commitment to the tender, not polite thread chatter.
 
 confidence is 0.0 to 1.0. reason is one short sentence."""

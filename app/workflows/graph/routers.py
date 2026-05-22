@@ -1,5 +1,5 @@
 from app.core.logger import get_logger
-from app.models.status import StatusType
+from app.models.status import StatusSubType, StatusType
 
 logger = get_logger(__name__)
 
@@ -118,4 +118,14 @@ def tender_status_router(state):
 
 
 def carrier_ack_router(state):
-    return "confirmed" if state.data.get("carrier_ack_confirmed") else "not_ack"
+    """Route ack_received LLM decision to graph branch keys."""
+    decision = str(
+        state.data.get("carrier_ack_decision") or StatusSubType.DO_NOTHING.value
+    ).strip()
+    if decision in (
+        StatusSubType.ACCEPTED.value,
+        StatusSubType.REJECTED.value,
+        StatusSubType.DO_NOTHING.value,
+    ):
+        return decision
+    return StatusSubType.DO_NOTHING.value

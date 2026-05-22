@@ -153,8 +153,9 @@ WORKFLOW_CONFIGS = {
             "classify_carrier_ack": {
                 "router": "carrier_ack_router",
                 "map": {
-                    "confirmed": "record_ack_received",
-                    "not_ack": "end",
+                    "accepted": "record_ack_received",
+                    "rejected": "record_ack_received",
+                    "do_nothing": "record_ack_received",
                 },
             },
         },

@@ -16,3 +16,14 @@ def format_tender_created_action(
 
 def format_status_updated_to_processing() -> str:
     return "Status updated to Processing"
+
+
+def format_carrier_ack_llm_action(
+    *,
+    decision: str,
+    reason: str,
+    confidence: float | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    reason_s = (reason or "").strip() or "no reason"
+    return f"Carrier ack LLM classified reply as {decision}{conf}: {reason_s}"

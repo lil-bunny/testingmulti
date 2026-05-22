@@ -134,6 +134,50 @@ def test_apply_sub_status_only_keeps_top_level_status_on_log(
 
 @patch(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+@patch("app.services.lifecycle_transition_service.unit_of_work")
+def test_apply_lifecycle_only_when_record_activity_false(
+    mock_uow: MagicMock,
+    _resolve_tenant: MagicMock,
+) -> None:
+    conn = MagicMock()
+    mock_uow.return_value.__enter__.return_value = conn
+
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.TENDER_SENT_TO_CARRIER.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    lifecycles.update_status.return_value = True
+    activity_logs = MagicMock()
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply(
+        _command(
+            to_sub_status=StatusSubType.DO_NOTHING,
+            record_activity=False,
+        )
+    )
+
+    lifecycles.update_status.assert_called_once_with(
+        conn,
+        lifecycle_id=LIFECYCLE_UUID,
+        status=StatusType.COMPLETED,
+        sub_status=StatusSubType.DO_NOTHING,
+    )
+    activity_logs.insert_with_connection.assert_not_called()
+    assert result.lifecycle_updated is True
+    assert result.activity_log_id is None
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=None,
 )
 def test_apply_raises_when_tenant_unresolvable(_resolve: MagicMock) -> None:

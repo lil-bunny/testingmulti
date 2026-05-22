@@ -24,6 +24,7 @@ _SCHEDULE_SKIP_SUB_STATUSES = frozenset(
         StatusSubType.ESCALATED.value,
         StatusSubType.ACCEPTED.value,
         StatusSubType.REJECTED.value,
+        StatusSubType.DO_NOTHING.value,
     }
 )
 

@@ -14,6 +14,7 @@ from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
 from app.models.status import StatusSubType, StatusType
 from app.domain.activity_log_descriptions import (
+    format_carrier_ack_llm_action,
     format_status_updated_to_processing,
     format_tender_created_action,
 )
@@ -130,6 +131,44 @@ class ActivityLogService:
                 tid_uuid,
             )
             return None
+
+    def record_carrier_ack_llm_action(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+        decision: str,
+        reason: str,
+        confidence: float | None = None,
+        user_input: str | None = None,
+        llm_output: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Action log after carrier-ack LLM classification on ``ack_received``."""
+        meta: dict[str, Any] = {
+            "source": "classify_carrier_ack",
+            "tender_id": tender_id,
+            "carrier_ack_decision": decision,
+            "user_input": user_input,
+            "output": llm_output if llm_output is not None else {},
+        }
+        if metadata:
+            meta.update(metadata)
+        return self.record_activity(
+            tenant_id=tenant_id,
+            activity_type=ActivityType.ACTION,
+            workflow_lifecycle_id=workflow_lifecycle_id,
+            workflow_run_id=workflow_run_id,
+            description=format_carrier_ack_llm_action(
+                decision=decision,
+                reason=reason,
+                confidence=confidence,
+            ),
+            actor_type=ActorType.SYSTEM,
+            metadata=meta,
+        )
 
     def record_tender_created_action(
         self,

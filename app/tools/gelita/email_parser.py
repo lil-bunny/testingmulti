@@ -8,9 +8,18 @@ from typing import Any
 
 from app.configs import gelita_config
 from app.core.logger import get_logger
+from app.models.status import StatusSubType
 from app.tools.llm_client import LLMClientError, chat_json
 
 logger = get_logger(__name__)
+
+_CARRIER_ACK_DECISIONS = frozenset(
+    {
+        StatusSubType.ACCEPTED.value,
+        StatusSubType.REJECTED.value,
+        StatusSubType.DO_NOTHING.value,
+    }
+)
 
 _ORDER_NUMBER_RE = re.compile(r"Order\s*#\s*(\d+)", re.IGNORECASE)
 _QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)
@@ -68,14 +77,26 @@ def normalize_carrier_reply_body(
     return _collapse_ws(text)
 
 
+def _normalize_carrier_ack_decision(raw: dict[str, Any]) -> str:
+    """Map LLM output to ``accepted`` | ``rejected`` | ``do_nothing``."""
+    decision = str(raw.get("decision") or "").strip().lower()
+    if decision in _CARRIER_ACK_DECISIONS:
+        return decision
+    if bool(raw.get("is_acknowledgment")):
+        return StatusSubType.ACCEPTED.value
+    return StatusSubType.DO_NOTHING.value
+
+
 def classify_carrier_acknowledgment(reply_text: str) -> dict[str, Any]:
     """
-    LLM gate for carrier ack replies. Returns ``is_acknowledgment``, ``confidence``, ``reason``.
+    LLM gate for carrier ack replies.
+
+    Returns ``decision`` (``accepted`` | ``rejected`` | ``do_nothing``), ``confidence``, ``reason``.
     """
     text = (reply_text or "").strip()
     if not text:
         return {
-            "is_acknowledgment": False,
+            "decision": StatusSubType.DO_NOTHING.value,
             "confidence": 1.0,
             "reason": "empty reply body",
         }
@@ -89,12 +110,12 @@ def classify_carrier_acknowledgment(reply_text: str) -> dict[str, Any]:
     except LLMClientError as exc:
         logger.warning("carrier ack LLM failed: %s", exc)
         return {
-            "is_acknowledgment": False,
+            "decision": StatusSubType.DO_NOTHING.value,
             "confidence": 0.0,
             "reason": f"llm_error: {exc}",
         }
 
-    is_ack = bool(raw.get("is_acknowledgment"))
+    decision = _normalize_carrier_ack_decision(raw)
     try:
         confidence = float(raw.get("confidence", 0.0))
     except (TypeError, ValueError):
@@ -102,7 +123,7 @@ def classify_carrier_acknowledgment(reply_text: str) -> dict[str, Any]:
     reason = str(raw.get("reason") or "").strip() or "no reason"
 
     return {
-        "is_acknowledgment": is_ack,
+        "decision": decision,
         "confidence": confidence,
         "reason": reason,
     }
