@@ -9,6 +9,7 @@ from fastapi import status
 from fastapi.responses import JSONResponse
 
 from app.core.logger import get_logger
+from app.services.communications.service import CommunicationsService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
@@ -24,12 +25,18 @@ T3RA_GRAPH_SLUG = "t3ra"
 class T3raInboundEmailService:
     """L2 classification for T3RA: ratecon vs pod_lifecycle (subject + attachment rules)."""
 
+    def __init__(self) -> None:
+        self._communications = CommunicationsService()
+
     async def handle(
         self,
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
     ) -> JSONResponse:
+        # store the inbound email in the communications table
+        self._communications.record_inbound(tenant.tenant_uuid, payload)
+
         classification = WorkflowClassifierService().classify_workflow_type(payload)
         if not classification:
             logger.info(

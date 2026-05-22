@@ -66,6 +66,12 @@ def send_tender_reminder(state):
             body=reminder_body_plain,
             account_id=gelita_sender_account_id,
             subject=None,
+            tenant_id=state.tenant_id,
+            communication_metadata={
+                "source": "send_tender_reminder",
+                "tender_id": state.data.get("tender_id"),
+                "workflow_lifecycle_id": workflow_lifecycle_id_str,
+            },
         )
     except UnipileException as exc:
         logger.warning(

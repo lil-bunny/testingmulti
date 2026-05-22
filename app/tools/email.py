@@ -2,9 +2,39 @@ from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
+
+
+def _record_outbound_communication(
+    *,
+    tenant_id: str | None,
+    communication_metadata: dict[str, Any] | None,
+    body: str,
+    subject: str | None,
+    result: dict[str, Any] | None,
+    thread_id: str | None = None,
+    to: Any = None,
+    cc: Any = None,
+    bcc: Any = None,
+    account_id: str | None = None,
+) -> None:
+    if not tenant_id or not isinstance(result, dict) or not result.get("success"):
+        return
+    CommunicationsService().record_outbound_from_send(
+        tenant_id,
+        send_result=result,
+        body=body,
+        subject=subject,
+        thread_id=thread_id or result.get("thread_id"),
+        to=to,
+        cc=cc,
+        bcc=bcc,
+        account_id=account_id,
+        extra_metadata=communication_metadata,
+    )
 
 # Private helpers
 
@@ -200,6 +230,8 @@ def send_email(
     body: Optional[str] = None,
     thread_id: Optional[str] = None,
     account_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    communication_metadata: Optional[dict[str, Any]] = None,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
@@ -232,13 +264,14 @@ def send_email(
         return
 
     if tid:
-        reply_to_thread(
+        return reply_to_thread(
             thread_id=tid,
             body=body,
             account_id=acc,
-            # subject=subject,
+            subject=subject,
+            tenant_id=tenant_id,
+            communication_metadata=communication_metadata,
         )
-        return
 
     to_addr = (str(to).strip() if to else "") or ""
     if "@" in to_addr:
@@ -259,6 +292,15 @@ def send_email(
             err = out.get("error") or "Unipile send_email failed"
             logger.warning("send_email: Unipile send failed: %s", err)
             raise UnipileException(str(err))
+        _record_outbound_communication(
+            tenant_id=tenant_id,
+            communication_metadata=communication_metadata,
+            body=body,
+            subject=subject,
+            result=out,
+            to=to_addr,
+            account_id=acc,
+        )
         return out
 
     raise UnipileException(
@@ -274,6 +316,8 @@ def reply_to_thread(
     subject: Optional[str] = None,
     reply_to_message_id: Optional[str] = None, # this could be either unipile_email_object[id] from retrieve email endpoint or provider_id (long alphanumeric used by outlook/gmail)
     cc: Optional[List[Dict[str, Any]]] = None,
+    tenant_id: Optional[str] = None,
+    communication_metadata: Optional[dict[str, Any]] = None,
 ):
     """
     Orchestrates a thread reply (reply-all):
@@ -342,6 +386,18 @@ def reply_to_thread(
             reply_to_id,
             result.get("error"),
             result.get("error_details"),
+        )
+    else:
+        _record_outbound_communication(
+            tenant_id=tenant_id,
+            communication_metadata=communication_metadata,
+            body=body,
+            subject=effective_subject,
+            result=result,
+            thread_id=thread_id,
+            to=to_list,
+            cc=cc_final,
+            account_id=account_id,
         )
     return result
 

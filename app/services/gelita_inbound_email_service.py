@@ -17,6 +17,7 @@ from app.services.email_import_projection import (
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
+from app.services.communications.service import CommunicationsService
 from app.services.tender_service import TenderService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_classifier_service import unipile_first_attachment_by_extension
@@ -75,6 +76,7 @@ class GelitaInboundEmailService:
     def __init__(self) -> None:
         self._lifecycle = WorkflowLifecycleService()
         self._tenders = TenderService()
+        self._communications = CommunicationsService()
 
     async def handle(
         self,
@@ -86,6 +88,8 @@ class GelitaInboundEmailService:
             data_import_tenant_id=tenant.tenant_uuid,
             webhook_name=str(payload.get("webhook_name") or ""),
         )
+        # store the inbound email in the communications table
+        self._communications.record_inbound(tenant.tenant_uuid, payload)
         # 1. reply email handling
         if _has_in_reply_to(payload):
             ack_response = self._try_ack_received(

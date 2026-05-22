@@ -12,26 +12,21 @@ VENDOR_EMAIL: str = "kansalayush28+fx@gmail.com"
 ANA_GELITA_AT_FREIGHTX_AI_ACCOUNT_ID: str = "7jKV_5jBQVG8med4nvXHJw"
 
 REMINDER_BODY: str = "Following up on the request"
-REMINDER_1_HOURS: float = 0
-# REMINDER_2_HOURS: float = 0.01666666
-# ESCALATION_HOURS: float = 0.03333332
+REMINDER_1_HOURS: float = 0.0166666667
+REMINDER_2_HOURS: float = 0.05
+ESCALATION_HOURS: float = 0.1
 # REMINDER_1_HOURS: float = 12
-REMINDER_2_HOURS: float = 24
-ESCALATION_HOURS: float = 28
+# REMINDER_2_HOURS: float = 24
+# ESCALATION_HOURS: float = 28
 
 # Escalation email (28h Celery path): sample ops recipient and copy — replace with real ops inboxes.
 ESCALATION_NOTIFY_EMAIL: str = "kansalayush28+escalateGelita@gmail.com"
 ESCALATION_EMAIL_SUBJECT: str = "Gelita tender escalation (order {order_number})"
-ESCALATION_EMAIL_BODY: str = """escalation email.
+ESCALATION_EMAIL_BODY: str = """This tender did not receive a carrier acknowledgment before the escalation window. Please review this load: 
 
 Lifecycle ID: {workflow_lifecycle_id}
 Tender ID: {tender_id}
 Order number: {order_number}
-
-This tender did not receive a carrier acknowledgment before the escalation window. Please review in the TMS or workflow tool.
-
----
-Operational escalation routing and copy TBD.
 """
 
 # Unipile account id for outbound mail (e.g. ana@gelita.com)

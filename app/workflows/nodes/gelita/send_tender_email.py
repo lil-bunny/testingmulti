@@ -45,6 +45,12 @@ def send_tender_email(state):
             subject=built["subject"],
             body=built["body_html"],
             account_id=account_id,
+            tenant_id=state.tenant_id,
+            communication_metadata={
+                "source": "send_tender_email",
+                "tender_id": state.data.get("tender_id"),
+                "workflow_lifecycle_id": state.data.get("workflow_lifecycle_id"),
+            },
         )
     except UnipileException as e:
         logger.warning(

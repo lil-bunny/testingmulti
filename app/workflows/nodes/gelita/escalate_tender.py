@@ -106,6 +106,12 @@ def escalate_tender(state):
             subject=subject,
             body=body,
             account_id=account_id,
+            tenant_id=tenant_id,
+            communication_metadata={
+                "source": "escalate_tender",
+                "tender_id": tender_id or None,
+                "workflow_lifecycle_id": wl_id,
+            },
         )
     except UnipileException as exc:
         logger.warning(
