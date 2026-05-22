@@ -4,7 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.tender_service import TenderService
+
 LOAD_TENDERING_SETTINGS_KEY = "load_tendering"
+_LOAD_TYPE_BUCKETS = frozenset({"ltl", "ftl"})
+
+# Fixed Unipile senders for Gelita — live at ``tenants.settings`` root (not per ltl/ftl).
+_SHARED_UNIPILE_ACCOUNT_KEYS = frozenset(
+    {
+        "ana_at_gelita_account_id",
+        "ana_gelita_at_freightx_ai_account_id",
+    }
+)
 
 
 def tenant_settings_root(state_or_data: Any) -> dict[str, Any]:
@@ -26,6 +37,15 @@ def tenant_settings_root(state_or_data: Any) -> dict[str, Any]:
     return {}
 
 
+def _data_dict(state_or_data: Any) -> dict[str, Any]:
+    if isinstance(state_or_data, dict):
+        return state_or_data
+    data = getattr(state_or_data, "data", None)
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
 def load_tendering_settings_root(state_or_data: Any) -> dict[str, Any]:
     """Return the ``load_tendering`` subtree of ``tenant_settings``."""
     root = tenant_settings_root(state_or_data)
@@ -35,14 +55,85 @@ def load_tendering_settings_root(state_or_data: Any) -> dict[str, Any]:
     return {}
 
 
-def action_settings(state_or_data: Any, action: str) -> dict[str, Any]:
+def shared_unipile_account_settings(state_or_data: Any) -> dict[str, Any]:
     """
-    Return config for one load-tendering action (node name), e.g. ``tender_calculate``.
+    Gelita-wide Unipile account ids (two fixed senders).
 
-    Keys match ``tenants.settings.load_tendering.<action>`` in the DB JSON.
+    Read from ``tenants.settings`` root, with optional override under
+    ``load_tendering`` for the same keys.
+    """
+    out: dict[str, Any] = {}
+    tenant_root = tenant_settings_root(state_or_data)
+    for key in _SHARED_UNIPILE_ACCOUNT_KEYS:
+        if key in tenant_root:
+            out[key] = tenant_root[key]
+    lt = load_tendering_settings_root(state_or_data)
+    for key in _SHARED_UNIPILE_ACCOUNT_KEYS:
+        if key in lt:
+            out[key] = lt[key]
+    return out
+
+
+def is_ftl_load_type(load_type: str | None) -> bool:
+    """True when tender routing should use the ``ftl`` settings bucket."""
+    return str(load_type or "").strip().upper() == "FTL"
+
+
+def load_type_bucket(load_type: str | None) -> str:
+    """Settings branch name: ``ltl`` or ``ftl``."""
+    return "ftl" if is_ftl_load_type(load_type) else "ltl"
+
+
+def resolve_load_type(state_or_data: Any) -> str:
+    """
+    Normalize load type (``LTL`` / ``FTL``) from payload ``load_type`` or tender row.
+    """
+    data = _data_dict(state_or_data)
+    raw = str(data.get("load_type") or "").strip()
+    if raw:
+        return raw.upper()
+    tender_id = str(data.get("tender_id") or "").strip()
+    tenant_id = str(data.get("tenant_id") or "").strip()
+    if not tender_id or not tenant_id:
+        return ""
+    tender_service = TenderService()
+    row = tender_service.read_row(tenant_id=tenant_id, tender_id=tender_id)
+    if not row:
+        return ""
+    return str(row.get("load_type") or "").strip().upper()
+
+
+def action_settings(
+    state_or_data: Any,
+    action: str,
+    *,
+    load_type: str | None = None,
+) -> dict[str, Any]:
+    """
+    Return config for one load-tendering action.
+
+    Load-type-specific nodes live under ``load_tendering.ltl.<action>`` or
+    ``load_tendering.ftl.<action>``. Shared config (``tender_calculate``,
+    ``delivery_locations_excel``) stays at ``load_tendering.<action>``.
+
+    Unipile sender account ids are merged from ``tenants.settings`` root (and
+    optional ``load_tendering`` overrides) into every action block.
     """
     lt = load_tendering_settings_root(state_or_data)
-    block = lt.get(action)
-    if isinstance(block, dict):
-        return block
-    return {}
+    shared_accounts = shared_unipile_account_settings(state_or_data)
+
+    block: dict[str, Any] | None = None
+    if load_type is not None and str(load_type).strip():
+        branch = lt.get(load_type_bucket(load_type))
+        if isinstance(branch, dict):
+            candidate = branch.get(action)
+            if isinstance(candidate, dict):
+                block = candidate
+    if block is None:
+        candidate = lt.get(action)
+        if isinstance(candidate, dict) and action not in _LOAD_TYPE_BUCKETS:
+            block = candidate
+
+    if block is None:
+        return dict(shared_accounts)
+    return {**shared_accounts, **block}

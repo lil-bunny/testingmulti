@@ -107,6 +107,21 @@ def calculate_tender_params(state):
     ship_date = row.get("shipping_date")
     ship_date_str = ship_date.isoformat() if hasattr(ship_date, "isoformat") else str(ship_date or "")
 
+    delivery_date = row.get("delivery_date")
+    delivery_date_str = (
+        delivery_date.isoformat()
+        if hasattr(delivery_date, "isoformat")
+        else str(delivery_date or "")
+    )
+
+    order_value = ""
+    if isinstance(metadata, dict):
+        for key in ("value", "order_value", "shipment_value"):
+            raw = metadata.get(key)
+            if raw is not None and str(raw).strip():
+                order_value = str(raw).strip()
+                break
+
     pickup_formatted = format_usps_mailing_address(pickup_address)
     delivery_raw = row.get("delivery_address")
     delivery_formatted = (
@@ -122,6 +137,8 @@ def calculate_tender_params(state):
             "customer_po": customer_po,
             "product_name": row.get("product_name") or "",
             "ship_date": ship_date_str,
+            "delivery_date": delivery_date_str,
+            "order_value": order_value,
             "pickup_address": pickup_formatted,
             "delivery_address": delivery_formatted,
             "pieces_count": f"{pieces_dec:.2f}",

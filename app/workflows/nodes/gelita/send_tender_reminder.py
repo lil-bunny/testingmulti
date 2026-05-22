@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings
+from app.domain.load_tendering_settings import action_settings, resolve_load_type
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.email import reply_to_thread
@@ -45,7 +45,8 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    cfg = action_settings(state, "send_tender_reminder")
+    load_type = resolve_load_type(state)
+    cfg = action_settings(state, "send_tender_reminder", load_type=load_type)
     gelita_sender_account_id = str(cfg.get("ana_at_gelita_account_id") or "").strip()
     if not gelita_sender_account_id:
         state.data["tender_reminder_error"] = "missing_ANA_AT_GELITA_ACCOUNT_ID"

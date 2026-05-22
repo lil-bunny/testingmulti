@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings
+from app.domain.load_tendering_settings import action_settings, resolve_load_type
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -49,7 +49,8 @@ def escalate_tender(state):
         state.data["escalation_email_sent"] = False
         return state
 
-    cfg = action_settings(state, "escalate_tender")
+    load_type = resolve_load_type(state)
+    cfg = action_settings(state, "escalate_tender", load_type=load_type)
     to_addr = str(cfg.get("escalation_notify_email") or "").strip()
     if not to_addr or "@" not in to_addr:
         logger.error("escalate_tender ESCALATION_NOTIFY_EMAIL invalid or empty")

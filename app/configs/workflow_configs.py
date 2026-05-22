@@ -137,7 +137,7 @@ WORKFLOW_CONFIGS = {
                 "router": "load_type_router",
                 "map": {
                     "ltl_path": "send_tender_email",
-                    "ftl_path": "end",
+                    "ftl_path": "send_tender_email",
                     "error_path": "end",
                 },
             },
