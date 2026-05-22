@@ -10,6 +10,7 @@ from app.domain.load_tendering_tender_rows import (
     projected_row_to_tender_insert,
     resolve_pack_code_id,
 )
+from app.repositories.tenders_repository import TenderInsertResult
 from app.services.tenders_ingest_service import TendersIngestService
 
 
@@ -161,7 +162,9 @@ def test_ingest_service_noop_without_import_id() -> None:
 def test_ingest_service_batches_valid_rows() -> None:
     repo = MagicMock()
     tender_uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-    repo.insert_batch.return_value = [tender_uuid]
+    repo.insert_batch.return_value = [
+        TenderInsertResult(tender_id=tender_uuid, created=True),
+    ]
     svc = _ingest_svc(repo)
     rows = [
         {
@@ -189,7 +192,12 @@ def test_ingest_service_batches_valid_rows() -> None:
 
 def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
     repo = MagicMock()
-    repo.insert_batch.return_value = ["dddddddd-dddd-dddd-dddd-dddddddddddd"]
+    repo.insert_batch.return_value = [
+        TenderInsertResult(
+            tender_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
+            created=True,
+        ),
+    ]
     svc = _ingest_svc(repo)
     rows = [
         {

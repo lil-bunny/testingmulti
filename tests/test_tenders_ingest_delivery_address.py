@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.domain.delivery_locations import DeliveryLocationsIndex
+from app.repositories.tenders_repository import TenderInsertResult
 from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.tenders_ingest_service import TendersIngestService
 
@@ -26,9 +27,7 @@ def _locations_index() -> DeliveryLocationsIndex:
     )
 
 
-@patch("app.services.tenders_ingest_service.ActivityLogService")
 def test_ingest_attaches_delivery_address_from_projected_code(
-    _mock_activity_cls: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -38,7 +37,9 @@ def test_ingest_attaches_delivery_address_from_projected_code(
 
     repo = MagicMock()
     tender_uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-    repo.insert_batch.return_value = [tender_uuid]
+    repo.insert_batch.return_value = [
+        TenderInsertResult(tender_id=tender_uuid, created=True),
+    ]
 
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = _locations_index()
@@ -65,9 +66,7 @@ def test_ingest_attaches_delivery_address_from_projected_code(
     assert batch[0]["delivery_address"]["state"] == "IA"
 
 
-@patch("app.services.tenders_ingest_service.ActivityLogService")
 def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_none(
-    _mock_activity_cls: MagicMock,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -76,7 +75,12 @@ def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_n
     )
 
     repo = MagicMock()
-    repo.insert_batch.return_value = ["eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"]
+    repo.insert_batch.return_value = [
+        TenderInsertResult(
+            tender_id="eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+            created=True,
+        ),
+    ]
 
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = _locations_index()
@@ -100,12 +104,14 @@ def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_n
     assert batch[0]["delivery_address"]["state"] == ""
 
 
-@patch("app.services.tenders_ingest_service.ActivityLogService")
-def test_ingest_delivery_address_null_when_index_unavailable(
-    _mock_activity_cls: MagicMock,
-) -> None:
+def test_ingest_delivery_address_null_when_index_unavailable() -> None:
     repo = MagicMock()
-    repo.insert_batch.return_value = ["dddddddd-dddd-dddd-dddd-dddddddddddd"]
+    repo.insert_batch.return_value = [
+        TenderInsertResult(
+            tender_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
+            created=True,
+        ),
+    ]
 
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = None

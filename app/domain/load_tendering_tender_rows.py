@@ -83,6 +83,8 @@ def projected_row_to_tender_insert(
     """
     Build kwargs for ``TendersRepository.insert_batch`` (excluding tenant/data_import_id).
 
+    Callers use ``TendersIngestService``; workflow enqueue only when insert returns ``created=True``.
+
     Returns ``None`` when required fields are missing or invalid. ``pack_code_id`` is set when
     the row supplies a UUID or when ``pack_code`` text resolves via ``active_pack_code_index``.
     """

@@ -214,6 +214,7 @@ class GelitaInboundEmailService:
                 shared_payload["source_email_thread_id"] = stripe
 
         execution_ids: list[str] = []
+        enqueued_tender_ids: set[str] = set()
         for row_index, tender_row in enumerate(projected_rows):
             tender_id = (
                 tender_ids_by_row[row_index]
@@ -221,11 +222,21 @@ class GelitaInboundEmailService:
                 else None
             )
             if not tender_id:
-                logger.warning(
-                    "gelita tender_created: skip row without tender_id row_index=%s",
+                logger.info(
+                    "gelita tender_created: skip row (new tender not created) row_index=%s "
+                    "order_number=%r",
                     row_index,
+                    tender_row.get("order_number"),
                 )
                 continue
+            if tender_id in enqueued_tender_ids:
+                logger.info(
+                    "gelita tender_created: skip duplicate order row row_index=%s tender_id=%s",
+                    row_index,
+                    tender_id,
+                )
+                continue
+            enqueued_tender_ids.add(tender_id)
 
             workflow_payload_row: dict[str, Any] = {
                 **shared_payload,

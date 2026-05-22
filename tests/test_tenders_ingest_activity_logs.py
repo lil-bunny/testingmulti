@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from app.repositories.tenders_repository import TenderInsertResult
 from app.services.tenders_ingest_service import TendersIngestService
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -36,7 +37,9 @@ def test_ingest_does_not_write_activity_logs(mock_map: MagicMock) -> None:
         "load_type": "ltl",
     }
     mock_repo = MagicMock()
-    mock_repo.insert_batch.return_value = [TENDER_UUID]
+    mock_repo.insert_batch.return_value = [
+        TenderInsertResult(tender_id=TENDER_UUID, created=True),
+    ]
 
     svc = TendersIngestService(repository=mock_repo)
     out = svc.persist_from_projected_rows(
