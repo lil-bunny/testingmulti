@@ -430,8 +430,19 @@ def upgrade() -> None:
         "ON communications (thread_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_communications_external_id "
-        "ON communications (external_id)"
+        """
+        DELETE FROM communications a
+        USING communications b
+        WHERE a.tenant_id = b.tenant_id
+          AND a.external_id = b.external_id
+          AND a.external_id IS NOT NULL
+          AND a.created_at > b.created_at
+        """
+    )
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_communications_tenant_external_id "
+        "ON communications (tenant_id, external_id) "
+        "WHERE external_id IS NOT NULL"
     )
 
 

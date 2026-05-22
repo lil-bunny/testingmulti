@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
-from html import unescape
 from typing import Any
 
 from app.core.logger import get_logger
 from app.models.status import StatusSubType
+from app.services.communications._mapper import normalize_email_body_for_llm
 from app.tools.llm_client import LLMClientError, chat_json
 
 logger = get_logger(__name__)
@@ -21,59 +21,11 @@ _CARRIER_ACK_DECISIONS = frozenset(
 )
 
 _ORDER_NUMBER_RE = re.compile(r"Order\s*#\s*(\d+)", re.IGNORECASE)
-_QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)
-_BLOCKQUOTE_RE = re.compile(r"<blockquote\b", re.IGNORECASE)
-_ON_WROTE_RE = re.compile(r"\bOn .+ wrote:\s*", re.IGNORECASE | re.DOTALL)
-_WS_RE = re.compile(r"\s+")
 
 
-def _strip_html(text: str) -> str:
-    without_tags = re.sub(r"<[^>]+>", " ", text)
-    return unescape(without_tags)
-
-
-def _collapse_ws(text: str) -> str:
-    return _WS_RE.sub(" ", text).strip()
-
-
-def _strip_quoted_html(html: str) -> str:
-    for pattern in (_QUOTE_HTML_RE, _BLOCKQUOTE_RE):
-        match = pattern.search(html)
-        if match:
-            return html[: match.start()].strip()
-    return html
-
-
-def _strip_quoted_plain(text: str) -> str:
-    match = _ON_WROTE_RE.search(text)
-    if match:
-        return text[: match.start()].strip()
-    return text
-
-
-def normalize_carrier_reply_body(
-    *,
-    body: str | None = None,
-    body_plain: str | None = None,
-) -> str:
-    """
-    Plain reply text for LLM: prefer ``body_plain``, else strip HTML/quotes from ``body``.
-    """
-    plain = (body_plain or "").strip()
-    if plain:
-        return _collapse_ws(_strip_quoted_plain(plain))
-
-    raw = (body or "").strip()
-    if not raw:
-        return ""
-
-    if "<" in raw:
-        raw = _strip_quoted_html(raw)
-        text = _strip_html(raw)
-    else:
-        text = _strip_quoted_plain(raw)
-
-    return _collapse_ws(text)
+def normalize_carrier_reply_body(*, body: str | None = None) -> str:
+    """Plain reply text for LLM (delegates to shared email body normalizer)."""
+    return normalize_email_body_for_llm(body=body)
 
 
 def _normalize_carrier_ack_decision(raw: dict[str, Any]) -> str:
@@ -148,7 +100,7 @@ def extract_order_number(email_body: str | None) -> str | None:
     raw = (email_body or "").strip()
     if not raw:
         return None
-    normalized = _strip_html(raw)
+    normalized = normalize_email_body_for_llm(body=raw)
     match = _ORDER_NUMBER_RE.search(normalized)
     if not match:
         return None

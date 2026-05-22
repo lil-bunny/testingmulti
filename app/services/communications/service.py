@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from app.core.logger import get_logger
 from app.services.communications._mapper import (
+    build_email_thread_llm_user_message,
     inbound_row_from_payload,
     outbound_row_from_send,
 )
@@ -73,12 +74,19 @@ class CommunicationsService:
 
         try:
             comm_id = self._repository.insert(row)
-            logger.info(
-                "communications inbound recorded id=%s external_id=%s tenant_id=%s",
-                comm_id,
-                row.get("external_id"),
-                tid,
-            )
+            if comm_id:
+                logger.info(
+                    "communications inbound recorded id=%s external_id=%s tenant_id=%s",
+                    comm_id,
+                    row.get("external_id"),
+                    tid,
+                )
+            else:
+                logger.info(
+                    "communications inbound duplicate skipped external_id=%s tenant_id=%s",
+                    row.get("external_id"),
+                    tid,
+                )
             return comm_id
         except Exception:
             logger.exception(
@@ -133,12 +141,19 @@ class CommunicationsService:
 
         try:
             comm_id = self._repository.insert(row)
-            logger.info(
-                "communications outbound recorded id=%s external_id=%s tenant_id=%s",
-                comm_id,
-                row.get("external_id"),
-                tid,
-            )
+            if comm_id:
+                logger.info(
+                    "communications outbound recorded id=%s external_id=%s tenant_id=%s",
+                    comm_id,
+                    row.get("external_id"),
+                    tid,
+                )
+            else:
+                logger.info(
+                    "communications outbound duplicate skipped external_id=%s tenant_id=%s",
+                    row.get("external_id"),
+                    tid,
+                )
             return comm_id
         except Exception:
             logger.exception(
@@ -147,3 +162,73 @@ class CommunicationsService:
                 tid,
             )
             return None
+
+    def list_thread_messages(
+        self,
+        tenant_id: str,
+        thread_id: str,
+        *,
+        channel: str = "email",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """
+        List stored messages for an email thread (oldest first). Tenant-agnostic.
+
+        ``tenant_id`` may be ``tenants.id`` UUID or graph slug.
+        """
+        tid = self._tenant_uuid_or_none(tenant_id)
+        tid_s = self._clean(thread_id)
+        if not tid or not tid_s:
+            logger.warning(
+                "communications list_thread_messages skipped: tenant_id=%r thread_id=%r",
+                tenant_id,
+                thread_id,
+            )
+            return []
+        if channel != "email":
+            logger.warning(
+                "communications list_thread_messages: unsupported channel=%r",
+                channel,
+            )
+            return []
+
+        try:
+            rows = self._repository.list_email_thread(
+                tenant_id=tid,
+                thread_id=tid_s,
+                limit=limit,
+            )
+            logger.info(
+                "communications list_thread_messages tenant_id=%s thread_id=%s count=%s",
+                tid,
+                tid_s,
+                len(rows),
+            )
+            return rows
+        except Exception:
+            logger.exception(
+                "communications list_thread_messages failed tenant_id=%s thread_id=%s",
+                tid,
+                tid_s,
+            )
+            return []
+
+    def build_thread_llm_user_message(
+        self,
+        tenant_id: str,
+        thread_id: str,
+        *,
+        fallback_body: str | None = None,
+        limit: int = 50,
+        max_messages: int | None = None,
+    ) -> tuple[str, int]:
+        """
+        Chronological ``email N`` LLM user text from ``communications``, with webhook fallback.
+        """
+        messages = self.list_thread_messages(tenant_id, thread_id, limit=limit)
+        text = build_email_thread_llm_user_message(
+            messages,
+            fallback_body=fallback_body,
+            max_messages=max_messages,
+        )
+        return text, len(messages)

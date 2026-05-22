@@ -6,6 +6,7 @@ from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.tools.gelita.email_parser import (
     classify_carrier_acknowledgment,
@@ -26,12 +27,28 @@ _ACK_DESCRIPTIONS: dict[str, str] = {
 
 
 def classify_carrier_ack(state):
-    """LLM gate: set ``carrier_ack_decision`` from plain reply body (Unipile webhook fields)."""
-    reply_text = normalize_carrier_reply_body(
-        body=state.data.get("body"),
-        body_plain=state.data.get("body_plain"),
-    )
-    state.data["carrier_ack_normalized_reply"] = reply_text
+    """LLM gate: classify using full email thread from ``communications`` when available."""
+    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
+    thread_id = str(state.data.get("thread_id") or "").strip()
+    fallback_body = state.data.get("body")
+
+    latest_reply = normalize_carrier_reply_body(body=fallback_body)
+
+    reply_text = latest_reply
+    thread_message_count = 0
+    if tenant_id and thread_id:
+        communications_service = CommunicationsService()
+        reply_text, thread_message_count = (
+            communications_service.build_thread_llm_user_message(
+                tenant_id,
+                thread_id,
+                fallback_body=fallback_body,
+            )
+        )
+
+    state.data["carrier_ack_normalized_reply"] = latest_reply
+    state.data["carrier_ack_thread_llm_input"] = reply_text
+    state.data["carrier_ack_thread_message_count"] = thread_message_count
     result = classify_carrier_acknowledgment(
         reply_text,
         system_prompt=carrier_ack_system_prompt,
@@ -48,7 +65,6 @@ def classify_carrier_ack(state):
     )
 
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
-    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()
     run_id = str(state.execution_id or state.data.get("execution_id") or "").strip()
     if wl_id and tenant_id and tender_id and run_id:

@@ -2,17 +2,101 @@
 
 from __future__ import annotations
 
+import re
+from html import unescape
 from typing import Any
+
+_QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)
+_BLOCKQUOTE_RE = re.compile(r"<blockquote\b", re.IGNORECASE)
+_ON_WROTE_RE = re.compile(r"\bOn .+ wrote:\s*", re.IGNORECASE | re.DOTALL)
+_WS_RE = re.compile(r"\s+")
+
+
+def _strip_html(text: str) -> str:
+    without_tags = re.sub(r"<[^>]+>", " ", text)
+    return unescape(without_tags)
+
+
+def _collapse_ws(text: str) -> str:
+    return _WS_RE.sub(" ", text).strip()
+
+
+def _strip_quoted_html(html: str) -> str:
+    for pattern in (_QUOTE_HTML_RE, _BLOCKQUOTE_RE):
+        match = pattern.search(html)
+        if match:
+            return html[: match.start()].strip()
+    return html
+
+
+def _strip_quoted_plain(text: str) -> str:
+    match = _ON_WROTE_RE.search(text)
+    if match:
+        return text[: match.start()].strip()
+    return text
+
+
+def normalize_email_body_for_llm(*, body: str | None = None) -> str:
+    """Plain email text for LLM input: strip HTML/quotes from ``body``."""
+    raw = (body or "").strip()
+    if not raw:
+        return ""
+
+    if "<" in raw:
+        raw = _strip_quoted_html(raw)
+        text = _strip_html(raw)
+    else:
+        text = _strip_quoted_plain(raw)
+
+    return _collapse_ws(text)
+
+
+def format_email_thread_for_llm(bodies: list[str]) -> str:
+    """Format normalized bodies as ``email 1`` … ``email N`` blocks for LLM user content."""
+    parts: list[str] = []
+    index = 0
+    for raw in bodies:
+        text = (raw or "").strip()
+        if not text:
+            continue
+        index += 1
+        parts.append(f"email {index}\n{text}")
+    return "\n\n".join(parts)
+
+
+def build_email_thread_llm_user_message(
+    messages: list[dict[str, Any]],
+    *,
+    fallback_body: str | None = None,
+    max_messages: int | None = None,
+) -> str:
+    """
+    Build chronological thread text from ``communications`` rows (``content`` field).
+
+    Falls back to a single normalized webhook body when no stored messages have text.
+    """
+    rows = list(messages)
+    if max_messages is not None and max_messages > 0 and len(rows) > max_messages:
+        rows = rows[-max_messages:]
+
+    bodies = [
+        normalize_email_body_for_llm(body=row.get("content"))
+        for row in rows
+    ]
+    bodies = [b for b in bodies if b]
+    if bodies:
+        return format_email_thread_for_llm(bodies)
+
+    return normalize_email_body_for_llm(body=fallback_body)
 
 
 def resolve_email_content(
     *,
     body_html: str | None = None,
     body: str | None = None,
-    body_plain: str | None = None,
 ) -> str | None:
-    """Prefer HTML: ``body_html``, then provider ``body``, then ``body_plain``."""
-    for raw in (body_html, body, body_plain):
+    """Prefer ``body_html``, then provider ``body``."""
+    for raw in (body_html, body):
         if raw is not None and str(raw).strip():
             return str(raw)
     return None
@@ -76,7 +160,6 @@ def inbound_row_from_payload(
     content = resolve_email_content(
         body_html=payload.get("body_html"),
         body=payload.get("body"),
-        body_plain=payload.get("body_plain"),
     )
     return {
         "tenant_id": tenant_id,

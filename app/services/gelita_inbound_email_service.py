@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import action_settings
+from app.domain.status_parsing import status_type_from_db
+from app.models.status import StatusType
 from app.services.delivery_locations_service import (
     DeliveryLocationsService,
     _fetch_delivery_locations_rows_from_sharepoint,
@@ -164,15 +166,30 @@ class GelitaInboundEmailService:
         if not lifecycle.get("found"):
             return None
 
-        tender_id = lifecycle.get("tender_id") or ""
-        if not tender_id:
-            row = self._lifecycle.read_lifecycle_row_by_id(lifecycle["lifecycle_id"])
-            tender_id = (row or {}).get("tender_id") or ""
+        lifecycle_id = lifecycle["lifecycle_id"]
+        lifecycle_row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
+        if status_type_from_db(lifecycle_row.get("status")) == StatusType.COMPLETED:
+            logger.info(
+                "gelita ack_received skipped: lifecycle already completed "
+                "lifecycle_id=%s thread_id=%s",
+                lifecycle_id,
+                thread_id,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "message": "lifecycle completed; ack not processed",
+                    "event_type": "ack_received",
+                    "workflow_lifecycle_id": lifecycle_id,
+                },
+            )
+
+        tender_id = lifecycle.get("tender_id") or lifecycle_row.get("tender_id") or ""
 
         workflow_payload: dict[str, Any] = {
             **payload,
             "thread_id": thread_id,
-            "workflow_lifecycle_id": lifecycle["lifecycle_id"],
+            "workflow_lifecycle_id": lifecycle_id,
         }
         if tender_id:
             workflow_payload["tender_id"] = tender_id
@@ -305,7 +322,7 @@ class GelitaInboundEmailService:
         tenant: UnipileTenantContext,
         graph_slug: str,
     ) -> JSONResponse:
-        body_html = str(payload.get("body") or payload.get("body_plain") or "")
+        body_html = str(payload.get("body") or "")
         order_number = extract_order_number(body_html)
         if not order_number:
             logger.warning("gelita carrier: no order number in email body")
