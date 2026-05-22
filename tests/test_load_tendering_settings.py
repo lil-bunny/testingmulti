@@ -39,3 +39,13 @@ def test_missing_action_returns_empty_dict() -> None:
     state = SimpleNamespace(data={"tenant_settings": {}})
     assert action_settings(state, "tender_calculate") == {}
     assert load_tendering_settings_root(state) == {}
+
+
+def test_delivery_locations_excel_action_from_fixture() -> None:
+    state = SimpleNamespace(
+        data={"tenant_settings": _gelita_tenant_settings()},
+    )
+    dl = action_settings(state, "delivery_locations_excel")
+    assert dl["delivery_locations_tab_name"] == "Delivery locations"
+    assert dl["delivery_locations_max_rows"] == 50000
+    assert str(dl["delivery_locations_share_url"]).startswith("https://")

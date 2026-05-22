@@ -10,10 +10,16 @@ from fastapi.responses import JSONResponse
 
 from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
 from app.core.logger import get_logger
+from app.domain.load_tendering_settings import action_settings
+from app.services.delivery_locations_service import (
+    DeliveryLocationsService,
+    _fetch_delivery_locations_rows_from_sharepoint,
+)
 from app.services.email_import_projection import (
     load_email_data_import_projection,
     persist_tender_rows_from_email_import_projection,
 )
+from app.services.tenants_service import TenantsService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
@@ -200,10 +206,35 @@ class GelitaInboundEmailService:
             data_import_id=data_import_id,
             projection=LOAD_TENDERING_ROW_PROJECTION,
         )
+
+        tenants_service = TenantsService()
+        tenant_row = tenants_service.get_by_slug(tenant.tenant_slug) or {}
+        tenant_settings = tenant_row.get("settings") or {}
+        dl_cfg = action_settings(
+            {"tenant_settings": tenant_settings},
+            "delivery_locations_excel",
+        )
+        share_url = str(dl_cfg.get("delivery_locations_share_url") or "").strip()
+        if share_url:
+            tab_name = str(
+                dl_cfg.get("delivery_locations_tab_name") or "Delivery locations"
+            )
+            max_rows = int(dl_cfg.get("delivery_locations_max_rows") or 50_000)
+            delivery_locations_service = DeliveryLocationsService(
+                rows_provider=lambda: _fetch_delivery_locations_rows_from_sharepoint(
+                    share_url,
+                    tab_name,
+                    max_rows,
+                ),
+            )
+        else:
+            delivery_locations_service = DeliveryLocationsService()
+
         tender_ids_by_row = persist_tender_rows_from_email_import_projection(
             tenant_id=tenant.tenant_uuid,
             data_import_id=data_import_id,
             projected_rows=projected_rows,
+            delivery_locations=delivery_locations_service,
         )
 
         shared_payload: dict[str, Any] = {**payload, "workflow_name": WORKFLOW_NAME}

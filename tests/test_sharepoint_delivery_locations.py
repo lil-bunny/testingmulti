@@ -8,17 +8,36 @@ cleaned rows -> index lookup) works end-to-end without any network or disk I/O.
 from __future__ import annotations
 
 import io
+import json
+from pathlib import Path
 
 import httpx
 import openpyxl
 import pytest
 
 import app.services.delivery_locations_service as service_module
+from app.domain.load_tendering_settings import action_settings
 from app.integrations.sharepoint.excel_reader import (
     SharePointDownloadError,
     fetch_sharepoint_xlsx_bytes,
 )
 from app.services.delivery_locations_service import DeliveryLocationsService
+
+_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1] / "scripts" / "gelita_tenant_settings.json"
+)
+
+
+def _delivery_locations_service_from_fixture() -> DeliveryLocationsService:
+    tenant_settings = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
+    cfg = action_settings({"tenant_settings": tenant_settings}, "delivery_locations_excel")
+    return DeliveryLocationsService(
+        rows_provider=lambda: service_module._fetch_delivery_locations_rows_from_sharepoint(
+            str(cfg["delivery_locations_share_url"]),
+            str(cfg.get("delivery_locations_tab_name") or "Delivery locations"),
+            int(cfg.get("delivery_locations_max_rows") or 50_000),
+        ),
+    )
 
 
 def _build_delivery_locations_xlsx_bytes() -> bytes:
@@ -78,7 +97,7 @@ def test_service_builds_index_from_sharepoint_xlsx(
         service_module, "fetch_sharepoint_xlsx_bytes", fake_fetch
     )
 
-    svc = DeliveryLocationsService()
+    svc = _delivery_locations_service_from_fixture()
 
     hit = svc.lookup("41000100")
     assert hit is not None
@@ -104,7 +123,7 @@ def test_index_for_ingest_run_returns_none_on_fetch_failure(
         service_module, "fetch_sharepoint_xlsx_bytes", fake_fetch
     )
 
-    svc = DeliveryLocationsService()
+    svc = _delivery_locations_service_from_fixture()
 
     assert svc.index_for_ingest_run() is None
 

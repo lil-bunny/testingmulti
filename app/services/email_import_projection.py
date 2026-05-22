@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 
 from app.core.logger import get_logger
 from app.services.data_imports_read_service import DataImportsReadService
+from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.tenders_ingest_service import TendersIngestService
 
 logger = get_logger(__name__)
@@ -55,6 +56,7 @@ def persist_tender_rows_from_email_import_projection(
     tenant_id: str,
     data_import_id: str | None,
     projected_rows: list[dict[str, Any]],
+    delivery_locations: DeliveryLocationsService | None = None,
 ) -> list[str | None]:
     """
     Insert tender rows derived from projected spreadsheet data.
@@ -63,7 +65,10 @@ def persist_tender_rows_from_email_import_projection(
     returns an empty list.
     """
     try:
-        return TendersIngestService().persist_from_projected_rows(
+        ingest_service = TendersIngestService(
+            delivery_locations=delivery_locations or DeliveryLocationsService(),
+        )
+        return ingest_service.persist_from_projected_rows(
             tenant_id=tenant_id,
             data_import_id=data_import_id,
             projected_rows=projected_rows,
