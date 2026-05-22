@@ -108,7 +108,7 @@ def classify_carrier_acknowledgment(
         return {
             "decision": StatusSubType.DO_NOTHING.value,
             "confidence": 0.0,
-            "reason": "missing carrier_ack_system_prompt in tenant_settings",
+            "reason": "missing carrier_ack_system_prompt",
         }
 
     try:

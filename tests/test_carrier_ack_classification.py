@@ -10,6 +10,7 @@ import pytest
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.tools.gelita.email_parser import classify_carrier_acknowledgment
+from app.utils.prompts import carrier_ack_system_prompt
 from app.workflows.graph.routers import carrier_ack_router
 from app.workflows.nodes.gelita.record_ack_received import (
     classify_carrier_ack,
@@ -34,11 +35,10 @@ def _state(*, decision: str | None = None, **data_extra):
     return SimpleNamespace(tenant_id=TENANT_UUID, execution_id=RUN_UUID, data=data)
 
 
-_PROMPT = "Classify the reply. Return JSON with decision, confidence, reason."
-
-
 def test_classify_carrier_acknowledgment_empty_is_do_nothing():
-    result = classify_carrier_acknowledgment("", system_prompt=_PROMPT)
+    result = classify_carrier_acknowledgment(
+        "", system_prompt=carrier_ack_system_prompt
+    )
     assert result["decision"] == StatusSubType.DO_NOTHING.value
 
 
@@ -51,7 +51,7 @@ def test_classify_carrier_acknowledgment_parses_decision(mock_chat: MagicMock):
     }
     result = classify_carrier_acknowledgment(
         "We cannot cover this load.",
-        system_prompt=_PROMPT,
+        system_prompt=carrier_ack_system_prompt,
     )
     assert result["decision"] == StatusSubType.REJECTED.value
 
@@ -63,7 +63,9 @@ def test_classify_carrier_acknowledgment_legacy_boolean_accept(mock_chat: MagicM
         "confidence": 0.8,
         "reason": "legacy",
     }
-    result = classify_carrier_acknowledgment("Confirmed.", system_prompt=_PROMPT)
+    result = classify_carrier_acknowledgment(
+        "Confirmed.", system_prompt=carrier_ack_system_prompt
+    )
     assert result["decision"] == StatusSubType.ACCEPTED.value
 
 
@@ -96,6 +98,10 @@ def test_classify_carrier_ack_node_sets_decision(mock_classify: MagicMock):
     }
     state = _state()
     out = classify_carrier_ack(state)
+    mock_classify.assert_called_once_with(
+        "acknowledged",
+        system_prompt=carrier_ack_system_prompt,
+    )
     assert out.data["carrier_ack_decision"] == StatusSubType.ACCEPTED.value
 
 

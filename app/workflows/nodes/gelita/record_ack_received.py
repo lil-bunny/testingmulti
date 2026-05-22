@@ -7,11 +7,11 @@ from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
-from app.domain.load_tendering_settings import action_settings
 from app.tools.gelita.email_parser import (
     classify_carrier_acknowledgment,
     normalize_carrier_reply_body,
 )
+from app.utils.prompts import carrier_ack_system_prompt
 
 logger = get_logger(__name__)
 
@@ -32,11 +32,9 @@ def classify_carrier_ack(state):
         body_plain=state.data.get("body_plain"),
     )
     state.data["carrier_ack_normalized_reply"] = reply_text
-    ack_cfg = action_settings(state, "classify_carrier_ack")
-    system_prompt = str(ack_cfg.get("carrier_ack_system_prompt") or "")
     result = classify_carrier_acknowledgment(
         reply_text,
-        system_prompt=system_prompt,
+        system_prompt=carrier_ack_system_prompt,
     )
     decision = str(result.get("decision") or StatusSubType.DO_NOTHING.value)
     state.data["carrier_ack_decision"] = decision
