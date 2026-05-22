@@ -20,7 +20,10 @@ from app.domain.activity_log_descriptions import (
 )
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-from app.domain.lifecycle_transition import LifecycleTransitionCommand
+from app.domain.lifecycle_transition import (
+    LifecycleTransitionCommand,
+    LifecycleTransitionError,
+)
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
@@ -56,6 +59,38 @@ class ActivityLogService:
 
     def _tenant_uuid_or_none(self, tenant_id: str | None) -> str | None:
         return resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+
+    @staticmethod
+    def _parse_actor_type(raw: str | None) -> ActorType:
+        if not raw:
+            return ActorType.SYSTEM
+        try:
+            return ActorType(raw)
+        except ValueError:
+            return ActorType.SYSTEM
+
+    def _record_via_lifecycle_transition(
+        self,
+        command: LifecycleTransitionCommand,
+    ) -> str | None:
+        """Insert lifecycle-scoped activity via ``LifecycleTransitionService``."""
+        try:
+            lifecycle_transition_service = LifecycleTransitionService()
+            result = lifecycle_transition_service.apply(command)
+            return result.activity_log_id
+        except LifecycleTransitionError as exc:
+            logger.warning(
+                "activity_log skipped lifecycle transition: %s",
+                exc,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "activity_log lifecycle transition failed activity_type=%s lifecycle_id=%s",
+                command.activity_type.value,
+                command.workflow_lifecycle_id,
+            )
+            return None
 
     def record_activity(
         self,
@@ -107,6 +142,21 @@ class ActivityLogService:
         if not actor and actor_type_clean == ActorType.SYSTEM.value:
             actor = SYSTEM_ACTOR_ID
 
+        if at == ActivityType.ACTION.value:
+            return self._record_via_lifecycle_transition(
+                LifecycleTransitionCommand(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=wl,
+                    workflow_run_id=wr,
+                    activity_type=ActivityType.ACTION,
+                    description=self._clean(description),
+                    metadata=metadata if metadata is not None else {},
+                    actor_type=self._parse_actor_type(actor_type_clean),
+                    actor_id=actor,
+                    update_lifecycle=False,
+                )
+            )
+
         try:
             return self._repository.insert(
                 {
@@ -156,18 +206,27 @@ class ActivityLogService:
         }
         if metadata:
             meta.update(metadata)
-        return self.record_activity(
-            tenant_id=tenant_id,
-            activity_type=ActivityType.ACTION,
-            workflow_lifecycle_id=workflow_lifecycle_id,
-            workflow_run_id=workflow_run_id,
-            description=format_carrier_ack_llm_action(
-                decision=decision,
-                reason=reason,
-                confidence=confidence,
-            ),
-            actor_type=ActorType.SYSTEM,
-            metadata=meta,
+        wl = self._uuid_or_none(
+            workflow_lifecycle_id, field_name="workflow_lifecycle_id"
+        )
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not wl or not wr:
+            return None
+        return self._record_via_lifecycle_transition(
+            LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl,
+                workflow_run_id=wr,
+                activity_type=ActivityType.ACTION,
+                description=format_carrier_ack_llm_action(
+                    decision=decision,
+                    reason=reason,
+                    confidence=confidence,
+                ),
+                actor_type=ActorType.SYSTEM,
+                metadata=meta,
+                update_lifecycle=False,
+            )
         )
 
     def record_tender_created_action(
@@ -181,22 +240,27 @@ class ActivityLogService:
         workflow_run_id: str,
     ) -> str | None:
         """Action log for a new tender on the workflow run that processes it."""
-        return self.record_activity(
-            tenant_id=tenant_id,
-            activity_type=ActivityType.ACTION,
-            workflow_lifecycle_id=workflow_lifecycle_id,
-            workflow_run_id=workflow_run_id,
-            description=format_tender_created_action(
-                tender_id=tender_id,
-                order_number=order_number,
-                customer_name=customer_name,
-            ),
-            from_status=StatusType.NONE,
-            to_status=StatusType.NONE,
-            from_sub_status=StatusSubType.NONE,
-            to_sub_status=StatusSubType.NONE,
-            actor_type=ActorType.SYSTEM,
-            metadata={"tender_id": tender_id},
+        wl = self._uuid_or_none(
+            workflow_lifecycle_id, field_name="workflow_lifecycle_id"
+        )
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not wl or not wr:
+            return None
+        return self._record_via_lifecycle_transition(
+            LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl,
+                workflow_run_id=wr,
+                activity_type=ActivityType.ACTION,
+                description=format_tender_created_action(
+                    tender_id=tender_id,
+                    order_number=order_number,
+                    customer_name=customer_name,
+                ),
+                actor_type=ActorType.SYSTEM,
+                metadata={"tender_id": tender_id},
+                update_lifecycle=False,
+            )
         )
 
     def record_tender_processing_status_change(
@@ -212,30 +276,21 @@ class ActivityLogService:
         wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
         if not wl or not wr:
             return None
-        try:
-            lifecycle_transition_service = LifecycleTransitionService()
-            result = lifecycle_transition_service.apply(
-                LifecycleTransitionCommand(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    to_status=StatusType.PROCESSING,
-                    to_sub_status=StatusSubType.TENDER_CREATED,
-                    description=format_status_updated_to_processing(),
-                    from_status=StatusType.NONE,
-                    from_sub_status=StatusSubType.NONE,
-                    actor_type=ActorType.SYSTEM,
-                    metadata={"tender_id": tender_id},
-                )
+        return self._record_via_lifecycle_transition(
+            LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl,
+                workflow_run_id=wr,
+                activity_type=ActivityType.STATUS_CHANGE,
+                to_status=StatusType.PROCESSING,
+                to_sub_status=StatusSubType.TENDER_CREATED,
+                description=format_status_updated_to_processing(),
+                from_status=StatusType.NONE,
+                from_sub_status=StatusSubType.NONE,
+                actor_type=ActorType.SYSTEM,
+                metadata={"tender_id": tender_id},
             )
-            return result.activity_log_id
-        except Exception:
-            logger.exception(
-                "record_tender_processing_status_change failed lifecycle_id=%s",
-                wl,
-            )
-            return None
+        )
 
     def record_from_workflow_state(
         self,
@@ -267,6 +322,30 @@ class ActivityLogService:
         wr = workflow_run_id
         if wr is None:
             wr = getattr(state, "execution_id", None)
+
+        at = self._clean(activity_type)
+        if at == ActivityType.ACTION.value:
+            wl_id = self._uuid_or_none(wl, field_name="workflow_lifecycle_id")
+            run_id = self._uuid_or_none(wr, field_name="workflow_run_id")
+            if not wl_id or not run_id:
+                return None
+            actor = self._uuid_or_none(actor_id, field_name="actor_id")
+            actor_type_clean = self._clean(actor_type)
+            if not actor and actor_type_clean == ActorType.SYSTEM.value:
+                actor = SYSTEM_ACTOR_ID
+            return self._record_via_lifecycle_transition(
+                LifecycleTransitionCommand(
+                    tenant_id=str(tenant_raw or ""),
+                    workflow_lifecycle_id=wl_id,
+                    workflow_run_id=run_id,
+                    activity_type=ActivityType.ACTION,
+                    description=self._clean(description),
+                    metadata=metadata if metadata is not None else {},
+                    actor_type=self._parse_actor_type(actor_type_clean),
+                    actor_id=actor,
+                    update_lifecycle=False,
+                )
+            )
 
         return self.record_activity(
             tenant_id=str(tenant_raw or ""),

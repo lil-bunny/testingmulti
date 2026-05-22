@@ -178,6 +178,95 @@ def test_apply_lifecycle_only_when_record_activity_false(
 
 @patch(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+@patch("app.services.lifecycle_transition_service.unit_of_work")
+def test_apply_action_snapshots_lifecycle_without_update(
+    mock_uow: MagicMock,
+    _resolve_tenant: MagicMock,
+) -> None:
+    conn = MagicMock()
+    mock_uow.return_value.__enter__.return_value = conn
+
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.TENDER_SENT_TO_CARRIER.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    activity_logs = MagicMock()
+    activity_logs.insert_with_connection.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply(
+        _command(
+            activity_type=ActivityType.ACTION,
+            to_status=StatusType.COMPLETED,
+            to_sub_status=StatusSubType.ACCEPTED,
+            update_lifecycle=True,
+            description="Queued reminders",
+        )
+    )
+
+    lifecycles.update_status.assert_not_called()
+    row = activity_logs.insert_with_connection.call_args[0][1]
+    assert row["activity_type"] == ActivityType.ACTION.value
+    assert row["from_status"] == StatusType.PENDING_REVIEW.value
+    assert row["to_status"] == StatusType.PENDING_REVIEW.value
+    assert row["from_sub_status"] == StatusSubType.TENDER_SENT_TO_CARRIER.value
+    assert row["to_sub_status"] == StatusSubType.TENDER_SENT_TO_CARRIER.value
+    assert result.lifecycle_updated is False
+    assert result.from_status == StatusType.PENDING_REVIEW
+    assert result.to_status == StatusType.PENDING_REVIEW
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+@patch("app.services.lifecycle_transition_service.unit_of_work")
+def test_apply_action_null_lifecycle_status_uses_none(
+    mock_uow: MagicMock,
+    _resolve_tenant: MagicMock,
+) -> None:
+    conn = MagicMock()
+    mock_uow.return_value.__enter__.return_value = conn
+
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": None,
+        "sub_status": None,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    activity_logs = MagicMock()
+    activity_logs.insert_with_connection.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    svc.apply(
+        _command(
+            activity_type=ActivityType.ACTION,
+            update_lifecycle=False,
+            description="Tender created",
+        )
+    )
+
+    row = activity_logs.insert_with_connection.call_args[0][1]
+    assert row["from_status"] == StatusType.NONE.value
+    assert row["to_status"] == StatusType.NONE.value
+    assert row["from_sub_status"] == StatusSubType.NONE.value
+    assert row["to_sub_status"] == StatusSubType.NONE.value
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=None,
 )
 def test_apply_raises_when_tenant_unresolvable(_resolve: MagicMock) -> None:

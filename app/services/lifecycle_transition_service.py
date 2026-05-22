@@ -1,4 +1,4 @@
-"""Atomic workflow lifecycle status changes with matching activity log rows."""
+"""Atomic workflow lifecycle updates and ``activity_logs`` writes (single front door)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from app.domain.lifecycle_transition import (
     LifecycleTransitionError,
     LifecycleTransitionResult,
 )
+from app.domain.activity_log_fields import build_activity_log_status_fields
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
 from app.models.status import StatusSubType, StatusType
@@ -82,6 +83,9 @@ class LifecycleTransitionService:
                     )
                 current_status: StatusType | None = command.from_status
                 current_sub: StatusSubType | None = command.from_sub_status
+            elif command.activity_type == ActivityType.ACTION:
+                current_status = status_type_from_db(row.get("status"))
+                current_sub = sub_status_type_from_db(row.get("sub_status"))
             else:
                 current_status = command.from_status or status_type_from_db(
                     row.get("status")
@@ -90,21 +94,20 @@ class LifecycleTransitionService:
                     row.get("sub_status")
                 )
 
-            log_from_status = current_status
-            log_from_sub = current_sub
-            log_to_status = (
-                command.to_status
-                if command.to_status is not None
-                else current_status
-            )
-            log_to_sub = (
-                command.to_sub_status
-                if command.to_sub_status is not None
-                else current_sub
+            log_from_status, log_to_status, log_from_sub, log_to_sub = (
+                build_activity_log_status_fields(
+                    command,
+                    current_status=current_status,
+                    current_sub=current_sub,
+                )
             )
 
             lifecycle_updated = False
-            if command.update_lifecycle and row is not None:
+            update_lifecycle = (
+                command.update_lifecycle
+                and command.activity_type != ActivityType.ACTION
+            )
+            if update_lifecycle and row is not None:
                 thread = self._clean(command.email_thread_id)
                 if thread:
                     self._lifecycles.update_email_thread_id(

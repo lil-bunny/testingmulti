@@ -11,7 +11,8 @@ from app.domain.load_tendering_settings import action_settings
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
-from app.services.activity_log_service import ActivityLogService
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.reminders import trigger_gelita_tender_reminder
 
@@ -131,22 +132,28 @@ def schedule_tender_reminders(data: dict[str, Any]) -> None:
         return
 
     run_id = str(data.get("workflow_run_id") or "").strip() or None
-    try:
-        ActivityLogService().record_activity(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl_id,
-            workflow_run_id=run_id,
-            activity_type=ActivityType.ACTION,
-            description="Queued reminder_due (1,2) and escalation_due Celery tasks",
-            from_sub_status=row.get("sub_status"),
-            to_sub_status=row.get("sub_status"),
-            actor_type=ActorType.SYSTEM,
-            metadata={"hours": [h for h, _, _ in specs]},
-        )
-    except Exception:
-        logger.exception(
-            "schedule_tender_reminders activity log failed lifecycle_id=%s (tasks queued)",
-            wl_id,
-        )
+    if run_id:
+        try:
+            lifecycle_transition_service = LifecycleTransitionService()
+            lifecycle_transition_service.apply(
+                LifecycleTransitionCommand(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=wl_id,
+                    workflow_run_id=run_id,
+                    activity_type=ActivityType.ACTION,
+                    description=(
+                        "Queued reminder_due (1,2) and escalation_due Celery tasks"
+                    ),
+                    actor_type=ActorType.SYSTEM,
+                    metadata={"hours": [h for h, _, _ in specs]},
+                    update_lifecycle=False,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "schedule_tender_reminders activity log failed lifecycle_id=%s "
+                "(tasks queued)",
+                wl_id,
+            )
 
     data["reminders_scheduled"] = True
