@@ -5,10 +5,18 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
+# from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
+
+__all__ = [
+    "build_gelita_tender_email",
+    "record_tender_calc_failure",
+    # "status_type_from_db",
+    # "sub_status_type_from_db",
+]
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
-from app.services.activity_log_service import ActivityLogService
-from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.models.status import StatusType
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 
 def _html_address_block(text: str) -> str:
@@ -61,15 +69,6 @@ def build_gelita_tender_email(
     return {"subject": subject, "body_html": body_html}
 
 
-def status_type_from_db(raw: str | None) -> StatusType | None:
-    if raw is None or not str(raw).strip():
-        return None
-    try:
-        return StatusType(str(raw).strip())
-    except ValueError:
-        return None
-
-
 _CALC_FAILURE_DESCRIPTIONS: dict[str, str] = {
     "missing_pack_code": "Pack code missing or inactive",
     "missing_qty_per_unit": "Pack code qty_per_unit missing",
@@ -93,38 +92,22 @@ def record_tender_calc_failure(state: Any, *, error_code: str) -> None:
     if not wl_id or not tenant_id or not run_id:
         return
 
-    lifecycle_svc = WorkflowLifecycleService()
-    prev = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
-    prev_status = status_type_from_db((prev or {}).get("status"))
-
-    lifecycle_svc.update_lifecycle_status(
-        lifecycle_id=wl_id,
-        status=StatusType.FAILED,
-    )
-
     description = _CALC_FAILURE_DESCRIPTIONS.get(error_code, error_code)
     pack_code = str(getattr(state, "data", {}).get("pack_code") or "").strip()
     metadata: dict[str, Any] = {"error": error_code, "tender_id": tender_id}
     if pack_code:
         metadata["pack_code"] = pack_code
 
-    ActivityLogService().record_activity(
-        tenant_id=tenant_id,
-        workflow_lifecycle_id=wl_id,
-        workflow_run_id=run_id,
-        activity_type=ActivityType.STATUS_CHANGE,
-        description=description,
-        from_status=prev_status,
-        to_status=StatusType.FAILED,
-        actor_type=ActorType.SYSTEM,
-        metadata=metadata,
+    lifecycle_transition_service = LifecycleTransitionService()
+    lifecycle_transition_service.apply(
+        LifecycleTransitionCommand(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=StatusType.FAILED,
+            description=description,
+            actor_type=ActorType.SYSTEM,
+            metadata=metadata,
+        )
     )
-
-
-def sub_status_type_from_db(raw: str | None) -> StatusSubType | None:
-    if raw is None or not str(raw).strip():
-        return None
-    try:
-        return StatusSubType(str(raw).strip())
-    except ValueError:
-        return None

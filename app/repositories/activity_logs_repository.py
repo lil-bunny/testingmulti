@@ -13,6 +13,65 @@ from app.core.config import settings
 class ActivityLogsRepository:
     TABLE_NAME = "activity_logs"
 
+    def insert_with_connection(
+        self,
+        conn: psycopg.Connection,
+        row: dict[str, Any],
+    ) -> str:
+        """Insert within an open transaction (caller commits via unit of work)."""
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                INSERT INTO {self.TABLE_NAME} (
+                    tenant_id,
+                    workflow_lifecycle_id,
+                    workflow_run_id,
+                    activity_type,
+                    description,
+                    from_status,
+                    to_status,
+                    from_sub_status,
+                    to_sub_status,
+                    actor_type,
+                    actor_id,
+                    metadata
+                )
+                VALUES (
+                    %s::uuid,
+                    %s::uuid,
+                    %s::uuid,
+                    %s::activity_log_type,
+                    %s,
+                    %s::lifecycle_status,
+                    %s::lifecycle_status,
+                    %s::lifecycle_sub_status,
+                    %s::lifecycle_sub_status,
+                    %s,
+                    %s::uuid,
+                    %s
+                )
+                RETURNING id::text
+                """,
+                (
+                    row["tenant_id"],
+                    row.get("workflow_lifecycle_id"),
+                    row.get("workflow_run_id"),
+                    row["activity_type"],
+                    row.get("description"),
+                    row.get("from_status"),
+                    row.get("to_status"),
+                    row.get("from_sub_status"),
+                    row.get("to_sub_status"),
+                    row.get("actor_type"),
+                    row.get("actor_id"),
+                    Json(row.get("metadata") or {}),
+                ),
+            )
+            out = cur.fetchone()
+        if not out or not out[0]:
+            raise RuntimeError("activity_logs insert returned no id")
+        return str(out[0])
+
     def insert(self, row: dict[str, Any]) -> str:
         """Insert one activity row; return ``activity_logs.id``."""
 

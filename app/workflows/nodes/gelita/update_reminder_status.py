@@ -5,12 +5,9 @@ from __future__ import annotations
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
-from app.services.activity_log_service import ActivityLogService
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.workflows.nodes.gelita.load_tendering_helpers import (
-    status_type_from_db,
-    sub_status_type_from_db,
-)
+from app.domain.status_parsing import status_type_from_db
 
 logger = get_logger(__name__)
 
@@ -61,17 +58,13 @@ def update_reminder_status(state):
         else "Tender reminder 2 sent on carrier thread"
     )
 
-    lifecycle_svc = WorkflowLifecycleService()
-    prev = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
+    prev = WorkflowLifecycleService().read_lifecycle_row_by_id(wl_id)
     if not prev:
         logger.warning("update_reminder_status lifecycle not found id=%s", wl_id)
         state.data["reminder_status_error"] = "lifecycle_not_found"
         return state
 
-    prev_status = status_type_from_db(prev.get("status"))
-    prev_sub = sub_status_type_from_db(prev.get("sub_status"))
-
-    if prev_status == StatusType.COMPLETED:
+    if status_type_from_db(prev.get("status")) == StatusType.COMPLETED:
         logger.info(
             "update_reminder_status skipping: lifecycle already completed lifecycle_id=%s",
             wl_id,
@@ -79,33 +72,18 @@ def update_reminder_status(state):
         state.data["reminder_status_skipped"] = "lifecycle_already_completed"
         return state
 
-    lifecycle_svc.update_lifecycle_status(
-        lifecycle_id=wl_id,
-        sub_status=new_sub,
+    lifecycle_transition_service = LifecycleTransitionService()
+    lifecycle_transition_service.apply_from_state(
+        state,
+        to_sub_status=new_sub,
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
+        description=message,
+        actor_type=ActorType.SYSTEM,
+        metadata={
+            "reminder_step": step,
+            "tender_id": state.data.get("tender_id"),
+        },
     )
-
-    try:
-        ActivityLogService().record_activity(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl_id,
-            workflow_run_id=str(state.execution_id),
-            activity_type=ActivityType.SUB_STATUS_CHANGE,
-            description=message,
-            from_status=prev_status,
-            to_status=prev_status,
-            from_sub_status=prev_sub,
-            to_sub_status=new_sub,
-            actor_type=ActorType.SYSTEM,
-            metadata={
-                "reminder_step": step,
-                "tender_id": state.data.get("tender_id"),
-            },
-        )
-    except Exception:
-        logger.exception(
-            "update_reminder_status activity log failed lifecycle_id=%s",
-            wl_id,
-        )
 
     state.data["reminder_sub_status"] = new_sub.value
     return state

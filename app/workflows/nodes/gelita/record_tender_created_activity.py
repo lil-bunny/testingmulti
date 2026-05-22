@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.domain.activity_log_descriptions import format_status_updated_to_processing
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
+from app.models.activity_type import ActivityType, ActorType
+from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
 
@@ -37,8 +42,7 @@ def record_tender_created_activity(state):
         order_number = str(row.get("order_number") or "")
         customer_name = str(row.get("customer_name") or row.get("customer_match") or "")
 
-    svc = ActivityLogService()
-    svc.record_tender_created_action(
+    ActivityLogService().record_tender_created_action(
         tenant_id=tenant_id,
         tender_id=tender_id,
         order_number=order_number,
@@ -46,10 +50,21 @@ def record_tender_created_activity(state):
         workflow_lifecycle_id=wl_id,
         workflow_run_id=run_id,
     )
-    svc.record_tender_processing_status_change(
-        tenant_id=tenant_id,
-        tender_id=tender_id,
-        workflow_lifecycle_id=wl_id,
-        workflow_run_id=run_id,
+
+    lifecycle_transition_service = LifecycleTransitionService()
+    lifecycle_transition_service.apply(
+        LifecycleTransitionCommand(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=StatusType.PROCESSING,
+            to_sub_status=StatusSubType.TENDER_CREATED,
+            description=format_status_updated_to_processing(),
+            from_status=StatusType.NONE,
+            from_sub_status=StatusSubType.NONE,
+            actor_type=ActorType.SYSTEM,
+            metadata={"tender_id": tender_id},
+        )
     )
     return state

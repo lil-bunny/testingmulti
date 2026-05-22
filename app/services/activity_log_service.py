@@ -11,7 +11,7 @@ import uuid
 from typing import Any, Optional
 
 from app.core.logger import get_logger
-from app.models.activity_type import ActivityType, ActorType
+from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
 from app.models.status import StatusSubType, StatusType
 from app.domain.activity_log_descriptions import (
     format_status_updated_to_processing,
@@ -19,12 +19,10 @@ from app.domain.activity_log_descriptions import (
 )
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
-
-# Sentinel UUID for ``actor_type=system`` when no user initiated the action (no FK).
-SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001"
 
 
 class ActivityLogService:
@@ -171,30 +169,34 @@ class ActivityLogService:
         workflow_run_id: str,
     ) -> str | None:
         """Status_change log: processing / tender_created on the same workflow run."""
-        
         wl = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
-        if not wl:
-            return None 
-        lifecycle_svc = WorkflowLifecycleService()
-        lifecycle_svc.update_lifecycle_status(
-            lifecycle_id=wl,
-            status=StatusType.PROCESSING,
-            sub_status=StatusSubType.TENDER_CREATED,
-        )
-
-        return self.record_activity(
-            tenant_id=tenant_id,
-            activity_type=ActivityType.STATUS_CHANGE,
-            workflow_lifecycle_id=workflow_lifecycle_id,
-            workflow_run_id=workflow_run_id,
-            description=format_status_updated_to_processing(),
-            from_status=StatusType.NONE,
-            to_status=StatusType.PROCESSING,
-            from_sub_status=StatusSubType.NONE,
-            to_sub_status=StatusSubType.TENDER_CREATED,
-            actor_type=ActorType.SYSTEM,
-            metadata={"tender_id": tender_id},
-        )
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not wl or not wr:
+            return None
+        try:
+            lifecycle_transition_service = LifecycleTransitionService()
+            result = lifecycle_transition_service.apply(
+                LifecycleTransitionCommand(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=wl,
+                    workflow_run_id=wr,
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    to_status=StatusType.PROCESSING,
+                    to_sub_status=StatusSubType.TENDER_CREATED,
+                    description=format_status_updated_to_processing(),
+                    from_status=StatusType.NONE,
+                    from_sub_status=StatusSubType.NONE,
+                    actor_type=ActorType.SYSTEM,
+                    metadata={"tender_id": tender_id},
+                )
+            )
+            return result.activity_log_id
+        except Exception:
+            logger.exception(
+                "record_tender_processing_status_change failed lifecycle_id=%s",
+                wl,
+            )
+            return None
 
     def record_from_workflow_state(
         self,

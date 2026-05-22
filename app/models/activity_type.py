@@ -18,3 +18,7 @@ class ActorType(StrEnum):
 
     SYSTEM = "system"
     USER = "user"
+
+
+# Sentinel UUID for ``actor_type=system`` when no user initiated the action (no FK).
+SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000001"

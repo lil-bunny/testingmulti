@@ -6,14 +6,11 @@ import app.configs.gelita_config as gelita_config
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
-from app.services.activity_log_service import ActivityLogService
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.email import send_email
-from app.workflows.nodes.gelita.load_tendering_helpers import (
-    status_type_from_db,
-    sub_status_type_from_db,
-)
+from app.domain.status_parsing import status_type_from_db
 
 logger = get_logger(__name__)
 
@@ -42,7 +39,6 @@ def escalate_tender(state):
         return state
 
     prev_status = status_type_from_db(prev.get("status"))
-    prev_sub = sub_status_type_from_db(prev.get("sub_status"))
 
     if prev_status == StatusType.COMPLETED:
         logger.info(
@@ -151,33 +147,21 @@ def escalate_tender(state):
         ) or "unipile_send_failed"
         return state
 
-    lifecycle_svc.update_lifecycle_status(
-        lifecycle_id=wl_id,
-        sub_status=StatusSubType.ESCALATED,
+    lifecycle_transition_service = LifecycleTransitionService()
+    lifecycle_transition_service.apply_from_state(
+        state,
+        to_sub_status=StatusSubType.ESCALATED,
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
+        description="Escalation email sent to operations (sample recipient in gelita_config)",
+        actor_type=ActorType.SYSTEM,
+        metadata={
+            "tender_id": tender_id or None,
+            "order_number": order_number or None,
+            "escalation_notify_email_domain": to_addr.split("@", 1)[-1]
+            if "@" in to_addr
+            else None,
+        },
     )
-
-    try:
-        ActivityLogService().record_activity(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl_id,
-            workflow_run_id=str(state.execution_id),
-            activity_type=ActivityType.SUB_STATUS_CHANGE,
-            description="Escalation email sent to operations (sample recipient in gelita_config)",
-            from_status=prev_status,
-            to_status=prev_status,
-            from_sub_status=prev_sub,
-            to_sub_status=StatusSubType.ESCALATED,
-            actor_type=ActorType.SYSTEM,
-            metadata={
-                "tender_id": tender_id or None,
-                "order_number": order_number or None,
-                "escalation_notify_email_domain": to_addr.split("@", 1)[-1]
-                if "@" in to_addr
-                else None,
-            },
-        )
-    except Exception:
-        logger.exception("escalate_tender activity log failed lifecycle_id=%s", wl_id)
 
     state.data["escalation_sub_status"] = StatusSubType.ESCALATED.value
     return state

@@ -5,8 +5,7 @@ from __future__ import annotations
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
-from app.services.activity_log_service import ActivityLogService
-from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
 
@@ -37,64 +36,15 @@ def update_awaiting_response(state):
         )
         return state
 
-    lifecycle_svc = WorkflowLifecycleService()
-
-    row_before = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
-
-    if not row_before:
-        logger.warning(
-            "update_awaiting_response lifecycle not found id=%s",
-            wl_id,
-        )
-        return state
-
-    prev_sub_status = (
-        StatusSubType(row_before["sub_status"])
-        if row_before.get("sub_status")
-        else None
+    lifecycle_transition_service = LifecycleTransitionService()
+    lifecycle_transition_service.apply_from_state(
+        state,
+        to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
+        description="Awaiting carrier acknowledgment on captured thread",
+        actor_type=ActorType.SYSTEM,
+        email_thread_id=thread_id or None,
+        metadata={"thread_id": thread_id} if thread_id else {},
     )
-
-    if thread_id:
-        lifecycle_svc.update_lifecycle_keys(
-            lifecycle_id=wl_id,
-            thread_id=thread_id,
-        )
-
-    updated = lifecycle_svc.update_lifecycle_sub_status(
-        lifecycle_id=wl_id,
-        new_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
-    )
-
-    row_after = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
-
-    next_sub_status = (
-        StatusSubType(row_after["sub_status"])
-        if row_after and row_after.get("sub_status")
-        else None
-    )
-
-    if updated or thread_id:
-        try:
-            ActivityLogService().record_activity(
-                tenant_id=tenant_id,
-                actor_type=ActorType.SYSTEM,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=str(state.execution_id),
-                activity_type=ActivityType.SUB_STATUS_CHANGE,
-                description="Awaiting carrier acknowledgment on captured thread",
-                from_sub_status=prev_sub_status,
-                to_sub_status=next_sub_status,
-                metadata=(
-                    {"thread_id": thread_id}
-                    if thread_id
-                    else {}
-                ),
-            )
-
-        except Exception:
-            logger.exception(
-                "update_awaiting_response activity log failed lifecycle_id=%s",
-                wl_id,
-            )
 
     return state

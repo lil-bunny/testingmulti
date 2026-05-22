@@ -142,35 +142,49 @@ def test_record_tender_created_action_requires_lifecycle_and_run(
     assert row["workflow_run_id"] == RUN_UUID
     assert row["from_status"] == StatusType.NONE.value
     assert row["actor_type"] == ActorType.SYSTEM.value
-    from app.services.activity_log_service import SYSTEM_ACTOR_ID
+    from app.models.activity_type import SYSTEM_ACTOR_ID
 
     assert row["actor_id"] == SYSTEM_ACTOR_ID
 
 
+@patch("app.services.activity_log_service.LifecycleTransitionService")
 @patch(
     "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
-def test_record_tender_processing_status_change_uses_record_activity(
+def test_record_tender_processing_status_change_delegates_to_transition_service(
     mock_resolve: MagicMock,
+    mock_transition_cls: MagicMock,
     mock_repo: MagicMock,
 ) -> None:
-    from app.models.activity_type import ActivityType
+    from app.domain.lifecycle_transition import LifecycleTransitionResult
     from app.models.status import StatusSubType, StatusType
 
+    mock_transition = MagicMock()
+    mock_transition.apply.return_value = LifecycleTransitionResult(
+        lifecycle_updated=True,
+        activity_log_id=ACTIVITY_UUID,
+        from_status=StatusType.NONE,
+        from_sub_status=StatusSubType.NONE,
+        to_status=StatusType.PROCESSING,
+        to_sub_status=StatusSubType.TENDER_CREATED,
+    )
+    mock_transition_cls.return_value = mock_transition
+
     svc = ActivityLogService(repository=mock_repo)
-    svc.record_tender_processing_status_change(
+    out = svc.record_tender_processing_status_change(
         tenant_id=TENANT_UUID,
         tender_id=TENDER_UUID,
         workflow_lifecycle_id=LIFECYCLE_UUID,
         workflow_run_id=RUN_UUID,
     )
 
-    mock_repo.insert.assert_called_once()
-    row = mock_repo.insert.call_args[0][0]
-    assert row["activity_type"] == ActivityType.STATUS_CHANGE.value
-    assert row["to_status"] == StatusType.PROCESSING.value
-    assert row["to_sub_status"] == StatusSubType.TENDER_CREATED.value
+    assert out == ACTIVITY_UUID
+    mock_transition.apply.assert_called_once()
+    command = mock_transition.apply.call_args[0][0]
+    assert command.to_status == StatusType.PROCESSING
+    assert command.to_sub_status == StatusSubType.TENDER_CREATED
+    mock_repo.insert.assert_not_called()
 
 
 def test_record_from_workflow_state(mock_repo: MagicMock) -> None:
