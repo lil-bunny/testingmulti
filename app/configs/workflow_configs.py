@@ -92,4 +92,72 @@ WORKFLOW_CONFIGS = {
         ],
         "routers": {},
     },
+    "load_tendering": {
+        "entry": "route_event",
+        "exit": "end",
+        "nodes": [
+            "route_event",
+            "record_tender_created_activity",
+            "calculate_tender_params",
+            "send_tender_email",
+            "log_tender_activity",
+            "update_awaiting_response",
+            "schedule_tender_reminders",
+            "classify_carrier_ack",
+            "record_ack_received",
+            "read_tender_row",
+            "send_tender_reminder",
+            "update_reminder_status",
+            "escalate_tender",
+            "end",
+        ],
+        "edges": [
+            ["record_tender_created_activity", "calculate_tender_params"],
+            ["send_tender_email", "log_tender_activity"],
+            ["log_tender_activity", "end"],
+            ["update_awaiting_response", "schedule_tender_reminders"],
+            ["schedule_tender_reminders", "end"],
+            ["record_ack_received", "end"],
+            ["send_tender_reminder", "update_reminder_status"],
+            ["update_reminder_status", "end"],
+            ["escalate_tender", "end"],
+        ],
+        "routers": {
+            "route_event": {
+                "router": "event_type",
+                "map": {
+                    "tender_created": "record_tender_created_activity",
+                    "carrier_email_received": "update_awaiting_response",
+                    "ack_received": "classify_carrier_ack",
+                    "reminder_due": "read_tender_row",
+                    "escalation_due": "read_tender_row",
+                },
+            },
+            "calculate_tender_params": {
+                "router": "load_type_router",
+                "map": {
+                    "ltl_path": "send_tender_email",
+                    "ftl_path": "send_tender_email",
+                    "error_path": "end",
+                },
+            },
+            "read_tender_row": {
+                "router": "tender_status_router",
+                "map": {
+                    "completed": "end",
+                    "reminder_due": "send_tender_reminder",
+                    "escalation_due": "escalate_tender",
+                    "missing": "end",
+                },
+            },
+            "classify_carrier_ack": {
+                "router": "carrier_ack_router",
+                "map": {
+                    "accepted": "record_ack_received",
+                    "rejected": "record_ack_received",
+                    "do_nothing": "record_ack_received",
+                },
+            },
+        },
+    },
 }

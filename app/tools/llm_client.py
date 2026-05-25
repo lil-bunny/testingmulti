@@ -41,6 +41,7 @@ def chat_json(
         ],
         "temperature": temperature,
     }
+    print("\n\n\npayload", payload["messages"],"\n\n\n")
     endpoint = f"{base_url.rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",

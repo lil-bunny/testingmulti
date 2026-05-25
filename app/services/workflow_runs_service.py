@@ -1,9 +1,10 @@
 """Service layer for workflow_runs table.
 
 Pure execution log — one row per graph invocation, keyed by execution_id (PK).
-The row is inserted before ``graph.invoke``; the HTTP handler awaits the graph, so
-no separate run status column is required for completion signaling.
-Dedup for route_completed is handled via read-based checks, not insert constraints.
+``tenant_id`` is stored as ``tenants.id`` (UUID). Graph/config keys such as ``t3ra`` are
+resolved via ``tenants.slug`` before insert/query.
+
+Shipment correlation for dedupe lives on ``workflow_lifecycles``, not duplicated here.
 """
 
 from __future__ import annotations
@@ -13,6 +14,10 @@ from typing import Any
 import psycopg
 
 from app.core.config import settings
+from app.core.logger import get_logger
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
+
+logger = get_logger(__name__)
 
 
 class WorkflowRunsService:
@@ -28,6 +33,11 @@ class WorkflowRunsService:
             return None
         s = str(val).strip()
         return s if s else None
+
+    def _tenant_uuid_or_none(self, tenant_id: str | None) -> str | None:
+        """Resolve graph/config tenant key or UUID string to canonical tenant UUID."""
+
+        return resolve_graph_tenant_to_uuid(self._clean(tenant_id))
 
     @staticmethod
     def reminder_run_event_type(reminder_step: int | None) -> str | None:
@@ -46,13 +56,12 @@ class WorkflowRunsService:
         exclude_run_id: str | None = None,
     ) -> bool:
         """
-        Whether a prior recorded run already covers this ``route_completed`` trigger
-        (replay or duplicate Turvo webhook).
+        Whether a prior recorded run already covers this ``route_completed`` trigger.
 
-        Excludes the current run (``exclude_run_id``) so a run doesn't block itself.
-        Requires ``shipment_id``; load-only route signals are not deduped via this table.
+        Matches either same ``workflow_lifecycle_id`` + ``route_completed`` or any run for the same
+        tenant shipment (via ``workflow_lifecycles.shipment_id``). Requires resolvable UUID ``tenant_id``.
         """
-        tid = self._clean(tenant_id)
+        tid = self._tenant_uuid_or_none(tenant_id)
         wl = self._clean(workflow_lifecycle_id)
         et = self._clean(event_type)
         sid = self._clean(shipment_id)
@@ -68,15 +77,16 @@ class WorkflowRunsService:
                     f"""
                     SELECT EXISTS (
                         SELECT 1 FROM {self.TABLE_NAME} wr
-                        WHERE wr.workflow_lifecycle_id = %s
+                        WHERE trim(both wr.workflow_lifecycle_id::text) = trim(both %s::text)
                           AND wr.event_type = %s
-                          AND (%s::text IS NULL OR wr.id != %s::text)
+                          AND (%s::text IS NULL OR trim(both wr.id::text) != trim(both %s::text))
                         UNION ALL
                         SELECT 1 FROM {self.TABLE_NAME} wr
-                        WHERE wr.tenant_id = %s
+                        INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+                        WHERE trim(both wr.tenant_id::text) = trim(both %s::text)
                           AND wr.event_type = 'route_completed'
-                          AND wr.shipment_id IS NOT DISTINCT FROM %s
-                          AND (%s::text IS NULL OR wr.id != %s::text)
+                          AND wl.shipment_id IS NOT DISTINCT FROM %s
+                          AND (%s::text IS NULL OR trim(both wr.id::text) != trim(both %s::text))
                     )
                     """,
                     (wl, et, exc, exc, tid, sid, exc, exc),
@@ -93,17 +103,20 @@ class WorkflowRunsService:
         tenant_id: str | None,
         event_type: str,
         workflow_lifecycle_id: str | None,
-        shipment_id: str | None = None,
     ) -> bool:
         """Insert one execution-log row. Returns True on success, False if required fields are missing."""
-        tid = self._clean(tenant_id)
+        tid_uuid = self._tenant_uuid_or_none(tenant_id)
         wl = self._clean(workflow_lifecycle_id)
         et = (event_type or "").strip()
+        rid = self._clean(run_id)
 
-        if not tid or not wl or not et:
+        if not tid_uuid or not wl or not et or not rid:
+            if not tid_uuid and self._clean(tenant_id):
+                logger.warning(
+                    "workflow_runs skipped: cannot resolve tenant_id=%r to tenants.id (UUID)",
+                    tenant_id,
+                )
             return False
-
-        sid = self._clean(shipment_id)
 
         conn = self._conn()
         try:
@@ -112,31 +125,20 @@ class WorkflowRunsService:
                     f"""
                     INSERT INTO {self.TABLE_NAME} (
                         id, tenant_id, event_type,
-                        workflow_lifecycle_id, shipment_id
+                        workflow_lifecycle_id
                     )
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s)
                     """,
-                    (run_id, tid, et, wl, sid),
+                    (rid, tid_uuid, et, wl),
                 )
             conn.commit()
             return True
         finally:
             conn.close()
 
-    def update_run_shipment_id(self, *, run_id: str, shipment_id: str) -> None:
-        conn = self._conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"UPDATE {self.TABLE_NAME} SET shipment_id = %s WHERE id = %s AND shipment_id IS NULL",
-                    (self._clean(shipment_id), run_id),
-                )
-            conn.commit()
-        finally:
-            conn.close()
-
     def fetch_workflow_run_by_id(self, *, run_id: str) -> dict[str, Any] | None:
         """Return one execution row by primary key."""
+
         rid = self._clean(run_id)
         if not rid:
             return None
@@ -145,10 +147,10 @@ class WorkflowRunsService:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT id, tenant_id, event_type, workflow_lifecycle_id, shipment_id,
-                           created_at
+                    SELECT id, tenant_id, event_type, workflow_lifecycle_id,
+                           created_at, updated_at
                     FROM {self.TABLE_NAME}
-                    WHERE id = %s
+                    WHERE trim(both id::text) = trim(both %s::text)
                     """,
                     (rid,),
                 )
@@ -156,12 +158,12 @@ class WorkflowRunsService:
                 if not row:
                     return None
                 return {
-                    "id": row[0],
-                    "tenant_id": row[1],
+                    "id": str(row[0]),
+                    "tenant_id": str(row[1]),
                     "event_type": row[2],
-                    "workflow_lifecycle_id": row[3],
-                    "shipment_id": row[4],
-                    "created_at": row[5],
+                    "workflow_lifecycle_id": str(row[3]),
+                    "created_at": row[4],
+                    "updated_at": row[5],
                 }
         finally:
             conn.close()

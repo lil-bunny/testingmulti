@@ -2,14 +2,53 @@ from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.services.communications.service import CommunicationsService
+from app.domain.tenant_settings.email_recipients import (
+    coerce_email_list,
+    unipile_recipients_from_addresses,
+)
 from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
+
+
+def _record_outbound_communication(
+    *,
+    tenant_id: str | None,
+    communication_metadata: dict[str, Any] | None,
+    body: str,
+    subject: str | None,
+    result: dict[str, Any] | None,
+    thread_id: str | None = None,
+    to: Any = None,
+    cc: Any = None,
+    bcc: Any = None,
+    account_id: str | None = None,
+) -> None:
+    if not tenant_id or not isinstance(result, dict) or not result.get("success"):
+        return
+    CommunicationsService().record_outbound_from_send(
+        tenant_id,
+        send_result=result,
+        body=body,
+        subject=subject,
+        thread_id=thread_id or result.get("thread_id"),
+        to=to,
+        cc=cc,
+        bcc=bcc,
+        account_id=account_id,
+        extra_metadata=communication_metadata,
+    )
 
 # Private helpers
 
 def _normalize_email(e: Any) -> str:
     return (str(e) if e else "").strip().lower()
+
+
+def _unipile_recipient_list(field: Any, *, required: bool) -> List[Dict[str, str]]:
+    addrs = coerce_email_list(field, required=required)
+    return unipile_recipients_from_addresses(addrs)
 
 
 def _attendee_to_recipient(att: Any) -> Optional[Dict[str, str]]:
@@ -44,7 +83,7 @@ def _resolve_parent_id(
         try:
             resolved = unipile.get_email(reply_to_message_id, account_id=account_id)
         except Exception:
-            print(f"[reply_to_thread] Could not resolve provider_id={reply_to_message_id}, using as-is")
+            logger.warning(f"[reply_to_thread] Could not resolve provider_id={reply_to_message_id}, using as-is")
 
         reply_to_id = (resolved.get("id") if isinstance(resolved, dict) else None) or reply_to_message_id
         return str(reply_to_id).strip()
@@ -200,11 +239,17 @@ def send_email(
     body: Optional[str] = None,
     thread_id: Optional[str] = None,
     account_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    communication_metadata: Optional[dict[str, Any]] = None,
+    cc: Any = None,
+    bcc: Any = None,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
-    is an email, send a new message. Requires ``UNIPILE_API_KEY`` and sending ``account_id``
-    (argument or ``settings.UNIPILE_ACCOUNT_ID``).
+    has at least one valid address, send a new message. Requires ``UNIPILE_API_KEY`` and
+    sending ``account_id`` (argument or ``settings.UNIPILE_ACCOUNT_ID``).
+
+    ``to``, ``cc``, and ``bcc`` accept a single email string or a list of strings.
 
     ``subject`` is optional; empty/missing values default to ``"POD Request"``.
     """
@@ -232,39 +277,54 @@ def send_email(
         return
 
     if tid:
-        reply_to_thread(
+        return reply_to_thread(
             thread_id=tid,
             body=body,
             account_id=acc,
-            # subject=subject,
-        )
-        return
-
-    to_addr = (str(to).strip() if to else "") or ""
-    if "@" in to_addr:
-        unipile = Unipile()
-        recipients: List[Dict[str, str]] = [
-            {
-                "identifier": to_addr,
-                "display_name": to_addr.split("@", 1)[0],
-            }
-        ]
-        out = unipile.send_email(
-            to=recipients,
             subject=subject,
-            body=body,
-            account_id=acc,
+            tenant_id=tenant_id,
+            communication_metadata=communication_metadata,
         )
-        if not out.get("success"):
-            err = out.get("error") or "Unipile send_email failed"
-            logger.warning("send_email: Unipile send failed: %s", err)
-            raise UnipileException(str(err))
-        return
 
-    raise UnipileException(
-        "send_email: no thread_id and no valid `to` address; nothing sent "
-        f"(subject={subject!r})"
+    try:
+        to_recipients = _unipile_recipient_list(to, required=True)
+    except ValueError as exc:
+        raise UnipileException(
+            "send_email: no thread_id and no valid `to` address; nothing sent "
+            f"(subject={subject!r}): {exc}"
+        ) from exc
+
+    cc_recipients = _unipile_recipient_list(cc, required=False) or None
+    bcc_recipients = _unipile_recipient_list(bcc, required=False) or None
+
+    unipile = Unipile()
+    out = unipile.send_email(
+        to=to_recipients,
+        subject=subject,
+        body=body,
+        account_id=acc,
+        cc=cc_recipients,
+        bcc=bcc_recipients,
     )
+    if not out.get("success"):
+        err = out.get("error") or "Unipile send_email failed"
+        logger.warning("send_email: Unipile send failed: %s", err)
+        raise UnipileException(str(err))
+    to_logged = coerce_email_list(to, required=False)
+    cc_logged = coerce_email_list(cc, required=False)
+    bcc_logged = coerce_email_list(bcc, required=False)
+    _record_outbound_communication(
+        tenant_id=tenant_id,
+        communication_metadata=communication_metadata,
+        body=body,
+        subject=subject,
+        result=out,
+        to=to_logged or None,
+        cc=cc_logged or None,
+        bcc=bcc_logged or None,
+        account_id=acc,
+    )
+    return out
 
 
 def reply_to_thread(
@@ -274,6 +334,8 @@ def reply_to_thread(
     subject: Optional[str] = None,
     reply_to_message_id: Optional[str] = None, # this could be either unipile_email_object[id] from retrieve email endpoint or provider_id (long alphanumeric used by outlook/gmail)
     cc: Optional[List[Dict[str, Any]]] = None,
+    tenant_id: Optional[str] = None,
+    communication_metadata: Optional[dict[str, Any]] = None,
 ):
     """
     Orchestrates a thread reply (reply-all):
@@ -306,16 +368,6 @@ def reply_to_thread(
     for e in emails:
         r = str(e.get("role") or "?")
         role_counts[r] = role_counts.get(r, 0) + 1
-    logger.info(
-        "reply_to_thread: thread_id=%s account_id=%s message_count=%s role_counts=%s "
-        "latest_by_date=%s explicit_reply_to_message_id=%s",
-        thread_id,
-        account_id,
-        len(emails),
-        role_counts,
-        _thread_email_summary(latest_email),
-        reply_to_message_id,
-    )
 
     # 3) Resolve parent message id
     reply_to_id = _resolve_parent_id(unipile, latest_email, reply_to_message_id, account_id)
@@ -354,13 +406,16 @@ def reply_to_thread(
             result.get("error_details"),
         )
     else:
-        logger.info(
-            "reply_to_thread: sent ok thread_id=%s to=%s cc=%s subject=%s tracking_id=%s",
-            thread_id,
-            [r["identifier"] for r in to_list],
-            [c["identifier"] for c in (cc_final or [])],
-            effective_subject,
-            result.get("tracking_id") or result.get("message_id"),
+        _record_outbound_communication(
+            tenant_id=tenant_id,
+            communication_metadata=communication_metadata,
+            body=body,
+            subject=effective_subject,
+            result=result,
+            thread_id=thread_id,
+            to=to_list,
+            cc=cc_final,
+            account_id=account_id,
         )
     return result
 
