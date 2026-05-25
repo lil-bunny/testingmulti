@@ -1,3 +1,9 @@
+from app.core.logger import get_logger
+from app.models.status import StatusSubType, StatusType
+
+logger = get_logger(__name__)
+
+
 def pod_exists_router(state):
     return "exists" if state.data.get("pod_exists") else "missing"
 
@@ -50,12 +56,76 @@ def read_workflow_lifecycle_router(state):
 
 def event_type_router(state):
     event_type = state.data.get("event_type")
+    # Gelita load_tendering (router map keys must match workflow_configs targets)
+    if event_type in (
+        "tender_created",
+        "carrier_email_received",
+        "ack_received",
+        "reminder_due",
+        "escalation_due",
+    ):
+        return event_type
     if event_type == "email_received":
         return "email_received"
-    if event_type == "reminder_due":
-        return "reminder_due"
     return "route_completed"
+
+
+def load_type_router(state):
+    """
+    Route to LTL when pallet count is at or below threshold.
+
+    Uses:
+        - state.data["pallets_count"]
+        - state.data["pallet_threshold"] (default: 8)
+    """
+    err = state.data.get("tender_calc_error")
+
+    if err:
+        state.data["tender_email_error"] = f"skip_send:{err}"
+
+        logger.warning(
+            "send_tender_email skipped tender_id=%s reason=%s",
+            state.data.get("tender_id"),
+            err,
+        )
+
+        return "error_path"
+
+    try:
+        pallets = float(state.data.get("pallets_count") or 0)
+    except (TypeError, ValueError):
+        pallets = 0.0
+
+    try:
+        pallet_threshold = float(state.data.get("pallet_threshold") or 8)
+    except (TypeError, ValueError):
+        pallet_threshold = 8.0
+
+    return "ltl_path" if pallets <= pallet_threshold else "ftl_path"
 
 
 def pod_request_triggered_router(state):
     return "blocked" if state.data.get("pod_request_blocked") else "continue"
+
+
+def tender_status_router(state):
+    if state.data.get("workflow_lifecycle_status") == StatusType.COMPLETED.value:
+        return "completed"
+    event_type = state.data.get("event_type")
+    if event_type in ("reminder_due", "escalation_due"):
+        return event_type
+    return "missing"
+
+
+def carrier_ack_router(state):
+    """Route ack_received LLM decision to graph branch keys."""
+    decision = str(
+        state.data.get("carrier_ack_decision") or StatusSubType.DO_NOTHING.value
+    ).strip()
+    if decision in (
+        StatusSubType.ACCEPTED.value,
+        StatusSubType.REJECTED.value,
+        StatusSubType.DO_NOTHING.value,
+    ):
+        return decision
+    return StatusSubType.DO_NOTHING.value

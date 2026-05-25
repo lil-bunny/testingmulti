@@ -2,6 +2,9 @@
 .env.*
 !.env.example
 
+# Local secrets directory (never commit)
+secrets/
+
 # Turvo integration architecture notes (local-only; remove this line to commit docs/turvo-integration.md)
 docs/turvo-integration.md
 
@@ -31,3 +34,6 @@ build/
 
 langsmith_init.py
 .agents
+
+docs
+*.sql

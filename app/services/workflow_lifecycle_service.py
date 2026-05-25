@@ -7,6 +7,8 @@ from typing import Any, Optional
 import psycopg
 
 from app.core.config import settings
+from app.models.status import StatusSubType, StatusType
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 
 @dataclass(frozen=True)
@@ -49,8 +51,14 @@ class WorkflowLifecycleService:
         return WorkflowLifecycleService._clean(payload.get("shipment_id"))
 
     @staticmethod
-    def _extract_load_id(payload: dict[str, Any]) -> Optional[str]:
-        return WorkflowLifecycleService._clean(payload.get("load_id"))
+    def _extract_tender_id(payload: dict[str, Any]) -> Optional[str]:
+        raw = WorkflowLifecycleService._clean(payload.get("tender_id"))
+        if not raw:
+            return None
+        try:
+            return str(uuid.UUID(raw))
+        except (ValueError, AttributeError):
+            return None
 
     def _find_existing_lifecycle_id(
         self,
@@ -58,15 +66,32 @@ class WorkflowLifecycleService:
         *,
         tenant_id: str,
         workflow_name: str,
+        tender_id: Optional[str],
         thread_id: Optional[str],
         shipment_id: Optional[str],
-        load_id: Optional[str],
     ) -> Optional[str]:
-        # Priority order: thread (email thread id) -> shipment -> load.
+        if tender_id:
+            cur.execute(
+                f"""
+                SELECT id
+                FROM {self.TABLE_NAME}
+                WHERE tenant_id = %s
+                  AND workflow_name = %s
+                  AND tender_id = %s::uuid
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (tenant_id, workflow_name, tender_id),
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return str(row[0])
+
+        # Priority order: thread (email thread id) -> shipment.
+        # ``load_id`` is not persisted on ``workflow_lifecycles``; correlate via shipment when needed.
         for field_name, field_value in (
             ("email_thread_id", thread_id),
             ("shipment_id", shipment_id),
-            ("load_id", load_id),
         ):
             if not field_value:
                 continue
@@ -94,9 +119,9 @@ class WorkflowLifecycleService:
         lifecycle_id: str,
         tenant_id: str,
         workflow_name: str,
+        tender_id: Optional[str],
         thread_id: Optional[str],
         shipment_id: Optional[str],
-        load_id: Optional[str],
     ) -> None:
         cur.execute(
             f"""
@@ -104,18 +129,18 @@ class WorkflowLifecycleService:
                 id,
                 tenant_id,
                 workflow_name,
+                tender_id,
                 email_thread_id,
-                shipment_id,
-                load_id
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                shipment_id
+            ) VALUES (%s, %s, %s, %s::uuid, %s, %s)
             """,
             (
                 lifecycle_id,
                 tenant_id,
                 workflow_name,
+                tender_id,
                 thread_id,
                 shipment_id,
-                load_id,
             ),
         )
 
@@ -124,21 +149,21 @@ class WorkflowLifecycleService:
         cur,
         *,
         lifecycle_id: str,
+        tender_id: Optional[str],
         thread_id: Optional[str],
         shipment_id: Optional[str],
-        load_id: Optional[str],
     ) -> None:
         cur.execute(
             f"""
             UPDATE {self.TABLE_NAME}
             SET
+                tender_id = COALESCE(%s::uuid, tender_id),
                 email_thread_id = COALESCE(%s, email_thread_id),
                 shipment_id = COALESCE(%s, shipment_id),
-                load_id = COALESCE(%s, load_id),
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (thread_id, shipment_id, load_id, lifecycle_id),
+            (tender_id, thread_id, shipment_id, lifecycle_id),
         )
 
     def read_lifecycle(
@@ -150,15 +175,18 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
     ) -> dict:
-        """Read-only lookup. Returns lifecycle data if found, no row creation."""
-        tid = self._clean(tenant_id)
+        """Read-only lookup. Returns lifecycle data if found, no row creation.
+
+        ``load_id`` is accepted for API compatibility but lifecycles are not keyed by ``load_id`` in the DB.
+        """
+        tid_raw = self._clean(tenant_id)
         wn = self._clean(workflow_name)
+        tid = resolve_graph_tenant_to_uuid(tid_raw) if tid_raw else None
         if not tid or not wn:
             return {"found": False}
 
         t = self._clean(thread_id)
         s = self._clean(shipment_id)
-        l = self._clean(load_id)
 
         conn = self._conn()
         try:
@@ -167,16 +195,16 @@ class WorkflowLifecycleService:
                     cur,
                     tenant_id=tid,
                     workflow_name=wn,
+                    tender_id=None,
                     thread_id=t,
                     shipment_id=s,
-                    load_id=l,
                 )
                 if not lifecycle_id:
                     return {"found": False}
 
                 cur.execute(
                     f"""
-                    SELECT shipment_id, load_id, email_thread_id, workflow_name
+                    SELECT shipment_id, email_thread_id, workflow_name
                     FROM {self.TABLE_NAME}
                     WHERE id = %s
                     """,
@@ -190,9 +218,9 @@ class WorkflowLifecycleService:
                     "found": True,
                     "lifecycle_id": lifecycle_id,
                     "shipment_id": row[0] or "",
-                    "load_id": row[1] or "",
-                    "email_thread_id": row[2] or "",
-                    "workflow_name": row[3] or "",
+                    "load_id": "",
+                    "email_thread_id": row[1] or "",
+                    "workflow_name": row[2] or "",
                 }
         finally:
             conn.close()
@@ -205,16 +233,16 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
     ) -> None:
-        """Backfill lifecycle keys onto an existing lifecycle row."""
+        """Backfill lifecycle keys onto an existing lifecycle row. ``load_id`` is ignored (not stored)."""
         conn = self._conn()
         try:
             with conn.cursor() as cur:
                 self._update_lifecycle_keys(
                     cur,
                     lifecycle_id=lifecycle_id,
+                    tender_id=None,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
-                    load_id=self._clean(load_id),
                 )
             conn.commit()
         finally:
@@ -228,10 +256,12 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         load_id: str | None = None,
         thread_id: str | None = None,
+        tender_id: str | None = None,
     ) -> dict:
-        """Check if a lifecycle row exists for given keys."""
-        tid = self._clean(tenant_id)
+        """Check if a lifecycle row exists for given keys. ``load_id`` is ignored."""
+        tenant_raw = self._clean(tenant_id)
         wn = self._clean(workflow_name)
+        tid = resolve_graph_tenant_to_uuid(tenant_raw) if tenant_raw else None
         if not tid or not wn:
             return {"exists": False}
 
@@ -242,9 +272,9 @@ class WorkflowLifecycleService:
                     cur,
                     tenant_id=tid,
                     workflow_name=wn,
+                    tender_id=tender_id,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
-                    load_id=self._clean(load_id),
                 )
                 if lifecycle_id:
                     return {"exists": True, "lifecycle_id": lifecycle_id}
@@ -270,28 +300,35 @@ class WorkflowLifecycleService:
         if not tenant_id_clean or not workflow_name_clean:
             raise ValueError("tenant_id and workflow_name are required")
 
+        db_tenant_id = resolve_graph_tenant_to_uuid(tenant_id_clean)
+        if not db_tenant_id:
+            raise ValueError(
+                f"No matching tenants row for tenant_id={tenant_id_clean!r} "
+                "(expected UUID or tenants.slug matching TENANT_CONFIGS key)"
+            )
+
+        tender_id = self._extract_tender_id(payload)
         thread_id = self._extract_thread_id(payload)
         shipment_id = self._extract_shipment_id(payload)
-        load_id = self._extract_load_id(payload)
 
         conn = self._conn()
         try:
             with conn.cursor() as cur:
                 existing_id = self._find_existing_lifecycle_id(
                     cur,
-                    tenant_id=tenant_id_clean,
+                    tenant_id=db_tenant_id,
                     workflow_name=workflow_name_clean,
+                    tender_id=tender_id,
                     thread_id=thread_id,
                     shipment_id=shipment_id,
-                    load_id=load_id,
                 )
                 if existing_id:
                     self._update_lifecycle_keys(
                         cur,
                         lifecycle_id=existing_id,
+                        tender_id=tender_id,
                         thread_id=thread_id,
                         shipment_id=shipment_id,
-                        load_id=load_id,
                     )
                     conn.commit()
                     return LifecycleResolution(
@@ -303,16 +340,128 @@ class WorkflowLifecycleService:
                 self._insert_lifecycle(
                     cur,
                     lifecycle_id=new_id,
-                    tenant_id=tenant_id_clean,
+                    tenant_id=db_tenant_id,
                     workflow_name=workflow_name_clean,
+                    tender_id=tender_id,
                     thread_id=thread_id,
                     shipment_id=shipment_id,
-                    load_id=load_id,
                 )
                 conn.commit()
                 return LifecycleResolution(
                     workflow_lifecycle_id=new_id,
                     existed=False,
                 )
+        finally:
+            conn.close()
+
+    def read_lifecycle_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
+        """Return tenant_id, workflow_name, status, sub_status, email_thread_id for a lifecycle PK."""
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            return None
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT tenant_id::text, workflow_name, status, sub_status,
+                           email_thread_id, tender_id::text
+                    FROM {self.TABLE_NAME}
+                    WHERE id = %s::uuid
+                    """,
+                    (lid,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "tenant_id": row[0],
+                    "workflow_name": row[1],
+                    "status": row[2],
+                    "sub_status": row[3],
+                    "email_thread_id": row[4],
+                    "tender_id": row[5] or "",
+                }
+        finally:
+            conn.close()
+
+    def update_lifecycle_status(
+        self,
+        *,
+        lifecycle_id: str,
+        status: StatusType | None = None,
+        sub_status: StatusSubType | None = None,
+    ) -> bool:
+        """
+        Update lifecycle status fields.
+
+        - ``None`` means "leave unchanged".
+        - Uses enum types internally.
+        - Serializes enums only at DB boundary.
+        - Returns whether any row was updated.
+        """
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if status is not None:
+            updates.append("status = %s")
+            params.append(status.value)
+
+        if sub_status is not None:
+            updates.append("sub_status = %s")
+            params.append(sub_status.value)
+
+        if not updates:
+            return False
+
+        updates.append("updated_at = NOW()")
+        params.append(lid)
+
+        sql = f"""
+            UPDATE {self.TABLE_NAME}
+            SET {", ".join(updates)}
+            WHERE id = %s::uuid
+        """
+
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
+        finally:
+            conn.close()
+
+    def update_lifecycle_sub_status(
+        self,
+        *,
+        lifecycle_id: str,
+        new_sub_status: StatusSubType,
+    ) -> bool:
+        """Set ``sub_status`` unconditionally. Returns whether a row was updated."""
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+
+        sql = f"""
+            UPDATE {self.TABLE_NAME}
+            SET
+                sub_status = %s,
+                updated_at = NOW()
+            WHERE id = %s::uuid
+        """
+
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, (new_sub_status.value, lid))
+                updated = cur.rowcount > 0
+            conn.commit()
+            return updated
         finally:
             conn.close()

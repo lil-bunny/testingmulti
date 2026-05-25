@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote_plus
 import os
 
@@ -23,7 +25,7 @@ class Settings(BaseSettings):
 
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
-
+    TENANTS_TABLE: str = "tenants"
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int
@@ -31,14 +33,8 @@ class Settings(BaseSettings):
     DATABASE_USER: str
     DATABASE_PASSWORD: str
 
-    DOCUMENTS_TABLE: str = "documents"
-    DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
-    # Fractional hours supported (e.g. 30s ≈ 0.00833333). Integers in .env still parse (24 → 24.0).
-    REMINDER_0_HOURS:float = 0           # immediate
-    REMINDER_1_HOURS:float = 0.01666666  # 1m later
-    REMINDER_2_HOURS:float = 0.03333332  # 2m later
-    POD_REMINDER_EMAIL_BODY: str = "Please send pod"
-    # After nominal reminder time (ETA), Celery discards the task if not yet executed.
+    # Platform cap for Celery Redis visibility_timeout (tenant delay_hours must stay below this).
+    MAX_REMINDER_DELAY_HOURS: float = 72.0
     REMINDER_EXPIRE_GRACE_HOURS: int = 2
 
     # Celery
@@ -51,9 +47,8 @@ class Settings(BaseSettings):
     UNIPILE_ACCOUNT_ID: str
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
-    STUDIO_TENANT_ID: str = "t3ra"
+    STUDIO_TENANT_SLUG: str = "t3ra"
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
-    TENANTS_TABLE: str = "tenants"
 
     # Turvo
     TURVO_APP_URL: str = "https://app.turvo.com"
@@ -67,7 +62,7 @@ class Settings(BaseSettings):
     # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
     TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
     # Optional fallback app user id used by workflow tools when the workflow state does not carry one (e.g. Turvo webhook-triggered runs).
-    # Turvo tokens + password: persisted under tenants.config (JSON), keyed by app_user_id
+    # Turvo tokens + password: in tenants.settings (JSON); row match uses settings.app_user_id = X-App-User-Id
     TURVO_DEFAULT_APP_USER_ID: Optional[str] = "deb-test"
 
     # Unipile
@@ -87,7 +82,7 @@ class Settings(BaseSettings):
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
-    UNIPILE_WEBHOOK_NAME: str = "pod_lifecycle_email_received_webhook"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

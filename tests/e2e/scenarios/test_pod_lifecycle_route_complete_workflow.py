@@ -106,6 +106,7 @@ from app.api import routes as turvo_webhook_module
 from app.api.deps import get_workflow_service
 from app.core.config import settings
 from app.main import app
+from app.repositories.tenants_db_repository import find_tenant_uuid_by_slug
 from app.services.turvo_oauth_service import TurvoOAuthService
 from app.services.workflow_runs_service import WorkflowRunsService
 from tests.e2e.fixtures.main import ROUTE_COMPLETE_WEBHOOK_PAYLOAD, route_complete_webhook_for_shipment
@@ -116,6 +117,7 @@ from tests.e2e.helpers.workflow_runs_db import (
     fetch_latest_workflow_run_for_tenant_shipment,
     list_workflow_runs_for_lifecycle_event_type,
 )
+from tests.e2e.helpers.db_snapshots import fetch_lifecycle_by_id
 
 DEFAULT_E2E_SHIPMENT_ID = 1000324868
 DEFAULT_TURVO_STATUS_PUT_URL = (
@@ -127,6 +129,13 @@ DEFAULT_TURVO_STATUS_PUT_URL = (
 _LISTEN_TURVO_FULL_STACK_POST_WAIT_S = 300
 
 _POD_REMINDER_DB_EVENT_TYPE = "reminder_due"
+
+
+def _workflow_runs_tenant_equals_graph_key(*, stored_tenant_uuid: Any, graph_tenant_key: str) -> bool:
+    slug_u = find_tenant_uuid_by_slug(graph_tenant_key.strip())
+    if slug_u:
+        return str(stored_tenant_uuid) == slug_u
+    return str(stored_tenant_uuid).strip() == graph_tenant_key.strip()
 
 
 def _workflow_lifecycle_id_from_listen_ack(ack: Any) -> str | None:
@@ -202,7 +211,7 @@ def _turvo_documents_pod_found_in_listen_ack(ack: Any | None) -> bool:
 
 
 def _pod_considered_present_from_listen_ack(ack: Any | None) -> bool:
-    """True when the graph treated POD as present (no ``schedule_pod_reminders`` on route_completed).
+    """True when the graph treated POD as present (no POD reminder schedule on route_completed).
 
     Prefer Turvo documents/list outcome when present; otherwise ``result.data.pod_exists`` after
     Turvo merge + webhook hints.
@@ -265,17 +274,27 @@ def _resolve_workflow_lifecycle_id_for_reminder_poll(ack: Any | None) -> str:
     return ""
 
 
+def _pod_reminder_max_delay_hours() -> float:
+    """Max step delay from t3ra ``tenant_settings.pod_lifecycle.reminders`` fixture."""
+    import json
+    from pathlib import Path
+
+    fixture = (
+        Path(__file__).resolve().parents[3] / "scripts" / "t3ra_tenant_settings.json"
+    )
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    steps = raw["pod_lifecycle"]["reminders"]["steps"]
+    return max(float(s["delay_hours"]) for s in steps)
+
+
 def _reminder_poll_timeout_interval_defaults_from_settings() -> tuple[float, float]:
-    """Align poll window with ``schedule_pod_reminders`` (``REMINDER_*_HOURS`` + grace).
+    """Align poll window with POD reminder schedule in tenant settings + grace.
 
     Uses the same ``max(countdowns) + REMINDER_EXPIRE_GRACE_HOURS`` horizon as Celery ``expires``,
     plus a small slack for worker execution and ``workflow_runs`` visibility. Probe interval scales
     with that window unless overridden via ``TURVO_REMINDER_RUNS_POLL_INTERVAL_S``.
     """
-    r0 = float(settings.REMINDER_0_HOURS)
-    r1 = float(settings.REMINDER_1_HOURS)
-    r2 = float(settings.REMINDER_2_HOURS)
-    max_cd_hours = max(r0, r1, r2)
+    max_cd_hours = _pod_reminder_max_delay_hours()
     expire_td = timedelta(hours=max_cd_hours) + timedelta(
         hours=float(settings.REMINDER_EXPIRE_GRACE_HOURS)
     )
@@ -305,9 +324,8 @@ def _assert_reminder_due_rows_poll(
         "[workflow_runs poll config]",
         f"timeout_s={timeout:.1f} interval_s={interval:.2f}",
         f"(env_override_timeout={bool(timeout_raw)} env_override_interval={bool(interval_raw)}; "
-        f"REMINDER_0_HOURS={settings.REMINDER_0_HOURS} REMINDER_1_HOURS={settings.REMINDER_1_HOURS} "
-        f"REMINDER_2_HOURS={settings.REMINDER_2_HOURS} REMINDER_EXPIRE_GRACE_HOURS="
-        f"{settings.REMINDER_EXPIRE_GRACE_HOURS})",
+        f"pod_reminder_max_delay_hours={_pod_reminder_max_delay_hours():g} "
+        f"REMINDER_EXPIRE_GRACE_HOURS={settings.REMINDER_EXPIRE_GRACE_HOURS})",
     )
 
     rows = _poll_until_reminder_due_count(
@@ -326,9 +344,13 @@ def _assert_reminder_due_rows_poll(
     tenant_expect = os.environ.get("TURVO_REMINDER_RUNS_EXPECT_TENANT_ID", "").strip()
     teff = tenant_expect or (tenant_must_match or "")
     if teff:
-        assert all(r["tenant_id"] == teff for r in sample), [r["tenant_id"] for r in sample]
+        slug_u = find_tenant_uuid_by_slug(teff.strip())
+        expect_tid = slug_u if slug_u else teff.strip()
+        assert all(str(r["tenant_id"]) == expect_tid for r in sample), [r["tenant_id"] for r in sample]
     if shipment_expect:
-        assert all(str(r["shipment_id"]) == shipment_expect for r in sample), sample
+        wl_snapshot = fetch_lifecycle_by_id(lifecycle_id=str(workflow_lifecycle_id))
+        assert wl_snapshot is not None
+        assert str(wl_snapshot.get("shipment_id") or "").strip() == shipment_expect
 
     print(f"\n[{label}] reminder_due workflow_runs (first {expect} of {len(rows)}):\n{sample!r}\n")
     return rows
@@ -372,7 +394,7 @@ def _default_workflow_tenant_id() -> str:
     """Match ``listen_turvo_status`` when ``X-Workflow-Tenant-Id`` is omitted."""
     for candidate in (
         (settings.TURVO_WEBHOOK_WORKFLOW_TENANT_ID or "").strip() or None,
-        (settings.STUDIO_TENANT_ID or "").strip() or None,
+        (settings.STUDIO_TENANT_SLUG or "").strip() or None,
     ):
         if candidate:
             return candidate
@@ -570,7 +592,7 @@ def test_pod_lifecycle_route_complete_turvo_webhook(
         f"No workflow_runs row for execution_id={exec_id!r} after "
         f"{_LISTEN_TURVO_FULL_STACK_POST_WAIT_S}s wait — Celery worker may be down or graph too slow."
     )
-    assert row["tenant_id"] == tenant
+    assert _workflow_runs_tenant_equals_graph_key(stored_tenant_uuid=row["tenant_id"], graph_tenant_key=tenant)
     assert row["event_type"] == "route_completed"
 
     if isinstance(ack.get("result"), dict):
@@ -600,7 +622,9 @@ def test_pod_lifecycle_route_complete_turvo_webhook(
                 f"a workflow_runs anchor; none found for tenant_id={tenant!r} shipment_id={sid_blocked!r} "
                 "(see WorkflowRunsService.is_workflow_initial_path_blocked shipment branch)."
             )
-            assert ship_row["tenant_id"] == tenant, (
+            assert _workflow_runs_tenant_equals_graph_key(
+                stored_tenant_uuid=ship_row["tenant_id"], graph_tenant_key=tenant
+            ), (
                 f"[listen_turvo full stack] workflow_runs tenant_id mismatch for shipment={sid_blocked!r}: "
                 f"got {ship_row['tenant_id']!r}, expected {tenant!r}. Row={ship_row!r}"
             )

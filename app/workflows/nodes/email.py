@@ -13,12 +13,19 @@ from app.workflows.shipment_resolver import resolve_shipment_id
 logger = logging.getLogger(__name__)
 
 def send_email(state):
+    tenant_raw = getattr(state, "tenant_id", None) or state.data.get("tenant_id")
     send_email_tool(
         state.data.get("to"),
         state.data.get("subject", "POD Request"),
         state.data.get("body", ""),
         thread_id=state.data.get("thread_id"),
         account_id=state.data.get("account_id"),
+        tenant_id=tenant_raw,
+        communication_metadata={
+            "source": "pod_send_email",
+            "thread_id": state.data.get("thread_id"),
+            "email_id": state.data.get("email_id"),
+        },
     )
     return state
 

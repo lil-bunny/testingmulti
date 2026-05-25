@@ -1,4 +1,10 @@
-"""Turvo OAuth credentials read/write on ``tenants.config`` (JSON)."""
+"""Turvo OAuth credentials read/write on ``tenants.settings`` (JSON).
+
+Looks up rows where ``settings->>'app_user_id'`` equals the resolved app user id.
+
+If the caller passes an empty id, ``TURVO_DEFAULT_APP_USER_ID`` (env) is used
+when set.
+"""
 
 from __future__ import annotations
 
@@ -77,14 +83,30 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _resolve_needle(app_user_id: Optional[str]) -> str:
+    stripped = (app_user_id or "").strip()
+    if stripped:
+        return stripped
+    fb = getattr(settings, "TURVO_DEFAULT_APP_USER_ID", None)
+    if fb is None:
+        return ""
+    return str(fb).strip()
+
+
+_SQL_APP_USER_MATCH = "(settings::jsonb ->> 'app_user_id')"
+
+
 class TurvoOAuthRepository:
     def _load_config(self, app_user_id: str) -> Optional[dict[str, Any]]:
+        needle = _resolve_needle(app_user_id)
+        if not needle:
+            return None
         table = _table()
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT config FROM {table} WHERE app_user_id = %s",
-                    (app_user_id,),
+                    f"SELECT settings FROM {table} WHERE {_SQL_APP_USER_MATCH} = %s",
+                    (needle,),
                 )
                 row = cur.fetchone()
         if not row:
@@ -92,24 +114,34 @@ class TurvoOAuthRepository:
         return _normalize_config(row[0])
 
     def _save(self, app_user_id: str, cfg: dict[str, Any]) -> None:
+        needle = _resolve_needle(app_user_id)
+        if not needle:
+            raise RuntimeError(
+                "Cannot save Turvo OAuth: no app user id (set X-App-User-Id or "
+                "TURVO_DEFAULT_APP_USER_ID)"
+            )
         table = _table()
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE {table} SET config = %s WHERE app_user_id = %s",
-                    (Json(cfg), app_user_id),
+                    f"UPDATE {table} SET settings = %s WHERE {_SQL_APP_USER_MATCH} = %s",
+                    (Json(cfg), needle),
                 )
                 if cur.rowcount == 0:
                     raise RuntimeError(
-                        f"No {table} row with app_user_id={app_user_id!r}; create tenant first."
+                        f"No {table} row with settings.app_user_id={needle!r}; create tenant first."
                     )
             conn.commit()
 
     def get_row(self, app_user_id: str) -> Optional[dict[str, Any]]:
+        needle = _resolve_needle(app_user_id)
+        if not needle:
+            return None
         cfg = self._load_config(app_user_id)
         if cfg is None:
             return None
-        return _config_to_row(app_user_id, cfg)
+        display = ((cfg.get("app_user_id") or "").strip()) or needle
+        return _config_to_row(display, cfg)
 
     def upsert_user_oauth(
         self,
@@ -121,12 +153,14 @@ class TurvoOAuthRepository:
         token_type: Optional[str],
         access_token_expires_at: Optional[datetime],
     ) -> None:
+        needle = _resolve_needle(app_user_id)
         cfg = self._load_config(app_user_id)
         if cfg is None:
             raise RuntimeError(
-                f"No {_table()} row with app_user_id={app_user_id!r}; create tenant first."
+                f"No {_table()} row with settings.app_user_id={needle!r}; create tenant first."
             )
         patch = deepcopy(cfg)
+        patch["app_user_id"] = needle
         patch["user_name"] = turvo_username
         patch["password_ciphertext"] = turvo_password_ciphertext
         patch["access_token"] = access_token
@@ -139,7 +173,7 @@ class TurvoOAuthRepository:
         patch["token_updated_at"] = _now_iso()
         if "token_created_at" not in patch:
             patch["token_created_at"] = patch["token_updated_at"]
-        self._save(app_user_id, patch)
+        self._save(needle, patch)
 
     def update_tokens_only(
         self,
@@ -149,12 +183,14 @@ class TurvoOAuthRepository:
         token_type: Optional[str],
         access_token_expires_at: Optional[datetime],
     ) -> None:
+        needle = _resolve_needle(app_user_id)
         cfg = self._load_config(app_user_id)
         if cfg is None:
             raise RuntimeError(
-                f"No {_table()} row with app_user_id={app_user_id!r}; create tenant first."
+                f"No {_table()} row with settings.app_user_id={needle!r}; create tenant first."
             )
         patch = deepcopy(cfg)
+        patch.setdefault("app_user_id", needle)
         patch["access_token"] = access_token
         if refresh_token is not None:
             patch["refresh_token"] = refresh_token
@@ -163,10 +199,14 @@ class TurvoOAuthRepository:
         if access_token_expires_at is not None:
             patch["access_token_expires_at"] = access_token_expires_at.isoformat()
         patch["token_updated_at"] = _now_iso()
-        self._save(app_user_id, patch)
+        self._save(needle, patch)
 
     def has_user(self, app_user_id: str) -> bool:
+        needle = _resolve_needle(app_user_id)
+        if not needle:
+            return False
         cfg = self._load_config(app_user_id)
         if cfg is None:
             return False
-        return _config_to_row(app_user_id, cfg) is not None
+        resolved = ((cfg.get("app_user_id") or "").strip()) or needle
+        return _config_to_row(resolved, cfg) is not None
