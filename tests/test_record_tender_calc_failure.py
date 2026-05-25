@@ -14,11 +14,11 @@ RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 TENDER_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 
-@patch("app.workflows.nodes.gelita.load_tendering_helpers.LifecycleTransitionService")
+@patch("app.workflows.nodes.tender_calc_failure.LifecycleTransitionService")
 def test_record_tender_calc_failure_applies_transition(
     mock_transition_cls: MagicMock,
 ) -> None:
-    from app.workflows.nodes.gelita.load_tendering_helpers import record_tender_calc_failure
+    from app.workflows.nodes.tender_calc_failure import record_tender_calc_failure
 
     mock_svc = MagicMock()
     mock_transition_cls.return_value = mock_svc

@@ -18,7 +18,7 @@ from app.services.workflow_reminder_service import (
     parse_reminders_for_workflow,
     resolve_reminder_steps,
 )
-from app.workflows.nodes.gelita.load_tendering_helpers import build_gelita_ftl_tender_email
+from app.tools.tender_email import build_ftl_tender_email
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "gelita_tenant_settings.json"
 
@@ -35,13 +35,13 @@ def test_is_ftl_load_type_and_bucket() -> None:
     assert load_type_bucket("LTL") == "ltl"
 
 
-def test_build_gelita_ftl_tender_email_placeholders() -> None:
+def test_build_ftl_tender_email_placeholders() -> None:
     template = action_settings(
         {"tenant_settings": _tenant_settings()},
         "send_tender_email",
         load_type="FTL",
     )["email_template_html"]
-    built = build_gelita_ftl_tender_email(
+    built = build_ftl_tender_email(
         {
             "order_number": "ORD-1",
             "customer_po": "PO-9",

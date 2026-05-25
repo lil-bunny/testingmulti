@@ -34,7 +34,7 @@ from app.services.workflow_classifier_service import unipile_first_attachment_by
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.workflows import run_workflow_async
-from app.tools.gelita.email_parser import extract_order_number
+from app.tools.gelita.order_number import extract_order_number
 
 logger = get_logger(__name__)
 

@@ -13,10 +13,10 @@ from app.services.communications._mapper import (
     build_email_thread_llm_user_message,
     format_email_thread_for_llm,
 )
-from app.tools.gelita.email_parser import classify_carrier_acknowledgment
+from app.tools.carrier_ack import classify_carrier_acknowledgment
 from app.utils.prompts import carrier_ack_system_prompt
 from app.workflows.graph.routers import carrier_ack_router
-from app.workflows.nodes.gelita.record_ack_received import (
+from app.workflows.nodes.record_ack_received import (
     classify_carrier_ack,
     record_ack_received,
 )
@@ -73,7 +73,7 @@ def test_classify_carrier_acknowledgment_empty_is_do_nothing():
     assert result["decision"] == StatusSubType.DO_NOTHING.value
 
 
-@patch("app.tools.gelita.email_parser.chat_json")
+@patch("app.tools.carrier_ack.chat_json")
 def test_classify_carrier_acknowledgment_parses_decision(mock_chat: MagicMock):
     mock_chat.return_value = {
         "decision": "rejected",
@@ -87,7 +87,7 @@ def test_classify_carrier_acknowledgment_parses_decision(mock_chat: MagicMock):
     assert result["decision"] == StatusSubType.REJECTED.value
 
 
-@patch("app.tools.gelita.email_parser.chat_json")
+@patch("app.tools.carrier_ack.chat_json")
 def test_classify_carrier_acknowledgment_legacy_boolean_accept(mock_chat: MagicMock):
     mock_chat.return_value = {
         "is_acknowledgment": True,
@@ -119,10 +119,10 @@ def test_carrier_ack_router(decision, expected_route):
 
 
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.CommunicationsService"
+    "app.workflows.nodes.record_ack_received.CommunicationsService"
 )
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.classify_carrier_acknowledgment"
+    "app.workflows.nodes.record_ack_received.classify_carrier_acknowledgment"
 )
 def test_classify_carrier_ack_node_sets_decision(
     mock_classify: MagicMock,
@@ -153,13 +153,13 @@ def test_classify_carrier_ack_node_sets_decision(
 
 
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.CommunicationsService"
+    "app.workflows.nodes.record_ack_received.CommunicationsService"
 )
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.ActivityLogService"
+    "app.workflows.nodes.record_ack_received.ActivityLogService"
 )
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.classify_carrier_acknowledgment"
+    "app.workflows.nodes.record_ack_received.classify_carrier_acknowledgment"
 )
 def test_classify_carrier_ack_records_llm_action_activity(
     mock_classify: MagicMock,
@@ -200,7 +200,7 @@ def test_classify_carrier_ack_records_llm_action_activity(
 
 
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.LifecycleTransitionService"
+    "app.workflows.nodes.record_ack_received.LifecycleTransitionService"
 )
 def test_record_ack_received_do_nothing_skips_activity(mock_svc_cls: MagicMock):
     svc = MagicMock()
@@ -215,7 +215,7 @@ def test_record_ack_received_do_nothing_skips_activity(mock_svc_cls: MagicMock):
 
 
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.LifecycleTransitionService"
+    "app.workflows.nodes.record_ack_received.LifecycleTransitionService"
 )
 def test_record_ack_received_rejected_records_activity(mock_svc_cls: MagicMock):
     svc = MagicMock()
@@ -229,7 +229,7 @@ def test_record_ack_received_rejected_records_activity(mock_svc_cls: MagicMock):
 
 
 @patch(
-    "app.workflows.nodes.gelita.record_ack_received.LifecycleTransitionService"
+    "app.workflows.nodes.record_ack_received.LifecycleTransitionService"
 )
 def test_record_ack_received_accepted_records_activity(mock_svc_cls: MagicMock):
     svc = MagicMock()

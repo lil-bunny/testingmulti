@@ -8,7 +8,7 @@ from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
-from app.tools.gelita.email_parser import (
+from app.tools.carrier_ack import (
     classify_carrier_acknowledgment,
     normalize_carrier_reply_body,
 )

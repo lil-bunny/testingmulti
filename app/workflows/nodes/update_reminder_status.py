@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.domain.status_parsing import status_type_from_db
 
 logger = get_logger(__name__)
 
@@ -58,7 +58,8 @@ def update_reminder_status(state):
         else "Tender reminder 2 sent on carrier thread"
     )
 
-    prev = WorkflowLifecycleService().read_lifecycle_row_by_id(wl_id)
+    workflow_lifecycle_service = WorkflowLifecycleService()
+    prev = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
     if not prev:
         logger.warning("update_reminder_status lifecycle not found id=%s", wl_id)
         state.data["reminder_status_error"] = "lifecycle_not_found"

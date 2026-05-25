@@ -1,1 +1,1 @@
-"""Gelita workflow nodes."""
+"""Gelita-only workflow nodes (tender calculation)."""

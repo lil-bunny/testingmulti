@@ -1,1 +1,1 @@
-"""Gelita-specific stateless helpers."""
+"""Gelita-specific stateless helpers (ingress email parsing)."""

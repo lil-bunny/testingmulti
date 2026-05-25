@@ -8,13 +8,13 @@ from app.domain.load_tendering_settings import (
     gelita_escalate_tender_settings,
     resolve_load_type,
 )
+from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.email import send_email
-from app.domain.status_parsing import status_type_from_db
 
 logger = get_logger(__name__)
 
@@ -34,8 +34,8 @@ def escalate_tender(state):
         state.data["escalation_email_sent"] = False
         return state
 
-    lifecycle_svc = WorkflowLifecycleService()
-    prev = lifecycle_svc.read_lifecycle_row_by_id(wl_id)
+    workflow_lifecycle_service = WorkflowLifecycleService()
+    prev = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
     if not prev:
         logger.warning("escalate_tender lifecycle not found id=%s", wl_id)
         state.data["escalation_email_error"] = "lifecycle_not_found"

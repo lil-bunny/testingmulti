@@ -8,7 +8,7 @@ from app.domain.delivery_address import format_usps_mailing_address
 from app.domain.load_tendering_settings import action_settings
 from app.models.load_type import LoadType
 from app.services.tender_service import TenderService
-from app.workflows.nodes.gelita.load_tendering_helpers import record_tender_calc_failure
+from app.workflows.nodes.tender_calc_failure import record_tender_calc_failure
 
 
 def _fail(state, error_code: str):

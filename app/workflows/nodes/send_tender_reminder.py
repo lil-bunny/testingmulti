@@ -47,8 +47,8 @@ def send_tender_reminder(state):
 
     load_type = resolve_load_type(state)
     cfg = action_settings(state, "send_tender_reminder", load_type=load_type)
-    gelita_sender_account_id = str(cfg.get("ana_at_gelita_account_id") or "").strip()
-    if not gelita_sender_account_id:
+    sender_account_id = str(cfg.get("ana_at_gelita_account_id") or "").strip()
+    if not sender_account_id:
         state.data["tender_reminder_error"] = "missing_ANA_AT_GELITA_ACCOUNT_ID"
         state.data["tender_reminder_sent"] = False
         logger.error(
@@ -66,7 +66,7 @@ def send_tender_reminder(state):
         reminder_send_result = reply_to_thread(
             thread_id=lifecycle_email_thread_id,
             body=reminder_body_plain,
-            account_id=gelita_sender_account_id,
+            account_id=sender_account_id,
             subject=None,
             tenant_id=state.tenant_id,
             communication_metadata={
