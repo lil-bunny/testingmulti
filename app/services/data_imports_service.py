@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.repositories.data_imports_repository import DataImportsRepository
 
 
@@ -15,7 +16,7 @@ class DataImportsService:
         self,
         *,
         tenant_id: str,
-        source_type: str,
+        source_type: DataImportSourceType,
         file_name: str | None,
         mime_type: str | None,
         ingest_result: dict[str, Any],
@@ -30,14 +31,16 @@ class DataImportsService:
                 "ingest_result must include non-blank data_type from ingest_data(...)"
             )
 
+        validated_data_type = DataImportDataType(dtype).value
+
         raw_data = {
             "ingest": ingest_result,
             "mime_type": (mime_type or "").strip() or None,
         }
         return self._repository.insert(
             tenant_id=tenant_id,
-            data_type=dtype,
-            source_type=source_type,
+            data_type=validated_data_type,
+            source_type=source_type.value,
             file_name=file_name,
             raw_data=raw_data,
         )

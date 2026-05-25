@@ -12,6 +12,7 @@ from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJ
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import action_settings
 from app.domain.status_parsing import status_type_from_db
+from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.models.status import StatusType
 from app.services.delivery_locations_service import (
     DeliveryLocationsService,
@@ -215,7 +216,8 @@ class GelitaInboundEmailService:
             payload=payload,
             workflow_name=WORKFLOW_NAME,
             data_import_tenant_id=tenant.tenant_uuid,
-            data_import_data_type="load_tender",
+            data_import_data_type=DataImportDataType.LOAD_TENDER,
+            ingest_source_type=DataImportSourceType.EMAIL,
         )
 
         projected_rows = load_email_data_import_projection(

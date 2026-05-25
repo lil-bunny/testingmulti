@@ -9,14 +9,14 @@ Excludes LangGraph checkpoint tables and legacy tables
 (documents1, turvo_user_oauth, users, user_roles).
 Schema aligned with MCP at incremental head ``20260523_02`` (deduplicated FKs).
 
-Upgrade DDL is idempotent (IF NOT EXISTS) for types, tables, and indexes.
+Upgrade DDL is idempotent (IF NOT EXISTS) for tables and indexes; enum types use plain CREATE TYPE.
 """
 
 from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0001_freightx_initial"
+revision: str = "20260525_01"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -27,12 +27,12 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS load_type_enum AS ENUM ('FTL', 'LTL', 'PARTIAL')
+        CREATE TYPE load_type AS ENUM ('FTL', 'LTL')
         """
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS lifecycle_status AS ENUM (
+        CREATE TYPE lifecycle_status AS ENUM (
             'processing',
             'completed',
             'failed',
@@ -43,26 +43,23 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS lifecycle_sub_status AS ENUM (
+        CREATE TYPE lifecycle_sub_status AS ENUM (
+            'none',
             'tender_created',
-            'tender_sent',
-            'awaiting_response',
+            'tender_sent_to_tenant',
+            'tender_sent_to_carrier',
             'reminder_1_sent',
             'reminder_2_sent',
             'accepted',
             'rejected',
-            'escalated',
-            'tender_sent_to_tenant',
-            'tender_sent_to_carrier',
-            'awaiting_response_reminders_queued',
-            'none',
-            'do_nothing'
+            'do_nothing',
+            'escalated'
         )
         """
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS activity_log_type AS ENUM (
+        CREATE TYPE activity_log_type AS ENUM (
             'action',
             'status_change',
             'sub_status_change'
@@ -71,12 +68,12 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS actor_type AS ENUM ('system', 'user')
+        CREATE TYPE actor_type AS ENUM ('system', 'user')
         """
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS workflow_run_event_type AS ENUM (
+        CREATE TYPE workflow_run_event_type AS ENUM (
             'route_completed',
             'email_received',
             'reminder_due',
@@ -89,7 +86,7 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS document_type AS ENUM (
+        CREATE TYPE document_type AS ENUM (
             'pod_attachment',
             'pod_merged_final',
             'ratecon'
@@ -98,7 +95,7 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS document_analysis_type AS ENUM (
+        CREATE TYPE document_analysis_type AS ENUM (
             'ratecon_extraction',
             'pod_extraction',
             'pod_vs_ratecon_comparison'
@@ -107,23 +104,34 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS communication_channel AS ENUM (
+     
+        CREATE TYPE communication_channel AS ENUM (
             'email', 'slack', 'teams'
         )
         """
     )
     op.execute(
         """
-        CREATE TYPE IF NOT EXISTS communication_direction AS ENUM (
+        CREATE TYPE communication_direction AS ENUM (
             'inbound', 'outbound'
         )
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE data_import_source_type AS ENUM ('email', 'api')
+        """
+    )
+    op.execute(
+        """
+        CREATE TYPE data_import_data_type AS ENUM ('load_tender')
         """
     )
 
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS tenants (
-            id UUID PRIMARY KEY,
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             name VARCHAR(255),
             slug TEXT NOT NULL,
             settings JSONB DEFAULT '{}'::jsonb,
@@ -184,8 +192,8 @@ def upgrade() -> None:
         CREATE TABLE IF NOT EXISTS data_imports (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL REFERENCES tenants(id),
-            data_type TEXT NOT NULL,
-            source_type TEXT NOT NULL,
+            data_type data_import_data_type NOT NULL,
+            source_type data_import_source_type NOT NULL,
             file_name TEXT,
             raw_data JSONB NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -259,7 +267,7 @@ def upgrade() -> None:
             delivery_date DATE,
             pickup_location_id UUID REFERENCES locations(id),
             delivery_location_id UUID REFERENCES locations(id),
-            load_type load_type_enum,
+            load_type load_type,
             data_import_id UUID REFERENCES data_imports(id),
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -463,6 +471,8 @@ def downgrade() -> None:
 
     op.execute("DROP TYPE IF EXISTS communication_direction")
     op.execute("DROP TYPE IF EXISTS communication_channel")
+    op.execute("DROP TYPE IF EXISTS data_import_data_type")
+    op.execute("DROP TYPE IF EXISTS data_import_source_type")
     op.execute("DROP TYPE IF EXISTS document_analysis_type")
     op.execute("DROP TYPE IF EXISTS document_type")
     op.execute("DROP TYPE IF EXISTS workflow_run_event_type")
@@ -470,6 +480,6 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS activity_log_type")
     op.execute("DROP TYPE IF EXISTS lifecycle_sub_status")
     op.execute("DROP TYPE IF EXISTS lifecycle_status")
-    op.execute("DROP TYPE IF EXISTS load_type_enum")
+    op.execute("DROP TYPE IF EXISTS load_type")
 
     op.execute("DROP EXTENSION IF EXISTS pgcrypto")

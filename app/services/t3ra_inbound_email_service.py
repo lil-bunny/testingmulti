@@ -9,6 +9,7 @@ from fastapi import status
 from fastapi.responses import JSONResponse
 
 from app.core.logger import get_logger
+from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services.communications.service import CommunicationsService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
@@ -59,7 +60,8 @@ class T3raInboundEmailService:
             payload=payload,
             workflow_name=str(workflow_name),
             data_import_tenant_id=tenant.tenant_uuid,
-            data_import_data_type="load_tender",
+            data_import_data_type=DataImportDataType.LOAD_TENDER,
+            ingest_source_type=DataImportSourceType.EMAIL,
         )
 
         if workflow_name == "ratecon":

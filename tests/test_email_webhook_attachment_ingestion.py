@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.models.data_import import DataImportDataType
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
@@ -72,7 +73,7 @@ async def test_process_returns_row_id_after_excel_ingest() -> None:
         "status": "stubbed",
         "source_type": "email",
         "tenant_id": payload["account_id"],
-        "data_type": "excel",
+        "data_type": "load_tender",
         "data": {},
         "file_name": "load.xlsx",
     }
@@ -96,7 +97,7 @@ async def test_process_returns_row_id_after_excel_ingest() -> None:
             payload=payload,
             workflow_name="ratecon",
             data_import_tenant_id="aadc75f4-3f79-45d7-84c3-aa778e226e93",
-            data_import_data_type="excel",
+            data_import_data_type=DataImportDataType.LOAD_TENDER,
         )
     assert out == "returned-import-uuid"
     svc_cls.return_value.record_email_load_tendering_import.assert_called_once()

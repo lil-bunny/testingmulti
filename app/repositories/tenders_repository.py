@@ -62,7 +62,7 @@ class TendersRepository:
                 %s,
                 %s,
                 %s,
-                %s::load_type_enum,
+                %s::load_type,
                 %s::uuid,
                 %s,
                 %s

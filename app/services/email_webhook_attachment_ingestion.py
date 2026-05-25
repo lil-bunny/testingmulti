@@ -10,6 +10,7 @@ import asyncio
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
 from app.services.data_imports_service import DataImportsService
 from app.services.unipile_service import UnipileException
@@ -64,8 +65,8 @@ async def _fetch_and_record_excel_attachment(
     *,
     workflow_name: str,
     data_import_tenant_id: str,
-    ingest_source_type: str,
-    data_import_data_type: str,
+    ingest_source_type: DataImportSourceType,
+    data_import_data_type: DataImportDataType,
     fetch_ctx: dict[str, Any],
     file_name: str | None,
     mime_type: str | None,
@@ -87,10 +88,10 @@ async def _fetch_and_record_excel_attachment(
         return None
 
     ingest_result = ingest_service.ingest_data(
-        source_type=ingest_source_type,
+        source_type=ingest_source_type.value,
         tenant_id=data_import_tenant_id,
         file_name=file_name,
-        data_type=data_import_data_type,
+        data_type=data_import_data_type.value,
         mime_type=mime_type,
         data=file_bytes,
         parse_spreadsheet=True,
@@ -109,25 +110,22 @@ async def process_email_webhook_attachment_import(
     payload: dict[str, Any],
     workflow_name: str,
     data_import_tenant_id: str,
-    data_import_data_type: Optional[str] = None,
-    ingest_source_type: Optional[str] = None,
+    data_import_data_type: DataImportDataType = DataImportDataType.LOAD_TENDER,
+    ingest_source_type: DataImportSourceType = DataImportSourceType.EMAIL,
 ) -> Optional[str]:
     """If the payload has an ingestible attachment, fetch bytes and persist import rows.
 
     Returns the ``data_imports.id`` (text UUID) when a row was inserted, else ``None``.
 
-    ``data_import_data_type`` is stored as ``data_imports.data_type`` (via ingest). When
-    omitted or blank, ``"excel"`` is used so existing behavior is unchanged.
+    ``data_import_data_type`` is stored as ``data_imports.data_type`` (via ingest).
 
-    ``ingest_source_type`` is stored as ingest + DB ``source_type``. When omitted or
-    blank, ``"email"`` is used. Future API imports can pass e.g. ``"api"``.
+    ``ingest_source_type`` is stored as ingest + DB ``source_type``. Future API imports
+    can pass ``DataImportSourceType.API``.
     """
     tid = data_import_tenant_id.strip()
     if not tid:
         raise ValueError("data_import_tenant_id is required")
 
-    ingest_label = (data_import_data_type or "").strip() or "excel"
-    source_label = (ingest_source_type or "").strip() or "email"
     attachment = email_first_attachment(payload)
     if attachment is None:
         return None
@@ -149,8 +147,8 @@ async def process_email_webhook_attachment_import(
         return await _fetch_and_record_excel_attachment(
             workflow_name=workflow_name,
             data_import_tenant_id=tid,
-            ingest_source_type=source_label,
-            data_import_data_type=ingest_label,
+            ingest_source_type=ingest_source_type,
+            data_import_data_type=data_import_data_type,
             fetch_ctx=fetch_ctx,
             file_name=file_name,
             mime_type=mime_type,

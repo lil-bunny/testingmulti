@@ -170,11 +170,11 @@ class TenderService:
     def update_load_type(
         self, *, tenant_id: str, tender_id: str, load_type: str
     ) -> bool:
-        """Persist ``load_type`` on the tender (``LTL`` / ``FTL`` / ``PARTIAL`` enum labels)."""
+        """Persist ``load_type`` on the tender (``LTL`` / ``FTL`` enum labels)."""
         tid = self._clean(tenant_id)
         tr = self._clean(tender_id)
         lt = (load_type or "").strip().upper()
-        if not tid or not tr or lt not in {"LTL", "FTL", "PARTIAL"}:
+        if not tid or not tr or lt not in {"LTL", "FTL"}:
             return False
         conn = self._conn()
         try:
@@ -182,7 +182,7 @@ class TenderService:
                 cur.execute(
                     f"""
                     UPDATE {self.TABLE_NAME}
-                    SET load_type = %s::load_type_enum, updated_at = NOW()
+                    SET load_type = %s::load_type, updated_at = NOW()
                     WHERE id = %s::uuid AND tenant_id = %s::uuid
                     """,
                     (lt, tr, tid),

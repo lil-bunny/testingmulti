@@ -40,7 +40,13 @@ class DataImportsRepository:
                         file_name,
                         raw_data
                     )
-                    VALUES (%s::uuid, %s, %s, %s, %s)
+                    VALUES (
+                        %s::uuid,
+                        %s::data_import_data_type,
+                        %s::data_import_source_type,
+                        %s,
+                        %s
+                    )
                     RETURNING id::text
                     """,
                     (tid, dt, st, file_name, Json(raw_data)),
