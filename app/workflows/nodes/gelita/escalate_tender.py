@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings, resolve_load_type
+from app.domain.load_tendering_settings import (
+    action_settings,
+    gelita_escalate_tender_settings,
+    resolve_load_type,
+)
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -50,15 +54,16 @@ def escalate_tender(state):
         return state
 
     load_type = resolve_load_type(state)
-    cfg = action_settings(state, "escalate_tender", load_type=load_type)
-    to_addr = str(cfg.get("escalation_notify_email") or "").strip()
-    if not to_addr or "@" not in to_addr:
-        logger.error("escalate_tender ESCALATION_NOTIFY_EMAIL invalid or empty")
-        state.data["escalation_email_error"] = "missing_escalation_notify_email"
+    escalate_cfg = gelita_escalate_tender_settings(state, load_type=load_type)
+    if escalate_cfg is None:
+        logger.error("escalate_tender invalid escalate_tender tenant settings")
+        state.data["escalation_email_error"] = "invalid_tenant_settings_escalate_tender"
         state.data["escalation_email_sent"] = False
         return state
 
-    account_id = str(cfg.get("ana_at_gelita_account_id") or "").strip()
+    merged = action_settings(state, "escalate_tender", load_type=load_type)
+    recipients = escalate_cfg.recipients()
+    account_id = str(merged.get("ana_at_gelita_account_id") or "").strip()
     if not account_id:
         state.data["escalation_email_error"] = "missing_sender_account_id"
         state.data["escalation_email_sent"] = False
@@ -78,8 +83,8 @@ def escalate_tender(state):
         "tender_id": tender_id or "unknown",
         "order_number": order_number or "unknown",
     }
-    subject_template = str(cfg.get("escalation_email_subject") or "").strip()
-    body_template = str(cfg.get("escalation_email_body") or "").strip()
+    subject_template = escalate_cfg.escalation_email_subject.strip()
+    body_template = escalate_cfg.escalation_email_body.strip()
     if not subject_template:
         subject_template = "Gelita tender escalation (order {order_number})"
     if not body_template:
@@ -100,7 +105,9 @@ def escalate_tender(state):
     result = None
     try:
         result = send_email(
-            to=to_addr,
+            to=recipients.to,
+            cc=recipients.cc,
+            bcc=recipients.bcc,
             subject=subject,
             body=body,
             account_id=account_id,
@@ -159,9 +166,9 @@ def escalate_tender(state):
         metadata={
             "tender_id": tender_id or None,
             "order_number": order_number or None,
-            "escalation_notify_email_domain": to_addr.split("@", 1)[-1]
-            if "@" in to_addr
-            else None,
+            "escalation_notify_email_domains": [
+                addr.split("@", 1)[-1] for addr in recipients.to if "@" in addr
+            ],
         },
     )
 

@@ -3,6 +3,10 @@ from typing import Any, Dict, List, Optional, Set
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.services.communications.service import CommunicationsService
+from app.domain.tenant_settings.email_recipients import (
+    coerce_email_list,
+    unipile_recipients_from_addresses,
+)
 from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
@@ -40,6 +44,11 @@ def _record_outbound_communication(
 
 def _normalize_email(e: Any) -> str:
     return (str(e) if e else "").strip().lower()
+
+
+def _unipile_recipient_list(field: Any, *, required: bool) -> List[Dict[str, str]]:
+    addrs = coerce_email_list(field, required=required)
+    return unipile_recipients_from_addresses(addrs)
 
 
 def _attendee_to_recipient(att: Any) -> Optional[Dict[str, str]]:
@@ -232,11 +241,15 @@ def send_email(
     account_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
     communication_metadata: Optional[dict[str, Any]] = None,
+    cc: Any = None,
+    bcc: Any = None,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
-    is an email, send a new message. Requires ``UNIPILE_API_KEY`` and sending ``account_id``
-    (argument or ``settings.UNIPILE_ACCOUNT_ID``).
+    has at least one valid address, send a new message. Requires ``UNIPILE_API_KEY`` and
+    sending ``account_id`` (argument or ``settings.UNIPILE_ACCOUNT_ID``).
+
+    ``to``, ``cc``, and ``bcc`` accept a single email string or a list of strings.
 
     ``subject`` is optional; empty/missing values default to ``"POD Request"``.
     """
@@ -273,40 +286,45 @@ def send_email(
             communication_metadata=communication_metadata,
         )
 
-    to_addr = (str(to).strip() if to else "") or ""
-    if "@" in to_addr:
-        unipile = Unipile()
-        recipients: List[Dict[str, str]] = [
-            {
-                "identifier": to_addr,
-                "display_name": to_addr.split("@", 1)[0],
-            }
-        ]
-        out = unipile.send_email(
-            to=recipients,
-            subject=subject,
-            body=body,
-            account_id=acc,
-        )
-        if not out.get("success"):
-            err = out.get("error") or "Unipile send_email failed"
-            logger.warning("send_email: Unipile send failed: %s", err)
-            raise UnipileException(str(err))
-        _record_outbound_communication(
-            tenant_id=tenant_id,
-            communication_metadata=communication_metadata,
-            body=body,
-            subject=subject,
-            result=out,
-            to=to_addr,
-            account_id=acc,
-        )
-        return out
+    try:
+        to_recipients = _unipile_recipient_list(to, required=True)
+    except ValueError as exc:
+        raise UnipileException(
+            "send_email: no thread_id and no valid `to` address; nothing sent "
+            f"(subject={subject!r}): {exc}"
+        ) from exc
 
-    raise UnipileException(
-        "send_email: no thread_id and no valid `to` address; nothing sent "
-        f"(subject={subject!r})"
+    cc_recipients = _unipile_recipient_list(cc, required=False) or None
+    bcc_recipients = _unipile_recipient_list(bcc, required=False) or None
+
+    unipile = Unipile()
+    out = unipile.send_email(
+        to=to_recipients,
+        subject=subject,
+        body=body,
+        account_id=acc,
+        cc=cc_recipients,
+        bcc=bcc_recipients,
     )
+    if not out.get("success"):
+        err = out.get("error") or "Unipile send_email failed"
+        logger.warning("send_email: Unipile send failed: %s", err)
+        raise UnipileException(str(err))
+    to_logged = coerce_email_list(to, required=False)
+    cc_logged = coerce_email_list(cc, required=False)
+    bcc_logged = coerce_email_list(bcc, required=False)
+    _record_outbound_communication(
+        tenant_id=tenant_id,
+        communication_metadata=communication_metadata,
+        body=body,
+        subject=subject,
+        result=out,
+        to=to_logged or None,
+        cc=cc_logged or None,
+        bcc=bcc_logged or None,
+        account_id=acc,
+    )
+    return out
 
 
 def reply_to_thread(

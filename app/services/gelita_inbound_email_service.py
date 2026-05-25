@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import action_settings
+from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 from app.domain.status_parsing import status_type_from_db
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.models.status import StatusType
@@ -228,7 +229,10 @@ class GelitaInboundEmailService:
 
         tenants_service = TenantsService()
         tenant_row = tenants_service.get_by_slug(tenant.tenant_slug) or {}
-        tenant_settings = tenant_row.get("settings") or {}
+        tenant_settings = normalize_tenant_settings_dict(
+            tenant.tenant_slug,
+            tenant_row.get("settings") or {},
+        )
         dl_cfg = action_settings(
             {"tenant_settings": tenant_settings},
             "delivery_locations_excel",

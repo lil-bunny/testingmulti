@@ -73,7 +73,10 @@ def test_shared_unipile_accounts_merged_from_tenant_settings_root() -> None:
     assert ltl_rem["ana_at_gelita_account_id"] == "8Lu6Ht9vTyyN1Zdb1mVtPw"
     ftl_esc = action_settings(state, "escalate_tender", load_type="FTL")
     assert ftl_esc["ana_at_gelita_account_id"] == "8Lu6Ht9vTyyN1Zdb1mVtPw"
-    assert "escalation_notify_email" in ftl_esc
+    assert isinstance(ftl_esc["escalation_notify_email"], list)
+    assert len(ftl_esc["escalation_notify_email"]) >= 1
+    ftl_vendor = action_settings(state, "send_tender_email", load_type="FTL")
+    assert isinstance(ftl_vendor["vendor_email"], list)
     assert "ana_at_gelita_account_id" not in _gelita_tenant_settings()["load_tendering"]["ftl"][
         "escalate_tender"
     ]

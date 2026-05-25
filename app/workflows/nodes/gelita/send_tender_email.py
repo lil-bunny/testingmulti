@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings, is_ftl_load_type
+from app.domain.load_tendering_settings import (
+    action_settings,
+    gelita_send_tender_email_settings,
+    is_ftl_load_type,
+)
 from app.services.unipile_service import UnipileException
 from app.tools.email import send_email
 from app.workflows.nodes.gelita.load_tendering_helpers import (
@@ -17,8 +21,17 @@ logger = get_logger(__name__)
 def send_tender_email(state):
     load_type = str(state.data.get("load_type") or "").strip()
     ftl = is_ftl_load_type(load_type)
-    cfg = action_settings(state, "send_tender_email", load_type=load_type)
-    account_id = str(cfg.get("ana_gelita_at_freightx_ai_account_id") or "").strip()
+    email_cfg = gelita_send_tender_email_settings(state, load_type=load_type)
+    if email_cfg is None:
+        state.data["tender_email_error"] = "invalid_tenant_settings_send_tender_email"
+        logger.error(
+            "send_tender_email: invalid send_tender_email tenant settings load_type=%s",
+            load_type or "unknown",
+        )
+        return state
+
+    merged = action_settings(state, "send_tender_email", load_type=load_type)
+    account_id = str(merged.get("ana_gelita_at_freightx_ai_account_id") or "").strip()
 
     if not account_id:
         state.data["tender_email_error"] = "missing_sender_account_id"
@@ -43,7 +56,7 @@ def send_tender_email(state):
 
     result = None
     try:
-        template = str(cfg.get("email_template_html") or "").strip()
+        template = email_cfg.email_template_html.strip()
         if not template:
             state.data["tender_email_error"] = "missing_tenant_settings_email_template_html"
             logger.error(
@@ -51,17 +64,15 @@ def send_tender_email(state):
                 load_type or "unknown",
             )
             return state
-        vendor_email = str(cfg.get("vendor_email") or "").strip()
-        if not vendor_email or "@" not in vendor_email:
-            state.data["tender_email_error"] = "missing_tenant_settings_vendor_email"
-            logger.error("send_tender_email: vendor_email not configured")
-            return state
+        recipients = email_cfg.recipients()
         if ftl:
             built = build_gelita_ftl_tender_email(tender_data, calculated, template)
         else:
             built = build_gelita_tender_email(tender_data, calculated, template)
         result = send_email(
-            to=vendor_email,
+            to=recipients.to,
+            cc=recipients.cc,
+            bcc=recipients.bcc,
             subject=built["subject"],
             body=built["body_html"],
             account_id=account_id,

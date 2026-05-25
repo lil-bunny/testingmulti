@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError
+
+from app.domain.tenant_settings.gelita import (
+    GelitaEscalateTenderSettings,
+    GelitaSendTenderEmailSettings,
+    GelitaTenantSettings,
+)
 from app.services.tender_service import TenderService
 
 LOAD_TENDERING_SETTINGS_KEY = "load_tendering"
@@ -137,3 +144,40 @@ def action_settings(
     if block is None:
         return dict(shared_accounts)
     return {**shared_accounts, **block}
+
+
+def tenant_slug_from_state(state_or_data: Any) -> str:
+    """Graph tenant slug from workflow state or Celery payload (``tenant_slug``)."""
+    data = _data_dict(state_or_data)
+    return str(data.get("tenant_slug") or "").strip().lower()
+
+
+def parse_gelita_tenant_settings(state_or_data: Any) -> GelitaTenantSettings:
+    """Validate full Gelita ``tenant_settings`` blob; raises ``ValidationError`` on mismatch."""
+    return GelitaTenantSettings.model_validate(tenant_settings_root(state_or_data))
+
+
+def gelita_send_tender_email_settings(
+    state_or_data: Any,
+    *,
+    load_type: str | None,
+) -> GelitaSendTenderEmailSettings | None:
+    """Parse ``send_tender_email`` action block for Gelita; ``None`` if validation fails."""
+    cfg = action_settings(state_or_data, "send_tender_email", load_type=load_type)
+    try:
+        return GelitaSendTenderEmailSettings.model_validate(cfg)
+    except ValidationError:
+        return None
+
+
+def gelita_escalate_tender_settings(
+    state_or_data: Any,
+    *,
+    load_type: str | None,
+) -> GelitaEscalateTenderSettings | None:
+    """Parse ``escalate_tender`` action block for Gelita; ``None`` if validation fails."""
+    cfg = action_settings(state_or_data, "escalate_tender", load_type=load_type)
+    try:
+        return GelitaEscalateTenderSettings.model_validate(cfg)
+    except ValidationError:
+        return None
