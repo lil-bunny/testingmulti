@@ -33,12 +33,8 @@ class Settings(BaseSettings):
     DATABASE_USER: str
     DATABASE_PASSWORD: str
 
-    # Fractional hours supported (e.g. 30s ≈ 0.00833333). Integers in .env still parse (24 → 24.0).
-    REMINDER_0_HOURS:float = 0           # immediate
-    REMINDER_1_HOURS:float = 0.01666666  # 1m later
-    REMINDER_2_HOURS:float = 0.03333332  # 2m later
-    POD_REMINDER_EMAIL_BODY: str = "Please send pod"
-    # After nominal reminder time (ETA), Celery discards the task if not yet executed.
+    # Platform cap for Celery Redis visibility_timeout (tenant delay_hours must stay below this).
+    MAX_REMINDER_DELAY_HOURS: float = 72.0
     REMINDER_EXPIRE_GRACE_HOURS: int = 2
 
     # Celery

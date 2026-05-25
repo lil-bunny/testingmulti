@@ -24,14 +24,7 @@ celery_app.conf.update(
 # Redis: max countdown must stay *below* visibility_timeout (kombu/celery delayed-task semantics).
 # No arbitrary +1 day: max countdown + expire grace (+ run/ack) matches ~50h cap for the 48h reminder.
 if settings.CELERY_BROKER_URL.startswith("redis"):
-    _max_reminder_s = (
-        max(
-            settings.REMINDER_0_HOURS,
-            settings.REMINDER_1_HOURS,
-            settings.REMINDER_2_HOURS,
-        )
-        * 3600
-    )
+    _max_reminder_s = int(float(settings.MAX_REMINDER_DELAY_HOURS) * 3600)
     _grace_s = settings.REMINDER_EXPIRE_GRACE_HOURS * 3600
     _exec_slack_s = 3600  # after ETA, worst-case run time + ack
     _redis_visibility_timeout = _max_reminder_s + _grace_s + _exec_slack_s

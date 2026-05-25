@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.domain.load_tendering_settings import (
     action_settings,
     load_tendering_settings_root,
@@ -23,7 +25,7 @@ def test_action_settings_from_state_data() -> None:
         data={"tenant_settings": _gelita_tenant_settings()},
     )
     calc = action_settings(state, "tender_calculate")
-    assert calc["pallet_weight_lbs"] == 45.0
+    assert calc["pallet_weight_lbs"] == 50.0
     assert calc["pallet_threshold"] == 8
     assert calc["gelita_pickup_address"]["name"] == "GELITA USA"
 
@@ -31,8 +33,8 @@ def test_action_settings_from_state_data() -> None:
 def test_action_settings_from_payload_dict() -> None:
     payload = {"tenant_settings": _gelita_tenant_settings()}
     esc = action_settings(payload, "escalate_tender", load_type="LTL")
-    assert esc["escalation_hours"] == 0.1
-    assert "escalation_email_body" in esc
+    assert "LTL tender escalation" in esc["escalation_email_body"]
+    assert esc["escalation_notify_email"]
 
 
 def test_missing_action_returns_empty_dict() -> None:
@@ -49,10 +51,10 @@ def test_ltl_and_ftl_buckets_from_fixture() -> None:
     assert "{delivery_date}" in ftl_email["email_template_html"]
     assert "<!DOCTYPE html>" in ftl_email["email_template_html"]
     ftl_rem = action_settings(state, "send_tender_reminder", load_type="FTL")
-    assert ftl_rem["reminder_1_hours"] == 24
     assert "<!DOCTYPE html>" in ftl_rem["reminder_body"]
+    assert "reminder_1_hours" not in ftl_rem
     ftl_esc = action_settings(state, "escalate_tender", load_type="FTL")
-    assert ftl_esc["escalation_hours"] == 28
+    assert "escalation_hours" not in ftl_esc
     assert "FTL tender escalation" in ftl_esc["escalation_email_body"]
     assert "<!DOCTYPE html>" in ftl_esc["escalation_email_body"]
     ltl_email = action_settings(state, "send_tender_email", load_type="LTL")
@@ -80,6 +82,15 @@ def test_shared_unipile_accounts_merged_from_tenant_settings_root() -> None:
     assert "ana_at_gelita_account_id" not in _gelita_tenant_settings()["load_tendering"]["ftl"][
         "escalate_tender"
     ]
+
+
+def test_reminder_schedule_hours_only_under_load_tendering_reminders() -> None:
+    root = _gelita_tenant_settings()["load_tendering"]
+    ftl_steps = root["reminders"]["variants"]["ftl"]
+    assert ftl_steps[0]["delay_hours"] == pytest.approx(0.166)
+    assert ftl_steps[1]["event_type"] == "escalation_due"
+    assert "reminder_1_hours" not in root["ftl"]["send_tender_reminder"]
+    assert "escalation_hours" not in root["ftl"]["escalate_tender"]
 
 
 def test_delivery_locations_excel_action_from_fixture() -> None:

@@ -4,19 +4,17 @@ from __future__ import annotations
 
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from app.domain.tenant_settings.gelita import GelitaTenantSettings
+from app.domain.tenant_settings.t3ra import T3raTenantSettings
 
 TSettings = TypeVar("TSettings", bound=BaseModel)
 
 _TENANT_SETTINGS_MODELS: dict[str, type[BaseModel]] = {
     "gelita": GelitaTenantSettings,
+    "t3ra": T3raTenantSettings,
 }
-
-
-def registered_tenant_settings_slugs() -> frozenset[str]:
-    return frozenset(_TENANT_SETTINGS_MODELS)
 
 
 def parse_tenant_settings(slug: str, raw: Any) -> BaseModel | None:
@@ -32,14 +30,6 @@ def parse_tenant_settings(slug: str, raw: Any) -> BaseModel | None:
     if not isinstance(raw, dict):
         raw = {}
     return model_cls.model_validate(raw)
-
-
-def parse_tenant_settings_or_none(slug: str, raw: Any) -> BaseModel | None:
-    """Like ``parse_tenant_settings`` but returns ``None`` on validation failure (logs at call site)."""
-    try:
-        return parse_tenant_settings(slug, raw)
-    except ValidationError:
-        return None
 
 
 def normalize_tenant_settings_dict(slug: str, raw: Any) -> dict[str, Any]:

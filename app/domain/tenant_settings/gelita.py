@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import EmailRecipients, coerce_email_list
 
 # Reusable list fields: required TO accepts str | list; optional CC/BCC default empty.
@@ -53,11 +54,11 @@ class GelitaSendTenderEmailSettings(BaseModel):
 
 
 class GelitaSendTenderReminderSettings(BaseModel):
+    """In-thread reminder email copy (timing lives under ``load_tendering.reminders``)."""
+
     model_config = ConfigDict(extra="ignore")
 
     reminder_body: str
-    reminder_1_hours: float
-    reminder_2_hours: float | None = None
 
 
 class GelitaEscalateTenderSettings(BaseModel):
@@ -65,7 +66,6 @@ class GelitaEscalateTenderSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    escalation_hours: float
     escalation_email_body: str
     escalation_notify_email: RequiredEmailList = Field(min_length=1)
     escalation_cc: OptionalEmailList = Field(default_factory=list)
@@ -119,6 +119,7 @@ class GelitaDeliveryLocationsExcelSettings(BaseModel):
 class GelitaLoadTenderingSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    reminders: WorkflowRemindersConfig
     ltl: GelitaLoadTypeBranch
     ftl: GelitaLoadTypeBranch
     tender_calculate: GelitaTenderCalculateSettings
