@@ -7,7 +7,7 @@ State keys:
 
 from __future__ import annotations
 
-from app.services.reminder_scheduler import schedule_pod_reminders
+from app.services.workflow_reminder_service import WorkflowReminderService
 from app.services.workflow_runs_service import WorkflowRunsService
 
 
@@ -45,7 +45,11 @@ def record_and_schedule_pod_request(state):
     force_mark = bool(state.data.pop("_force_mark_pod_request", False))
 
     if not blocked or force_mark:
-        schedule_pod_reminders(state.data)
+        data = dict(state.data)
+        workflow_reminder_service = WorkflowReminderService()
+        workflow_reminder_service.schedule(data, workflow_name="pod_lifecycle")
+        if data.get("reminders_scheduled"):
+            state.data["reminders_scheduled"] = True
 
     return state
 

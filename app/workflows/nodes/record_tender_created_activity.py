@@ -42,7 +42,8 @@ def record_tender_created_activity(state):
         order_number = str(row.get("order_number") or "")
         customer_name = str(row.get("customer_name") or row.get("customer_match") or "")
 
-    ActivityLogService().record_tender_created_action(
+    activity_log_service = ActivityLogService()
+    activity_log_service.record_tender_created_action(
         tenant_id=tenant_id,
         tender_id=tender_id,
         order_number=order_number,

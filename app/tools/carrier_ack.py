@@ -1,8 +1,7 @@
-"""Parse Gelita carrier email bodies for business keys and ack classification."""
+"""Carrier acknowledgment reply parsing and LLM classification."""
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from app.core.logger import get_logger
@@ -19,8 +18,6 @@ _CARRIER_ACK_DECISIONS = frozenset(
         StatusSubType.DO_NOTHING.value,
     }
 )
-
-_ORDER_NUMBER_RE = re.compile(r"Order\s*#\s*(\d+)", re.IGNORECASE)
 
 
 def normalize_carrier_reply_body(*, body: str | None = None) -> str:
@@ -89,20 +86,3 @@ def classify_carrier_acknowledgment(
         "confidence": confidence,
         "reason": reason,
     }
-
-
-def extract_order_number(email_body: str | None) -> str | None:
-    """
-    Extract order number from Gelita carrier HTML/plain body (e.g. ``Order #93795``).
-
-    Returns the numeric string or ``None`` when not found.
-    """
-    raw = (email_body or "").strip()
-    if not raw:
-        return None
-    normalized = normalize_email_body_for_llm(body=raw)
-    match = _ORDER_NUMBER_RE.search(normalized)
-    if not match:
-        return None
-    value = match.group(1).strip()
-    return value or None

@@ -14,10 +14,7 @@ from app.domain.load_tendering_settings import (
     parse_gelita_tenant_settings,
 )
 from app.domain.tenant_settings import GelitaTenantSettings, parse_tenant_settings
-from app.domain.tenant_settings.registry import (
-    normalize_tenant_settings_dict,
-    registered_tenant_settings_slugs,
-)
+from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "gelita_tenant_settings.json"
 
@@ -37,9 +34,9 @@ def test_fixture_validates_as_gelita_tenant_settings() -> None:
 
 
 def test_parse_tenant_settings_registry() -> None:
-    assert "gelita" in registered_tenant_settings_slugs()
     parsed = parse_tenant_settings("gelita", _raw_settings())
     assert isinstance(parsed, GelitaTenantSettings)
+    assert parse_tenant_settings("unknown-tenant", _raw_settings()) is None
 
 
 def test_normalize_coerces_email_lists() -> None:

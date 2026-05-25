@@ -13,16 +13,16 @@ TENDER_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 
 @patch(
-    "app.workflows.nodes.gelita.record_tender_created_activity.LifecycleTransitionService"
+    "app.workflows.nodes.record_tender_created_activity.LifecycleTransitionService"
 )
-@patch("app.workflows.nodes.gelita.record_tender_created_activity.ActivityLogService")
+@patch("app.workflows.nodes.record_tender_created_activity.ActivityLogService")
 def test_record_tender_created_activity_calls_both_logs(
     mock_activity_svc_cls: MagicMock,
     mock_transition_svc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
     from app.models.status import StatusSubType, StatusType
-    from app.workflows.nodes.gelita.record_tender_created_activity import (
+    from app.workflows.nodes.record_tender_created_activity import (
         record_tender_created_activity,
     )
 
@@ -62,11 +62,11 @@ def test_record_tender_created_activity_calls_both_logs(
     assert command.to_sub_status == StatusSubType.TENDER_CREATED
 
 
-@patch("app.workflows.nodes.gelita.record_tender_created_activity.ActivityLogService")
+@patch("app.workflows.nodes.record_tender_created_activity.ActivityLogService")
 def test_record_tender_created_activity_skips_when_ids_missing(
     mock_svc_cls: MagicMock,
 ) -> None:
-    from app.workflows.nodes.gelita.record_tender_created_activity import (
+    from app.workflows.nodes.record_tender_created_activity import (
         record_tender_created_activity,
     )
 

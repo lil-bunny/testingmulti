@@ -6,13 +6,19 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.domain.load_tendering_settings import (
     action_settings,
     is_ftl_load_type,
     load_type_bucket,
 )
-from app.services.gelita_reminder_scheduler import _reminder_schedule_specs
-from app.workflows.nodes.gelita.load_tendering_helpers import build_gelita_ftl_tender_email
+from app.domain.reminder_schedule import WorkflowRemindersConfig
+from app.services.workflow_reminder_service import (
+    parse_reminders_for_workflow,
+    resolve_reminder_steps,
+)
+from app.tools.tender_email import build_ftl_tender_email
 
 _FIXTURE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "gelita_tenant_settings.json"
 
@@ -29,13 +35,13 @@ def test_is_ftl_load_type_and_bucket() -> None:
     assert load_type_bucket("LTL") == "ltl"
 
 
-def test_build_gelita_ftl_tender_email_placeholders() -> None:
+def test_build_ftl_tender_email_placeholders() -> None:
     template = action_settings(
         {"tenant_settings": _tenant_settings()},
         "send_tender_email",
         load_type="FTL",
     )["email_template_html"]
-    built = build_gelita_ftl_tender_email(
+    built = build_ftl_tender_email(
         {
             "order_number": "ORD-1",
             "customer_po": "PO-9",
@@ -57,20 +63,28 @@ def test_build_gelita_ftl_tender_email_placeholders() -> None:
 
 
 def test_ftl_reminder_schedule_specs() -> None:
-    data = {"tenant_settings": _tenant_settings()}
-    specs = _reminder_schedule_specs(data, "FTL")
-    assert len(specs) == 2
-    assert specs[0] == (24.0, "reminder_due", 1)
-    assert specs[1] == (28.0, "escalation_due", None)
+    data = {"tenant_settings": _tenant_settings(), "load_type": "FTL"}
+    cfg = parse_reminders_for_workflow(data, "load_tendering")
+    assert cfg is not None
+    steps = resolve_reminder_steps(cfg, data, workflow_name="load_tendering")
+    assert steps is not None
+    assert len(steps) == 2
+    assert steps[0].delay_hours == pytest.approx(0.166)
+    assert steps[0].event_type == "reminder_due"
+    assert steps[0].step == 1
+    assert steps[1].event_type == "escalation_due"
 
 
 def test_ltl_reminder_schedule_specs() -> None:
-    data = {"tenant_settings": _tenant_settings()}
-    specs = _reminder_schedule_specs(data, "LTL")
-    assert len(specs) == 3
-    assert specs[0][0] == 12.0
-    assert specs[1][0] == 24.0
-    assert specs[2][0] == 0.1
+    data = {"tenant_settings": _tenant_settings(), "load_type": "LTL"}
+    cfg = parse_reminders_for_workflow(data, "load_tendering")
+    assert cfg is not None
+    steps = resolve_reminder_steps(cfg, data, workflow_name="load_tendering")
+    assert steps is not None
+    assert len(steps) == 3
+    assert steps[0].delay_hours == pytest.approx(0.166)
+    assert steps[1].delay_hours == pytest.approx(0.333)
+    assert steps[2].delay_hours == pytest.approx(0.1)
 
 
 def test_ltl_and_ftl_escalation_bodies_differ() -> None:

@@ -10,8 +10,6 @@ from app.domain.tenant_settings.gelita import GelitaTenantSettings
 from app.domain.tenant_settings.registry import (
     normalize_tenant_settings_dict,
     parse_tenant_settings,
-    parse_tenant_settings_or_none,
-    registered_tenant_settings_slugs,
 )
 
 __all__ = [
@@ -21,7 +19,5 @@ __all__ = [
     "email_recipients_from_action_cfg",
     "normalize_tenant_settings_dict",
     "parse_tenant_settings",
-    "parse_tenant_settings_or_none",
-    "registered_tenant_settings_slugs",
     "unipile_recipients_from_addresses",
 ]

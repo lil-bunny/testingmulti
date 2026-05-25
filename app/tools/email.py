@@ -254,7 +254,7 @@ def send_email(
     ``subject`` is optional; empty/missing values default to ``"POD Request"``.
     """
     subject = subject or "POD Request"
-    body = (body or "").strip() or settings.POD_REMINDER_EMAIL_BODY
+    body = (body or "").strip() or "Please send pod"
     tid = (thread_id or "").strip()
     acc = (account_id or settings.UNIPILE_ACCOUNT_ID or "").strip()
     api_key = (settings.UNIPILE_API_KEY or "").strip()

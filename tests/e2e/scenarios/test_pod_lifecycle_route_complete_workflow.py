@@ -211,7 +211,7 @@ def _turvo_documents_pod_found_in_listen_ack(ack: Any | None) -> bool:
 
 
 def _pod_considered_present_from_listen_ack(ack: Any | None) -> bool:
-    """True when the graph treated POD as present (no ``schedule_pod_reminders`` on route_completed).
+    """True when the graph treated POD as present (no POD reminder schedule on route_completed).
 
     Prefer Turvo documents/list outcome when present; otherwise ``result.data.pod_exists`` after
     Turvo merge + webhook hints.
@@ -274,17 +274,27 @@ def _resolve_workflow_lifecycle_id_for_reminder_poll(ack: Any | None) -> str:
     return ""
 
 
+def _pod_reminder_max_delay_hours() -> float:
+    """Max step delay from t3ra ``tenant_settings.pod_lifecycle.reminders`` fixture."""
+    import json
+    from pathlib import Path
+
+    fixture = (
+        Path(__file__).resolve().parents[3] / "scripts" / "t3ra_tenant_settings.json"
+    )
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    steps = raw["pod_lifecycle"]["reminders"]["steps"]
+    return max(float(s["delay_hours"]) for s in steps)
+
+
 def _reminder_poll_timeout_interval_defaults_from_settings() -> tuple[float, float]:
-    """Align poll window with ``schedule_pod_reminders`` (``REMINDER_*_HOURS`` + grace).
+    """Align poll window with POD reminder schedule in tenant settings + grace.
 
     Uses the same ``max(countdowns) + REMINDER_EXPIRE_GRACE_HOURS`` horizon as Celery ``expires``,
     plus a small slack for worker execution and ``workflow_runs`` visibility. Probe interval scales
     with that window unless overridden via ``TURVO_REMINDER_RUNS_POLL_INTERVAL_S``.
     """
-    r0 = float(settings.REMINDER_0_HOURS)
-    r1 = float(settings.REMINDER_1_HOURS)
-    r2 = float(settings.REMINDER_2_HOURS)
-    max_cd_hours = max(r0, r1, r2)
+    max_cd_hours = _pod_reminder_max_delay_hours()
     expire_td = timedelta(hours=max_cd_hours) + timedelta(
         hours=float(settings.REMINDER_EXPIRE_GRACE_HOURS)
     )
@@ -314,9 +324,8 @@ def _assert_reminder_due_rows_poll(
         "[workflow_runs poll config]",
         f"timeout_s={timeout:.1f} interval_s={interval:.2f}",
         f"(env_override_timeout={bool(timeout_raw)} env_override_interval={bool(interval_raw)}; "
-        f"REMINDER_0_HOURS={settings.REMINDER_0_HOURS} REMINDER_1_HOURS={settings.REMINDER_1_HOURS} "
-        f"REMINDER_2_HOURS={settings.REMINDER_2_HOURS} REMINDER_EXPIRE_GRACE_HOURS="
-        f"{settings.REMINDER_EXPIRE_GRACE_HOURS})",
+        f"pod_reminder_max_delay_hours={_pod_reminder_max_delay_hours():g} "
+        f"REMINDER_EXPIRE_GRACE_HOURS={settings.REMINDER_EXPIRE_GRACE_HOURS})",
     )
 
     rows = _poll_until_reminder_due_count(

@@ -10,10 +10,7 @@ from app.domain.load_tendering_settings import (
 )
 from app.services.unipile_service import UnipileException
 from app.tools.email import send_email
-from app.workflows.nodes.gelita.load_tendering_helpers import (
-    build_gelita_ftl_tender_email,
-    build_gelita_tender_email,
-)
+from app.tools.tender_email import build_ftl_tender_email, build_ltl_tender_email
 
 logger = get_logger(__name__)
 
@@ -66,9 +63,9 @@ def send_tender_email(state):
             return state
         recipients = email_cfg.recipients()
         if ftl:
-            built = build_gelita_ftl_tender_email(tender_data, calculated, template)
+            built = build_ftl_tender_email(tender_data, calculated, template)
         else:
-            built = build_gelita_tender_email(tender_data, calculated, template)
+            built = build_ltl_tender_email(tender_data, calculated, template)
         result = send_email(
             to=recipients.to,
             cc=recipients.cc,
