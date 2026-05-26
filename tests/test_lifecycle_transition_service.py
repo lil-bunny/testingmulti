@@ -129,6 +129,10 @@ def test_apply_sub_status_only_keeps_top_level_status_on_log(
     assert row["from_status"] == StatusType.PENDING_REVIEW.value
     assert row["to_status"] == StatusType.PENDING_REVIEW.value
     assert row["to_sub_status"] == StatusSubType.ESCALATED.value
+    assert (
+        row["description"]
+        == "Sub-status changed from Tender Sent To Tenant to Escalated"
+    )
     assert result.to_status == StatusType.PENDING_REVIEW
 
 
@@ -334,7 +338,6 @@ def test_apply_sequence_action_then_status_in_one_transaction(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=StatusType.PROCESSING,
             to_sub_status=StatusSubType.TENDER_CREATED,
-            description="Status updated to Processing",
         ),
     )
 
@@ -352,5 +355,48 @@ def test_apply_sequence_action_then_status_in_one_transaction(
     assert status_row["from_status"] == StatusType.NONE.value
     assert status_row["to_status"] == StatusType.PROCESSING.value
     assert status_row["to_sub_status"] == StatusSubType.TENDER_CREATED.value
+    assert (
+        status_row["description"]
+        == "Status changed from None to Processing"
+    )
 
     lifecycles.update_status.assert_called_once()
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+@patch("app.services.lifecycle_transition_service.unit_of_work")
+def test_apply_status_change_uses_generated_description(
+    mock_uow: MagicMock,
+    _resolve_tenant: MagicMock,
+) -> None:
+    conn = MagicMock()
+    mock_uow.return_value.__enter__.return_value = conn
+
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.TENDER_SENT_TO_CARRIER.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    lifecycles.update_status.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert_with_connection.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    svc.apply(
+        _command(
+            description="ignored custom text",
+            to_status=StatusType.COMPLETED,
+            to_sub_status=StatusSubType.ACCEPTED,
+        )
+    )
+
+    row = activity_logs.insert_with_connection.call_args[0][1]
+    assert row["description"] == "Status changed from Processing to Completed"

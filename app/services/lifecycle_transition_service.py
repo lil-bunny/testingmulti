@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.activity_log_descriptions import generate_activity_log_description
 from app.domain.activity_log_fields import build_activity_log_status_fields
 from app.domain.lifecycle_transition import (
     LifecycleTransitionCommand,
@@ -55,6 +56,26 @@ class LifecycleTransitionService:
                 f"invalid {field_name}={value!r} (expected UUID)"
             ) from exc
 
+    def _resolve_activity_description(
+        self,
+        command: LifecycleTransitionCommand,
+        *,
+        log_from_status: StatusType,
+        log_to_status: StatusType,
+        log_from_sub: StatusSubType,
+        log_to_sub: StatusSubType,
+    ) -> str | None:
+        generated = generate_activity_log_description(
+            activity_type=command.activity_type,
+            from_status=log_from_status,
+            to_status=log_to_status,
+            from_sub_status=log_from_sub,
+            to_sub_status=log_to_sub,
+        )
+        if generated is not None:
+            return generated
+        return self._clean(command.description)
+
     def _insert_activity_row(
         self,
         conn: Any,
@@ -77,7 +98,13 @@ class LifecycleTransitionService:
                 "workflow_lifecycle_id": lifecycle_id,
                 "workflow_run_id": run_id,
                 "activity_type": command.activity_type.value,
-                "description": self._clean(command.description),
+                "description": self._resolve_activity_description(
+                    command,
+                    log_from_status=log_from_status,
+                    log_to_status=log_to_status,
+                    log_from_sub=log_from_sub,
+                    log_to_sub=log_to_sub,
+                ),
                 "from_status": log_from_status.value,
                 "to_status": log_to_status.value,
                 "from_sub_status": log_from_sub.value,

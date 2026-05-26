@@ -42,7 +42,6 @@ def update_awaiting_response(state):
         to_status=StatusType.PROCESSING,
         to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
         activity_type=ActivityType.STATUS_CHANGE,
-        description="Awaiting carrier acknowledgment on captured thread",
         actor_type=ActorType.SYSTEM,
         email_thread_id=thread_id or None,
         metadata={"thread_id": thread_id} if thread_id else {},

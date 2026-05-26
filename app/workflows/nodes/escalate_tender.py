@@ -203,7 +203,6 @@ def escalate_tender(state):
         state,
         to_sub_status=StatusSubType.ESCALATED,
         activity_type=ActivityType.SUB_STATUS_CHANGE,
-        description="Escalation email sent to operations",
         actor_type=ActorType.SYSTEM,
         metadata=log_metadata,
     )

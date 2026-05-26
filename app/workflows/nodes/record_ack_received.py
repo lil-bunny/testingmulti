@@ -18,16 +18,6 @@ from app.utils.prompts import carrier_ack_system_prompt
 
 logger = get_logger(__name__)
 
-_ACK_DESCRIPTIONS: dict[str, str] = {
-    StatusSubType.ACCEPTED.value: (
-        "Carrier acknowledgment recorded; tender marked complete"
-    ),
-    StatusSubType.REJECTED.value: (
-        "Carrier declined the tender; lifecycle marked complete"
-    ),
-}
-
-
 def classify_carrier_ack(state):
     """LLM gate: classify using full email thread from ``communications`` when available."""
     tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
@@ -148,7 +138,6 @@ def record_ack_received(state):
         return state
 
     to_sub = StatusSubType(decision)
-    description = _ACK_DESCRIPTIONS.get(decision)
 
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
@@ -156,7 +145,6 @@ def record_ack_received(state):
         to_status=StatusType.COMPLETED,
         to_sub_status=to_sub,
         activity_type=ActivityType.STATUS_CHANGE,
-        description=description,
         actor_type=ActorType.SYSTEM,
         metadata={"tender_id": tender_id, "carrier_ack_decision": decision},
     )

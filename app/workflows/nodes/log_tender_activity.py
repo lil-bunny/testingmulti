@@ -72,7 +72,6 @@ def log_tender_activity(state):
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
-                        description=format_tender_sent_to_vendor(),
                         to_status=StatusType.PENDING_REVIEW,
                         to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
                         metadata=dict(meta),
@@ -93,7 +92,6 @@ def log_tender_activity(state):
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=run_id,
                 to_status=StatusType.FAILED,
-                description=str(err),
                 metadata={"error": str(err), "tender_id": tender_id},
             )
         )

@@ -57,12 +57,6 @@ def update_reminder_status(state):
         if step == 1
         else StatusSubType.REMINDER_2_SENT
     )
-    message = (
-        "Tender reminder 1 sent on carrier thread"
-        if step == 1
-        else "Tender reminder 2 sent on carrier thread"
-    )
-
     workflow_lifecycle_service = WorkflowLifecycleService()
     prev = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
     skip = delayed_workflow_step_skip_reason(
@@ -91,7 +85,6 @@ def update_reminder_status(state):
         state,
         to_sub_status=new_sub,
         activity_type=ActivityType.SUB_STATUS_CHANGE,
-        description=message,
         actor_type=ActorType.SYSTEM,
         metadata=log_metadata,
     )

@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import (
-    format_status_updated_to_processing,
-    format_tender_created_action,
-)
+from app.domain.activity_log_descriptions import format_tender_created_action
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -63,7 +60,6 @@ def record_tender_created_activity(state):
                 ),
                 ActivityLogStep(
                     activity_type=ActivityType.STATUS_CHANGE,
-                    description=format_status_updated_to_processing(),
                     to_status=StatusType.PROCESSING,
                     to_sub_status=StatusSubType.TENDER_CREATED,
                     from_status=StatusType.NONE,
