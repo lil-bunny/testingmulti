@@ -24,10 +24,12 @@ def _record_outbound_communication(
     cc: Any = None,
     bcc: Any = None,
     account_id: str | None = None,
-) -> None:
+    workflow_run_id: str | None = None,
+) -> str | None:
     if not tenant_id or not isinstance(result, dict) or not result.get("success"):
-        return
-    CommunicationsService().record_outbound_from_send(
+        return None
+    communications_service = CommunicationsService()
+    return communications_service.record_outbound_from_send(
         tenant_id,
         send_result=result,
         body=body,
@@ -38,6 +40,7 @@ def _record_outbound_communication(
         bcc=bcc,
         account_id=account_id,
         extra_metadata=communication_metadata,
+        workflow_run_id=workflow_run_id,
     )
 
 # Private helpers
@@ -243,6 +246,7 @@ def send_email(
     communication_metadata: Optional[dict[str, Any]] = None,
     cc: Any = None,
     bcc: Any = None,
+    workflow_run_id: Optional[str] = None,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
@@ -284,6 +288,7 @@ def send_email(
             subject=subject,
             tenant_id=tenant_id,
             communication_metadata=communication_metadata,
+            workflow_run_id=workflow_run_id,
         )
 
     try:
@@ -313,7 +318,7 @@ def send_email(
     to_logged = coerce_email_list(to, required=False)
     cc_logged = coerce_email_list(cc, required=False)
     bcc_logged = coerce_email_list(bcc, required=False)
-    _record_outbound_communication(
+    comm_id = _record_outbound_communication(
         tenant_id=tenant_id,
         communication_metadata=communication_metadata,
         body=body,
@@ -323,7 +328,10 @@ def send_email(
         cc=cc_logged or None,
         bcc=bcc_logged or None,
         account_id=acc,
+        workflow_run_id=workflow_run_id,
     )
+    if comm_id:
+        out["communication_id"] = comm_id
     return out
 
 
@@ -336,6 +344,7 @@ def reply_to_thread(
     cc: Optional[List[Dict[str, Any]]] = None,
     tenant_id: Optional[str] = None,
     communication_metadata: Optional[dict[str, Any]] = None,
+    workflow_run_id: Optional[str] = None,
 ):
     """
     Orchestrates a thread reply (reply-all):
@@ -406,7 +415,7 @@ def reply_to_thread(
             result.get("error_details"),
         )
     else:
-        _record_outbound_communication(
+        comm_id = _record_outbound_communication(
             tenant_id=tenant_id,
             communication_metadata=communication_metadata,
             body=body,
@@ -416,7 +425,10 @@ def reply_to_thread(
             to=to_list,
             cc=cc_final,
             account_id=account_id,
+            workflow_run_id=workflow_run_id,
         )
+        if comm_id:
+            result["communication_id"] = comm_id
     return result
 
 def detect_attachment_bytes_type(file_content: bytes) -> tuple[str, str]:

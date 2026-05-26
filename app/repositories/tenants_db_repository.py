@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid as uuid_std
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg
 
@@ -54,6 +54,31 @@ def find_tenant_id_by_settings_email_webhook_name(webhook_name: str) -> Optional
             len(rows),
         )
     return str(rows[0][0])
+
+
+def fetch_tenant_settings_by_slug(slug: str) -> dict[str, Any] | None:
+    """Return ``tenants.settings`` JSON for ``slug`` (case-insensitive), or ``None``."""
+
+    needle = slug.strip()
+    if not needle:
+        return None
+    sql = (
+        f"SELECT settings FROM {_table()} "
+        "WHERE lower(trim(slug)) = lower(%s) "
+        "ORDER BY id LIMIT 1"
+    )
+    with _conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (needle,))
+            row = cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    raw = row[0]
+    if isinstance(raw, dict):
+        return raw
+    if hasattr(raw, "items"):
+        return dict(raw)
+    return None
 
 
 def find_tenant_uuid_by_slug(slug: str) -> Optional[str]:
@@ -125,3 +150,6 @@ class TenantsDbRepository:
 
     def get_slug_for_tenant_uuid(self, tenant_uuid: str) -> Optional[str]:
         return get_slug_for_tenant_uuid(tenant_uuid)
+
+    def fetch_tenant_settings_by_slug(self, slug: str) -> dict[str, Any] | None:
+        return fetch_tenant_settings_by_slug(slug)

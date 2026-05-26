@@ -5,6 +5,7 @@ Failures are logged and return ``None`` so webhooks and graph runs are not block
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, Optional
 
 from app.core.logger import get_logger
@@ -31,6 +32,21 @@ class CommunicationsService:
             return None
         s = str(value).strip()
         return s if s else None
+
+    @staticmethod
+    def _uuid_or_none(value: Any, *, field_name: str) -> str | None:
+        raw = CommunicationsService._clean(value)
+        if not raw:
+            return None
+        try:
+            return str(uuid.UUID(raw))
+        except (ValueError, AttributeError):
+            logger.warning(
+                "communications skipped invalid %s=%r (expected UUID)",
+                field_name,
+                value,
+            )
+            return None
 
     def _tenant_uuid_or_none(self, tenant_id: str | None) -> str | None:
         """Accept tenants.id UUID or graph slug (e.g. gelita)."""
@@ -109,6 +125,7 @@ class CommunicationsService:
         bcc: Any = None,
         account_id: str | None = None,
         extra_metadata: dict[str, Any] | None = None,
+        workflow_run_id: str | None = None,
     ) -> str | None:
         """Log one successful outbound email (Unipile send result)."""
         tid = self._tenant_uuid_or_none(tenant_id)
@@ -118,6 +135,8 @@ class CommunicationsService:
                 tenant_id,
             )
             return None
+
+        run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
 
         row = outbound_row_from_send(
             tenant_id=tid,
@@ -130,6 +149,7 @@ class CommunicationsService:
             bcc=bcc,
             account_id=account_id,
             extra_metadata=extra_metadata,
+            workflow_run_id=run_id,
         )
         if not row:
             if send_result.get("success"):

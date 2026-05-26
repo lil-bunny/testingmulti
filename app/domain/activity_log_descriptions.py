@@ -18,6 +18,15 @@ def format_status_updated_to_processing() -> str:
     return "Status updated to Processing"
 
 
+def format_tender_sent_to_tenant_action(*, tender_id: str) -> str:
+    tid = (tender_id or "").strip() or "unknown"
+    return f"Tender email sent to vendor (tender_id={tid})"
+
+
+def format_tender_sent_to_tenant_status_change() -> str:
+    return "Tender email sent to vendor"
+
+
 def format_carrier_ack_llm_action(
     *,
     decision: str,
