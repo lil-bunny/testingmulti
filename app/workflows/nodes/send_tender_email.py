@@ -66,7 +66,6 @@ def send_tender_email(state):
             built = build_ftl_tender_email(tender_data, calculated, template)
         else:
             built = build_ltl_tender_email(tender_data, calculated, template)
-        run_id = str(state.execution_id or "").strip() or None
         result = send_email(
             to=recipients.to,
             cc=recipients.cc,
@@ -75,7 +74,6 @@ def send_tender_email(state):
             body=built["body_html"],
             account_id=account_id,
             tenant_id=state.tenant_id,
-            workflow_run_id=run_id,
             communication_metadata={
                 "source": "send_tender_email",
                 "tender_id": state.data.get("tender_id"),
@@ -105,8 +103,4 @@ def send_tender_email(state):
 
     state.data["tender_email_result"] = result
     state.data["tender_email_sent"] = bool(result and result.get("success", False))
-    if isinstance(result, dict):
-        comm_id = result.get("communication_id")
-        if comm_id:
-            state.data["communication_id"] = str(comm_id)
     return state

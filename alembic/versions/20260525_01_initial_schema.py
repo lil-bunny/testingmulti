@@ -356,8 +356,6 @@ def upgrade() -> None:
             thread_id TEXT,
             content TEXT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            workflow_run_id UUID
-                REFERENCES workflow_runs(id) ON DELETE SET NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -438,11 +436,6 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_communications_thread_id "
         "ON communications (thread_id)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_communications_workflow_run_id "
-        "ON communications (workflow_run_id) "
-        "WHERE workflow_run_id IS NOT NULL"
     )
     op.execute(
         """

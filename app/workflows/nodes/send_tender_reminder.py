@@ -6,12 +6,7 @@ from app.core.logger import get_logger
 from app.domain.load_tendering_settings import action_settings, resolve_load_type
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tools.communication_metadata import stash_communication_id
 from app.tools.email import reply_to_thread
-from app.tools.load_tendering_lifecycle_guards import (
-    delayed_workflow_step_skip_reason,
-    skip_sub_statuses_from_state,
-)
 
 logger = get_logger(__name__)
 
@@ -30,17 +25,12 @@ def send_tender_reminder(state):
 
     lifecycle_svc = WorkflowLifecycleService()
     lifecycle_row = lifecycle_svc.read_lifecycle_row_by_id(workflow_lifecycle_id_str)
-    skip = delayed_workflow_step_skip_reason(
-        lifecycle_row,
-        skip_sub_statuses=skip_sub_statuses_from_state(state),
-    )
-    if skip:
-        logger.info(
-            "send_tender_reminder skipping lifecycle_id=%s reason=%s",
+    if not lifecycle_row:
+        logger.warning(
+            "send_tender_reminder lifecycle not found id=%s",
             workflow_lifecycle_id_str,
-            skip,
         )
-        state.data["tender_reminder_skipped"] = skip
+        state.data["tender_reminder_error"] = "lifecycle_not_found"
         state.data["tender_reminder_sent"] = False
         return state
 
@@ -70,7 +60,6 @@ def send_tender_reminder(state):
     reminder_body_plain = str(cfg.get("reminder_body") or "").strip() or (
         "Following up on the tender request."
     )
-    run_id = str(state.execution_id or "").strip() or None
 
     reminder_send_result = None
     try:
@@ -80,7 +69,6 @@ def send_tender_reminder(state):
             account_id=sender_account_id,
             subject=None,
             tenant_id=state.tenant_id,
-            workflow_run_id=run_id,
             communication_metadata={
                 "source": "send_tender_reminder",
                 "tender_id": state.data.get("tender_id"),
@@ -108,11 +96,6 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    stash_communication_id(
-        state,
-        reminder_send_result if isinstance(reminder_send_result, dict) else None,
-    )
-
     state.data["tender_reminder_result"] = reminder_send_result
     success = True
     if isinstance(reminder_send_result, dict):
@@ -120,8 +103,6 @@ def send_tender_reminder(state):
     state.data["tender_reminder_sent"] = success
     if not success:
         state.data["tender_reminder_error"] = (
-            (reminder_send_result or {}).get("error")
-            if isinstance(reminder_send_result, dict)
-            else None
+            (reminder_send_result or {}).get("error") if isinstance(reminder_send_result, dict) else None
         ) or "unipile_send_failed"
     return state

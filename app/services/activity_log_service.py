@@ -3,10 +3,6 @@
 Callable from any workflow node, webhook handler, or Celery task. Resolves graph tenant
 keys (e.g. ``gelita``) to ``tenants.id`` before insert. Failures are logged and return
 ``None`` so graph execution is not blocked.
-
-Use ``record_action``, ``record_status_change``, ``record_sub_status_change``, or
-``record_sequence`` for lifecycle-scoped rows. ``record_activity`` remains for legacy
-non-lifecycle event type strings only.
 """
 
 from __future__ import annotations
@@ -15,19 +11,19 @@ import uuid
 from typing import Any, Optional
 
 from app.core.logger import get_logger
-from app.domain.activity_log_write import (
-    ActivityLogSequence,
-    ActivityLogSequenceResult,
-    ActivityLogStep,
-    ActivityLogWrite,
+from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
+from app.models.status import StatusSubType, StatusType
+from app.domain.activity_log_descriptions import (
+    format_carrier_ack_llm_action,
+    format_status_updated_to_processing,
+    format_tender_created_action,
 )
+from app.repositories.activity_logs_repository import ActivityLogsRepository
+from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.domain.lifecycle_transition import (
     LifecycleTransitionCommand,
     LifecycleTransitionError,
 )
-from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
-from app.repositories.activity_logs_repository import ActivityLogsRepository
-from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
@@ -61,95 +57,23 @@ class ActivityLogService:
             )
             return None
 
-    def _validate_scope(self, write: ActivityLogWrite) -> tuple[str, str, str] | None:
-        wl = self._uuid_or_none(
-            write.workflow_lifecycle_id, field_name="workflow_lifecycle_id"
-        )
-        wr = self._uuid_or_none(write.workflow_run_id, field_name="workflow_run_id")
-        if not wl or not wr:
-            logger.warning(
-                "activity_log skipped: workflow_lifecycle_id and workflow_run_id required "
-                "(tenant_id=%r)",
-                write.tenant_id,
-            )
-            return None
-        if not self._clean(write.tenant_id):
-            logger.warning("activity_log skipped: tenant_id is required")
-            return None
-        return wl, wr, self._clean(write.tenant_id) or ""
+    def _tenant_uuid_or_none(self, tenant_id: str | None) -> str | None:
+        return resolve_graph_tenant_to_uuid(self._clean(tenant_id))
 
-    def _to_command(
+    @staticmethod
+    def _parse_actor_type(raw: str | None) -> ActorType:
+        if not raw:
+            return ActorType.SYSTEM
+        try:
+            return ActorType(raw)
+        except ValueError:
+            return ActorType.SYSTEM
+
+    def _record_via_lifecycle_transition(
         self,
-        write: ActivityLogWrite,
-        *,
-        activity_type: ActivityType,
-        update_lifecycle: bool | None = None,
-    ) -> LifecycleTransitionCommand | None:
-        scope = self._validate_scope(write)
-        if scope is None:
-            return None
-        wl, wr, tenant_id = scope
-
-        if update_lifecycle is None:
-            update_lifecycle = activity_type != ActivityType.ACTION
-
-        return LifecycleTransitionCommand(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl,
-            workflow_run_id=wr,
-            activity_type=activity_type,
-            description=self._clean(write.description),
-            metadata=write.metadata if write.metadata is not None else {},
-            actor_type=write.actor_type or ActorType.SYSTEM,
-            actor_id=write.actor_id,
-            to_status=write.to_status,
-            to_sub_status=write.to_sub_status,
-            from_status=write.from_status,
-            from_sub_status=write.from_sub_status,
-            update_lifecycle=update_lifecycle,
-            record_activity=write.record_log,
-            require_lifecycle_row=write.require_lifecycle_row,
-            email_thread_id=write.email_thread_id,
-        )
-
-    def _step_to_command(
-        self,
-        sequence: ActivityLogSequence,
-        step: ActivityLogStep,
-        *,
-        wl: str,
-        wr: str,
-        tenant_id: str,
-    ) -> LifecycleTransitionCommand:
-        if step.update_lifecycle is None:
-            update_lifecycle = step.activity_type != ActivityType.ACTION
-        else:
-            update_lifecycle = step.update_lifecycle
-
-        return LifecycleTransitionCommand(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl,
-            workflow_run_id=wr,
-            activity_type=step.activity_type,
-            description=self._clean(step.description),
-            metadata=step.metadata if step.metadata is not None else {},
-            actor_type=sequence.actor_type or ActorType.SYSTEM,
-            actor_id=sequence.actor_id,
-            to_status=step.to_status,
-            to_sub_status=step.to_sub_status,
-            from_status=step.from_status,
-            from_sub_status=step.from_sub_status,
-            update_lifecycle=update_lifecycle,
-            record_activity=step.record_log,
-            require_lifecycle_row=sequence.require_lifecycle_row,
-            email_thread_id=sequence.email_thread_id,
-        )
-
-    def _apply_command(
-        self, command: LifecycleTransitionCommand | None
+        command: LifecycleTransitionCommand,
     ) -> str | None:
-        if command is None:
-            return None
+        """Insert lifecycle-scoped activity via ``LifecycleTransitionService``."""
         try:
             lifecycle_transition_service = LifecycleTransitionService()
             result = lifecycle_transition_service.apply(command)
@@ -168,89 +92,6 @@ class ActivityLogService:
             )
             return None
 
-    def _apply_sequence_commands(
-        self, commands: tuple[LifecycleTransitionCommand, ...]
-    ) -> ActivityLogSequenceResult | None:
-        if not commands:
-            return ActivityLogSequenceResult(activity_log_ids=[], lifecycle_updated=False)
-        try:
-            lifecycle_transition_service = LifecycleTransitionService()
-            result = lifecycle_transition_service.apply_sequence(*commands)
-            return ActivityLogSequenceResult(
-                activity_log_ids=result.activity_log_ids,
-                lifecycle_updated=result.lifecycle_updated,
-            )
-        except LifecycleTransitionError as exc:
-            logger.warning(
-                "activity_log sequence skipped lifecycle transition: %s",
-                exc,
-            )
-            return None
-        except Exception:
-            logger.exception(
-                "activity_log sequence failed lifecycle_id=%s",
-                commands[0].workflow_lifecycle_id,
-            )
-            return None
-
-    def record_action(self, write: ActivityLogWrite) -> str | None:
-        """One ``action`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
-        command = self._to_command(
-            write, activity_type=ActivityType.ACTION, update_lifecycle=False
-        )
-        return self._apply_command(command)
-
-    def record_status_change(self, write: ActivityLogWrite) -> str | None:
-        """
-        One ``status_change`` row; may set both ``to_status`` and ``to_sub_status``.
-
-        If only ``to_sub_status`` is set, use ``record_sub_status_change`` instead.
-        """
-        if write.to_status is None and write.to_sub_status is not None:
-            logger.warning(
-                "record_status_change: to_status missing but to_sub_status set; "
-                "use record_sub_status_change"
-            )
-            return self.record_sub_status_change(write)
-        command = self._to_command(write, activity_type=ActivityType.STATUS_CHANGE)
-        return self._apply_command(command)
-
-    def record_sub_status_change(self, write: ActivityLogWrite) -> str | None:
-        """One ``sub_status_change`` row when only sub_status moves."""
-        if write.to_status is not None:
-            logger.info(
-                "record_sub_status_change: to_status set; coercing to status_change"
-            )
-            return self.record_status_change(write)
-        command = self._to_command(
-            write, activity_type=ActivityType.SUB_STATUS_CHANGE
-        )
-        return self._apply_command(command)
-
-    def record_sequence(self, sequence: ActivityLogSequence) -> ActivityLogSequenceResult | None:
-        """Multiple log rows (+ lifecycle updates) in a single database transaction."""
-        if not sequence.steps:
-            return ActivityLogSequenceResult(
-                activity_log_ids=[], lifecycle_updated=False
-            )
-
-        scope = self._validate_scope(
-            ActivityLogWrite(
-                tenant_id=sequence.tenant_id,
-                workflow_lifecycle_id=sequence.workflow_lifecycle_id,
-                workflow_run_id=sequence.workflow_run_id,
-            )
-        )
-        if scope is None:
-            return None
-        wl, wr, tenant_id = scope
-
-        commands = tuple(
-            self._step_to_command(sequence, step, wl=wl, wr=wr, tenant_id=tenant_id)
-            for step in sequence.steps
-        )
-        return self._apply_sequence_commands(commands)
-
     def record_activity(
         self,
         *,
@@ -268,13 +109,19 @@ class ActivityLogService:
         metadata: dict[str, Any] | None = None,
     ) -> str | None:
         """
-        Legacy/generic insert. Prefer ``record_action`` / ``record_status_change``.
+        Insert one ``activity_logs`` row.
 
-        Routes ``action``, ``status_change``, and ``sub_status_change`` through the
-        lifecycle transition service. Other ``activity_type`` strings use a direct
-        repository insert (no lifecycle update).
+        Returns the new row id, or ``None`` when required fields are missing or insert fails.
         """
+        tid_uuid = self._tenant_uuid_or_none(tenant_id)
         at = self._clean(activity_type)
+        if not tid_uuid:
+            if self._clean(tenant_id):
+                logger.warning(
+                    "activity_log skipped: cannot resolve tenant_id=%r to tenants.id (UUID)",
+                    tenant_id,
+                )
+            return None
         if not at:
             logger.warning("activity_log skipped: activity_type is required")
             return None
@@ -284,72 +131,31 @@ class ActivityLogService:
         if not wl or not wr:
             logger.warning(
                 "activity_log skipped: workflow_lifecycle_id and workflow_run_id required "
-                "(activity_type=%r)",
+                "(activity_type=%r tenant_id=%s)",
                 at,
+                tid_uuid,
             )
             return None
-
-        tid_uuid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
-        if not tid_uuid:
-            if self._clean(tenant_id):
-                logger.warning(
-                    "activity_log skipped: cannot resolve tenant_id=%r to tenants.id (UUID)",
-                    tenant_id,
-                )
-            return None
-
-        if at == ActivityType.ACTION.value:
-            return self.record_action(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    description=description,
-                    metadata=metadata,
-                    actor_type=ActorType(self._clean(actor_type) or ActorType.SYSTEM),
-                    actor_id=actor_id,
-                )
-            )
-        if at == ActivityType.STATUS_CHANGE.value:
-            from app.models.status import StatusSubType, StatusType
-
-            return self.record_status_change(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    description=description,
-                    metadata=metadata,
-                    actor_type=ActorType(self._clean(actor_type) or ActorType.SYSTEM),
-                    actor_id=actor_id,
-                    to_status=StatusType(to_status) if to_status else None,
-                    to_sub_status=StatusSubType(to_sub_status) if to_sub_status else None,
-                    from_status=StatusType(from_status) if from_status else None,
-                    from_sub_status=StatusSubType(from_sub_status) if from_sub_status else None,
-                )
-            )
-        if at == ActivityType.SUB_STATUS_CHANGE.value:
-            from app.models.status import StatusSubType, StatusType
-
-            return self.record_sub_status_change(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    description=description,
-                    metadata=metadata,
-                    actor_type=ActorType(self._clean(actor_type) or ActorType.SYSTEM),
-                    actor_id=actor_id,
-                    to_sub_status=StatusSubType(to_sub_status) if to_sub_status else None,
-                    from_status=StatusType(from_status) if from_status else None,
-                    from_sub_status=StatusSubType(from_sub_status) if from_sub_status else None,
-                )
-            )
 
         actor = self._uuid_or_none(actor_id, field_name="actor_id")
         actor_type_clean = self._clean(actor_type)
         if not actor and actor_type_clean == ActorType.SYSTEM.value:
             actor = SYSTEM_ACTOR_ID
+
+        if at == ActivityType.ACTION.value:
+            return self._record_via_lifecycle_transition(
+                LifecycleTransitionCommand(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=wl,
+                    workflow_run_id=wr,
+                    activity_type=ActivityType.ACTION,
+                    description=self._clean(description),
+                    metadata=metadata if metadata is not None else {},
+                    actor_type=self._parse_actor_type(actor_type_clean),
+                    actor_id=actor,
+                    update_lifecycle=False,
+                )
+            )
 
         try:
             return self._repository.insert(
@@ -376,6 +182,116 @@ class ActivityLogService:
             )
             return None
 
+    def record_carrier_ack_llm_action(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+        decision: str,
+        reason: str,
+        confidence: float | None = None,
+        user_input: str | None = None,
+        llm_output: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Action log after carrier-ack LLM classification on ``ack_received``."""
+        meta: dict[str, Any] = {
+            "source": "classify_carrier_ack",
+            "tender_id": tender_id,
+            "carrier_ack_decision": decision,
+            "user_input": user_input,
+            "output": llm_output if llm_output is not None else {},
+        }
+        if metadata:
+            meta.update(metadata)
+        wl = self._uuid_or_none(
+            workflow_lifecycle_id, field_name="workflow_lifecycle_id"
+        )
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not wl or not wr:
+            return None
+        return self._record_via_lifecycle_transition(
+            LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl,
+                workflow_run_id=wr,
+                activity_type=ActivityType.ACTION,
+                description=format_carrier_ack_llm_action(
+                    decision=decision,
+                    reason=reason,
+                    confidence=confidence,
+                ),
+                actor_type=ActorType.SYSTEM,
+                metadata=meta,
+                update_lifecycle=False,
+            )
+        )
+
+    def record_tender_created_action(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        order_number: str,
+        customer_name: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+    ) -> str | None:
+        """Action log for a new tender on the workflow run that processes it."""
+        wl = self._uuid_or_none(
+            workflow_lifecycle_id, field_name="workflow_lifecycle_id"
+        )
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not wl or not wr:
+            return None
+        return self._record_via_lifecycle_transition(
+            LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl,
+                workflow_run_id=wr,
+                activity_type=ActivityType.ACTION,
+                description=format_tender_created_action(
+                    tender_id=tender_id,
+                    order_number=order_number,
+                    customer_name=customer_name,
+                ),
+                actor_type=ActorType.SYSTEM,
+                metadata={"tender_id": tender_id},
+                update_lifecycle=False,
+            )
+        )
+
+    def record_tender_processing_status_change(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+    ) -> str | None:
+        """Status_change log: processing / tender_created on the same workflow run."""
+        wl = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not wl or not wr:
+            return None
+        return self._record_via_lifecycle_transition(
+            LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl,
+                workflow_run_id=wr,
+                activity_type=ActivityType.STATUS_CHANGE,
+                to_status=StatusType.PROCESSING,
+                to_sub_status=StatusSubType.TENDER_CREATED,
+                description=format_status_updated_to_processing(),
+                from_status=StatusType.NONE,
+                from_sub_status=StatusSubType.NONE,
+                actor_type=ActorType.SYSTEM,
+                metadata={"tender_id": tender_id},
+            )
+        )
+
     def record_from_workflow_state(
         self,
         state: Any,
@@ -393,6 +309,7 @@ class ActivityLogService:
         workflow_run_id: str | None = None,
     ) -> str | None:
         """Log from a LangGraph ``WorkflowState`` (reads tenant/lifecycle/run from state)."""
+
         data = getattr(state, "data", None) or {}
         tenant_raw = data.get("tenant_id") if isinstance(data, dict) else None
         if not tenant_raw:
@@ -405,6 +322,30 @@ class ActivityLogService:
         wr = workflow_run_id
         if wr is None:
             wr = getattr(state, "execution_id", None)
+
+        at = self._clean(activity_type)
+        if at == ActivityType.ACTION.value:
+            wl_id = self._uuid_or_none(wl, field_name="workflow_lifecycle_id")
+            run_id = self._uuid_or_none(wr, field_name="workflow_run_id")
+            if not wl_id or not run_id:
+                return None
+            actor = self._uuid_or_none(actor_id, field_name="actor_id")
+            actor_type_clean = self._clean(actor_type)
+            if not actor and actor_type_clean == ActorType.SYSTEM.value:
+                actor = SYSTEM_ACTOR_ID
+            return self._record_via_lifecycle_transition(
+                LifecycleTransitionCommand(
+                    tenant_id=str(tenant_raw or ""),
+                    workflow_lifecycle_id=wl_id,
+                    workflow_run_id=run_id,
+                    activity_type=ActivityType.ACTION,
+                    description=self._clean(description),
+                    metadata=metadata if metadata is not None else {},
+                    actor_type=self._parse_actor_type(actor_type_clean),
+                    actor_id=actor,
+                    update_lifecycle=False,
+                )
+            )
 
         return self.record_activity(
             tenant_id=str(tenant_raw or ""),

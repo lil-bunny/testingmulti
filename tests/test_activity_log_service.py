@@ -6,21 +6,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.domain.activity_log_write import (
-    ActivityLogSequence,
-    ActivityLogStep,
-    ActivityLogWrite,
-)
 from app.domain.state import WorkflowState
-from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 ACTIVITY_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-TENDER_UUID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
 
 @pytest.fixture
@@ -30,17 +22,7 @@ def mock_repo() -> MagicMock:
     return repo
 
 
-def _write(**kwargs) -> ActivityLogWrite:
-    base = dict(
-        tenant_id=TENANT_UUID,
-        workflow_lifecycle_id=LIFECYCLE_UUID,
-        workflow_run_id=RUN_UUID,
-    )
-    base.update(kwargs)
-    return ActivityLogWrite(**base)
-
-
-def test_record_activity_legacy_string_type_uses_repo(mock_repo: MagicMock) -> None:
+def test_record_activity_resolves_slug_and_maps_fields(mock_repo: MagicMock) -> None:
     svc = ActivityLogService(repository=mock_repo)
     with patch(
         "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
@@ -58,14 +40,129 @@ def test_record_activity_legacy_string_type_uses_repo(mock_repo: MagicMock) -> N
 
     assert out == ACTIVITY_UUID
     mock_repo.insert.assert_called_once()
+    row = mock_repo.insert.call_args[0][0]
+    assert row["tenant_id"] == TENANT_UUID
+    assert row["activity_type"] == "workflow_run_started"
+    assert row["workflow_lifecycle_id"] == LIFECYCLE_UUID
+    assert row["workflow_run_id"] == RUN_UUID
+    assert row["description"] == "started"
+    assert row["metadata"] == {"event_type": "email_received"}
+
+
+def test_record_activity_skips_unresolvable_tenant(mock_repo: MagicMock) -> None:
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=None,
+    ):
+        out = svc.record_activity(
+            tenant_id="unknown",
+            activity_type="test",
+        )
+
+    assert out is None
+    mock_repo.insert.assert_not_called()
+
+
+def test_record_activity_skips_empty_activity_type(mock_repo: MagicMock) -> None:
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        out = svc.record_activity(tenant_id=TENANT_UUID, activity_type="  ")
+
+    assert out is None
+    mock_repo.insert.assert_not_called()
+
+
+def test_record_activity_skips_without_lifecycle_and_run(mock_repo: MagicMock) -> None:
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        out = svc.record_activity(
+            tenant_id=TENANT_UUID,
+            activity_type="test",
+            workflow_run_id="not-a-uuid",
+        )
+
+    assert out is None
+    mock_repo.insert.assert_not_called()
+
+
+def test_record_activity_system_actor_defaults_actor_id(mock_repo: MagicMock) -> None:
+    from app.services.activity_log_service import SYSTEM_ACTOR_ID
+
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        svc.record_activity(
+            tenant_id=TENANT_UUID,
+            activity_type="test",
+            workflow_lifecycle_id=LIFECYCLE_UUID,
+            workflow_run_id=RUN_UUID,
+            actor_type="system",
+        )
+
+    row = mock_repo.insert.call_args[0][0]
+    assert row["actor_id"] == SYSTEM_ACTOR_ID
+
+
+TENDER_UUID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
 
 @patch("app.services.activity_log_service.LifecycleTransitionService")
-def test_record_action_delegates_without_direct_insert(
+def test_record_tender_created_action_delegates_to_transition_service(
     mock_transition_cls: MagicMock,
     mock_repo: MagicMock,
 ) -> None:
     from app.domain.lifecycle_transition import LifecycleTransitionResult
+    from app.models.activity_type import ActivityType, ActorType
+    from app.models.status import StatusSubType, StatusType
+
+    mock_transition = MagicMock()
+    mock_transition.apply.return_value = LifecycleTransitionResult(
+        lifecycle_updated=False,
+        activity_log_id=ACTIVITY_UUID,
+        from_status=StatusType.NONE,
+        from_sub_status=StatusSubType.NONE,
+        to_status=StatusType.NONE,
+        to_sub_status=StatusSubType.NONE,
+    )
+    mock_transition_cls.return_value = mock_transition
+
+    svc = ActivityLogService(repository=mock_repo)
+    out = svc.record_tender_created_action(
+        tenant_id=TENANT_UUID,
+        tender_id=TENDER_UUID,
+        order_number="ORD-1",
+        customer_name="Acme Corp",
+        workflow_lifecycle_id=LIFECYCLE_UUID,
+        workflow_run_id=RUN_UUID,
+    )
+
+    assert out == ACTIVITY_UUID
+    mock_transition.apply.assert_called_once()
+    command = mock_transition.apply.call_args[0][0]
+    assert command.activity_type == ActivityType.ACTION
+    assert command.update_lifecycle is False
+    assert command.workflow_lifecycle_id == LIFECYCLE_UUID
+    assert command.actor_type == ActorType.SYSTEM
+    mock_repo.insert.assert_not_called()
+
+
+@patch("app.services.activity_log_service.LifecycleTransitionService")
+def test_record_activity_action_delegates_without_direct_insert(
+    mock_transition_cls: MagicMock,
+    mock_repo: MagicMock,
+) -> None:
+    from app.domain.lifecycle_transition import LifecycleTransitionResult
+    from app.models.activity_type import ActivityType
+    from app.models.status import StatusSubType, StatusType
 
     mock_transition = MagicMock()
     mock_transition.apply.return_value = LifecycleTransitionResult(
@@ -79,22 +176,35 @@ def test_record_action_delegates_without_direct_insert(
     mock_transition_cls.return_value = mock_transition
 
     svc = ActivityLogService(repository=mock_repo)
-    out = svc.record_action(_write(description="side effect"))
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        out = svc.record_activity(
+            tenant_id="gelita",
+            activity_type=ActivityType.ACTION,
+            workflow_lifecycle_id=LIFECYCLE_UUID,
+            workflow_run_id=RUN_UUID,
+            description="side effect",
+        )
 
     assert out == ACTIVITY_UUID
     mock_transition.apply.assert_called_once()
-    command = mock_transition.apply.call_args[0][0]
-    assert command.activity_type == ActivityType.ACTION
-    assert command.update_lifecycle is False
     mock_repo.insert.assert_not_called()
 
 
 @patch("app.services.activity_log_service.LifecycleTransitionService")
-def test_record_status_change_delegates(
+@patch(
+    "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_record_tender_processing_status_change_delegates_to_transition_service(
+    mock_resolve: MagicMock,
     mock_transition_cls: MagicMock,
     mock_repo: MagicMock,
 ) -> None:
     from app.domain.lifecycle_transition import LifecycleTransitionResult
+    from app.models.status import StatusSubType, StatusType
 
     mock_transition = MagicMock()
     mock_transition.apply.return_value = LifecycleTransitionResult(
@@ -108,72 +218,19 @@ def test_record_status_change_delegates(
     mock_transition_cls.return_value = mock_transition
 
     svc = ActivityLogService(repository=mock_repo)
-    out = svc.record_status_change(
-        _write(
-            description="Status updated to Processing",
-            to_status=StatusType.PROCESSING,
-            to_sub_status=StatusSubType.TENDER_CREATED,
-            from_status=StatusType.NONE,
-            from_sub_status=StatusSubType.NONE,
-            metadata={"tender_id": TENDER_UUID},
-        )
+    out = svc.record_tender_processing_status_change(
+        tenant_id=TENANT_UUID,
+        tender_id=TENDER_UUID,
+        workflow_lifecycle_id=LIFECYCLE_UUID,
+        workflow_run_id=RUN_UUID,
     )
 
     assert out == ACTIVITY_UUID
+    mock_transition.apply.assert_called_once()
     command = mock_transition.apply.call_args[0][0]
-    assert command.activity_type == ActivityType.STATUS_CHANGE
     assert command.to_status == StatusType.PROCESSING
-
-
-@patch("app.services.activity_log_service.LifecycleTransitionService")
-def test_record_sequence_calls_apply_sequence(
-    mock_transition_cls: MagicMock,
-    mock_repo: MagicMock,
-) -> None:
-    from app.domain.lifecycle_transition import LifecycleTransitionSequenceResult
-
-    mock_transition = MagicMock()
-    mock_transition.apply_sequence.return_value = LifecycleTransitionSequenceResult(
-        activity_log_ids=[ACTIVITY_UUID, "ffffffff-ffff-ffff-ffff-ffffffffffff"],
-        lifecycle_updated=True,
-    )
-    mock_transition_cls.return_value = mock_transition
-
-    svc = ActivityLogService(repository=mock_repo)
-    result = svc.record_sequence(
-        ActivityLogSequence(
-            tenant_id=TENANT_UUID,
-            workflow_lifecycle_id=LIFECYCLE_UUID,
-            workflow_run_id=RUN_UUID,
-            steps=(
-                ActivityLogStep(
-                    activity_type=ActivityType.ACTION,
-                    description="Tender created",
-                ),
-                ActivityLogStep(
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    to_status=StatusType.PROCESSING,
-                    to_sub_status=StatusSubType.TENDER_CREATED,
-                ),
-            ),
-        )
-    )
-
-    assert result is not None
-    assert len(result.activity_log_ids) == 2
-    mock_transition.apply_sequence.assert_called_once()
-    commands = mock_transition.apply_sequence.call_args[0]
-    assert len(commands) == 2
-    assert commands[0].activity_type == ActivityType.ACTION
-    assert commands[1].activity_type == ActivityType.STATUS_CHANGE
-
-
-def test_record_activity_skips_without_lifecycle_and_run(mock_repo: MagicMock) -> None:
-    svc = ActivityLogService(repository=mock_repo)
-    out = svc.record_action(
-        _write(workflow_run_id="not-a-uuid", workflow_lifecycle_id=LIFECYCLE_UUID)
-    )
-    assert out is None
+    assert command.to_sub_status == StatusSubType.TENDER_CREATED
+    mock_repo.insert.assert_not_called()
 
 
 def test_record_from_workflow_state(mock_repo: MagicMock) -> None:
@@ -198,4 +255,6 @@ def test_record_from_workflow_state(mock_repo: MagicMock) -> None:
         )
 
     assert out == ACTIVITY_UUID
-    mock_repo.insert.assert_called_once()
+    row = mock_repo.insert.call_args[0][0]
+    assert row["workflow_lifecycle_id"] == LIFECYCLE_UUID
+    assert row["workflow_run_id"] == RUN_UUID

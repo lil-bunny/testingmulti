@@ -179,7 +179,7 @@ def test_classify_carrier_ack_records_llm_action_activity(
     )
     mock_comm_svc_cls.return_value = comm_svc
     activity_log_service = MagicMock()
-    activity_log_service.record_action.return_value = (
+    activity_log_service.record_carrier_ack_llm_action.return_value = (
         "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
     )
     mock_activity_svc_cls.return_value = activity_log_service
@@ -187,13 +187,13 @@ def test_classify_carrier_ack_records_llm_action_activity(
     state = _state()
     out = classify_carrier_ack(state)
 
-    activity_log_service.record_action.assert_called_once()
-    write = activity_log_service.record_action.call_args[0][0]
-    assert write.workflow_lifecycle_id == LIFECYCLE_UUID
-    assert write.workflow_run_id == RUN_UUID
-    assert write.metadata["carrier_ack_decision"] == StatusSubType.DO_NOTHING.value
-    assert write.metadata["user_input"] == "We accept the load."
-    assert write.metadata["output"] == llm_result
+    activity_log_service.record_carrier_ack_llm_action.assert_called_once()
+    call_kwargs = activity_log_service.record_carrier_ack_llm_action.call_args[1]
+    assert call_kwargs["decision"] == StatusSubType.DO_NOTHING.value
+    assert call_kwargs["workflow_lifecycle_id"] == LIFECYCLE_UUID
+    assert call_kwargs["workflow_run_id"] == RUN_UUID
+    assert call_kwargs["user_input"] == "We accept the load."
+    assert call_kwargs["llm_output"] == llm_result
     assert out.data["carrier_ack_llm_activity_log_id"] == (
         "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
     )
@@ -202,13 +202,16 @@ def test_classify_carrier_ack_records_llm_action_activity(
 @patch(
     "app.workflows.nodes.record_ack_received.LifecycleTransitionService"
 )
-def test_record_ack_received_do_nothing_skips_lifecycle(mock_svc_cls: MagicMock):
+def test_record_ack_received_do_nothing_skips_activity(mock_svc_cls: MagicMock):
     svc = MagicMock()
     mock_svc_cls.return_value = svc
     state = _state(decision=StatusSubType.DO_NOTHING.value)
-    out = record_ack_received(state)
-    svc.apply_from_state.assert_not_called()
-    assert "ack_recorded" not in out.data
+    record_ack_received(state)
+    svc.apply_from_state.assert_called_once()
+    kwargs = svc.apply_from_state.call_args[1]
+    assert kwargs["to_status"] == StatusType.COMPLETED
+    assert kwargs["to_sub_status"] == StatusSubType.DO_NOTHING
+    assert kwargs["record_activity"] is False
 
 
 @patch(
@@ -221,6 +224,7 @@ def test_record_ack_received_rejected_records_activity(mock_svc_cls: MagicMock):
     record_ack_received(state)
     kwargs = svc.apply_from_state.call_args[1]
     assert kwargs["to_sub_status"] == StatusSubType.REJECTED
+    assert kwargs["record_activity"] is True
     assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
 
 
@@ -234,3 +238,4 @@ def test_record_ack_received_accepted_records_activity(mock_svc_cls: MagicMock):
     record_ack_received(state)
     kwargs = svc.apply_from_state.call_args[1]
     assert kwargs["to_sub_status"] == StatusSubType.ACCEPTED
+    assert kwargs["record_activity"] is True

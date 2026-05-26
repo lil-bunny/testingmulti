@@ -107,13 +107,5 @@ class LifecycleTransitionResult:
     to_sub_status: StatusSubType | None
 
 
-@dataclass(frozen=True)
-class LifecycleTransitionSequenceResult:
-    """Multiple activity log inserts (and lifecycle updates) in one transaction."""
-
-    activity_log_ids: list[str | None]
-    lifecycle_updated: bool
-
-
 class LifecycleTransitionError(Exception):
     """Raised when a strict lifecycle transition cannot be applied."""
