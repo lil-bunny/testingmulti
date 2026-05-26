@@ -202,16 +202,13 @@ def test_classify_carrier_ack_records_llm_action_activity(
 @patch(
     "app.workflows.nodes.record_ack_received.LifecycleTransitionService"
 )
-def test_record_ack_received_do_nothing_skips_activity(mock_svc_cls: MagicMock):
+def test_record_ack_received_do_nothing_skips_lifecycle(mock_svc_cls: MagicMock):
     svc = MagicMock()
     mock_svc_cls.return_value = svc
     state = _state(decision=StatusSubType.DO_NOTHING.value)
-    record_ack_received(state)
-    svc.apply_from_state.assert_called_once()
-    kwargs = svc.apply_from_state.call_args[1]
-    assert kwargs["to_status"] == StatusType.COMPLETED
-    assert kwargs["to_sub_status"] == StatusSubType.DO_NOTHING
-    assert kwargs["record_activity"] is False
+    out = record_ack_received(state)
+    svc.apply_from_state.assert_not_called()
+    assert "ack_recorded" not in out.data
 
 
 @patch(
@@ -224,7 +221,6 @@ def test_record_ack_received_rejected_records_activity(mock_svc_cls: MagicMock):
     record_ack_received(state)
     kwargs = svc.apply_from_state.call_args[1]
     assert kwargs["to_sub_status"] == StatusSubType.REJECTED
-    assert kwargs["record_activity"] is True
     assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
 
 
@@ -238,4 +234,3 @@ def test_record_ack_received_accepted_records_activity(mock_svc_cls: MagicMock):
     record_ack_received(state)
     kwargs = svc.apply_from_state.call_args[1]
     assert kwargs["to_sub_status"] == StatusSubType.ACCEPTED
-    assert kwargs["record_activity"] is True

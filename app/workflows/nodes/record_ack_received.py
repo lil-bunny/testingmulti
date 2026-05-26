@@ -111,10 +111,10 @@ def classify_carrier_ack(state):
 
 def record_ack_received(state):
     """
-    Apply carrier ack outcome: complete lifecycle with sub_status from LLM decision.
+    Finalize carrier ack when LLM decision is definitive.
 
     - ``accepted`` / ``rejected``: lifecycle + status_change activity log (transactional).
-    - ``do_nothing``: lifecycle only (no status_change log; LLM action logged in ``classify_carrier_ack``).
+    - ``do_nothing``: no lifecycle or status activity (LLM action logged in ``classify_carrier_ack``).
     """
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()
@@ -129,20 +129,25 @@ def record_ack_received(state):
         )
         return state
 
+    if decision == StatusSubType.DO_NOTHING.value:
+        logger.info(
+            "record_ack_received skipped lifecycle update decision=do_nothing tender_id=%s",
+            tender_id,
+        )
+        return state
+
     if decision not in (
         StatusSubType.ACCEPTED.value,
         StatusSubType.REJECTED.value,
-        StatusSubType.DO_NOTHING.value,
     ):
         logger.warning(
             "record_ack_received unknown carrier_ack_decision=%r tender_id=%s",
             decision,
             tender_id,
         )
-        decision = StatusSubType.DO_NOTHING.value
+        return state
 
     to_sub = StatusSubType(decision)
-    record_activity = decision != StatusSubType.DO_NOTHING.value
     description = _ACK_DESCRIPTIONS.get(decision)
 
     lifecycle_transition_service = LifecycleTransitionService()
@@ -154,7 +159,6 @@ def record_ack_received(state):
         description=description,
         actor_type=ActorType.SYSTEM,
         metadata={"tender_id": tender_id, "carrier_ack_decision": decision},
-        record_activity=record_activity,
     )
 
     state.data["ack_recorded"] = True

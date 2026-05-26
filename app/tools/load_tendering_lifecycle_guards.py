@@ -46,7 +46,6 @@ def delayed_workflow_step_skip_reason(
         {
             StatusSubType.ACCEPTED.value,
             StatusSubType.REJECTED.value,
-            StatusSubType.DO_NOTHING.value,
         }
     )
     if sub_s in terminal_subs:
