@@ -179,7 +179,7 @@ def test_classify_carrier_ack_records_llm_action_activity(
     )
     mock_comm_svc_cls.return_value = comm_svc
     activity_log_service = MagicMock()
-    activity_log_service.record_carrier_ack_llm_action.return_value = (
+    activity_log_service.record_action.return_value = (
         "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
     )
     mock_activity_svc_cls.return_value = activity_log_service
@@ -187,13 +187,13 @@ def test_classify_carrier_ack_records_llm_action_activity(
     state = _state()
     out = classify_carrier_ack(state)
 
-    activity_log_service.record_carrier_ack_llm_action.assert_called_once()
-    call_kwargs = activity_log_service.record_carrier_ack_llm_action.call_args[1]
-    assert call_kwargs["decision"] == StatusSubType.DO_NOTHING.value
-    assert call_kwargs["workflow_lifecycle_id"] == LIFECYCLE_UUID
-    assert call_kwargs["workflow_run_id"] == RUN_UUID
-    assert call_kwargs["user_input"] == "We accept the load."
-    assert call_kwargs["llm_output"] == llm_result
+    activity_log_service.record_action.assert_called_once()
+    write = activity_log_service.record_action.call_args[0][0]
+    assert write.workflow_lifecycle_id == LIFECYCLE_UUID
+    assert write.workflow_run_id == RUN_UUID
+    assert write.metadata["carrier_ack_decision"] == StatusSubType.DO_NOTHING.value
+    assert write.metadata["user_input"] == "We accept the load."
+    assert write.metadata["output"] == llm_result
     assert out.data["carrier_ack_llm_activity_log_id"] == (
         "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
     )

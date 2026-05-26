@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.domain.activity_log_descriptions import format_carrier_ack_llm_action
+from app.domain.activity_log_write import ActivityLogWrite
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
@@ -73,16 +75,24 @@ def classify_carrier_ack(state):
         except (TypeError, ValueError):
             confidence = None
         activity_log_service = ActivityLogService()
-        activity_log_id = activity_log_service.record_carrier_ack_llm_action(
-            tenant_id=tenant_id,
-            tender_id=tender_id,
-            workflow_lifecycle_id=wl_id,
-            workflow_run_id=run_id,
-            decision=decision,
-            reason=state.data["carrier_ack_reason"],
-            confidence=confidence,
-            user_input=reply_text,
-            llm_output=result,
+        activity_log_id = activity_log_service.record_action(
+            ActivityLogWrite(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                description=format_carrier_ack_llm_action(
+                    decision=decision,
+                    reason=state.data["carrier_ack_reason"],
+                    confidence=confidence,
+                ),
+                metadata={
+                    "source": "classify_carrier_ack",
+                    "tender_id": tender_id,
+                    "carrier_ack_decision": decision,
+                    "user_input": reply_text,
+                    "output": result,
+                },
+            )
         )
         if activity_log_id:
             state.data["carrier_ack_llm_activity_log_id"] = activity_log_id

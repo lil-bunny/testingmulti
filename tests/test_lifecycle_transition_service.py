@@ -292,3 +292,65 @@ def test_apply_raises_when_lifecycle_missing(
     svc = LifecycleTransitionService(lifecycles_repo=lifecycles)
     with pytest.raises(LifecycleTransitionError):
         svc.apply(_command())
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+@patch("app.services.lifecycle_transition_service.unit_of_work")
+def test_apply_sequence_action_then_status_in_one_transaction(
+    mock_uow: MagicMock,
+    _resolve_tenant: MagicMock,
+) -> None:
+    conn = MagicMock()
+    mock_uow.return_value.__enter__.return_value = conn
+
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.NONE.value,
+        "sub_status": StatusSubType.NONE.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    lifecycles.update_status.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert_with_connection.side_effect = [
+        "action-log-id",
+        "status-log-id",
+    ]
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply_sequence(
+        _command(
+            activity_type=ActivityType.ACTION,
+            description="Tender created",
+            update_lifecycle=False,
+        ),
+        _command(
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=StatusType.PROCESSING,
+            to_sub_status=StatusSubType.TENDER_CREATED,
+            description="Status updated to Processing",
+        ),
+    )
+
+    assert result.activity_log_ids == ["action-log-id", "status-log-id"]
+    assert result.lifecycle_updated is True
+    assert activity_logs.insert_with_connection.call_count == 2
+    mock_uow.return_value.__enter__.assert_called_once()
+
+    action_row = activity_logs.insert_with_connection.call_args_list[0][0][1]
+    status_row = activity_logs.insert_with_connection.call_args_list[1][0][1]
+    assert action_row["activity_type"] == ActivityType.ACTION.value
+    assert action_row["from_status"] == StatusType.NONE.value
+    assert action_row["to_status"] == StatusType.NONE.value
+    assert status_row["activity_type"] == ActivityType.STATUS_CHANGE.value
+    assert status_row["from_status"] == StatusType.NONE.value
+    assert status_row["to_status"] == StatusType.PROCESSING.value
+    assert status_row["to_sub_status"] == StatusSubType.TENDER_CREATED.value
+
+    lifecycles.update_status.assert_called_once()
