@@ -8,6 +8,7 @@ from app.core.logger import get_logger
 from app.domain.load_tendering_settings import (
     action_settings,
     gelita_escalate_tender_settings,
+    is_ftl_load_type,
     resolve_load_type,
 )
 from app.models.activity_type import ActivityType, ActorType
@@ -95,20 +96,14 @@ def escalate_tender(state):
     if not order_number and isinstance(tender_row, dict):
         order_number = str(tender_row.get("order_number") or "").strip()
 
-    fmt_ctx = {
-        "workflow_lifecycle_id": wl_id,
-        "tender_id": tender_id or "unknown",
-        "order_number": order_number or "unknown",
-    }
+    fmt_ctx = {"order_number": order_number or "unknown"}
     subject_template = escalate_cfg.escalation_email_subject.strip()
     body_template = escalate_cfg.escalation_email_body.strip()
     if not subject_template:
         subject_template = "Gelita tender escalation (order {order_number})"
     if not body_template:
-        body_template = (
-            "Escalation for tender_id={tender_id} lifecycle_id={workflow_lifecycle_id} "
-            "order_number={order_number}"
-        )
+        load_label = "FTL" if is_ftl_load_type(load_type) else "LTL"
+        body_template = f"{load_label} escalation for order {{order_number}}"
 
     subject = subject_template.format(**fmt_ctx)
     body = body_template.format(**fmt_ctx)
