@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
@@ -14,7 +14,7 @@ def update_awaiting_response(state):
     """
     First inbound carrier thread:
     - persist thread id
-    - move top-level status to ``processing`` and sub_status to ``tender_sent_to_carrier``
+    - transition to tender_sent_to_carrier
     - write activity log
     """
 
@@ -39,9 +39,9 @@ def update_awaiting_response(state):
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
         state,
-        to_status=StatusType.PROCESSING,
         to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
-        activity_type=ActivityType.STATUS_CHANGE,
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
+        description="Awaiting carrier acknowledgment on captured thread",
         actor_type=ActorType.SYSTEM,
         email_thread_id=thread_id or None,
         metadata={"thread_id": thread_id} if thread_id else {},

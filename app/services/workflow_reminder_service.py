@@ -9,8 +9,11 @@ from typing import Any, Callable
 from pydantic import ValidationError
 
 from app.core.logger import get_logger
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.load_tendering_settings import load_type_bucket, resolve_load_type
 from app.domain.reminder_schedule import ReminderStepSpec, WorkflowRemindersConfig
+from app.models.activity_type import ActivityType, ActorType
+from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.reminders import trigger_workflow_reminder
 
@@ -260,4 +263,49 @@ class WorkflowReminderService:
                     pass
             return
 
+        self._post_enqueue(data, wf, reminders, steps)
         data["reminders_scheduled"] = True
+
+    def _post_enqueue(
+        self,
+        data: dict[str, Any],
+        workflow_name: str,
+        reminders: WorkflowRemindersConfig,
+        steps: list[ReminderStepSpec],
+    ) -> None:
+        description = (reminders.schedule_activity_description or "").strip()
+        if not description:
+            return
+
+        run_id = str(data.get("workflow_run_id") or "").strip() or None
+        tenant_id = str(data.get("tenant_id") or "").strip()
+        wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
+        if not run_id or not tenant_id or not wl_id:
+            return
+
+        metadata: dict[str, Any] = {
+            "hours": [s.delay_hours for s in steps],
+            "workflow_name": workflow_name,
+        }
+        if reminders.variant_selector == "load_type":
+            metadata["load_type"] = resolve_load_type(data) or None
+
+        try:
+            lifecycle_transition_service = LifecycleTransitionService()
+            lifecycle_transition_service.apply(
+                LifecycleTransitionCommand(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=wl_id,
+                    workflow_run_id=run_id,
+                    activity_type=ActivityType.ACTION,
+                    description=description,
+                    actor_type=ActorType.SYSTEM,
+                    metadata=metadata,
+                    update_lifecycle=False,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "workflow_reminder activity log failed lifecycle_id=%s (tasks queued)",
+                wl_id,
+            )

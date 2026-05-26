@@ -155,7 +155,7 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "accepted": "record_ack_received",
                     "rejected": "record_ack_received",
-                    "do_nothing": "end",
+                    "do_nothing": "record_ack_received",
                 },
             },
         },

@@ -82,8 +82,7 @@ class CommunicationsRepository:
                         external_id,
                         thread_id,
                         content,
-                        metadata,
-                        workflow_run_id
+                        metadata
                     )
                     VALUES (
                         %s::uuid,
@@ -92,8 +91,7 @@ class CommunicationsRepository:
                         %s,
                         %s,
                         %s,
-                        %s,
-                        %s::uuid
+                        %s
                     )
                     ON CONFLICT (tenant_id, external_id)
                     WHERE external_id IS NOT NULL
@@ -108,7 +106,6 @@ class CommunicationsRepository:
                         row.get("thread_id"),
                         row.get("content"),
                         Json(row.get("metadata") or {}),
-                        row.get("workflow_run_id"),
                     ),
                 )
                 out = cur.fetchone()

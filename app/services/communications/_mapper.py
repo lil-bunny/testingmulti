@@ -223,7 +223,6 @@ def outbound_row_from_send(
     bcc: Any = None,
     account_id: str | None = None,
     extra_metadata: dict[str, Any] | None = None,
-    workflow_run_id: str | None = None,
 ) -> dict[str, Any] | None:
     if not send_result.get("success"):
         return None
@@ -234,7 +233,7 @@ def outbound_row_from_send(
         return None
     tid = str(thread_id or send_result.get("thread_id") or "").strip() or None
     content = resolve_email_content(body_html=body)
-    row: dict[str, Any] = {
+    return {
         "tenant_id": tenant_id,
         "channel": "email",
         "direction": "outbound",
@@ -250,6 +249,3 @@ def outbound_row_from_send(
             extra=extra_metadata,
         ),
     }
-    if workflow_run_id:
-        row["workflow_run_id"] = workflow_run_id
-    return row
