@@ -38,7 +38,6 @@ class WorkflowRemindersConfig(BaseModel):
     variant_selector: Literal["load_type"] | None = None
     schedule_on_event_type: str | None = None
     skip_sub_statuses: list[str] = Field(default_factory=list)
-    schedule_activity_description: str | None = None
     default_body: str | None = None
     subject_templates: dict[str, str] | None = None
     payload_keys: list[str] | None = None
