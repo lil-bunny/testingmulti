@@ -5,10 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import (
-    format_tender_sent_to_tenant_action,
-    format_tender_sent_to_tenant_status_change,
-)
+from app.domain.activity_log_descriptions import format_tender_sent_to_vendor
 from app.domain.activity_log_write import (
     ActivityLogSequence,
     ActivityLogStep,
@@ -70,14 +67,12 @@ def log_tender_activity(state):
                 steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_tender_sent_to_tenant_action(
-                            tender_id=tender_id
-                        ),
+                        description=format_tender_sent_to_vendor(),
                         metadata=dict(meta),
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
-                        description=format_tender_sent_to_tenant_status_change(),
+                        description=format_tender_sent_to_vendor(),
                         to_status=StatusType.PENDING_REVIEW,
                         to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
                         metadata=dict(meta),

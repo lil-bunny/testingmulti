@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.logger import get_logger
-from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.tools.load_tendering_lifecycle_guards import (
+    delayed_workflow_step_skip_reason,
+    skip_sub_statuses_from_state,
+)
 
 logger = get_logger(__name__)
 
@@ -60,18 +65,26 @@ def update_reminder_status(state):
 
     workflow_lifecycle_service = WorkflowLifecycleService()
     prev = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
-    if not prev:
-        logger.warning("update_reminder_status lifecycle not found id=%s", wl_id)
-        state.data["reminder_status_error"] = "lifecycle_not_found"
+    skip = delayed_workflow_step_skip_reason(
+        prev,
+        skip_sub_statuses=skip_sub_statuses_from_state(state),
+    )
+    if skip:
+        logger.info(
+            "update_reminder_status skipping lifecycle_id=%s reason=%s",
+            wl_id,
+            skip,
+        )
+        state.data["reminder_status_skipped"] = skip
         return state
 
-    if status_type_from_db(prev.get("status")) == StatusType.COMPLETED:
-        logger.info(
-            "update_reminder_status skipping: lifecycle already completed lifecycle_id=%s",
-            wl_id,
-        )
-        state.data["reminder_status_skipped"] = "lifecycle_already_completed"
-        return state
+    log_metadata: dict[str, Any] = {
+        "reminder_step": step,
+        "tender_id": state.data.get("tender_id"),
+    }
+    comm_id = str(state.data.get("communication_id") or "").strip()
+    if comm_id:
+        log_metadata["communication_id"] = comm_id
 
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
@@ -80,10 +93,7 @@ def update_reminder_status(state):
         activity_type=ActivityType.SUB_STATUS_CHANGE,
         description=message,
         actor_type=ActorType.SYSTEM,
-        metadata={
-            "reminder_step": step,
-            "tender_id": state.data.get("tender_id"),
-        },
+        metadata=log_metadata,
     )
 
     state.data["reminder_sub_status"] = new_sub.value

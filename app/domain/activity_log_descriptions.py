@@ -18,12 +18,7 @@ def format_status_updated_to_processing() -> str:
     return "Status updated to Processing"
 
 
-def format_tender_sent_to_tenant_action(*, tender_id: str) -> str:
-    tid = (tender_id or "").strip() or "unknown"
-    return f"Tender email sent to vendor (tender_id={tid})"
-
-
-def format_tender_sent_to_tenant_status_change() -> str:
+def format_tender_sent_to_vendor() -> str:
     return "Tender email sent to vendor"
 
 

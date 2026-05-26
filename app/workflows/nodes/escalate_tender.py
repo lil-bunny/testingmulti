@@ -2,21 +2,40 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import (
     action_settings,
     gelita_escalate_tender_settings,
     resolve_load_type,
 )
-from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.tools.communication_metadata import outbound_email_metadata, stash_communication_id
 from app.tools.email import send_email
+from app.tools.load_tendering_lifecycle_guards import (
+    delayed_workflow_step_skip_reason,
+    skip_sub_statuses_from_state,
+)
 
 logger = get_logger(__name__)
+
+
+def _lifecycle_skip(
+    state: Any,
+    *,
+    workflow_lifecycle_service: WorkflowLifecycleService,
+    wl_id: str,
+) -> str | None:
+    row = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
+    return delayed_workflow_step_skip_reason(
+        row,
+        skip_sub_statuses=skip_sub_statuses_from_state(state),
+    )
 
 
 def escalate_tender(state):
@@ -27,6 +46,7 @@ def escalate_tender(state):
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = (state.tenant_id or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()
+    run_id = str(state.execution_id or "").strip() or None
 
     if not wl_id or not tenant_id:
         logger.warning("escalate_tender missing workflow_lifecycle_id or tenant_id")
@@ -35,21 +55,18 @@ def escalate_tender(state):
         return state
 
     workflow_lifecycle_service = WorkflowLifecycleService()
-    prev = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
-    if not prev:
-        logger.warning("escalate_tender lifecycle not found id=%s", wl_id)
-        state.data["escalation_email_error"] = "lifecycle_not_found"
-        state.data["escalation_email_sent"] = False
-        return state
-
-    prev_status = status_type_from_db(prev.get("status"))
-
-    if prev_status == StatusType.COMPLETED:
+    skip = _lifecycle_skip(
+        state,
+        workflow_lifecycle_service=workflow_lifecycle_service,
+        wl_id=wl_id,
+    )
+    if skip:
         logger.info(
-            "escalate_tender skipping: lifecycle already completed lifecycle_id=%s",
+            "escalate_tender skipping before send lifecycle_id=%s reason=%s",
             wl_id,
+            skip,
         )
-        state.data["escalation_skipped"] = "lifecycle_already_completed"
+        state.data["escalation_skipped"] = skip
         state.data["escalation_email_sent"] = False
         return state
 
@@ -112,6 +129,7 @@ def escalate_tender(state):
             body=body,
             account_id=account_id,
             tenant_id=tenant_id,
+            workflow_run_id=run_id,
             communication_metadata={
                 "source": "escalate_tender",
                 "tender_id": tender_id or None,
@@ -156,6 +174,35 @@ def escalate_tender(state):
         ) or "unipile_send_failed"
         return state
 
+    comm_id = stash_communication_id(state, result if isinstance(result, dict) else None)
+
+    skip = _lifecycle_skip(
+        state,
+        workflow_lifecycle_service=workflow_lifecycle_service,
+        wl_id=wl_id,
+    )
+    if skip:
+        logger.info(
+            "escalate_tender skipping after send (no lifecycle update) lifecycle_id=%s reason=%s",
+            wl_id,
+            skip,
+        )
+        state.data["escalation_skipped"] = skip
+        return state
+
+    email_meta = outbound_email_metadata(
+        to=recipients.to,
+        cc=recipients.cc,
+        bcc=recipients.bcc,
+    )
+    log_metadata: dict[str, Any] = {
+        "tender_id": tender_id or None,
+        "order_number": order_number or None,
+        **email_meta,
+    }
+    if comm_id:
+        log_metadata["communication_id"] = comm_id
+
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
         state,
@@ -163,13 +210,7 @@ def escalate_tender(state):
         activity_type=ActivityType.SUB_STATUS_CHANGE,
         description="Escalation email sent to operations",
         actor_type=ActorType.SYSTEM,
-        metadata={
-            "tender_id": tender_id or None,
-            "order_number": order_number or None,
-            "escalation_notify_email_domains": [
-                addr.split("@", 1)[-1] for addr in recipients.to if "@" in addr
-            ],
-        },
+        metadata=log_metadata,
     )
 
     state.data["escalation_sub_status"] = StatusSubType.ESCALATED.value
