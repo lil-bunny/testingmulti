@@ -53,7 +53,7 @@ def test_build_ftl_tender_email_placeholders() -> None:
         {"pallets_count": "12.00"},
         template,
     )
-    assert built["subject"] == "Load tender — Order ORD-1"
+    assert built["subject"] == "(FTL) Load tender — Order ORD-1"
     assert "ORD-1" in built["body_html"]
     assert "PO-9" in built["body_html"]
     assert "2026-05-10" in built["body_html"]
