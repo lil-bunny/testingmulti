@@ -18,7 +18,7 @@ def test_log_tender_activity_success_uses_record_sequence(
     mock_svc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.models.status import StatusSubType, StatusType
+    from app.models.status import StatusSubType
     from app.workflows.nodes.log_tender_activity import log_tender_activity
 
     mock_svc = MagicMock()
@@ -43,10 +43,10 @@ def test_log_tender_activity_success_uses_record_sequence(
     assert sequence.workflow_run_id == RUN_UUID
     assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
     assert sequence.steps[0].description == "Tender email sent to vendor"
     assert sequence.steps[1].description is None
-    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_status is None
     assert sequence.steps[1].to_sub_status == StatusSubType.TENDER_SENT_TO_TENANT
     assert sequence.steps[0].metadata["communication_id"] == COMM_UUID
     assert sequence.steps[1].metadata["communication_id"] == COMM_UUID

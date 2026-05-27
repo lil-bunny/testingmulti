@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType
+from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.load_tendering_lifecycle_guards import (
@@ -80,13 +81,23 @@ def update_reminder_status(state):
     if comm_id:
         log_metadata["communication_id"] = comm_id
 
+    current_status = status_type_from_db(prev.get("status")) if prev else None
+    to_status = StatusType.PENDING_REVIEW
+    transition_kwargs: dict[str, Any] = {
+        "to_sub_status": new_sub,
+        "metadata": log_metadata,
+    }
+    if current_status == to_status:
+        transition_kwargs["activity_type"] = ActivityType.SUB_STATUS_CHANGE
+    else:
+        transition_kwargs["activity_type"] = ActivityType.STATUS_CHANGE
+        transition_kwargs["to_status"] = to_status
+
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
         state,
-        to_sub_status=new_sub,
-        activity_type=ActivityType.SUB_STATUS_CHANGE,
         actor_type=ActorType.SYSTEM,
-        metadata=log_metadata,
+        **transition_kwargs,
     )
 
     state.data["reminder_sub_status"] = new_sub.value
