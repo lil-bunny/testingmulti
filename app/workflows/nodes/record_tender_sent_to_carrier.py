@@ -1,20 +1,21 @@
-"""Node: first inbound carrier thread — persist thread, awaiting_response, activity log."""
+"""Node: first inbound carrier thread — persist thread id and ``tender_sent_to_carrier`` sub_status."""
 
 from __future__ import annotations
 
 from app.core.logger import get_logger
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
 
 
-def update_awaiting_response(state):
+def record_tender_sent_to_carrier(state):
     """
-    First inbound carrier thread:
-    - persist thread id
-    - move top-level status to ``processing`` and sub_status to ``tender_sent_to_carrier``
+    First inbound carrier email on the tender thread:
+
+    - persist ``email_thread_id`` when present
+    - set lifecycle ``sub_status`` to ``tender_sent_to_carrier`` (top-level stays ``processing``)
     - write activity log
     """
 
@@ -32,16 +33,15 @@ def update_awaiting_response(state):
 
     if not wl_id or not tenant_id:
         logger.warning(
-            "update_awaiting_response missing workflow_lifecycle_id or tenant_id"
+            "record_tender_sent_to_carrier missing workflow_lifecycle_id or tenant_id"
         )
         return state
 
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
         state,
-        to_status=StatusType.PROCESSING,
         to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
-        activity_type=ActivityType.STATUS_CHANGE,
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
         actor_type=ActorType.SYSTEM,
         email_thread_id=thread_id or None,
         metadata={"thread_id": thread_id} if thread_id else {},

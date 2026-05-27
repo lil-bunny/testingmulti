@@ -2,53 +2,30 @@
 
 from __future__ import annotations
 
-import uuid
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import status
 from fastapi.responses import JSONResponse
 
-from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings
-from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 from app.domain.status_parsing import status_type_from_db
-from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.models.status import StatusType
-from app.services.delivery_locations_service import (
-    DeliveryLocationsService,
-    _fetch_delivery_locations_rows_from_sharepoint,
-)
-from app.services.email_import_projection import (
-    load_email_data_import_projection,
-    persist_tender_rows_from_email_import_projection,
-)
-from app.services.tenants_service import TenantsService
-from app.services.email_webhook_attachment_ingestion import (
-    process_email_webhook_attachment_import,
-)
 from app.services.communications.service import CommunicationsService
+from app.services.email_webhook_ingest_enqueue import (
+    enqueue_load_tendering_tender_created_ingest,
+)
+from app.services.load_tendering_email_ingest_service import (
+    WORKFLOW_NAME,
+    enqueue_load_tendering_workflow,
+)
 from app.services.tender_service import TenderService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_classifier_service import unipile_first_attachment_by_extension
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tasks.workflows import run_workflow_async
 from app.tools.gelita.order_number import extract_order_number
 
 logger = get_logger(__name__)
-
-WORKFLOW_NAME = "load_tendering"
-
-
-def _load_tendering_row_correlation_load_id(
-    data_import_id: Optional[str],
-    row_index: int,
-    tender_row: dict[str, Any],
-) -> str:
-    did = str(data_import_id or "").strip() or "no-import"
-    order = str(tender_row.get("order_number") or "").strip() or "no-order"
-    return f"{did}:{row_index}:{order}"
 
 
 def _has_xlsx_attachment(payload: dict[str, Any]) -> bool:
@@ -113,7 +90,7 @@ class GelitaInboundEmailService:
         # 2. new email handling
         # 2.1 tender_created handling
         if _has_xlsx_attachment(payload):
-            return await self._handle_tender_created(
+            return self._enqueue_tender_created_ingest(
                 payload=payload,
                 tenant=tenant,
                 graph_slug=graph_slug,
@@ -132,22 +109,34 @@ class GelitaInboundEmailService:
         payload: dict[str, Any],
         event_type: str,
     ) -> str:
-        execution_id = str(uuid.uuid4())
-        body = {**payload, "event_type": event_type, "execution_id": execution_id}
-        task = run_workflow_async.apply_async(
-            kwargs={
-                "tenant_slug": graph_slug,
-                "workflow_name": WORKFLOW_NAME,
-                "payload": body,
-            }
+        return enqueue_load_tendering_workflow(
+            graph_slug=graph_slug,
+            payload=payload,
+            event_type=event_type,
         )
-        logger.info(
-            "gelita unipile queued task_id=%s execution_id=%s event_type=%s",
-            task.id,
-            execution_id,
-            event_type,
+
+    def _enqueue_tender_created_ingest(
+        self,
+        *,
+        payload: dict[str, Any],
+        tenant: UnipileTenantContext,
+        graph_slug: str,
+    ) -> JSONResponse:
+        task_id, queue_status = enqueue_load_tendering_tender_created_ingest(
+            payload=payload,
+            tenant_uuid=tenant.tenant_uuid,
+            tenant_slug=tenant.tenant_slug,
+            graph_slug=graph_slug,
         )
-        return execution_id
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "message": "accepted",
+                "event_type": "tender_created",
+                "task_id": task_id,
+                "status": queue_status,
+            },
+        )
 
     def _try_ack_received(
         self,
@@ -205,121 +194,6 @@ class GelitaInboundEmailService:
             status_code=status.HTTP_200_OK,
             content={"message": "success", "execution_id": execution_id, "event_type": "ack_received"},
         )
-
-    async def _handle_tender_created(
-        self,
-        *,
-        payload: dict[str, Any],
-        tenant: UnipileTenantContext,
-        graph_slug: str,
-    ) -> JSONResponse:
-        data_import_id = await process_email_webhook_attachment_import(
-            payload=payload,
-            workflow_name=WORKFLOW_NAME,
-            data_import_tenant_id=tenant.tenant_uuid,
-            data_import_data_type=DataImportDataType.LOAD_TENDER,
-            ingest_source_type=DataImportSourceType.EMAIL,
-        )
-
-        projected_rows = load_email_data_import_projection(
-            tenant_id=tenant.tenant_uuid,
-            data_import_id=data_import_id,
-            projection=LOAD_TENDERING_ROW_PROJECTION,
-        )
-
-        tenants_service = TenantsService()
-        tenant_row = tenants_service.get_by_slug(tenant.tenant_slug) or {}
-        tenant_settings = normalize_tenant_settings_dict(
-            tenant.tenant_slug,
-            tenant_row.get("settings") or {},
-        )
-        dl_cfg = action_settings(
-            {"tenant_settings": tenant_settings},
-            "delivery_locations_excel",
-        )
-        share_url = str(dl_cfg.get("delivery_locations_share_url") or "").strip()
-        if share_url:
-            tab_name = str(
-                dl_cfg.get("delivery_locations_tab_name") or "Delivery locations"
-            )
-            max_rows = int(dl_cfg.get("delivery_locations_max_rows") or 50_000)
-            delivery_locations_service = DeliveryLocationsService(
-                rows_provider=lambda: _fetch_delivery_locations_rows_from_sharepoint(
-                    share_url,
-                    tab_name,
-                    max_rows,
-                ),
-            )
-        else:
-            delivery_locations_service = DeliveryLocationsService()
-
-        tender_ids_by_row = persist_tender_rows_from_email_import_projection(
-            tenant_id=tenant.tenant_uuid,
-            data_import_id=data_import_id,
-            projected_rows=projected_rows,
-            delivery_locations=delivery_locations_service,
-        )
-
-        shared_payload: dict[str, Any] = {**payload, "workflow_name": WORKFLOW_NAME}
-        mail_thread_src = shared_payload.pop("thread_id", None)
-        if mail_thread_src is not None:
-            stripe = str(mail_thread_src).strip()
-            if stripe:
-                shared_payload["source_email_thread_id"] = stripe
-
-        execution_ids: list[str] = []
-        enqueued_tender_ids: set[str] = set()
-        for row_index, tender_row in enumerate(projected_rows):
-            tender_id = (
-                tender_ids_by_row[row_index]
-                if row_index < len(tender_ids_by_row)
-                else None
-            )
-            if not tender_id:
-                logger.info(
-                    "gelita tender_created: skip row (new tender not created) row_index=%s "
-                    "order_number=%r",
-                    row_index,
-                    tender_row.get("order_number"),
-                )
-                continue
-            if tender_id in enqueued_tender_ids:
-                logger.info(
-                    "gelita tender_created: skip duplicate order row row_index=%s tender_id=%s",
-                    row_index,
-                    tender_id,
-                )
-                continue
-            enqueued_tender_ids.add(tender_id)
-
-            workflow_payload_row: dict[str, Any] = {
-                **shared_payload,
-                "tender_id": tender_id,
-                "load_id": _load_tendering_row_correlation_load_id(
-                    data_import_id, row_index, tender_row
-                ),
-                "tender_row": tender_row,
-                "tender_row_index": row_index,
-            }
-            if data_import_id:
-                workflow_payload_row["data_import_id"] = data_import_id
-
-            execution_ids.append(
-                self._enqueue(
-                    graph_slug=graph_slug,
-                    payload=workflow_payload_row,
-                    event_type="tender_created",
-                )
-            )
-
-        body: dict[str, Any] = {
-            "message": "success",
-            "execution_ids": execution_ids,
-            "event_type": "tender_created",
-        }
-        if data_import_id:
-            body["data_import_id"] = data_import_id
-        return JSONResponse(status_code=status.HTTP_200_OK, content=body)
 
     def _try_carrier_email_received(
         self,

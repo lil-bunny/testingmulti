@@ -23,7 +23,7 @@ from app.workflows.nodes.turvo import (
 from app.workflows.nodes.gelita.calculate_tender_params import calculate_tender_params
 from app.workflows.nodes.send_tender_email import send_tender_email
 from app.workflows.nodes.log_tender_activity import log_tender_activity
-from app.workflows.nodes.update_awaiting_response import update_awaiting_response
+from app.workflows.nodes.record_tender_sent_to_carrier import record_tender_sent_to_carrier
 from app.workflows.nodes.schedule_tender_reminders import schedule_tender_reminders
 from app.workflows.nodes.record_ack_received import classify_carrier_ack, record_ack_received
 from app.workflows.nodes.record_tender_created_activity import record_tender_created_activity
@@ -56,7 +56,7 @@ NODE_REGISTRY = {
     "calculate_tender_params": calculate_tender_params,
     "send_tender_email": send_tender_email,
     "log_tender_activity": log_tender_activity,
-    "update_awaiting_response": update_awaiting_response,
+    "record_tender_sent_to_carrier": record_tender_sent_to_carrier,
     "schedule_tender_reminders": schedule_tender_reminders,
     "classify_carrier_ack": classify_carrier_ack,
     "record_ack_received": record_ack_received,

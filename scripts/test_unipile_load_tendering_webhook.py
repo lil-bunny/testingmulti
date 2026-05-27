@@ -1,5 +1,5 @@
 """
-POST /api/webhook/unipile with a sample Unipile payload shaped for load_tendering.
+POST /api/webhook/email with a sample Unipile payload shaped for Gelita load_tendering (xlsx).
 
 Prerequisites (local server must match):
   - UNIPILE_WEBHOOK_SECRET — same as ``--token`` below
@@ -117,6 +117,17 @@ def main() -> int:
     r = httpx.post(url, json=body, headers=headers, timeout=30.0)
 
     print(r.status_code, r.text)
+    if r.status_code == 200:
+        try:
+            body = r.json()
+            if body.get("message") == "accepted":
+                print(
+                    "Background ingest queued; check Celery worker logs for "
+                    f"task_id={body.get('task_id')!r}",
+                    file=sys.stderr,
+                )
+        except json.JSONDecodeError:
+            pass
     return 0 if r.status_code == 200 else 1
 
 

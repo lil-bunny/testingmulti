@@ -89,3 +89,39 @@ class DataImportsRepository:
         if isinstance(raw, dict):
             return raw
         raise TypeError("data_imports.raw_data must decode to a dict")
+
+    def find_id_by_email_attachment_source(
+        self,
+        *,
+        tenant_id: str,
+        email_id: str,
+        attachment_id: str,
+    ) -> str | None:
+        tid = tenant_id.strip()
+        eid = email_id.strip()
+        aid = attachment_id.strip()
+        if not tid or not eid or not aid:
+            return None
+
+        conn = psycopg.connect(settings.DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id::text
+                    FROM {self.TABLE_NAME}
+                    WHERE tenant_id = %s::uuid
+                      AND raw_data->'source'->>'email_id' = %s
+                      AND raw_data->'source'->>'attachment_id' = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (tid, eid, aid),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if not row or not row[0]:
+            return None
+        return str(row[0])

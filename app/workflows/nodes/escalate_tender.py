@@ -11,8 +11,9 @@ from app.domain.load_tendering_settings import (
     is_ftl_load_type,
     resolve_load_type,
 )
+from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType
+from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -198,13 +199,24 @@ def escalate_tender(state):
     if comm_id:
         log_metadata["communication_id"] = comm_id
 
+    row_after_send = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
+    current_status = status_type_from_db(row_after_send.get("status")) if row_after_send else None
+    to_status = StatusType.PENDING_REVIEW
+    transition_kwargs: dict[str, Any] = {
+        "to_sub_status": StatusSubType.ESCALATED,
+        "metadata": log_metadata,
+    }
+    if current_status == to_status:
+        transition_kwargs["activity_type"] = ActivityType.SUB_STATUS_CHANGE
+    else:
+        transition_kwargs["activity_type"] = ActivityType.STATUS_CHANGE
+        transition_kwargs["to_status"] = to_status
+
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply_from_state(
         state,
-        to_sub_status=StatusSubType.ESCALATED,
-        activity_type=ActivityType.SUB_STATUS_CHANGE,
         actor_type=ActorType.SYSTEM,
-        metadata=log_metadata,
+        **transition_kwargs,
     )
 
     state.data["escalation_sub_status"] = StatusSubType.ESCALATED.value

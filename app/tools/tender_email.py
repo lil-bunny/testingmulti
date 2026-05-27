@@ -57,7 +57,11 @@ def build_ltl_tender_email(
         delivery_address=delivery_address,
     )
 
-    subject = f"Load tender — Order {order_number}" if order_number else "Load tender request"
+    subject = (
+        f"(LTL) Load tender — Order {order_number}"
+        if order_number
+        else "(LTL) Load tender request"
+    )
     return {"subject": subject, "body_html": body_html}
 
 
@@ -92,5 +96,9 @@ def build_ftl_tender_email(
         delivery_address=delivery_address,
     )
 
-    subject = f"Load tender — Order {order_number}" if order_number else "Load tender request"
+    subject = (
+        f"(FTL) Load tender — Order {order_number}"
+        if order_number
+        else "(FTL) Load tender request"
+    )
     return {"subject": subject, "body_html": body_html}

@@ -33,7 +33,7 @@ def log_tender_activity(state):
     """
     Persist lifecycle + activity log after ``send_tender_email`` (success or failure).
 
-    On success: ``action`` then ``status_change`` (``tender_sent_to_tenant``) in one transaction.
+    On success: ``action`` then ``sub_status_change`` (``tender_sent_to_tenant``) in one transaction.
     """
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = (state.tenant_id or "").strip()
@@ -71,8 +71,7 @@ def log_tender_activity(state):
                         metadata=dict(meta),
                     ),
                     ActivityLogStep(
-                        activity_type=ActivityType.STATUS_CHANGE,
-                        to_status=StatusType.PENDING_REVIEW,
+                        activity_type=ActivityType.SUB_STATUS_CHANGE,
                         to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
                         metadata=dict(meta),
                     ),

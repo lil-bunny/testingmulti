@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 from app.domain.delivery_address import format_usps_mailing_address
 from app.domain.load_tendering_settings import action_settings
@@ -23,7 +23,7 @@ def calculate_tender_params(state):
 
     Per scoped TODO 3.1 (order quantity in **kg**):
     - ``pieces = order_quantity / qty_per_unit``
-    - ``pallets = order_quantity / total_qty``
+    - ``pallets = ceil(order_quantity / total_qty)`` (integer; partial pallet counts as one)
     - ``gross_weight = (order_quantity * 2.2) + (pallet_weight * pallets)`` (lbs)
 
     Pack sizing comes from ``TenderService.read_row`` (``pack_codes`` join + metadata fallback).
@@ -79,14 +79,16 @@ def calculate_tender_params(state):
     total_qty = Decimal(str(total_qty))
 
     pieces_dec = order_quantity / qty_per_unit
-    pallets_dec = order_quantity / total_qty
+    pallets_raw = order_quantity / total_qty
+    pallets_int = int(pallets_raw.to_integral_value(rounding=ROUND_CEILING))
+    pallets_dec = Decimal(pallets_int)
+
     gross_weight_dec = (order_quantity * Decimal("2.2")) + (
         Decimal(str(pallet_weight_lb)) * pallets_dec
     )
 
-    pallets_float = float(pallets_dec)
     load_type_enum = (
-        LoadType.LTL if pallets_float <= float(pallet_threshold) else LoadType.FTL
+        LoadType.LTL if pallets_int <= pallet_threshold else LoadType.FTL
     )
 
     tender_svc.update_load_type(
@@ -142,7 +144,7 @@ def calculate_tender_params(state):
             "pickup_address": pickup_formatted,
             "delivery_address": delivery_formatted,
             "pieces_count": f"{pieces_dec:.2f}",
-            "pallets_count": f"{pallets_dec:.2f}",
+            "pallets_count": str(pallets_int),
             "gross_weight_lbs": f"{gross_weight_dec:,.2f}",
             "pallet_weight_lb": pallet_weight_lb,
             "pallet_threshold": pallet_threshold,
