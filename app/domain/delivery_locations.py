@@ -6,6 +6,8 @@ import math
 import re
 from typing import Any
 
+from app.domain.spreadsheet_cells import identifier_string_from_cell
+
 # Sheet column name (typo preserved to match source data).
 DELIVERY_NUMBER_FIELD = "delviery"
 
@@ -34,7 +36,7 @@ def normalize_delivery_number(value: Any) -> str | None:
     cleaned = clean_cell_value(value)
     if cleaned is None:
         return None
-    return str(cleaned)
+    return identifier_string_from_cell(cleaned)
 
 
 def clean_row(row: dict[str, Any]) -> dict[str, Any]:
