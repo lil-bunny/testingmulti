@@ -51,13 +51,18 @@ def _clean_thread_id(payload: dict[str, Any]) -> str | None:
     return s if s else None
 
 
+def _is_inbox_role(payload: dict[str, Any]) -> bool:
+    """Unipile ``role`` for inbound mail on the connected account (not drafts/sent)."""
+    return str(payload.get("role") or "").strip().lower() == "inbox"
+
+
 class GelitaInboundEmailService:
     """
     L2 routing for Gelita on a single ``webhook_name``:
 
     1. ``ack_received`` — lifecycle on ``thread_id`` + ``in_reply_to``
     2. ``tender_created`` — ``.xlsx`` attachment → ingest → per-row enqueue
-    3. ``carrier_email_received`` — body ``Order #`` → tender → lifecycle
+    3. ``carrier_email_received`` — ``role`` inbox + body ``Order #`` → tender → lifecycle
     """
 
     def __init__(self) -> None:
@@ -202,6 +207,17 @@ class GelitaInboundEmailService:
         tenant: UnipileTenantContext,
         graph_slug: str,
     ) -> JSONResponse:
+        if not _is_inbox_role(payload):
+            logger.info(
+                "gelita carrier: skipping non-inbox webhook role=%r folders=%r",
+                payload.get("role"),
+                payload.get("folders"),
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"message": "non-inbox email; carrier workflow not queued"},
+            )
+
         body_html = str(payload.get("body") or "")
         order_number = extract_order_number(body_html)
         if not order_number:
