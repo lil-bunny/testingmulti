@@ -7,100 +7,69 @@ How an inbound **mail** webhook (currently **Unipile**) becomes **stored tenders
 | Requirement | Detail |
 |------------|--------|
 | **HTTP auth** | `Authorization: Bearer <UNIPILE_WEBHOOK_SECRET>`. |
-| **Tenant routing** | A row in **`tenants`** whose JSON **`settings.email_webhook_name`** equals **`payload.webhook_name`** exactly. If no row matches, the API responds with `{"message": "invalid webhook"}` **before** workflow classification. |
-| **Classification** | **Load tendering** when **`webhook_name`** maps to a tenant **and** the email has **`has_attachments`**, **`attachments[].extension == xlsx`**, etc. (see `WorkflowClassifierService`). |
-| **Ingest path** | Unipile bytes are fetched with **`email_id`**, **`account_id`**, **`attachment_id`** from the webhook (`build_unipile_attachment_fetch_context`). |
-| **LangGraph tenant (`run_workflow_async`)** | **`tenants.slug`** must equal a top-level key in **`app/configs/tenant_configs.py`** (e.g. `"gelita"`). If the slug is missing, unknown, or not in **`TENANT_CONFIGS`**, **`payload.webhook_name`** is used when it is itself a **`TENANT_CONFIGS`** key; otherwise **`t3ra`**. Prefer **`slug`** matching **`TENANT_CONFIGS`** so Celery **`tenant_id`** stays correct even if **`webhook_name`** differs later. |
-| **Per spreadsheet row** | One Celery **`run_workflow_async`** with **`workflow_name`**: **`load_tendering`** per projected **`tender_row`**. Response includes **`execution_ids`** in row order. Mail thread stays on **`source_email_thread_id`**; **`thread_id`** is not sent on workflow payloads so **`workflow_lifecycles`** aligns with composite **`load_id`** (`data_import_row_index` plus **`order_number`**) rather than collapsing on **`email_thread_id`**. |
+| **Tenant routing** | A row in **`tenants`** whose JSON **`settings.email_webhook_name`** equals **`payload.webhook_name`** exactly. If no row matches, the API responds with `{"message": "invalid webhook"}` **before** Gelita ingress. |
+| **Gelita xlsx path** | **`POST /api/webhook/email`** with **`.xlsx`** attachment → immediate **`accepted`** + Celery **`run_email_webhook`** (handler **`load_tendering.tender_created`**). |
+| **Ingest path (worker)** | Unipile bytes fetched with **`email_id`**, **`account_id`**, **`attachment_id`**; attachment-level retries (3s / 6s / 12s, up to 4 tries). On persistent **`UnipileException`**, Celery **`run_email_webhook`** autoretries the full ingest up to **3** times with **~60s** between attempts (`retry_jitter` applies). |
+| **LangGraph tenant (`run_workflow_async`)** | **`tenants.slug`** must equal a top-level key in **`app/configs/tenant_configs.py`** (e.g. `"gelita"`). |
+| **Per spreadsheet row** | After persist, worker enqueues one **`run_workflow_async`** per new **`tender_id`**. Webhook response does **not** include **`execution_ids`** (use logs/DB/Celery). |
 
-Operational note: configure the Unipile webhook so its **`webhook_name`** matches the value you store under **`email_webhook_name`** in **`tenants.settings`** (for example **`"gelita"`** on both sides). Set **`tenants.slug`** to that same **`TENANT_CONFIGS`** key (e.g. **`gelita`**) so graph **`tenant_id`** comes from Postgres when **`webhook_name`** is different or ambiguous.
+Operational note: configure Unipile **`webhook_name`** to match **`tenants.settings.email_webhook_name`**. Deploy **API + Celery worker** together when changing ingest tasks.
 
-## High-level sequence
-
-Below, **solid lines** show the primary **load tendering** happy path after auth—**persist tenders**, then **one minimal LangGraph** run **per spreadsheet row**. Rate-con/POD mails still validate **tenant routing** first, then classify differently and enqueue **one** graph **per webhook**.
+## High-level sequence (Gelita xlsx)
 
 ```mermaid
 sequenceDiagram
-    participant U as Mail provider webhook
-    participant API as POST /api/webhook/unipile
-    participant R as resolve_email_data_import_tenant_id
-    participant DBt as Postgres tenants
-    participant C as WorkflowClassifierService
-    participant Ing as Email attachment ingestion
-    participant DIP as Email import projection
-    participant TI as TendersIngestService
-    participant Cel as Celery run_workflow_async
-    participant DBi as Postgres data_imports / tenders
+    participant U as Mail_provider
+    participant API as POST_webhook_email
+    participant IngCel as Celery_run_email_webhook
+    participant Ing as Attachment_ingestion
+    participant DIP as Email_import_projection
+    participant TI as Tenders_persist
+    participant WF as run_workflow_async
+    participant DB as Postgres
 
-    U->>API: mail_received payload + Bearer
-    API->>R: payload
-    R->>DBt: lookup settings.email_webhook_name = webhook_name
-    DBt-->>R: tenants.id
-    alt no tenant row
-        R-->>API: None
-        API-->>U: invalid webhook
-    end
-    R-->>API: data_import_tenant_id
-    API->>C: classify_workflow_type(payload)
-    C-->>API: workflow_name (e.g. load_tendering)
-    API->>Ing: process_email_webhook_attachment_import (excel path)
-    Ing->>DBi: write data_imports row
-    Ing-->>API: data_import_id
-    alt load_tendering
-        API->>DIP: load_email_data_import_projection
-        DIP->>DBi: read + project spreadsheet rows
-        DIP-->>API: array_of_tenders
-        API->>TI: persist_tender_rows_from_email_import_projection
-        TI->>DBi: insert tenders rows
-        loop rows in array_of_tenders
-            API->>Cel: load_tendering (tenant from tenants.slug or webhook_name fallback)
-        end
-        API-->>U: JSON success + data_import_id + execution_ids[]
-    else ratecon / pod_lifecycle
-        API-->>U: enqueue workflow (execution_id) optional data_import_id
+    U->>API: xlsx mail_received + Bearer
+    API->>DB: record_inbound communications
+    API->>IngCel: apply_async load_tendering.tender_created
+    API-->>U: accepted + task_id
+
+    IngCel->>Ing: fetch xlsx retry + data_imports
+    Ing->>DB: data_imports source email_id+attachment_id
+    IngCel->>DIP: project rows
+    IngCel->>TI: persist tenders
+    loop each new tender row
+        IngCel->>WF: load_tendering tender_created
     end
 ```
 
-## Structural flowchart
+Ack and carrier-email paths remain **synchronous** on the API thread.
 
-Shows **decision gates** shared by every accepted mail webhook.
+## Webhook response (xlsx)
 
-```mermaid
-flowchart TD
-    A["POST /api/webhook/unipile<br/>Bearer OK"] --> B["resolve_email_data_import_tenant_id"]
-    B --> C{"tenant row for webhook_name?"}
-    C -->|no| Z["{'message':'invalid webhook'}"]
-    C -->|yes| D["WorkflowClassifierService"]
-    D --> E{"workflow_name"}
-    E -->|load_tendering| F["Excel ingest → data_imports"]
-    F --> G["Projection → array_of_tenders"]
-    G --> H["persist tenders"]
-    H --> I["enqueue load_tendering graph per tender row"]
-    I --> J["HTTP 200: success + data_import_id + execution_ids"]
-    E -->|ratecon / pod| K["Optional same ingest if attachment"]
-    K --> L["Celery run_workflow_async"]
-    L --> M["HTTP 200: execution_id"]
+```json
+{
+  "message": "accepted",
+  "event_type": "tender_created",
+  "task_id": "<celery-uuid>",
+  "status": "queued"
+}
 ```
+
+Duplicate Unipile delivery for the same **`email_id`** + xlsx **`attachment.id`** may return **`status": "already_queued"`** (deterministic Celery **`task_id`**).
 
 ## Code map
 
 | Piece | Responsibility |
 |-------|----------------|
-| **`app/api/routes.py`** | Auth, **`resolve_email_data_import_tenant_id`**, classify, ingestion, projection + tenders for **`load_tendering`**, then **one Celery enqueue per projected row**; ratecon/pod: one enqueue per webhook. |
-| **`app/services/workflow_graph_tenant_resolution.py`** | **`tenants.slug`** vs **`webhook_name`** as **`TENANT_CONFIGS`** key → **`run_workflow_async.tenant_id`**. |
-| **`app/services/data_import_tenant_resolution.py`** | Maps **`payload["webhook_name"]`** → **`tenants.id`**. |
-| **`app/repositories/tenants_db_repository.py`** | SQL: **`settings::jsonb->>'email_webhook_name'`**; **`slug`** lookup by **`tenants.id`** for graph Celery **`tenant_id`**. |
-| **`app/services/workflow_classifier_service.py`** | **`load_tendering`** iff tenant mapping exists + `.xlsx` attachment rules. |
-| **`app/services/email_webhook_attachment_ingestion.py`** | Fetch bytes, **`ingest_data`**, record **`data_imports`**. |
-| **`app/services/email_import_projection.py`** | **`load_email_data_import_projection`**, **`persist_tender_rows_from_email_import_projection`** (wrapped in try/log). |
-| **`app/services/data_imports_read_service.py`** | Parsed spreadsheet → **`get_projected_rows(..., projection=LOAD_TENDERING_ROW_PROJECTION)`**; call from code (workflows, scripts, tasks)—no dedicated HTTP route. |
-| **`app/domain/*`** | Projection, tabular iteration, **`load_tendering_tender_rows`** mapping into DB shape. |
-| **`app/repositories/tenders_repository.py`** | **`tenders` batch inserts**. |
-| **Migrations** | **`20260513_01`** **`tenants`** · **`20260514_01`** **`data_imports`** · **`20260515_01`** **`tenders`** + enum. Head **`20260515_01`**. Run **`alembic upgrade head`**. |
+| **`app/api/routes.py`** | Auth, L1 **`resolve_unipile_tenant`**, route **`gelita`** → **`GelitaInboundEmailService`**. |
+| **`app/services/gelita_inbound_email_service.py`** | L2 routing; xlsx → **`enqueue_load_tendering_tender_created_ingest`**. |
+| **`app/services/email_webhook_ingest_enqueue.py`** | Deterministic Celery **`task_id`**, **`apply_async`**. |
+| **`app/tasks/email.py`** | Celery **`run_email_webhook`** (`UnipileException` autoretry, 60s countdown) + handler registry (**`app/tasks/email_handlers.py`**). |
+| **`app/services/load_tendering_email_ingest_service.py`** | Worker pipeline: import → project → persist → **`run_workflow_async`**. |
+| **`app/services/email_webhook_attachment_ingestion.py`** | Fetch + retry + **`data_imports`** (with **`source`** keys for idempotency). |
+| **`app/services/email_import_projection.py`** | Projection + tender persist. |
 
 ## Reading projected rows (library reuse)
-
-Reuse the service directly instead of REST:
 
 ```python
 from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
@@ -111,8 +80,4 @@ rows, meta = DataImportsReadService().get_projected_rows(
     data_import_id,
     projection=LOAD_TENDERING_ROW_PROJECTION,
 )
-# rows is None if no data_import for (tenant_id, id); else list[dict].
 ```
-
-Ingest-facing code can use **`load_email_data_import_projection`** in **`app/services/email_import_projection.py`** (same projection, guarded I/O).
-

@@ -1,4 +1,4 @@
-"""Gelita Excel webhook: enqueue load_tendering only for newly created tenders."""
+"""Gelita Excel ingest: enqueue load_tendering only for newly created tenders."""
 
 from __future__ import annotations
 
@@ -10,6 +10,9 @@ from fastapi import status
 from fastapi.responses import JSONResponse
 
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.services.load_tendering_email_ingest_service import (
+    process_tender_created_from_email_webhook,
+)
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -22,13 +25,32 @@ def _tenant() -> UnipileTenantContext:
     )
 
 
+def _xlsx_payload() -> dict:
+    return {
+        "webhook_name": "gelita",
+        "email_id": "mail-1",
+        "account_id": "acc-1",
+        "has_attachments": True,
+        "attachments": [
+            {
+                "id": "att-1",
+                "name": "loads.xlsx",
+                "extension": "xlsx",
+            },
+        ],
+        "thread_id": "thr-1",
+    }
+
+
 @pytest.mark.asyncio
-@patch("app.services.gelita_inbound_email_service.run_workflow_async")
+@patch("app.services.load_tendering_email_ingest_service.run_workflow_async")
 @patch(
-    "app.services.gelita_inbound_email_service.persist_tender_rows_from_email_import_projection"
+    "app.services.load_tendering_email_ingest_service.persist_tender_rows_from_email_import_projection"
 )
-@patch("app.services.gelita_inbound_email_service.load_email_data_import_projection")
-@patch("app.services.gelita_inbound_email_service.process_email_webhook_attachment_import")
+@patch("app.services.load_tendering_email_ingest_service.load_email_data_import_projection")
+@patch(
+    "app.services.load_tendering_email_ingest_service.process_email_webhook_attachment_import"
+)
 async def test_tender_created_skips_enqueue_when_order_already_exists(
     mock_import: AsyncMock,
     mock_projection: MagicMock,
@@ -46,16 +68,14 @@ async def test_tender_created_skips_enqueue_when_order_already_exists(
     mock_task.apply_async.return_value = MagicMock(id="celery-1")
     mock_celery.apply_async = mock_task.apply_async
 
-    svc = GelitaInboundEmailService()
-    response = await svc._handle_tender_created(
+    result = await process_tender_created_from_email_webhook(
         payload={"thread_id": "thr-1", "webhook_name": "gelita"},
-        tenant=_tenant(),
+        tenant_uuid=TENANT_UUID,
+        tenant_slug="gelita",
         graph_slug="gelita",
     )
 
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert len(content["execution_ids"]) == 1
+    assert len(result["execution_ids"]) == 1
     assert mock_task.apply_async.call_count == 1
     wp = mock_task.apply_async.call_args.kwargs["kwargs"]["payload"]
     assert wp["tender_id"] == "dddddddd-dddd-dddd-dddd-dddddddddddd"
@@ -63,12 +83,14 @@ async def test_tender_created_skips_enqueue_when_order_already_exists(
 
 
 @pytest.mark.asyncio
-@patch("app.services.gelita_inbound_email_service.run_workflow_async")
+@patch("app.services.load_tendering_email_ingest_service.run_workflow_async")
 @patch(
-    "app.services.gelita_inbound_email_service.persist_tender_rows_from_email_import_projection"
+    "app.services.load_tendering_email_ingest_service.persist_tender_rows_from_email_import_projection"
 )
-@patch("app.services.gelita_inbound_email_service.load_email_data_import_projection")
-@patch("app.services.gelita_inbound_email_service.process_email_webhook_attachment_import")
+@patch("app.services.load_tendering_email_ingest_service.load_email_data_import_projection")
+@patch(
+    "app.services.load_tendering_email_ingest_service.process_email_webhook_attachment_import"
+)
 async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
     mock_import: AsyncMock,
     mock_projection: MagicMock,
@@ -87,14 +109,34 @@ async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
     mock_task.apply_async.return_value = MagicMock(id="celery-1")
     mock_celery.apply_async = mock_task.apply_async
 
-    svc = GelitaInboundEmailService()
-    response = await svc._handle_tender_created(
+    result = await process_tender_created_from_email_webhook(
         payload={"thread_id": "thr-1"},
-        tenant=_tenant(),
+        tenant_uuid=TENANT_UUID,
+        tenant_slug="gelita",
         graph_slug="gelita",
     )
 
-    assert isinstance(response, JSONResponse)
-    content = json.loads(response.body)
-    assert len(content["execution_ids"]) == 1
+    assert len(result["execution_ids"]) == 1
     assert mock_task.apply_async.call_count == 1
+
+
+@pytest.mark.asyncio
+@patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_tender_created_ingest")
+@patch("app.services.gelita_inbound_email_service.CommunicationsService.record_inbound")
+async def test_handle_xlsx_enqueues_background_ingest_not_inline_import(
+    mock_record: MagicMock,
+    mock_enqueue_ingest: MagicMock,
+) -> None:
+    mock_enqueue_ingest.return_value = ("task-abc", "queued")
+
+    svc = GelitaInboundEmailService()
+    response = await svc.handle(payload=_xlsx_payload(), tenant=_tenant())
+
+    assert response.status_code == status.HTTP_200_OK
+    content = json.loads(response.body)
+    assert content["message"] == "accepted"
+    assert content["event_type"] == "tender_created"
+    assert content["task_id"] == "task-abc"
+    assert content["status"] == "queued"
+    mock_enqueue_ingest.assert_called_once()
+    mock_record.assert_called_once()
