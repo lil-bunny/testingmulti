@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from app.domain.spreadsheet_cells import identifier_string_from_cell
 from app.models.load_type import LoadType
 
 
@@ -88,7 +89,7 @@ def projected_row_to_tender_insert(
     Returns ``None`` when required fields are missing or invalid. ``pack_code_id`` is set when
     the row supplies a UUID or when ``pack_code`` text resolves via ``active_pack_code_index``.
     """
-    order_number = str(row.get("order_number") or "").strip()
+    order_number = identifier_string_from_cell(row.get("order_number")) or ""
     if not order_number:
         return None
 
@@ -107,7 +108,7 @@ def projected_row_to_tender_insert(
         row,
         active_pack_code_index=active_pack_code_index,
     )
-    po_number = str(row.get("po_number") or "").strip()
+    po_number = identifier_string_from_cell(row.get("po_number")) or ""
     metadata: dict[str, Any] = {"po_number": po_number} if po_number else {}
 
     return {
