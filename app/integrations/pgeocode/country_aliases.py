@@ -1,7 +1,7 @@
 """Map free-text country names from the Gelita Delivery locations sheet to ISO2 codes.
 
-``pgeocode.Nominatim`` requires a 2-letter ISO country code, but the SharePoint
-sheet uses human-readable names with several non-standard variants
+``pgeocode.Nominatim`` requires a 2-letter ISO country code, but the delivery
+locations sheet uses human-readable names with several non-standard variants
 (e.g. ``"U.S.A."``, ``"Great Britain"``, ``"Pr of China"``, ``"Taiwan R.O.C."``).
 This module owns the canonical mapping. Any sheet value not in the dict yields
 ``None``, which downstream is treated as "unable to resolve state" and falls

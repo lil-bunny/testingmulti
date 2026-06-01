@@ -6,6 +6,9 @@ from typing import Any, Mapping, Sequence
 
 from app.core.logger import get_logger
 from app.services.data_imports_read_service import DataImportsReadService
+from app.services.delivery_locations_data_import import (
+    load_delivery_location_rows_from_data_import,
+)
 from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.tenders_ingest_service import TendersIngestService
 
@@ -64,9 +67,13 @@ def persist_tender_rows_from_email_import_projection(
     Returns one ``tenders.id`` (or ``None``) per projected row index. On failure, logs and
     returns an empty list.
     """
+    tid = tenant_id.strip()
     try:
         ingest_service = TendersIngestService(
-            delivery_locations=delivery_locations or DeliveryLocationsService(),
+            delivery_locations=delivery_locations
+            or DeliveryLocationsService(
+                rows_provider=lambda: load_delivery_location_rows_from_data_import(tid),
+            ),
         )
         return ingest_service.persist_from_projected_rows(
             tenant_id=tenant_id,

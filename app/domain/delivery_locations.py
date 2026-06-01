@@ -1,4 +1,4 @@
-"""Helpers for Delivery locations sheet rows (SharePoint .xlsx export)."""
+"""Helpers for Delivery locations sheet rows from ``delivery_location.xlsx`` (email import)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from app.domain.spreadsheet_cells import clean_cell_value, identifier_string_fro
 if TYPE_CHECKING:
     from app.domain.delivery_locations_column_mapping import (
         DeliveryLocationsColumnMapping,
+        DeliveryLocationsHeaderMapping,
     )
 
 # Sheet column name (typo preserved to match source data).
@@ -73,6 +74,24 @@ def select_delivery_locations_sheet(
     return candidates[0]
 
 
+def rows_from_spreadsheet_sheets(
+    sheets: list[dict[str, Any]],
+    *,
+    preferred_tab_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Pick the delivery-locations sheet and return cleaned row dicts."""
+    sheet_dicts = [s for s in sheets if isinstance(s, dict)]
+    selected = select_delivery_locations_sheet(
+        sheet_dicts,
+        preferred_tab_name=preferred_tab_name,
+    )
+    if selected is None:
+        return []
+    cleaned = clean_delivery_locations_sheet(selected)
+    rows = cleaned.get("rows") or []
+    return [r for r in rows if isinstance(r, dict)]
+
+
 class DeliveryLocationsIndex:
     """In-memory index of Delivery locations rows keyed by normalized ``delviery``."""
 
@@ -81,9 +100,12 @@ class DeliveryLocationsIndex:
         rows: list[dict[str, Any]],
         *,
         column_mapping: DeliveryLocationsColumnMapping | None = None,
+        header_mapping: DeliveryLocationsHeaderMapping | None = None,
     ) -> None:
         self._by_delivery_number = self.build_index(
-            rows, column_mapping=column_mapping
+            rows,
+            column_mapping=column_mapping,
+            header_mapping=header_mapping,
         )
 
     @staticmethod
@@ -91,13 +113,22 @@ class DeliveryLocationsIndex:
         rows: list[dict[str, Any]],
         *,
         column_mapping: DeliveryLocationsColumnMapping | None = None,
+        header_mapping: DeliveryLocationsHeaderMapping | None = None,
     ) -> dict[str, dict[str, Any]]:
+        from app.domain.delivery_locations_column_mapping import (
+            materialize_delivery_locations_row,
+        )
+
         index: dict[str, dict[str, Any]] = {}
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            if column_mapping is not None:
-                cleaned = column_mapping.materialize_row(row)
+            if column_mapping is not None or header_mapping is not None:
+                cleaned = materialize_delivery_locations_row(
+                    row,
+                    header_mapping=header_mapping,
+                    column_mapping=column_mapping,
+                )
             else:
                 cleaned = clean_row(row)
             key = normalize_delivery_number(cleaned.get(DELIVERY_NUMBER_FIELD))

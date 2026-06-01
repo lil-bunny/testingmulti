@@ -1,4 +1,17 @@
-"""Column projection presets for load tendering excel imports (logical key -> header aliases)."""
+"""Column projection presets for load tendering excel imports (logical key -> header aliases).
+
+Gelita Ship Schedule (SAP export) — column letters for reference:
+- B (ANR): order / pickup #
+- E (LIEFAN): delivery address code (join to delivery_location.xlsx column C)
+- P (LIEDAT): ship date
+- Q (MEBEST): order quantity
+- S (VKPREIS): cost per unit (total value ≈ S × Q)
+- T (EINTREFFDAT): delivery date
+- V (ARTSPEZ): pack code
+- AM (ME): unit of measure for order quantity
+- AS (BESTTXT): customer PO / reference
+- BE (STATUSTEXT): line status (some codes mean do not ship; see row 10 in file)
+"""
 
 from __future__ import annotations
 
@@ -19,7 +32,7 @@ LOAD_TENDERING_ROW_PROJECTION: Final[dict[str, tuple[str, ...]]] = {
     "order_number": ("Order #", "Order Number", "ANR"),
     "order_position": ("Order position", "Order Position", "order position", "POSIT"),
     "pack_code": ("Pack code", "pack_code", "Pack Code", "ARTSPEZ"),
-    "delivery_address_code": ("Delivery address", "LIEFAN"),
+    "delivery_address_code": ("LIEFAN", "Liefan"),
     "po_number": ("BESTTXT",),
     "price_per_unit": ("VKPREIS",),
 }

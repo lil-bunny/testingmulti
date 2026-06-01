@@ -5,10 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.delivery_locations import (
-    clean_delivery_locations_sheet,
-    select_delivery_locations_sheet,
-)
+from app.domain.delivery_locations import rows_from_spreadsheet_sheets
 from app.domain.delivery_locations_import import (
     DELIVERY_LOCATIONS_FILE_NAME,
     DELIVERY_LOCATIONS_SHEET_NAME,
@@ -67,12 +64,12 @@ def load_delivery_location_rows_from_data_import(tenant_id: str) -> list[dict[st
     if not isinstance(sheets, list):
         return []
 
-    sheet_dicts = [s for s in sheets if isinstance(s, dict)]
-    selected = select_delivery_locations_sheet(
-        sheet_dicts,
+    rows = rows_from_spreadsheet_sheets(
+        sheets,
         preferred_tab_name=DELIVERY_LOCATIONS_SHEET_NAME,
     )
-    if selected is None:
+    if not rows:
+        sheet_dicts = [s for s in sheets if isinstance(s, dict)]
         available = [
             {
                 "name": s.get("name"),
@@ -91,12 +88,10 @@ def load_delivery_location_rows_from_data_import(tenant_id: str) -> list[dict[st
         )
         return []
 
-    cleaned = clean_delivery_locations_sheet(selected)
-    rows = cleaned.get("rows") or []
     logger.info(
-        "delivery locations: using sheet name=%r row_count=%s import_id=%s",
-        selected.get("name"),
+        "delivery locations: loaded row_count=%s import_id=%s tenant_id=%s",
         len(rows),
         import_id,
+        tid,
     )
-    return [r for r in rows if isinstance(r, dict)]
+    return rows

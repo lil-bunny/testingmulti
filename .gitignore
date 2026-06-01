@@ -37,3 +37,7 @@ langsmith_init.py
 
 docs
 *.sql
+
+# Local Power Automate webhook tester (contains signed URL — never commit)
+scripts/local_test_power_automate_webhook.py
+scripts/.power_automate_webhook_url

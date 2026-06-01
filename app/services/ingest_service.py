@@ -134,6 +134,7 @@ def _normalize_storable_payload(
     file_name: str | None,
     mime_type: str | None,
     max_binary_bytes: int,
+    spreadsheet_header: int | None = 0,
 ) -> dict[str, Any]:
     """
     Produce a plain ``dict`` storable as ``jsonb``.
@@ -171,7 +172,9 @@ def _normalize_storable_payload(
         if parse_spreadsheet and _looks_like_xlsx(file_name, mime_type):
             from app.utils.excel import xlsx_bytes_to_sheet_records
 
-            envelope["spreadsheet"] = xlsx_bytes_to_sheet_records(raw)
+            envelope["spreadsheet"] = xlsx_bytes_to_sheet_records(
+                raw, header=spreadsheet_header
+            )
         return envelope
 
     raise ValueError(
@@ -188,6 +191,7 @@ def ingest_data(
     data_type: str | None = None,
     mime_type: str | None = None,
     parse_spreadsheet: bool = False,
+    spreadsheet_header: int | None = 0,
     max_binary_bytes: int | None = None,
     allow_nested_binary: bool = False,
 ) -> dict[str, Any]:
@@ -240,6 +244,7 @@ def ingest_data(
         file_name=fn,
         mime_type=mt,
         max_binary_bytes=cap,
+        spreadsheet_header=spreadsheet_header,
     )
     storable = _finalize_jsonb_payload(
         payload, allow_nested_binary=allow_nested_binary

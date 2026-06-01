@@ -1,4 +1,4 @@
-"""Gelita delivery_location.xlsx email ingest — parent entrypoints and routing only."""
+"""Gelita-only delivery_location.xlsx flow: email routing, ingest, column layout, tender lookup."""
 
 from __future__ import annotations
 
@@ -7,14 +7,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.configs.gelita_delivery_locations_columns import (
+    GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
+)
+from app.repositories.tenders_repository import TenderInsertResult
 from app.services.delivery_locations_data_import import (
     load_delivery_location_rows_from_data_import,
 )
 from app.services.delivery_locations_email_ingest_service import (
     process_delivery_locations_from_email_webhook,
 )
+from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.services.tenders_ingest_service import TendersIngestService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
+from tests.helpers.delivery_location_rows import row_with_cells
 
 _TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 _DATA_IMPORT_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -38,6 +45,23 @@ def _spreadsheet_raw(*, sheet_name: str, rows: list[dict] | None) -> dict:
             }
         }
     }
+
+
+def _positional_delivery_row() -> dict:
+    """Headerless wide row: delivery code in column C, city in Q (Gelita layout)."""
+    return row_with_cells(C="41000100", Q="SIOUX CITY")
+
+
+def _ingest_svc_with_products(repo: MagicMock) -> TendersIngestService:
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
+    return TendersIngestService(
+        repository=repo,
+        tender_products_repository=products,
+        pack_codes_repository=pack_codes,
+    )
 
 
 @patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_tender_created_ingest")
@@ -106,17 +130,34 @@ async def test_process_delivery_locations_from_email_webhook_persists_import() -
     }
 
 
+def test_gelita_wide_column_mapping_materializes_address_fields() -> None:
+    row = row_with_cells(
+        C="41000100",
+        E="CARRIER CLAIMS",
+        L="1420 STEUBEN STREET",
+        N="51105",
+        Q="SIOUX CITY",
+        BJ="U.S.A.",
+    )
+    out = GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS.materialize_from_column_letters(row)
+    assert out["delviery"] == "41000100"
+    assert out["City"] == "SIOUX CITY"
+    assert out["Zip Code"] == "51105"
+
+
+def test_delivery_locations_index_for_ingest_run_none_on_provider_failure() -> None:
+    def failing_provider() -> list[dict]:
+        raise RuntimeError("data_import unavailable")
+
+    svc = DeliveryLocationsService(rows_provider=failing_provider)
+    assert svc.index_for_ingest_run() is None
+
+
 @pytest.mark.parametrize(
     ("sheet_name", "rows"),
     [
-        (
-            "Delivery locations",
-            [{"delviery": "41000100", "City": "SIOUX CITY"}],
-        ),
-        (
-            "Sheet1",
-            [{"delviery": "41000100", "City": "SIOUX CITY"}],
-        ),
+        ("Delivery locations", [_positional_delivery_row()]),
+        ("Sheet1", [_positional_delivery_row()]),
         ("Sheet1", []),
     ],
     ids=["named_tab", "fallback_tab", "empty_workbook"],
@@ -140,6 +181,63 @@ def test_load_delivery_location_rows_from_stored_import(
 
     if not rows:
         assert loaded == []
-    else:
-        assert len(loaded) == 1
-        assert loaded[0]["City"] == "SIOUX CITY"
+        return
+
+    assert len(loaded) == 1
+    svc = DeliveryLocationsService(
+        rows_provider=lambda: loaded,
+        column_mapping=GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
+    )
+    hit = svc.lookup("41000100")
+    assert hit is not None
+    assert hit["City"] == "SIOUX CITY"
+
+
+def test_ingest_attaches_delivery_address_from_wide_column_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.tenders_ingest_service.lookup_state",
+        lambda _country, _postal: "IA",
+    )
+
+    wide_row = row_with_cells(
+        C="41000100",
+        E="CARRIER CLAIMS ABF FREIGHT",
+        L="1420 STEUBEN STREET",
+        N="51105",
+        Q="SIOUX CITY",
+        BJ="U.S.A.",
+    )
+    locations = DeliveryLocationsService(
+        rows_provider=lambda: [wide_row],
+        column_mapping=GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
+    )
+
+    repo = MagicMock()
+    tender_uuid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    repo.insert_batch.return_value = [
+        TenderInsertResult(tender_id=tender_uuid, created=True),
+    ]
+
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
+    rows = [
+        {
+            "order_number": "N-wide",
+            "order_position": 1,
+            "customer_match": "C",
+            "product_name": "P",
+            "order_quantity": 2,
+            "delivery_address_code": "41000100",
+        },
+    ]
+    ids = svc.persist_from_projected_rows(
+        tenant_id=_TENANT_UUID,
+        data_import_id=_DATA_IMPORT_ID,
+        projected_rows=rows,
+    )
+    assert ids == [tender_uuid]
+    batch = repo.insert_batch.call_args[0][0]
+    assert batch[0]["delivery_address"]["city"] == "SIOUX CITY"
+    assert batch[0]["delivery_address"]["name"] == "CARRIER CLAIMS ABF FREIGHT"

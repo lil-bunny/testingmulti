@@ -148,8 +148,8 @@ def action_settings(
     Return config for one load-tendering action.
 
     Load-type-specific nodes live under ``load_tendering.ltl.<action>`` or
-    ``load_tendering.ftl.<action>``. Shared config (``tender_calculate``,
-    ``delivery_locations_excel``) stays at ``load_tendering.<action>``.
+    ``load_tendering.ftl.<action>``. Shared config (e.g. ``tender_calculate``)
+    stays at ``load_tendering.<action>``.
 
     Unipile sender account ids are merged from ``tenants.settings`` root (and
     optional ``load_tendering`` overrides) into every action block.

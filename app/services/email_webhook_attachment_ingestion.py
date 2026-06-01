@@ -137,6 +137,11 @@ async def _fetch_and_record_excel_attachment(
         )
         raise
 
+    spreadsheet_header: int | None = 0
+    if data_import_data_type == DataImportDataType.DELIVERY_LOCATION:
+        # delivery_location.xlsx is headerless; columns are positional (A, B, J, …).
+        spreadsheet_header = None
+
     ingest_result = ingest_service.ingest_data(
         source_type=ingest_source_type.value,
         tenant_id=data_import_tenant_id,
@@ -145,6 +150,7 @@ async def _fetch_and_record_excel_attachment(
         mime_type=mime_type,
         data=file_bytes,
         parse_spreadsheet=True,
+        spreadsheet_header=spreadsheet_header,
     )
     source: dict[str, str] | None = None
     eid = (source_email_id or fetch_ctx.get("email_id") or "").strip()
