@@ -91,11 +91,39 @@ def load_type_bucket(load_type: str | None) -> str:
     return "ftl" if is_ftl_load_type(load_type) else "ltl"
 
 
+def load_type_from_pallet_totals(
+    products_calc: list[dict[str, Any]],
+    *,
+    pallet_threshold: int,
+) -> str:
+    """
+    Gelita order-level load type from summed per-product pallet counts (W3).
+
+    Returns ``FTL`` when total pallets exceed ``pallet_threshold``, else ``LTL``.
+    Each ``products_calc`` entry may use ``pallets_count`` or ``pallets``.
+    """
+    total_pallets = 0
+    for item in products_calc:
+        raw = item.get("pallets_count", item.get("pallets"))
+        if raw is None:
+            continue
+        try:
+            total_pallets += int(raw)
+        except (TypeError, ValueError):
+            continue
+    return "FTL" if total_pallets > pallet_threshold else "LTL"
+
+
 def resolve_load_type(state_or_data: Any) -> str:
     """
-    Normalize load type (``LTL`` / ``FTL``) from payload ``load_type`` or tender row.
+    Normalize load type (``LTL`` / ``FTL``) from ``state.data['tender']`` or DB fallback.
     """
+    from app.domain.load_tendering_state import load_type_from_data
+
     data = _data_dict(state_or_data)
+    from_tender = load_type_from_data(data)
+    if from_tender:
+        return from_tender.upper()
     raw = str(data.get("load_type") or "").strip()
     if raw:
         return raw.upper()
@@ -104,10 +132,10 @@ def resolve_load_type(state_or_data: Any) -> str:
     if not tender_id or not tenant_id:
         return ""
     tender_service = TenderService()
-    row = tender_service.read_row(tenant_id=tenant_id, tender_id=tender_id)
-    if not row:
+    bundle = tender_service.read_order(tenant_id=tenant_id, tender_id=tender_id)
+    if not bundle:
         return ""
-    return str(row.get("load_type") or "").strip().upper()
+    return str(bundle["tender"].get("load_type") or "").strip().upper()
 
 
 def action_settings(

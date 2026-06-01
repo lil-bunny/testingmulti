@@ -23,11 +23,6 @@ def record_tender_calc_failure(state: Any, *, error_code: str) -> None:
     if not wl_id or not tenant_id or not run_id:
         return
 
-    pack_code = str(getattr(state, "data", {}).get("pack_code") or "").strip()
-    metadata: dict[str, Any] = {"error": error_code, "tender_id": tender_id}
-    if pack_code:
-        metadata["pack_code"] = pack_code
-
     lifecycle_transition_service = LifecycleTransitionService()
     lifecycle_transition_service.apply(
         LifecycleTransitionCommand(
@@ -36,7 +31,6 @@ def record_tender_calc_failure(state: Any, *, error_code: str) -> None:
             workflow_run_id=run_id,
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=StatusType.FAILED,
-            actor_type=ActorType.SYSTEM,
-            metadata=metadata,
+            actor_type=ActorType.SYSTEM
         )
     )

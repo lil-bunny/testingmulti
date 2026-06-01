@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.domain.delivery_locations_import import (
+    DELIVERY_LOCATIONS_FILE_NAME,
+    is_delivery_locations_attachment,
+)
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.repositories.data_imports_repository import DataImportsRepository
 
@@ -62,5 +66,81 @@ class DataImportsService:
             data_type=validated_data_type,
             source_type=source_type.value,
             file_name=file_name,
+            raw_data=raw_data,
+        )
+
+    def _build_email_import_raw_data(
+        self,
+        *,
+        ingest_result: dict[str, Any],
+        mime_type: str | None,
+        source: dict[str, str] | None,
+    ) -> dict[str, Any]:
+        raw_data: dict[str, Any] = {
+            "ingest": ingest_result,
+            "mime_type": (mime_type or "").strip() or None,
+        }
+        if source:
+            raw_data["source"] = {
+                k: str(v).strip()
+                for k, v in source.items()
+                if v is not None and str(v).strip()
+            }
+        return raw_data
+
+    def record_email_delivery_locations_import(
+        self,
+        *,
+        tenant_id: str,
+        source_type: DataImportSourceType,
+        file_name: str | None,
+        mime_type: str | None,
+        ingest_result: dict[str, Any],
+        source: dict[str, str] | None = None,
+    ) -> str:
+        """
+        Upsert delivery locations import keyed by tenant + ``delivery_location.xlsx``.
+
+        Updates ``raw_data`` when the same logical file was already stored for the tenant.
+        """
+        if not isinstance(ingest_result, dict):
+            raise ValueError("ingest_result must be a dict")
+
+        raw_dt = ingest_result.get("data_type")
+        dtype = raw_dt.strip() if isinstance(raw_dt, str) else ""
+        if dtype != DataImportDataType.DELIVERY_LOCATION.value:
+            raise ValueError(
+                "ingest_result data_type must be delivery_location for this method"
+            )
+
+        logical_name = (file_name or DELIVERY_LOCATIONS_FILE_NAME).strip()
+        if not is_delivery_locations_attachment(logical_name):
+            logical_name = DELIVERY_LOCATIONS_FILE_NAME
+
+        raw_data = self._build_email_import_raw_data(
+            ingest_result=ingest_result,
+            mime_type=mime_type,
+            source=source,
+        )
+
+        existing_id = self._repository.find_id_by_tenant_data_type_and_file_name(
+            tenant_id=tenant_id,
+            data_type=DataImportDataType.DELIVERY_LOCATION.value,
+            file_name=DELIVERY_LOCATIONS_FILE_NAME,
+        )
+        if existing_id:
+            self._repository.update_raw_data(
+                tenant_id=tenant_id,
+                data_import_id=existing_id,
+                raw_data=raw_data,
+                file_name=DELIVERY_LOCATIONS_FILE_NAME,
+            )
+            return existing_id
+
+        return self._repository.insert(
+            tenant_id=tenant_id,
+            data_type=DataImportDataType.DELIVERY_LOCATION.value,
+            source_type=source_type.value,
+            file_name=DELIVERY_LOCATIONS_FILE_NAME,
             raw_data=raw_data,
         )

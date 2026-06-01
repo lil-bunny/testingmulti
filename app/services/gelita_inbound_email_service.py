@@ -11,16 +11,19 @@ from app.core.logger import get_logger
 from app.domain.status_parsing import status_type_from_db
 from app.models.status import StatusType
 from app.services.communications.service import CommunicationsService
+from app.domain.delivery_locations_import import (
+    unipile_delivery_locations_attachment,
+    unipile_first_load_tender_xlsx_attachment,
+)
 from app.services.email_webhook_ingest_enqueue import (
+    enqueue_delivery_locations_import,
     enqueue_load_tendering_tender_created_ingest,
 )
 from app.services.load_tendering_email_ingest_service import (
     WORKFLOW_NAME,
     enqueue_load_tendering_workflow,
 )
-from app.services.tender_service import TenderService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
-from app.services.workflow_classifier_service import unipile_first_attachment_by_extension
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.gelita.order_number import extract_order_number
@@ -28,12 +31,24 @@ from app.tools.gelita.order_number import extract_order_number
 logger = get_logger(__name__)
 
 
-def _has_xlsx_attachment(payload: dict[str, Any]) -> bool:
+class GelitaCarrierEmailIngressError(Exception):
+    """``carrier_email_received`` preconditions failed (lifecycle must exist from ``tender_created``)."""
+
+
+def _has_delivery_locations_attachment(payload: dict[str, Any]) -> bool:
     if not payload.get("has_attachments"):
         return False
     if not isinstance(payload.get("attachments"), list):
         return False
-    return unipile_first_attachment_by_extension(payload, "xlsx") is not None
+    return unipile_delivery_locations_attachment(payload) is not None
+
+
+def _has_load_tender_xlsx_attachment(payload: dict[str, Any]) -> bool:
+    if not payload.get("has_attachments"):
+        return False
+    if not isinstance(payload.get("attachments"), list):
+        return False
+    return unipile_first_load_tender_xlsx_attachment(payload) is not None
 
 
 def _has_in_reply_to(payload: dict[str, Any]) -> bool:
@@ -62,12 +77,11 @@ class GelitaInboundEmailService:
 
     1. ``ack_received`` — lifecycle on ``thread_id`` + ``in_reply_to``
     2. ``tender_created`` — ``.xlsx`` attachment → ingest → per-row enqueue
-    3. ``carrier_email_received`` — ``role`` inbox + body ``Order #`` → tender → lifecycle
+    3. ``carrier_email_received`` — ``role`` inbox + body ``Order #`` → lifecycle by ``load_id``
     """
 
     def __init__(self) -> None:
         self._lifecycle = WorkflowLifecycleService()
-        self._tenders = TenderService()
         self._communications = CommunicationsService()
 
     async def handle(
@@ -93,19 +107,37 @@ class GelitaInboundEmailService:
                 return ack_response
 
         # 2. new email handling
-        # 2.1 tender_created handling
-        if _has_xlsx_attachment(payload):
+        has_dl = _has_delivery_locations_attachment(payload)
+        has_tender_xlsx = _has_load_tender_xlsx_attachment(payload)
+
+        if has_dl:
+            dl_response = self._enqueue_delivery_locations_import(
+                payload=payload,
+                tenant=tenant,
+            )
+            if not has_tender_xlsx:
+                return dl_response
+
+        if has_tender_xlsx:
             return self._enqueue_tender_created_ingest(
                 payload=payload,
                 tenant=tenant,
                 graph_slug=graph_slug,
             )
+
         # 2.2 carrier_email_received handling
-        return self._try_carrier_email_received(
-            payload=payload,
-            tenant=tenant,
-            graph_slug=graph_slug,
-        )
+        try:
+            return self._carrier_email_received(
+                payload=payload,
+                tenant=tenant,
+                graph_slug=graph_slug,
+            )
+        except GelitaCarrierEmailIngressError:
+            logger.exception(
+                "gelita carrier_email_received failed tenant=%s",
+                tenant.tenant_uuid,
+            )
+            raise
 
     def _enqueue(
         self,
@@ -118,6 +150,26 @@ class GelitaInboundEmailService:
             graph_slug=graph_slug,
             payload=payload,
             event_type=event_type,
+        )
+
+    def _enqueue_delivery_locations_import(
+        self,
+        *,
+        payload: dict[str, Any],
+        tenant: UnipileTenantContext,
+    ) -> JSONResponse:
+        task_id, queue_status = enqueue_delivery_locations_import(
+            payload=payload,
+            tenant_uuid=tenant.tenant_uuid,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "message": "accepted",
+                "event_type": "delivery_locations_updated",
+                "task_id": task_id,
+                "status": queue_status,
+            },
         )
 
     def _enqueue_tender_created_ingest(
@@ -200,7 +252,7 @@ class GelitaInboundEmailService:
             content={"message": "success", "execution_id": execution_id, "event_type": "ack_received"},
         )
 
-    def _try_carrier_email_received(
+    def _carrier_email_received(
         self,
         *,
         payload: dict[str, Any],
@@ -218,57 +270,13 @@ class GelitaInboundEmailService:
                 content={"message": "non-inbox email; carrier workflow not queued"},
             )
 
-        body_html = str(payload.get("body") or "")
-        order_number = extract_order_number(body_html)
-        if not order_number:
-            logger.warning("gelita carrier: no order number in email body")
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "no order number; workflow not queued"},
+        order_number, thread_id, lifecycle_id, tender_id, lifecycle_row = (
+            self._find_lifecycle_row_by_order_number(
+                payload=payload,
+                tenant_id=tenant.tenant_uuid,
             )
-
-        tender_row = self._tenders.find_by_order_number(
-            tenant_id=tenant.tenant_uuid,
-            order_number=order_number,
         )
-        if not tender_row:
-            logger.warning(
-                "gelita carrier: no tender for order_number=%r tenant=%s",
-                order_number,
-                tenant.tenant_uuid,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "tender not found; workflow not queued"},
-            )
 
-        tender_id = tender_row["id"]
-        lifecycle_check = self._lifecycle.check_lifecycle_exists(
-            tenant_id=tenant.tenant_uuid,
-            workflow_name=WORKFLOW_NAME,
-            tender_id=tender_id,
-        )
-        if not lifecycle_check.get("exists"):
-            logger.warning(
-                "gelita carrier: no lifecycle for tender_id=%s order_number=%r",
-                tender_id,
-                order_number,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "lifecycle not found; workflow not queued"},
-            )
-
-        lifecycle_id = str(lifecycle_check["lifecycle_id"])
-        thread_id = _clean_thread_id(payload)
-        if not thread_id:
-            logger.warning("gelita carrier: missing thread_id")
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "missing thread_id; workflow not queued"},
-            )
-
-        lifecycle_row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
         existing_thread = str(lifecycle_row.get("email_thread_id") or "").strip()
         if existing_thread:
             if existing_thread == thread_id:
@@ -276,20 +284,14 @@ class GelitaInboundEmailService:
                     status_code=status.HTTP_200_OK,
                     content={"message": "carrier thread already linked; no enqueue"},
                 )
-            logger.warning(
-                "gelita carrier: lifecycle %s already has email_thread_id=%r",
-                lifecycle_id,
-                existing_thread,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "lifecycle thread conflict; workflow not queued"},
+            raise GelitaCarrierEmailIngressError(
+                f"lifecycle {lifecycle_id} email_thread_id conflict: "
+                f"existing={existing_thread!r} incoming={thread_id!r}"
             )
 
-        self._lifecycle.update_lifecycle_keys(
+        self._lifecycle.set_email_thread_id(
             lifecycle_id=lifecycle_id,
             thread_id=thread_id,
-            # tender_id=tender_id,
         )
 
         workflow_payload: dict[str, Any] = {
@@ -312,3 +314,51 @@ class GelitaInboundEmailService:
                 "event_type": "carrier_email_received",
             },
         )
+
+    def _find_lifecycle_row_by_order_number(
+        self,
+        *,
+        payload: dict[str, Any],
+        tenant_id: str,
+    ) -> tuple[str, str, str, str, dict[str, Any]]:
+        """
+        Parse carrier email and load the existing ``load_tendering`` lifecycle.
+
+        Looks up lifecycle by ``load_id`` = order number from the body. Raises
+        ``GelitaCarrierEmailIngressError`` if the lifecycle from ``tender_created`` is missing.
+        Returns ``(order_number, thread_id, lifecycle_id, tender_id, lifecycle_row)``.
+        """
+        body_html = str(payload.get("body") or "")
+        order_number = extract_order_number(body_html)
+        if not order_number:
+            raise GelitaCarrierEmailIngressError("no order number in carrier email body")
+
+        thread_id = _clean_thread_id(payload)
+        if not thread_id:
+            raise GelitaCarrierEmailIngressError("missing thread_id on carrier email")
+
+        lifecycle_check = self._lifecycle.check_lifecycle_exists(
+            tenant_id=tenant_id,
+            workflow_name=WORKFLOW_NAME,
+            load_id=order_number,
+        )
+        if not lifecycle_check.get("exists"):
+            raise GelitaCarrierEmailIngressError(
+                f"no load_tendering lifecycle for load_id={order_number!r} "
+                f"(expected from tender_created)"
+            )
+
+        lifecycle_id = str(lifecycle_check["lifecycle_id"])
+        lifecycle_row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id)
+        if lifecycle_row is None:
+            raise GelitaCarrierEmailIngressError(
+                f"lifecycle row not found lifecycle_id={lifecycle_id!r}"
+            )
+
+        tender_id = str(lifecycle_row.get("tender_id") or "").strip()
+        if not tender_id:
+            raise GelitaCarrierEmailIngressError(
+                f"lifecycle {lifecycle_id!r} has no tender_id for load_id={order_number!r}"
+            )
+
+        return order_number, thread_id, lifecycle_id, tender_id, lifecycle_row

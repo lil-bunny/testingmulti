@@ -99,7 +99,7 @@ def check_ratecon_workflow_lifecycle(state):
 
 
 def resolve_workflow_lifecycle(state):
-    """Re-resolve lifecycle after entry node so newly-discovered keys (e.g. shipment_id) get backfilled."""
+    """Resolve or create lifecycle from state correlation keys."""
     lifecycle_service = WorkflowLifecycleService()
     result = lifecycle_service.resolve_or_create_lifecycle(
         tenant_id=state.data.get("tenant_id"),

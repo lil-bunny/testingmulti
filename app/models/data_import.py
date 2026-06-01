@@ -16,3 +16,4 @@ class DataImportDataType(StrEnum):
     """``data_imports.data_type`` — business kind of imported payload."""
 
     LOAD_TENDER = "load_tender"
+    DELIVERY_LOCATION = "delivery_location"

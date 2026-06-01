@@ -7,6 +7,7 @@ from app.domain.activity_log_descriptions import format_tender_created_action
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
+from app.domain.load_tendering_state import get_tender
 from app.services.activity_log_service import ActivityLogService
 
 logger = get_logger(__name__)
@@ -35,12 +36,9 @@ def record_tender_created_activity(state):
         )
         return state
 
-    row = state.data.get("tender_row")
-    order_number = ""
-    customer_name = ""
-    if isinstance(row, dict):
-        order_number = str(row.get("order_number") or "")
-        customer_name = str(row.get("customer_name") or row.get("customer_match") or "")
+    tender = get_tender(state.data) or {}
+    order_number = str(tender.get("order_number") or "").strip()
+    customer_name = str(tender.get("customer_name") or "").strip()
 
     activity_log_service = ActivityLogService()
     activity_log_service.record_sequence(

@@ -99,6 +99,13 @@ def test_project_row_case_insensitive_and_aliases() -> None:
     assert out["order_quantity"] is None
 
 
+def test_project_row_maps_order_position() -> None:
+    row = {"Order position": 10, "Order #": "123"}
+    out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
+    assert out["order_position"] == 10
+    assert out["order_number"] == "123"
+
+
 def test_project_row_maps_besttxt_to_po_number() -> None:
     row = {"BESTTXT": "PO-4500123", "Customer Match": "Acme"}
     out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
@@ -110,6 +117,30 @@ def test_project_row_besttxt_case_insensitive() -> None:
     row = {" besttxt ": "  PO-99  "}
     out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
     assert out["po_number"] == "  PO-99  "
+
+
+def test_project_row_maps_gelita_sap_column_aliases() -> None:
+    row = {
+        "ANR": "ORD-100",
+        "KDMATCH": "Acme GmbH",
+        "LIEFAN": "DL-42",
+        "TEXT1": "Widget A",
+        "ARTSPEZ": "PK-1",
+        "EINTREFFDAT": "2026-06-01",
+        "LIEDAT": "2026-05-28",
+        "MEBEST": 12,
+        "POSIT": 10,
+    }
+    out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
+    assert out["order_number"] == "ORD-100"
+    assert out["order_position"] == 10
+    assert out["customer_match"] == "Acme GmbH"
+    assert out["delivery_address_code"] == "DL-42"
+    assert out["product_name"] == "Widget A"
+    assert out["pack_code"] == "PK-1"
+    assert out["delivery_date"] == "2026-06-01"
+    assert out["shipping_date"] == "2026-05-28"
+    assert out["order_quantity"] == 12
 
 
 def test_data_imports_read_service_none_when_missing_row() -> None:

@@ -28,8 +28,6 @@ def test_projected_row_order_number_without_decimal_suffix() -> None:
     row = {
         "order_number": 93795.0,
         "customer_match": "Acme",
-        "product_name": "Widget",
-        "order_quantity": 1,
         "po_number": 4500123456.0,
     }
     out = projected_row_to_tender_insert(row)

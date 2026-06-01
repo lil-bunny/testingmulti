@@ -6,10 +6,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.configs.gelita_delivery_locations_columns import (
+    GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
+)
 from app.domain.delivery_locations import DeliveryLocationsIndex
 from app.repositories.tenders_repository import TenderInsertResult
 from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.tenders_ingest_service import TendersIngestService
+from tests.helpers.delivery_location_rows import row_with_cells
 
 
 def _locations_index() -> DeliveryLocationsIndex:
@@ -24,6 +28,18 @@ def _locations_index() -> DeliveryLocationsIndex:
                 "country name": "U.S.A.",
             }
         ]
+    )
+
+
+def _ingest_svc_with_products(repo: MagicMock) -> TendersIngestService:
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
+    return TendersIngestService(
+        repository=repo,
+        tender_products_repository=products,
+        pack_codes_repository=pack_codes,
     )
 
 
@@ -44,10 +60,12 @@ def test_ingest_attaches_delivery_address_from_projected_code(
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = _locations_index()
 
-    svc = TendersIngestService(repository=repo, delivery_locations=locations)
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
     rows = [
         {
             "order_number": "N1",
+            "order_position": 1,
             "customer_match": "C",
             "product_name": "P",
             "order_quantity": 2,
@@ -85,10 +103,12 @@ def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_n
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = _locations_index()
 
-    svc = TendersIngestService(repository=repo, delivery_locations=locations)
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
     rows = [
         {
             "order_number": "N3",
+            "order_position": 1,
             "customer_match": "C",
             "product_name": "P",
             "order_quantity": 1,
@@ -104,6 +124,56 @@ def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_n
     assert batch[0]["delivery_address"]["state"] == ""
 
 
+def test_ingest_attaches_delivery_address_from_wide_column_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.tenders_ingest_service.lookup_state",
+        lambda _country, _postal: "IA",
+    )
+
+    wide_row = row_with_cells(
+        B="41000100",
+        J="CARRIER CLAIMS ABF FREIGHT",
+        L="1420 STEUBEN STREET",
+        N="51105",
+        Q="SIOUX CITY",
+        BJ="U.S.A.",
+    )
+    locations = DeliveryLocationsService(
+        rows_provider=lambda: [wide_row],
+        column_mapping=GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
+    )
+
+    repo = MagicMock()
+    tender_uuid = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    repo.insert_batch.return_value = [
+        TenderInsertResult(tender_id=tender_uuid, created=True),
+    ]
+
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
+    rows = [
+        {
+            "order_number": "N-wide",
+            "order_position": 1,
+            "customer_match": "C",
+            "product_name": "P",
+            "order_quantity": 2,
+            "delivery_address_code": "41000100",
+        },
+    ]
+    ids = svc.persist_from_projected_rows(
+        tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        data_import_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        projected_rows=rows,
+    )
+    assert ids == [tender_uuid]
+    batch = repo.insert_batch.call_args[0][0]
+    assert batch[0]["delivery_address"]["city"] == "SIOUX CITY"
+    assert batch[0]["delivery_address"]["name"] == "CARRIER CLAIMS ABF FREIGHT"
+
+
 def test_ingest_delivery_address_null_when_index_unavailable() -> None:
     repo = MagicMock()
     repo.insert_batch.return_value = [
@@ -116,10 +186,12 @@ def test_ingest_delivery_address_null_when_index_unavailable() -> None:
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = None
 
-    svc = TendersIngestService(repository=repo, delivery_locations=locations)
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
     rows = [
         {
             "order_number": "N2",
+            "order_position": 1,
             "customer_match": "C",
             "product_name": "P",
             "order_quantity": 1,

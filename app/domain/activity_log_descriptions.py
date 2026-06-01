@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from app.domain.activity_log_constants import (
+    CARRIER_ACK_LLM_ACTION_TEMPLATE,
+    ESCALATION_SENT_ACTION,
+    REMINDER_SENT_ACTION_TEMPLATE,
+    STATUS_CHANGE_DESCRIPTION_TEMPLATE,
+    SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE,
+    TENDER_CREATED_ACTION_TEMPLATE,
+    TENDER_SENT_TO_VENDOR_ACTION,
+)
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
-
-_STATUS_CHANGE_TEMPLATE = "Status changed from {from_status} to {to_status}"
-_SUB_STATUS_CHANGE_TEMPLATE = (
-    "Sub-status changed from {from_sub_status} to {to_sub_status}"
-)
 
 
 def _label_status(value: StatusType) -> str:
@@ -41,14 +45,14 @@ def generate_activity_log_description(
     if activity_type == ActivityType.STATUS_CHANGE:
         if from_status == to_status:
             return None
-        return _STATUS_CHANGE_TEMPLATE.format(
+        return STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
             from_status=_label_status(from_status),
             to_status=_label_status(to_status),
         )
     if activity_type == ActivityType.SUB_STATUS_CHANGE:
         if from_sub_status == to_sub_status:
             return None
-        return _SUB_STATUS_CHANGE_TEMPLATE.format(
+        return SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
             from_sub_status=_label_sub_status(from_sub_status),
             to_sub_status=_label_sub_status(to_sub_status),
         )
@@ -63,11 +67,14 @@ def format_tender_created_action(
 ) -> str:
     order = (order_number or "").strip() or tender_id
     customer = (customer_name or "").strip() or "Unknown"
-    return f"Tender {order} created for {customer}"
+    return TENDER_CREATED_ACTION_TEMPLATE.format(
+        order_number=order,
+        customer_name=customer,
+    )
 
 
 def format_tender_sent_to_vendor() -> str:
-    return "Tender email sent to vendor"
+    return TENDER_SENT_TO_VENDOR_ACTION
 
 
 def format_carrier_ack_llm_action(
@@ -78,4 +85,16 @@ def format_carrier_ack_llm_action(
 ) -> str:
     conf = f" confidence={confidence:.2f}" if confidence is not None else ""
     reason_s = (reason or "").strip() or "no reason"
-    return f"Carrier ack LLM classified reply as {decision}{conf}: {reason_s}"
+    return CARRIER_ACK_LLM_ACTION_TEMPLATE.format(
+        decision=decision,
+        confidence_suffix=conf,
+        reason=reason_s,
+    )
+
+
+def format_reminder_sent_action(*, step: int) -> str:
+    return REMINDER_SENT_ACTION_TEMPLATE.format(step=step)
+
+
+def format_escalation_sent_action() -> str:
+    return ESCALATION_SENT_ACTION

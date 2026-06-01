@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import status
 from fastapi.responses import JSONResponse
 
-from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.services.gelita_inbound_email_service import (
+    GelitaCarrierEmailIngressError,
+    GelitaInboundEmailService,
+)
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -36,18 +40,14 @@ def _carrier_payload(*, role: str = "inbox") -> dict:
 def _service_with_mocks() -> GelitaInboundEmailService:
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
-    svc._tenders = MagicMock()
     svc._communications = MagicMock()
-    svc._tenders.find_by_order_number.return_value = {
-        "id": TENDER_ID,
-        "order_number": "93795",
-    }
     svc._lifecycle.check_lifecycle_exists.return_value = {
         "exists": True,
         "lifecycle_id": LIFECYCLE_ID,
     }
     svc._lifecycle.read_lifecycle_row_by_id.return_value = {
         "email_thread_id": None,
+        "tender_id": TENDER_ID,
     }
     return svc
 
@@ -56,7 +56,7 @@ def _service_with_mocks() -> GelitaInboundEmailService:
 def test_carrier_email_received_skips_non_inbox_role() -> None:
     svc = _service_with_mocks()
 
-    response = svc._try_carrier_email_received(
+    response = svc._carrier_email_received(
         payload=_carrier_payload(role="drafts"),
         tenant=_tenant(),
         graph_slug="gelita",
@@ -66,7 +66,6 @@ def test_carrier_email_received_skips_non_inbox_role() -> None:
     assert response.status_code == status.HTTP_200_OK
     content = json.loads(response.body)
     assert content["message"] == "non-inbox email; carrier workflow not queued"
-    svc._tenders.find_by_order_number.assert_not_called()
     svc._lifecycle.check_lifecycle_exists.assert_not_called()
 
 
@@ -74,7 +73,7 @@ def test_carrier_email_received_skips_non_inbox_role() -> None:
 def test_carrier_email_received_skips_sent_role() -> None:
     svc = _service_with_mocks()
 
-    response = svc._try_carrier_email_received(
+    response = svc._carrier_email_received(
         payload=_carrier_payload(role="sent"),
         tenant=_tenant(),
         graph_slug="gelita",
@@ -82,7 +81,7 @@ def test_carrier_email_received_skips_sent_role() -> None:
 
     content = json.loads(response.body)
     assert content["message"] == "non-inbox email; carrier workflow not queued"
-    svc._tenders.find_by_order_number.assert_not_called()
+    svc._lifecycle.check_lifecycle_exists.assert_not_called()
 
 
 @patch(
@@ -95,7 +94,7 @@ def test_carrier_email_received_enqueues_for_inbox_role(
 ) -> None:
     svc = _service_with_mocks()
 
-    response = svc._try_carrier_email_received(
+    response = svc._carrier_email_received(
         payload=_carrier_payload(role="inbox"),
         tenant=_tenant(),
         graph_slug="gelita",
@@ -109,7 +108,57 @@ def test_carrier_email_received_enqueues_for_inbox_role(
     call_kwargs = mock_enqueue.call_args.kwargs
     assert call_kwargs["event_type"] == "carrier_email_received"
     assert call_kwargs["payload"]["order_number"] == "93795"
-    svc._lifecycle.update_lifecycle_keys.assert_called_once_with(
+    svc._lifecycle.check_lifecycle_exists.assert_called_once_with(
+        tenant_id=TENANT_UUID,
+        workflow_name="load_tendering",
+        load_id="93795",
+    )
+    svc._lifecycle.set_email_thread_id.assert_called_once_with(
         lifecycle_id=LIFECYCLE_ID,
         thread_id=THREAD_ID,
     )
+
+
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_raises_when_lifecycle_missing() -> None:
+    svc = _service_with_mocks()
+    svc._lifecycle.check_lifecycle_exists.return_value = {"exists": False}
+
+    with pytest.raises(GelitaCarrierEmailIngressError, match="no load_tendering lifecycle"):
+        svc._carrier_email_received(
+            payload=_carrier_payload(role="inbox"),
+            tenant=_tenant(),
+            graph_slug="gelita",
+        )
+
+
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_raises_when_lifecycle_has_no_tender_id() -> None:
+    svc = _service_with_mocks()
+    svc._lifecycle.read_lifecycle_row_by_id.return_value = {
+        "email_thread_id": None,
+        "tender_id": None,
+    }
+
+    with pytest.raises(GelitaCarrierEmailIngressError, match="has no tender_id"):
+        svc._carrier_email_received(
+            payload=_carrier_payload(role="inbox"),
+            tenant=_tenant(),
+            graph_slug="gelita",
+        )
+
+
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_raises_on_thread_conflict() -> None:
+    svc = _service_with_mocks()
+    svc._lifecycle.read_lifecycle_row_by_id.return_value = {
+        "email_thread_id": "other-thread",
+        "tender_id": TENDER_ID,
+    }
+
+    with pytest.raises(GelitaCarrierEmailIngressError, match="email_thread_id conflict"):
+        svc._carrier_email_received(
+            payload=_carrier_payload(role="inbox"),
+            tenant=_tenant(),
+            graph_slug="gelita",
+        )

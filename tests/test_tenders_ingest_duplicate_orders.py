@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.repositories.tenders_repository import TenderInsertResult
 from app.services.tenders_ingest_service import TendersIngestService
@@ -13,32 +12,20 @@ DATA_IMPORT_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 TENDER_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
 
-def _mapped_row(*, order_number: str) -> dict:
+def _row(*, order_number: str, order_position: int, product_name: str = "Widget") -> dict:
     return {
         "order_number": order_number,
-        "customer_name": "Acme",
-        "product_name": "Widget",
-        "order_quantity": Decimal("1"),
-        "shipping_date": None,
-        "delivery_date": None,
-        "pickup_location_id": None,
-        "delivery_location_id": None,
-        "pack_code_id": None,
-        "load_type": "LTL",
+        "order_position": order_position,
+        "customer_match": "Acme",
+        "product_name": product_name,
+        "order_quantity": 1,
     }
 
 
-@patch("app.services.tenders_ingest_service.projected_row_to_tender_insert")
-def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id(
-    mock_map: MagicMock,
-) -> None:
-    mock_map.side_effect = [
-        _mapped_row(order_number="93384"),
-        _mapped_row(order_number="93384"),
-        _mapped_row(order_number="95009"),
-    ]
-
+def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id() -> None:
     repo = MagicMock()
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
     repo.insert_batch.return_value = [
         TenderInsertResult(tender_id=TENDER_UUID, created=True),
         TenderInsertResult(
@@ -49,19 +36,23 @@ def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id(
 
     locations = MagicMock()
     locations.index_for_ingest_run.return_value = {}
-
     pack_codes = MagicMock()
     pack_codes.active_pack_code_id_index.return_value = {}
 
     svc = TendersIngestService(
         repository=repo,
+        tender_products_repository=products,
         delivery_locations=locations,
         pack_codes_repository=pack_codes,
     )
     ids = svc.persist_from_projected_rows(
         tenant_id=TENANT_UUID,
         data_import_id=DATA_IMPORT_UUID,
-        projected_rows=[{}, {}, {}],
+        projected_rows=[
+            _row(order_number="93384", order_position=5, product_name="W1"),
+            _row(order_number="93384", order_position=10, product_name="W2"),
+            _row(order_number="95009", order_position=5, product_name="W3"),
+        ],
     )
 
     assert ids == [TENDER_UUID, TENDER_UUID, "dddddddd-dddd-dddd-dddd-dddddddddddd"]
@@ -69,18 +60,13 @@ def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id(
     assert len(batch) == 2
     assert batch[0]["order_number"] == "93384"
     assert batch[1]["order_number"] == "95009"
+    assert len(products.insert_batch.call_args[0][0]) == 3
 
 
-@patch("app.services.tenders_ingest_service.projected_row_to_tender_insert")
-def test_existing_order_in_tenders_returns_none_for_workflow_enqueue(
-    mock_map: MagicMock,
-) -> None:
-    mock_map.side_effect = [
-        _mapped_row(order_number="93384"),
-        _mapped_row(order_number="95009"),
-    ]
-
+def test_existing_order_in_tenders_returns_none_for_workflow_enqueue() -> None:
     repo = MagicMock()
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
     repo.insert_batch.return_value = [
         TenderInsertResult(tender_id=TENDER_UUID, created=False),
         TenderInsertResult(
@@ -96,13 +82,17 @@ def test_existing_order_in_tenders_returns_none_for_workflow_enqueue(
 
     svc = TendersIngestService(
         repository=repo,
+        tender_products_repository=products,
         delivery_locations=locations,
         pack_codes_repository=pack_codes,
     )
     ids = svc.persist_from_projected_rows(
         tenant_id=TENANT_UUID,
         data_import_id=DATA_IMPORT_UUID,
-        projected_rows=[{}, {}],
+        projected_rows=[
+            _row(order_number="93384", order_position=5),
+            _row(order_number="95009", order_position=5),
+        ],
     )
 
     assert ids == [None, "dddddddd-dddd-dddd-dddd-dddddddddddd"]

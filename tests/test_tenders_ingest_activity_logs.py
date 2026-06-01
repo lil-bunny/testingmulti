@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.repositories.tenders_repository import TenderInsertResult
 from app.services.tenders_ingest_service import TendersIngestService
@@ -16,32 +16,28 @@ DATA_IMPORT_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 def _projected_row() -> dict:
     return {
         "order_number": "ORD-1",
+        "order_position": 5,
         "customer_match": "Acme Corp",
         "product_name": "Widget",
         "order_quantity": Decimal("100"),
     }
 
 
-@patch("app.services.tenders_ingest_service.projected_row_to_tender_insert")
-def test_ingest_does_not_write_activity_logs(mock_map: MagicMock) -> None:
-    mock_map.return_value = {
-        "order_number": "ORD-1",
-        "customer_name": "Acme Corp",
-        "product_name": "Widget",
-        "order_quantity": Decimal("100"),
-        "shipping_date": None,
-        "delivery_date": None,
-        "pickup_location_id": None,
-        "delivery_location_id": None,
-        "pack_code_id": None,
-        "load_type": "ltl",
-    }
+def test_ingest_does_not_write_activity_logs() -> None:
     mock_repo = MagicMock()
     mock_repo.insert_batch.return_value = [
         TenderInsertResult(tender_id=TENDER_UUID, created=True),
     ]
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
 
-    svc = TendersIngestService(repository=mock_repo)
+    svc = TendersIngestService(
+        repository=mock_repo,
+        tender_products_repository=products,
+        pack_codes_repository=pack_codes,
+    )
     out = svc.persist_from_projected_rows(
         tenant_id=TENANT_UUID,
         data_import_id=DATA_IMPORT_UUID,

@@ -1,4 +1,5 @@
 from app.core.logger import get_logger
+from app.domain.load_tendering_state import get_tender
 from app.models.status import StatusSubType, StatusType
 
 logger = get_logger(__name__)
@@ -74,9 +75,7 @@ def load_type_router(state):
     """
     Route to LTL when pallet count is at or below threshold.
 
-    Uses:
-        - state.data["pallets_count"]
-        - state.data["pallet_threshold"] (default: 8)
+    Uses ``state.data['tender']['pallets_count']`` and ``pallet_threshold`` (default 8).
     """
     err = state.data.get("tender_calc_error")
 
@@ -91,13 +90,14 @@ def load_type_router(state):
 
         return "error_path"
 
+    tender = get_tender(state.data) or {}
     try:
-        pallets = float(state.data.get("pallets_count") or 0)
+        pallets = float(tender.get("pallets_count") or 0)
     except (TypeError, ValueError):
         pallets = 0.0
 
     try:
-        pallet_threshold = float(state.data.get("pallet_threshold") or 8)
+        pallet_threshold = float(tender.get("pallet_threshold") or 8)
     except (TypeError, ValueError):
         pallet_threshold = 8.0
 
