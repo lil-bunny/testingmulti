@@ -1,4 +1,4 @@
-"""Persist spreadsheet-projected tender rows into ``tenders``."""
+"""Persist spreadsheet-projected tender rows into ``tenders`` and ``tender_products``."""
 
 from __future__ import annotations
 
@@ -6,9 +6,15 @@ from typing import Any, Optional
 
 from app.core.logger import get_logger
 from app.domain.delivery_address import resolve_delivery_address
-from app.domain.load_tendering_tender_rows import projected_row_to_tender_insert
+from app.domain.load_tendering_tender_rows import (
+    dedupe_projected_rows_by_order_and_position,
+    projected_row_to_tender_insert,
+    projected_row_to_tender_product_insert,
+    tender_product_line_key,
+)
 from app.integrations.pgeocode import lookup_state
 from app.repositories.pack_codes_repository import PackCodesRepository
+from app.repositories.tender_products_repository import TenderProductsRepository
 from app.repositories.tenders_repository import TendersRepository
 from app.services.delivery_locations_service import DeliveryLocationsService
 
@@ -19,10 +25,12 @@ class TendersIngestService:
     def __init__(
         self,
         repository: Optional[TendersRepository] = None,
+        tender_products_repository: Optional[TenderProductsRepository] = None,
         delivery_locations: Optional[DeliveryLocationsService] = None,
         pack_codes_repository: Optional[PackCodesRepository] = None,
     ) -> None:
         self._repository = repository or TendersRepository()
+        self._tender_products = tender_products_repository or TenderProductsRepository()
         self._delivery_locations = delivery_locations or DeliveryLocationsService()
         self._pack_codes = pack_codes_repository or PackCodesRepository()
 
@@ -34,11 +42,11 @@ class TendersIngestService:
         projected_rows: list[dict[str, Any]],
     ) -> list[str | None]:
         """
-        Insert tender rows for valid projected rows.
+        Insert one ``tenders`` row per order_number and product lines into ``tender_products``.
 
         Returns one entry per ``projected_rows`` index: ``tenders.id`` when the order was
-        **newly** inserted (workflow should run); ``None`` when the order already existed
-        or the row was unusable (workflow should not run).
+        **newly** inserted (workflow should run); ``None`` when the order already existed,
+        the row was unusable, or was a duplicate order position in the file.
         """
         tid = tenant_id.strip()
         did = (data_import_id or "").strip()
@@ -49,18 +57,24 @@ class TendersIngestService:
         pack_code_index = self._pack_codes.active_pack_code_id_index(tenant_id=tid)
 
         out: list[str | None] = [None] * len(projected_rows)
-        row_slots: list[tuple[int, dict[str, Any]]] = []
-        skipped = 0
+        kept = dedupe_projected_rows_by_order_and_position(projected_rows)
 
-        for row_index, row in enumerate(projected_rows):
-            mapped = projected_row_to_tender_insert(
+        row_slots: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+        skipped_invalid = 0
+
+        for row_index, row in kept:
+            header = projected_row_to_tender_insert(
                 row,
                 active_pack_code_index=pack_code_index,
             )
-            if mapped is None:
-                skipped += 1
+            product = projected_row_to_tender_product_insert(
+                row,
+                active_pack_code_index=pack_code_index,
+            )
+            if header is None or product is None:
+                skipped_invalid += 1
                 continue
-            mapped["delivery_address"] = resolve_delivery_address(
+            header["delivery_address"] = resolve_delivery_address(
                 row.get("delivery_address_code"),
                 locations_index,
                 state_resolver=lookup_state,
@@ -69,41 +83,49 @@ class TendersIngestService:
                 (
                     row_index,
                     {
-                        **mapped,
+                        **header,
                         "tenant_id": tid,
                         "data_import_id": did,
                     },
+                    product,
                 )
             )
 
-        if skipped:
+        skipped_by_dedupe = len(projected_rows) - len(kept)
+        if skipped_by_dedupe > 0:
+            logger.info(
+                "tenders ingest: skipped %s row(s) (invalid order/position or duplicate "
+                "order_position) data_import_id=%s",
+                skipped_by_dedupe,
+                did,
+            )
+        if skipped_invalid:
             logger.warning(
                 "tenders ingest: skipped %s unusable projected row(s) data_import_id=%s",
-                skipped,
+                skipped_invalid,
                 did,
             )
         if not row_slots:
             return out
 
-        # One tender per (tenant_id, order_number): first spreadsheet row wins.
         insert_batch: list[dict[str, Any]] = []
         seen_order_numbers: set[str] = set()
-        duplicate_row_count = 0
-        for _row_index, mapped in row_slots:
-            order_number = str(mapped.get("order_number") or "").strip()
+        duplicate_order_header_count = 0
+        for _row_index, header, _product in row_slots:
+            order_number = str(header.get("order_number") or "").strip()
             if not order_number:
                 continue
             if order_number in seen_order_numbers:
-                duplicate_row_count += 1
+                duplicate_order_header_count += 1
                 continue
             seen_order_numbers.add(order_number)
-            insert_batch.append(mapped)
+            insert_batch.append(header)
 
-        if duplicate_row_count:
+        if duplicate_order_header_count:
             logger.info(
                 "tenders ingest: %s duplicate order_number row(s) in import; "
                 "reusing first row per order data_import_id=%s",
-                duplicate_row_count,
+                duplicate_order_header_count,
                 did,
             )
 
@@ -123,8 +145,8 @@ class TendersIngestService:
         order_to_tender_id: dict[str, str] = {}
         order_created: dict[str, bool] = {}
         skipped_existing = 0
-        for row, result in zip(insert_batch, insert_results, strict=True):
-            order_number = str(row["order_number"])
+        for header, result in zip(insert_batch, insert_results, strict=True):
+            order_number = str(header["order_number"])
             order_to_tender_id[order_number] = result.tender_id
             order_created[order_number] = result.created
             if not result.created:
@@ -138,8 +160,38 @@ class TendersIngestService:
                 did,
             )
 
-        for row_index, mapped in row_slots:
-            order_number = str(mapped.get("order_number") or "").strip()
+        existing_by_tender: dict[str, set[tuple]] = {}
+        product_batch: list[dict[str, Any]] = []
+        for _row_index, header, product in row_slots:
+            order_number = str(header["order_number"])
+            tender_id = order_to_tender_id.get(order_number)
+            if not tender_id:
+                continue
+            if tender_id not in existing_by_tender:
+                existing_by_tender[tender_id] = self._tender_products.existing_line_keys(
+                    tender_id=tender_id
+                )
+            line_key = tender_product_line_key(product)
+            if line_key in existing_by_tender[tender_id]:
+                continue
+            existing_by_tender[tender_id].add(line_key)
+            product_batch.append(
+                {
+                    "tenant_id": tid,
+                    "tender_id": tender_id,
+                    "pack_code_id": product.get("pack_code_id"),
+                    "product_name": product["product_name"],
+                    "order_quantity": product["order_quantity"],
+                    "price_per_unit": product.get("price_per_unit"),
+                    "metadata": product.get("metadata") or {},
+                }
+            )
+
+        if product_batch:
+            self._tender_products.insert_batch(product_batch)
+
+        for row_index, header, _product in row_slots:
+            order_number = str(header.get("order_number") or "").strip()
             if order_number and order_created.get(order_number):
                 out[row_index] = order_to_tender_id.get(order_number)
 

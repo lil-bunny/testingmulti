@@ -27,6 +27,18 @@ def _locations_index() -> DeliveryLocationsIndex:
     )
 
 
+def _ingest_svc_with_products(repo: MagicMock) -> TendersIngestService:
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
+    return TendersIngestService(
+        repository=repo,
+        tender_products_repository=products,
+        pack_codes_repository=pack_codes,
+    )
+
+
 def test_ingest_attaches_delivery_address_from_projected_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -44,10 +56,12 @@ def test_ingest_attaches_delivery_address_from_projected_code(
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = _locations_index()
 
-    svc = TendersIngestService(repository=repo, delivery_locations=locations)
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
     rows = [
         {
             "order_number": "N1",
+            "order_position": 1,
             "customer_match": "C",
             "product_name": "P",
             "order_quantity": 2,
@@ -85,10 +99,12 @@ def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_n
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = _locations_index()
 
-    svc = TendersIngestService(repository=repo, delivery_locations=locations)
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
     rows = [
         {
             "order_number": "N3",
+            "order_position": 1,
             "customer_match": "C",
             "product_name": "P",
             "order_quantity": 1,
@@ -116,10 +132,12 @@ def test_ingest_delivery_address_null_when_index_unavailable() -> None:
     locations = MagicMock(spec=DeliveryLocationsService)
     locations.index_for_ingest_run.return_value = None
 
-    svc = TendersIngestService(repository=repo, delivery_locations=locations)
+    svc = _ingest_svc_with_products(repo)
+    svc._delivery_locations = locations
     rows = [
         {
             "order_number": "N2",
+            "order_position": 1,
             "customer_match": "C",
             "product_name": "P",
             "order_quantity": 1,

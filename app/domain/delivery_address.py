@@ -5,11 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Callable
 
-from app.domain.delivery_locations import (
-    DeliveryLocationsIndex,
-    clean_cell_value,
-    normalize_delivery_number,
-)
+from app.domain.delivery_locations import DeliveryLocationsIndex, normalize_delivery_number
+from app.domain.spreadsheet_cells import clean_cell_value
 from app.integrations.pgeocode.state_lookup import lookup_state
 
 # Delivery locations sheet column names (source spreadsheet headers).

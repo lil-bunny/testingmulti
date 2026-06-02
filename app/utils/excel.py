@@ -12,9 +12,14 @@ def xlsx_bytes_to_sheet_records(
     data: bytes,
     *,
     max_rows_per_sheet: int = 50_000,
+    header: int | None = 0,
 ) -> dict[str, Any]:
     """
     Read every sheet from an ``.xlsx`` workbook and return plain row records.
+
+    ``header`` is passed to ``pandas.read_excel`` (default ``0`` = first row is column
+    names). Use ``header=None`` for headerless wide sheets where columns are positional
+    ``0``, ``1``, ``2``, … and field positions are resolved by Excel column letters.
 
     Cell values may still carry pandas/numpy scalar types; callers should pass the
     result through ``ingest_service`` (or equivalent) JSON sanitization before ``jsonb``.
@@ -24,7 +29,9 @@ def xlsx_bytes_to_sheet_records(
     if max_rows_per_sheet < 1:
         raise ValueError("max_rows_per_sheet must be >= 1")
 
-    raw = pd.read_excel(io.BytesIO(data), sheet_name=None, engine="openpyxl")
+    raw = pd.read_excel(
+        io.BytesIO(data), sheet_name=None, engine="openpyxl", header=header
+    )
     if not isinstance(raw, dict):
         sheets_map = {"Sheet1": raw}
     else:

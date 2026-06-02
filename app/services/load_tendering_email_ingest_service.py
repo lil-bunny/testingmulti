@@ -5,15 +5,16 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
+from app.configs.gelita_delivery_locations_columns import (
+    GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
+)
 from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings
-from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 from app.models.data_import import DataImportDataType, DataImportSourceType
-from app.services.delivery_locations_service import (
-    DeliveryLocationsService,
-    _fetch_delivery_locations_rows_from_sharepoint,
+from app.services.delivery_locations_data_import import (
+    load_delivery_location_rows_from_data_import,
 )
+from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.email_import_projection import (
     load_email_data_import_projection,
     persist_tender_rows_from_email_import_projection,
@@ -21,22 +22,11 @@ from app.services.email_import_projection import (
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
-from app.services.tenants_service import TenantsService
 from app.tasks.workflows import run_workflow_async
 
 logger = get_logger(__name__)
 
 WORKFLOW_NAME = "load_tendering"
-
-
-def load_tendering_row_correlation_load_id(
-    data_import_id: Optional[str],
-    row_index: int,
-    tender_row: dict[str, Any],
-) -> str:
-    did = str(data_import_id or "").strip() or "no-import"
-    order = str(tender_row.get("order_number") or "").strip() or "no-order"
-    return f"{did}:{row_index}:{order}"
 
 
 def enqueue_load_tendering_workflow(
@@ -94,29 +84,10 @@ async def process_tender_created_from_email_webhook(
         projection=LOAD_TENDERING_ROW_PROJECTION,
     )
 
-    tenants_service = TenantsService()
-    tenant_row = tenants_service.get_by_slug(tenant_slug) or {}
-    tenant_settings = normalize_tenant_settings_dict(
-        tenant_slug,
-        tenant_row.get("settings") or {},
+    delivery_locations_service = DeliveryLocationsService(
+        rows_provider=lambda: load_delivery_location_rows_from_data_import(tenant_uuid),
+        column_mapping=GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,
     )
-    dl_cfg = action_settings(
-        {"tenant_settings": tenant_settings},
-        "delivery_locations_excel",
-    )
-    share_url = str(dl_cfg.get("delivery_locations_share_url") or "").strip()
-    if share_url:
-        tab_name = str(dl_cfg.get("delivery_locations_tab_name") or "Delivery locations")
-        max_rows = int(dl_cfg.get("delivery_locations_max_rows") or 50_000)
-        delivery_locations_service = DeliveryLocationsService(
-            rows_provider=lambda: _fetch_delivery_locations_rows_from_sharepoint(
-                share_url,
-                tab_name,
-                max_rows,
-            ),
-        )
-    else:
-        delivery_locations_service = DeliveryLocationsService()
 
     tender_ids_by_row = persist_tender_rows_from_email_import_projection(
         tenant_id=tenant_uuid,
@@ -157,15 +128,19 @@ async def process_tender_created_from_email_webhook(
             continue
         enqueued_tender_ids.add(tender_id)
 
+        from app.domain.load_tendering_state import set_tender, tender_from_ingest_row
+
+        order_number = str(tender_row.get("order_number") or "").strip()
         workflow_payload_row: dict[str, Any] = {
             **shared_payload,
             "tender_id": tender_id,
-            "load_id": load_tendering_row_correlation_load_id(
-                data_import_id, row_index, tender_row
-            ),
-            "tender_row": tender_row,
+            "load_id": order_number,
             "tender_row_index": row_index,
         }
+        set_tender(
+            workflow_payload_row,
+            tender_from_ingest_row(tender_row, order_number=order_number),
+        )
         if data_import_id:
             workflow_payload_row["data_import_id"] = data_import_id
 

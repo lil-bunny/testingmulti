@@ -52,18 +52,18 @@ async def test_process_returns_none_when_fetch_context_incomplete() -> None:
 
 
 @pytest.mark.asyncio
-async def test_process_returns_none_on_unipile_fetch_failure() -> None:
+async def test_process_raises_on_unipile_fetch_failure() -> None:
     payload = _xlsx_payload()
     with patch(
         "app.services.email_webhook_attachment_ingestion.get_email_attachments",
         side_effect=UnipileException("fetch failed"),
     ):
-        out = await process_email_webhook_attachment_import(
-            payload=payload,
-            workflow_name="ratecon",
-            data_import_tenant_id="aadc75f4-3f79-45d7-84c3-aa778e226e93",
-        )
-    assert out is None
+        with pytest.raises(UnipileException, match="fetch failed"):
+            await process_email_webhook_attachment_import(
+                payload=payload,
+                workflow_name="ratecon",
+                data_import_tenant_id="aadc75f4-3f79-45d7-84c3-aa778e226e93",
+            )
 
 
 @pytest.mark.asyncio
@@ -90,6 +90,7 @@ async def test_process_returns_row_id_after_excel_ingest() -> None:
             "app.services.email_webhook_attachment_ingestion.DataImportsService",
         ) as svc_cls,
     ):
+        svc_cls.return_value.find_by_email_attachment_source.return_value = None
         svc_cls.return_value.record_email_load_tendering_import.return_value = (
             "returned-import-uuid"
         )

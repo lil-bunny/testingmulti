@@ -108,14 +108,6 @@ class GelitaTenderCalculateSettings(BaseModel):
     gelita_pickup_address: GelitaPickupAddress
 
 
-class GelitaDeliveryLocationsExcelSettings(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    delivery_locations_max_rows: int
-    delivery_locations_tab_name: str
-    delivery_locations_share_url: str
-
-
 class GelitaLoadTenderingSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -123,7 +115,6 @@ class GelitaLoadTenderingSettings(BaseModel):
     ltl: GelitaLoadTypeBranch
     ftl: GelitaLoadTypeBranch
     tender_calculate: GelitaTenderCalculateSettings
-    delivery_locations_excel: GelitaDeliveryLocationsExcelSettings
 
 
 class GelitaTenantSettings(BaseModel):

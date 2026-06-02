@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.activity_log_descriptions import format_reminder_sent_action
+from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db
-from app.models.activity_type import ActivityType, ActorType
+from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
-from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.load_tendering_lifecycle_guards import (
     delayed_workflow_step_skip_reason,
@@ -22,9 +24,12 @@ def update_reminder_status(state):
     """
     After a successful carrier-thread reminder: map ``reminder_step`` to lifecycle
     ``sub_status`` (``reminder_1_sent`` / ``reminder_2_sent``) and append activity log.
+
+    On success: ``action`` (reminder sent narrative) then status/sub_status change in one transaction.
     """
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = (state.tenant_id or "").strip()
+    run_id = str(state.execution_id or "").strip()
     if not wl_id or not tenant_id:
         logger.warning(
             "update_reminder_status missing workflow_lifecycle_id or tenant_id"
@@ -73,31 +78,53 @@ def update_reminder_status(state):
         state.data["reminder_status_skipped"] = skip
         return state
 
-    log_metadata: dict[str, Any] = {
+    if not run_id:
+        logger.warning(
+            "update_reminder_status success path skipped: missing execution_id lifecycle_id=%s",
+            wl_id,
+        )
+        return state
+
+    transition_meta: dict[str, Any] = {
         "reminder_step": step,
         "tender_id": state.data.get("tender_id"),
     }
+    action_meta = dict(transition_meta)
     comm_id = str(state.data.get("communication_id") or "").strip()
     if comm_id:
-        log_metadata["communication_id"] = comm_id
+        action_meta["communication_id"] = comm_id
 
     current_status = status_type_from_db(prev.get("status")) if prev else None
     to_status = StatusType.PENDING_REVIEW
-    transition_kwargs: dict[str, Any] = {
-        "to_sub_status": new_sub,
-        "metadata": log_metadata,
-    }
     if current_status == to_status:
-        transition_kwargs["activity_type"] = ActivityType.SUB_STATUS_CHANGE
+        transition_step = ActivityLogStep(
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_sub_status=new_sub,
+            metadata=dict(transition_meta),
+        )
     else:
-        transition_kwargs["activity_type"] = ActivityType.STATUS_CHANGE
-        transition_kwargs["to_status"] = to_status
+        transition_step = ActivityLogStep(
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=to_status,
+            to_sub_status=new_sub,
+            metadata=dict(transition_meta),
+        )
 
-    lifecycle_transition_service = LifecycleTransitionService()
-    lifecycle_transition_service.apply_from_state(
-        state,
-        actor_type=ActorType.SYSTEM,
-        **transition_kwargs,
+    activity_log_service = ActivityLogService()
+    activity_log_service.record_sequence(
+        ActivityLogSequence(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_reminder_sent_action(step=step),
+                    metadata=dict(action_meta),
+                ),
+                transition_step,
+            ),
+        )
     )
 
     state.data["reminder_sub_status"] = new_sub.value

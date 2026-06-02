@@ -85,6 +85,27 @@ def test_ingest_bytes_envelope_and_oversize() -> None:
         ingest_service.ingest_data("x", "t", data=big)
 
 
+def test_ingest_bytes_xlsx_headerless_spreadsheet() -> None:
+    buf = BytesIO()
+    pd.DataFrame([["41000100", "SIOUX CITY"]]).to_excel(
+        buf, index=False, header=False, engine="openpyxl"
+    )
+    raw = buf.getvalue()
+    d = ingest_service.ingest_data(
+        "x",
+        "t",
+        file_name="delivery_location.xlsx",
+        data=raw,
+        parse_spreadsheet=True,
+        spreadsheet_header=None,
+    )["data"]
+    row = d["spreadsheet"]["sheets"][0]["rows"][0]
+    assert str(row["0"]) == "41000100"
+    values = list(row.values())
+    assert str(values[0]) == "41000100"
+    assert values[1] == "SIOUX CITY"
+
+
 def test_ingest_bytes_xlsx_parse_spreadsheet() -> None:
     buf = BytesIO()
     pd.DataFrame({"A": [1], "B": ["z"]}).to_excel(buf, index=False, engine="openpyxl")
@@ -100,6 +121,26 @@ def test_ingest_bytes_xlsx_parse_spreadsheet() -> None:
     assert "spreadsheet" in d
     assert d["spreadsheet"]["format"] == "xlsx"
     assert d["spreadsheet"]["sheets"][0]["rows"][0]["A"] == 1
+
+
+def test_ingest_xlsx_spreadsheet_header_none_positional_keys() -> None:
+    buf = BytesIO()
+    pd.DataFrame([[None, "41000100", "SIOUX CITY"]]).to_excel(
+        buf, index=False, header=False, engine="openpyxl"
+    )
+    raw = buf.getvalue()
+    d = ingest_service.ingest_data(
+        "x",
+        "t",
+        file_name="delivery_location.xlsx",
+        data=raw,
+        parse_spreadsheet=True,
+        spreadsheet_header=None,
+    )["data"]
+    row = d["spreadsheet"]["sheets"][0]["rows"][0]
+    values = list(row.values())
+    assert str(values[1]) == "41000100"
+    assert values[2] == "SIOUX CITY"
 
 
 def test_ingest_nested_bytes_rejects() -> None:

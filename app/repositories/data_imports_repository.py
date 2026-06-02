@@ -125,3 +125,84 @@ class DataImportsRepository:
         if not row or not row[0]:
             return None
         return str(row[0])
+
+    def find_id_by_tenant_data_type_and_file_name(
+        self,
+        *,
+        tenant_id: str,
+        data_type: str,
+        file_name: str,
+    ) -> str | None:
+        tid = tenant_id.strip()
+        dt = data_type.strip()
+        fn = file_name.strip()
+        if not tid or not dt or not fn:
+            return None
+
+        conn = psycopg.connect(settings.DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id::text
+                    FROM {self.TABLE_NAME}
+                    WHERE tenant_id = %s::uuid
+                      AND data_type = %s::data_import_data_type
+                      AND file_name = %s
+                    ORDER BY updated_at DESC NULLS LAST, created_at DESC
+                    LIMIT 1
+                    """,
+                    (tid, dt, fn),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if not row or not row[0]:
+            return None
+        return str(row[0])
+
+    def update_raw_data(
+        self,
+        *,
+        tenant_id: str,
+        data_import_id: str,
+        raw_data: dict[str, Any],
+        file_name: str | None = None,
+    ) -> None:
+        tid = tenant_id.strip()
+        did = data_import_id.strip()
+        if not tid or not did:
+            raise ValueError("tenant_id and data_import_id are required")
+
+        conn = psycopg.connect(settings.DATABASE_URL)
+        try:
+            with conn.cursor() as cur:
+                if file_name is not None:
+                    cur.execute(
+                        f"""
+                        UPDATE {self.TABLE_NAME}
+                        SET raw_data = %s,
+                            file_name = %s,
+                            updated_at = NOW()
+                        WHERE id = %s::uuid AND tenant_id = %s::uuid
+                        """,
+                        (Json(raw_data), file_name, did, tid),
+                    )
+                else:
+                    cur.execute(
+                        f"""
+                        UPDATE {self.TABLE_NAME}
+                        SET raw_data = %s,
+                            updated_at = NOW()
+                        WHERE id = %s::uuid AND tenant_id = %s::uuid
+                        """,
+                        (Json(raw_data), did, tid),
+                    )
+                if cur.rowcount < 1:
+                    raise RuntimeError(
+                        f"data_imports update affected no rows id={did} tenant_id={tid}"
+                    )
+            conn.commit()
+        finally:
+            conn.close()

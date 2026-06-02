@@ -10,6 +10,25 @@ from typing import Any
 _TRAILING_ZEROS_DECIMAL = re.compile(r"^(\d+)\.0+$")
 
 
+def clean_cell_value(value: Any) -> Any:
+    """Strip padding, collapse whitespace, and normalize missing cells to ``None``.
+
+    pandas hands blank xlsx cells back as ``float('nan')``; without this, the
+    NaN floats end up in ``delivery_address`` as the literal string ``"nan"``
+    once they pass through ``str(...)``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, str):
+        cleaned = re.sub(r"\s+", " ", value).strip()
+        if not cleaned or cleaned.lower() == "nan":
+            return None
+        return cleaned
+    return value
+
+
 def identifier_string_from_cell(value: Any) -> str | None:
     """
     Coerce an Excel cell to a stable identifier string.

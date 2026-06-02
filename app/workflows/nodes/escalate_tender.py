@@ -11,10 +11,13 @@ from app.domain.load_tendering_settings import (
     is_ftl_load_type,
     resolve_load_type,
 )
+from app.domain.load_tendering_state import order_number_from_data
+from app.domain.activity_log_descriptions import format_escalation_sent_action
+from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db
-from app.models.activity_type import ActivityType, ActorType
+from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
-from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.activity_log_service import ActivityLogService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.communication_metadata import outbound_email_metadata, stash_communication_id
@@ -92,10 +95,7 @@ def escalate_tender(state):
         )
         return state
 
-    tender_row = state.data.get("tender_row")
-    order_number = str(state.data.get("order_number") or "").strip()
-    if not order_number and isinstance(tender_row, dict):
-        order_number = str(tender_row.get("order_number") or "").strip()
+    order_number = order_number_from_data(state.data)
 
     fmt_ctx = {"order_number": order_number or "unknown"}
     subject_template = escalate_cfg.escalation_email_subject.strip()
@@ -191,32 +191,51 @@ def escalate_tender(state):
         cc=recipients.cc,
         bcc=recipients.bcc,
     )
-    log_metadata: dict[str, Any] = {
+    transition_meta: dict[str, Any] = {
         "tender_id": tender_id or None,
         "order_number": order_number or None,
         **email_meta,
     }
+    action_meta = dict(transition_meta)
     if comm_id:
-        log_metadata["communication_id"] = comm_id
+        action_meta["communication_id"] = comm_id
+
+    if not run_id:
+        logger.warning("escalate_tender success path skipped lifecycle update: missing execution_id lifecycle_id=%s", wl_id)
+        return state
 
     row_after_send = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
     current_status = status_type_from_db(row_after_send.get("status")) if row_after_send else None
     to_status = StatusType.PENDING_REVIEW
-    transition_kwargs: dict[str, Any] = {
-        "to_sub_status": StatusSubType.ESCALATED,
-        "metadata": log_metadata,
-    }
     if current_status == to_status:
-        transition_kwargs["activity_type"] = ActivityType.SUB_STATUS_CHANGE
+        transition_step = ActivityLogStep(
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_sub_status=StatusSubType.ESCALATED,
+            metadata=dict(transition_meta),
+        )
     else:
-        transition_kwargs["activity_type"] = ActivityType.STATUS_CHANGE
-        transition_kwargs["to_status"] = to_status
+        transition_step = ActivityLogStep(
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=to_status,
+            to_sub_status=StatusSubType.ESCALATED,
+            metadata=dict(transition_meta),
+        )
 
-    lifecycle_transition_service = LifecycleTransitionService()
-    lifecycle_transition_service.apply_from_state(
-        state,
-        actor_type=ActorType.SYSTEM,
-        **transition_kwargs,
+    activity_log_service = ActivityLogService()
+    activity_log_service.record_sequence(
+        ActivityLogSequence(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_escalation_sent_action(),
+                    metadata=dict(action_meta),
+                ),
+                transition_step,
+            ),
+        )
     )
 
     state.data["escalation_sub_status"] = StatusSubType.ESCALATED.value

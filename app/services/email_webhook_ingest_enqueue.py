@@ -6,12 +6,16 @@ import uuid
 from typing import Any
 
 from app.core.logger import get_logger
-from app.services.workflow_classifier_service import (
-    build_unipile_attachment_fetch_context,
-    unipile_first_attachment_by_extension,
+from app.domain.delivery_locations_import import (
+    unipile_delivery_locations_attachment,
+    unipile_first_load_tender_xlsx_attachment,
 )
+from app.services.workflow_classifier_service import build_unipile_attachment_fetch_context
 from app.tasks.email import run_email_webhook
-from app.tasks.email_handlers import HANDLER_LOAD_TENDERING_TENDER_CREATED
+from app.tasks.email_handlers import (
+    HANDLER_DELIVERY_LOCATIONS_IMPORT,
+    HANDLER_LOAD_TENDERING_TENDER_CREATED,
+)
 
 logger = get_logger(__name__)
 
@@ -28,6 +32,61 @@ def build_load_tendering_ingest_task_id(
     return str(uuid.uuid5(_INGEST_TASK_NAMESPACE, key))
 
 
+def enqueue_delivery_locations_import(
+    *,
+    payload: dict[str, Any],
+    tenant_uuid: str,
+) -> tuple[str, str]:
+    """
+    Queue background ingest for ``delivery_location.xlsx``.
+
+    Returns ``(task_id, status)`` where status is ``queued`` or ``already_queued``.
+    """
+    attachment = unipile_delivery_locations_attachment(payload)
+    if attachment is None:
+        raise ValueError("payload has no delivery_location.xlsx attachment")
+
+    fetch_ctx = build_unipile_attachment_fetch_context(payload, attachment)
+    email_id = fetch_ctx.get("email_id")
+    attachment_id = fetch_ctx.get("attachment_id")
+    if not email_id or not attachment_id:
+        raise ValueError("incomplete delivery locations attachment fetch context")
+
+    task_id = str(
+        uuid.uuid5(
+            _INGEST_TASK_NAMESPACE,
+            f"{tenant_uuid}:{email_id}:{attachment_id}:{HANDLER_DELIVERY_LOCATIONS_IMPORT}",
+        )
+    )
+    kwargs = {
+        "tenant_uuid": tenant_uuid,
+        "payload": payload,
+    }
+
+    try:
+        run_email_webhook.apply_async(
+            kwargs={"handler": HANDLER_DELIVERY_LOCATIONS_IMPORT, **kwargs},
+            task_id=task_id,
+        )
+        logger.info(
+            "email webhook ingest queued handler=%s task_id=%s email_id=%s",
+            HANDLER_DELIVERY_LOCATIONS_IMPORT,
+            task_id,
+            email_id,
+        )
+        return task_id, "queued"
+    except Exception as exc:
+        if not _is_duplicate_celery_task_id_error(exc):
+            raise
+        logger.info(
+            "email webhook ingest already queued handler=%s task_id=%s email_id=%s",
+            HANDLER_DELIVERY_LOCATIONS_IMPORT,
+            task_id,
+            email_id,
+        )
+        return task_id, "already_queued"
+
+
 def enqueue_load_tendering_tender_created_ingest(
     *,
     payload: dict[str, Any],
@@ -40,9 +99,9 @@ def enqueue_load_tendering_tender_created_ingest(
 
     Returns ``(task_id, status)`` where status is ``queued`` or ``already_queued``.
     """
-    attachment = unipile_first_attachment_by_extension(payload, "xlsx")
+    attachment = unipile_first_load_tender_xlsx_attachment(payload)
     if attachment is None:
-        raise ValueError("payload has no xlsx attachment")
+        raise ValueError("payload has no load-tender xlsx attachment")
 
     fetch_ctx = build_unipile_attachment_fetch_context(payload, attachment)
     email_id = fetch_ctx.get("email_id")

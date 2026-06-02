@@ -1,34 +1,19 @@
-"""Helpers for Delivery locations sheet rows (SharePoint .xlsx export)."""
+"""Helpers for Delivery locations sheet rows from ``delivery_location.xlsx`` (email import)."""
 
 from __future__ import annotations
 
-import math
-import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from app.domain.spreadsheet_cells import identifier_string_from_cell
+from app.domain.spreadsheet_cells import clean_cell_value, identifier_string_from_cell
+
+if TYPE_CHECKING:
+    from app.domain.delivery_locations_column_mapping import (
+        DeliveryLocationsColumnMapping,
+        DeliveryLocationsHeaderMapping,
+    )
 
 # Sheet column name (typo preserved to match source data).
 DELIVERY_NUMBER_FIELD = "delviery"
-
-
-def clean_cell_value(value: Any) -> Any:
-    """Strip padding, collapse whitespace, and normalize missing cells to ``None``.
-
-    pandas hands blank xlsx cells back as ``float('nan')``; without this, the
-    NaN floats end up in ``delivery_address`` as the literal string ``"nan"``
-    once they pass through ``str(...)``.
-    """
-    if value is None:
-        return None
-    if isinstance(value, float) and math.isnan(value):
-        return None
-    if isinstance(value, str):
-        cleaned = re.sub(r"\s+", " ", value).strip()
-        if not cleaned or cleaned.lower() == "nan":
-            return None
-        return cleaned
-    return value
 
 
 def normalize_delivery_number(value: Any) -> str | None:
@@ -55,19 +40,97 @@ def clean_delivery_locations_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _sheet_has_data_rows(sheet: dict[str, Any]) -> bool:
+    rows = sheet.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return False
+    return any(isinstance(r, dict) for r in rows)
+
+
+def select_delivery_locations_sheet(
+    sheets: list[dict[str, Any]],
+    *,
+    preferred_tab_name: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Pick the delivery-locations data sheet from an already-identified workbook.
+
+    The workbook is scoped by filename (``delivery_location.xlsx``) before this runs.
+    ``preferred_tab_name`` is an optional hint (case-insensitive); otherwise the
+    first non-empty sheet is used.
+    """
+    candidates = [s for s in sheets if isinstance(s, dict) and _sheet_has_data_rows(s)]
+    if not candidates:
+        return None
+
+    hint = (preferred_tab_name or "").strip()
+    if hint:
+        hint_lower = hint.casefold()
+        for sheet in candidates:
+            name = sheet.get("name")
+            if name is not None and str(name).strip().casefold() == hint_lower:
+                return sheet
+
+    return candidates[0]
+
+
+def rows_from_spreadsheet_sheets(
+    sheets: list[dict[str, Any]],
+    *,
+    preferred_tab_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Pick the delivery-locations sheet and return cleaned row dicts."""
+    sheet_dicts = [s for s in sheets if isinstance(s, dict)]
+    selected = select_delivery_locations_sheet(
+        sheet_dicts,
+        preferred_tab_name=preferred_tab_name,
+    )
+    if selected is None:
+        return []
+    cleaned = clean_delivery_locations_sheet(selected)
+    rows = cleaned.get("rows") or []
+    return [r for r in rows if isinstance(r, dict)]
+
+
 class DeliveryLocationsIndex:
     """In-memory index of Delivery locations rows keyed by normalized ``delviery``."""
 
-    def __init__(self, rows: list[dict[str, Any]]) -> None:
-        self._by_delivery_number = self.build_index(rows)
+    def __init__(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        column_mapping: DeliveryLocationsColumnMapping | None = None,
+        header_mapping: DeliveryLocationsHeaderMapping | None = None,
+    ) -> None:
+        self._by_delivery_number = self.build_index(
+            rows,
+            column_mapping=column_mapping,
+            header_mapping=header_mapping,
+        )
 
     @staticmethod
-    def build_index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    def build_index(
+        rows: list[dict[str, Any]],
+        *,
+        column_mapping: DeliveryLocationsColumnMapping | None = None,
+        header_mapping: DeliveryLocationsHeaderMapping | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        from app.domain.delivery_locations_column_mapping import (
+            materialize_delivery_locations_row,
+        )
+
         index: dict[str, dict[str, Any]] = {}
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            cleaned = clean_row(row)
+            if column_mapping is not None or header_mapping is not None:
+                cleaned = materialize_delivery_locations_row(
+                    row,
+                    header_mapping=header_mapping,
+                    column_mapping=column_mapping,
+                )
+            else:
+                cleaned = clean_row(row)
             key = normalize_delivery_number(cleaned.get(DELIVERY_NUMBER_FIELD))
             if key and key not in index:
                 index[key] = cleaned

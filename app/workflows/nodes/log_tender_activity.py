@@ -18,17 +18,6 @@ from app.services.activity_log_service import ActivityLogService
 logger = get_logger(__name__)
 
 
-def _tender_log_metadata(
-    *,
-    tender_id: str,
-    communication_id: str | None,
-) -> dict[str, Any]:
-    meta: dict[str, Any] = {"tender_id": tender_id}
-    if communication_id:
-        meta["communication_id"] = communication_id
-    return meta
-
-
 def log_tender_activity(state):
     """
     Persist lifecycle + activity log after ``send_tender_email`` (success or failure).
@@ -55,10 +44,11 @@ def log_tender_activity(state):
             )
             return state
 
-        meta = _tender_log_metadata(
-            tender_id=tender_id,
-            communication_id=communication_id,
-        )
+        transition_meta: dict[str, Any] = {"tender_id": tender_id}
+        action_meta = dict(transition_meta)
+        if communication_id:
+            action_meta["communication_id"] = communication_id
+
         activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -68,12 +58,12 @@ def log_tender_activity(state):
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_tender_sent_to_vendor(),
-                        metadata=dict(meta),
+                        metadata=dict(action_meta),
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.SUB_STATUS_CHANGE,
                         to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
-                        metadata=dict(meta),
+                        metadata=dict(transition_meta),
                     ),
                 ),
             )

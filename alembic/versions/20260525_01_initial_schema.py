@@ -124,7 +124,7 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE data_import_data_type AS ENUM ('load_tender')
+        CREATE TYPE data_import_data_type AS ENUM ('load_tender', 'delivery_location')
         """
     )
 
@@ -261,20 +261,36 @@ def upgrade() -> None:
                 REFERENCES tenants(id) ON DELETE CASCADE,
             order_number TEXT NOT NULL,
             customer_name TEXT NOT NULL,
-            product_name TEXT NOT NULL,
-            order_quantity NUMERIC NOT NULL,
             shipping_date DATE,
             delivery_date DATE,
             pickup_location_id UUID REFERENCES locations(id),
             delivery_location_id UUID REFERENCES locations(id),
             load_type load_type,
             data_import_id UUID REFERENCES data_imports(id),
+            delivery_address JSONB,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            pack_code_id UUID REFERENCES pack_codes(id),
-            delivery_address JSONB NOT NULL DEFAULT '{}'::jsonb,
             CONSTRAINT tenders_tenant_order_number_unique UNIQUE (tenant_id, order_number)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tender_products (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            tender_id UUID NOT NULL
+                REFERENCES tenders(id) ON DELETE CASCADE,
+            pack_code_id UUID REFERENCES pack_codes(id),
+            product_name TEXT NOT NULL,
+            order_quantity NUMERIC NOT NULL,
+            price_per_unit NUMERIC,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """
     )
@@ -392,8 +408,16 @@ def upgrade() -> None:
         "CREATE INDEX IF NOT EXISTS idx_tenders_tenant_id ON tenders (tenant_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tenders_pack_code_id "
-        "ON tenders (pack_code_id)"
+        "CREATE INDEX IF NOT EXISTS idx_tender_products_tenant_id "
+        "ON tender_products (tenant_id)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tender_products_tender_id "
+        "ON tender_products (tender_id)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tender_products_pack_code_id "
+        "ON tender_products (pack_code_id)"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_tenant_id "
@@ -466,6 +490,7 @@ def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS activity_logs CASCADE")
     op.execute("DROP TABLE IF EXISTS workflow_runs CASCADE")
     op.execute("DROP TABLE IF EXISTS workflow_lifecycles CASCADE")
+    op.execute("DROP TABLE IF EXISTS tender_products CASCADE")
     op.execute("DROP TABLE IF EXISTS tenders CASCADE")
     op.execute("DROP TABLE IF EXISTS shipments CASCADE")
     op.execute("DROP TABLE IF EXISTS document_analysis CASCADE")

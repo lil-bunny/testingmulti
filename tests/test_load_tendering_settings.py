@@ -92,12 +92,3 @@ def test_reminder_schedule_hours_only_under_load_tendering_reminders() -> None:
     assert "reminder_1_hours" not in root["ftl"]["send_tender_reminder"]
     assert "escalation_hours" not in root["ftl"]["escalate_tender"]
 
-
-def test_delivery_locations_excel_action_from_fixture() -> None:
-    state = SimpleNamespace(
-        data={"tenant_settings": _gelita_tenant_settings()},
-    )
-    dl = action_settings(state, "delivery_locations_excel")
-    assert dl["delivery_locations_tab_name"] == "Delivery locations"
-    assert dl["delivery_locations_max_rows"] == 50000
-    assert str(dl["delivery_locations_share_url"]).startswith("https://")
