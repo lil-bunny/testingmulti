@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.data_imports_repository import DataImportsRepository
+from app.repositories.document_analysis_repository import DocumentAnalysisRepository
+from app.repositories.documents_repository import DocumentsRepository
 from app.repositories.pack_codes_repository import PackCodesRepository
 from app.repositories.tender_products_repository import TenderProductsRepository
 from app.repositories.tenders_repository import TendersRepository
@@ -29,6 +31,8 @@ class DbRepos:
     pack_codes: PackCodesRepository
     data_imports: DataImportsRepository
     communications: CommunicationsRepository
+    documents: DocumentsRepository
+    document_analysis: DocumentAnalysisRepository
     tenants: TenantsDbRepository
     turvo_oauth: TurvoOAuthRepository
 
@@ -44,6 +48,8 @@ def build_db_repos(session: Session) -> DbRepos:
         pack_codes=PackCodesRepository(session),
         data_imports=DataImportsRepository(session),
         communications=CommunicationsRepository(session),
+        documents=DocumentsRepository(session),
+        document_analysis=DocumentAnalysisRepository(session),
         tenants=TenantsDbRepository(session),
         turvo_oauth=TurvoOAuthRepository(session),
     )

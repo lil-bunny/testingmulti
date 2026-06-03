@@ -10,13 +10,11 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from app.core.db import db_scope, db_transaction, fetchone_dict
+from app.core.db import db_scope, db_transaction
 from app.models.document import DocumentType
 from app.services.s3bucket_service import normalize_object_key
 
 logger = logging.getLogger(__name__)
-
-TABLE_NAME = "documents"
 
 
 def insert_document(
@@ -51,26 +49,16 @@ def insert_document(
         return {"stored": False, "id": None, "error": "empty_object_key"}
 
     doc_id = str(uuid.uuid4())
-    sql = f"""
-        INSERT INTO {TABLE_NAME} (id, type, shipment_id, object_key)
-        VALUES (:id, :type, :shipment_id, :object_key)
-        ON CONFLICT (object_key) DO UPDATE
-        SET
-            type = EXCLUDED.type,
-            shipment_id = EXCLUDED.shipment_id
-        RETURNING id, type, shipment_id, object_key, created_at
-    """
-    params = {
-        "id": doc_id,
-        "type": doc_type.value,
-        "shipment_id": shipment_id,
-        "object_key": key,
-    }
 
     try:
         with db_scope() as repos:
             with db_transaction(repos.session):
-                row = fetchone_dict(repos.session, sql, params)
+                row = repos.documents.upsert_by_object_key(
+                    id=doc_id,
+                    doc_type=doc_type.value,
+                    shipment_id=shipment_id,
+                    object_key=key,
+                )
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
         logger.info(
@@ -120,19 +108,12 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             "error": "missing_shipment_id",
         }
 
-    sql = f"""
-        SELECT id, object_key, type, shipment_id, created_at
-        FROM {TABLE_NAME}
-        WHERE shipment_id = :shipment_id AND type = :type
-          AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
-        ORDER BY created_at DESC
-        LIMIT 1
-    """
-    params = {"shipment_id": sid, "type": doc_type.value}
-
     try:
         with db_scope() as repos:
-            row = fetchone_dict(repos.session, sql, params)
+            row = repos.documents.find_latest_by_shipment_and_type(
+                shipment_id=sid,
+                doc_type=doc_type.value,
+            )
         if not row:
             logger.info(
                 "read_document: no row for shipment_id=%s type=%s",

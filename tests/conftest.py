@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import db_scope, db_transaction
+
+from tests.db.e2e import tenants_seed
 
 
 # Stable UUID for TENANT_CONFIGS key ``t3ra`` so FK-backed tables can join in local/CI DBs.
@@ -28,20 +29,12 @@ def _ensure_seed_tenant_t3ra() -> None:
     try:
         with db_scope() as repos:
             with db_transaction(repos.session):
-                repos.session.execute(
-                    text(
-                        """
-                        INSERT INTO tenants (id, name, slug, settings)
-                        VALUES (
-                            CAST(:id AS uuid),
-                            'test tenant t3ra',
-                            't3ra',
-                            '{}'::jsonb
-                        )
-                        ON CONFLICT (slug) DO NOTHING
-                        """
-                    ),
-                    {"id": _GRAPH_T3RA_TENANT_UUID},
+                tenants_seed.ensure_seed_tenant_by_slug(
+                    repos.session,
+                    tenant_id=_GRAPH_T3RA_TENANT_UUID,
+                    name="test tenant t3ra",
+                    slug="t3ra",
+                    settings={},
                 )
     except Exception:
         return

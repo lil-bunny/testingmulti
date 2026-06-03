@@ -3,19 +3,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.models.document import DocumentType
 from app.tools import documents as doc_mod
-
-
-@contextmanager
-def _fake_db_scope():
-    class _FakeRepos:
-        session = object()
-
-    yield _FakeRepos()
 
 
 @pytest.fixture
@@ -27,13 +20,20 @@ def patch_documents_db(monkeypatch):
         "shipment_id": "SHIP-1",
         "created_at": None,
     }
+    fake_documents = MagicMock()
+    fake_documents.find_latest_by_shipment_and_type.return_value = fake_row
+
+    class _FakeRepos:
+        session = object()
+        documents = fake_documents
+
+    fake_repos = _FakeRepos()
+
+    @contextmanager
+    def _fake_db_scope():
+        yield fake_repos
+
     monkeypatch.setattr(doc_mod, "db_scope", _fake_db_scope)
-    monkeypatch.setattr(doc_mod, "_table_name", lambda: "documents")
-    monkeypatch.setattr(
-        doc_mod,
-        "fetchone_dict",
-        lambda session, sql, params: fake_row,
-    )
 
 
 def test_read_document_returns_latest_row(patch_documents_db):
