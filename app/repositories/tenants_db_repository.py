@@ -7,20 +7,20 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.core.db import db_scope, execute_scalar, fetchall_dicts, fetchone_dict, parse_json
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-def _table() -> str:
-    t = settings.TENANTS_TABLE.strip()
-    return t if t else "tenants"
+_WHERE_SLUG_CI = """
+    WHERE lower(trim(slug)) = lower(:slug)
+"""
 
 
 class TenantsDbRepository:
     """Tenant row lookups by slug, webhook name, and UUID."""
+
+    TABLE_NAME = "tenants"
 
     def __init__(self, session: Session) -> None:
         self._session = session
@@ -41,7 +41,7 @@ class TenantsDbRepository:
             self._session,
             f"""
             SELECT id::text AS id, name, slug, settings
-            FROM {_table()}
+            FROM {self.TABLE_NAME}
             WHERE slug = :slug
             LIMIT 1
             """,
@@ -73,7 +73,7 @@ class TenantsDbRepository:
             self._session,
             f"""
             SELECT id::text AS id
-            FROM {_table()}
+            FROM {self.TABLE_NAME}
             WHERE settings IS NOT NULL
               AND (settings::jsonb ->> 'email_webhook_name') = :webhook_name
             ORDER BY id
@@ -103,8 +103,8 @@ class TenantsDbRepository:
             self._session,
             f"""
             SELECT settings
-            FROM {_table()}
-            WHERE lower(trim(slug)) = lower(:slug)
+            FROM {self.TABLE_NAME}
+            {_WHERE_SLUG_CI}
             ORDER BY id
             LIMIT 1
             """,
@@ -130,8 +130,8 @@ class TenantsDbRepository:
             self._session,
             f"""
             SELECT id::text AS id
-            FROM {_table()}
-            WHERE lower(trim(slug)) = lower(:slug)
+            FROM {self.TABLE_NAME}
+            {_WHERE_SLUG_CI}
             ORDER BY id
             LIMIT 3
             """,
@@ -167,7 +167,7 @@ class TenantsDbRepository:
             self._session,
             f"""
             SELECT NULLIF(trim(slug), '')
-            FROM {_table()}
+            FROM {self.TABLE_NAME}
             WHERE id = CAST(:tenant_uuid AS uuid)
             LIMIT 1
             """,

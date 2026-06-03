@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, fetchone_dict, jsonb_param, parse_json
 
+_WHERE_TENANT_IMPORT_PK = """
+    WHERE id = CAST(:data_import_id AS uuid)
+      AND tenant_id = CAST(:tenant_id AS uuid)
+"""
+
 
 class DataImportsRepository:
     TABLE_NAME = "data_imports"
@@ -75,8 +80,7 @@ class DataImportsRepository:
             f"""
             SELECT raw_data
             FROM {self.TABLE_NAME}
-            WHERE id = CAST(:data_import_id AS uuid)
-              AND tenant_id = CAST(:tenant_id AS uuid)
+            {_WHERE_TENANT_IMPORT_PK}
             """,
             {"data_import_id": did, "tenant_id": tid},
         )
@@ -169,8 +173,7 @@ class DataImportsRepository:
                 SET raw_data = CAST(:raw_data AS jsonb),
                     file_name = :file_name,
                     updated_at = NOW()
-                WHERE id = CAST(:data_import_id AS uuid)
-                  AND tenant_id = CAST(:tenant_id AS uuid)
+                {_WHERE_TENANT_IMPORT_PK}
             """
             params: dict[str, Any] = {
                 "raw_data": jsonb_param(raw_data),
@@ -183,8 +186,7 @@ class DataImportsRepository:
                 UPDATE {self.TABLE_NAME}
                 SET raw_data = CAST(:raw_data AS jsonb),
                     updated_at = NOW()
-                WHERE id = CAST(:data_import_id AS uuid)
-                  AND tenant_id = CAST(:tenant_id AS uuid)
+                {_WHERE_TENANT_IMPORT_PK}
             """
             params = {
                 "raw_data": jsonb_param(raw_data),

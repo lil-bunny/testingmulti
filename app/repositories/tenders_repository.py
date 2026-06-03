@@ -10,6 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
 
+_WHERE_TENANT_TENDER_PK = """
+    WHERE id = CAST(:tender_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)
+"""
+
+_WHERE_TENANT_ORDER = """
+    WHERE tenant_id = CAST(:tenant_id AS uuid) AND order_number = :order_number
+"""
+
 
 @dataclass(frozen=True)
 class TenderInsertResult:
@@ -56,7 +64,7 @@ class TendersRepository:
                     delivery_address,
                     metadata
                 FROM {self.TABLE_NAME}
-                WHERE id = CAST(:tender_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)
+                {_WHERE_TENANT_TENDER_PK}
                 LIMIT 1
                 """
             ),
@@ -102,7 +110,7 @@ class TendersRepository:
                 f"""
                 SELECT id::text, order_number
                 FROM {self.TABLE_NAME}
-                WHERE tenant_id = CAST(:tenant_id AS uuid) AND order_number = :order_number
+                {_WHERE_TENANT_ORDER}
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """
@@ -128,7 +136,7 @@ class TendersRepository:
                 f"""
                 UPDATE {self.TABLE_NAME}
                 SET load_type = CAST(:load_type AS load_type), updated_at = NOW()
-                WHERE id = CAST(:tender_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)
+                {_WHERE_TENANT_TENDER_PK}
                 """
             ),
             {"load_type": lt, "tender_id": tr, "tenant_id": tid},
@@ -181,7 +189,7 @@ class TendersRepository:
             f"""
             SELECT id::text
             FROM {self.TABLE_NAME}
-            WHERE tenant_id = CAST(:tenant_id AS uuid) AND order_number = :order_number
+            {_WHERE_TENANT_ORDER}
             LIMIT 1
             """
         )

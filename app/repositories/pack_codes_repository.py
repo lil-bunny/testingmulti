@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.core.db import fetchall_dicts, fetchone_dict
 
+_WHERE_TENANT = """
+    WHERE tenant_id = CAST(:tenant_id AS uuid)
+"""
+
 
 class PackCodesRepository:
     TABLE_NAME = "pack_codes"
@@ -62,7 +66,8 @@ class PackCodesRepository:
                 pallet_type,
                 is_active
             FROM {self.TABLE_NAME}
-            WHERE tenant_id = CAST(:tenant_id AS uuid) AND pack_code = :code
+            {_WHERE_TENANT}
+              AND pack_code = :code
             LIMIT 1
             """,
             {"tenant_id": tid, "code": c},
@@ -100,7 +105,7 @@ class PackCodesRepository:
             f"""
             SELECT id::text AS id, pack_code
             FROM {self.TABLE_NAME}
-            WHERE tenant_id = CAST(:tenant_id AS uuid)
+            {_WHERE_TENANT}
               AND is_active IS TRUE
             """,
             {"tenant_id": tid},

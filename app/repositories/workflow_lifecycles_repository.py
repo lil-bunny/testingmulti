@@ -10,12 +10,51 @@ from sqlalchemy.orm import Session
 
 from app.models.status import StatusSubType, StatusType
 
+_WHERE_LIFECYCLE_ID = """
+    WHERE id = CAST(:lifecycle_id AS uuid)
+"""
+
+_WHERE_TENANT_WORKFLOW = """
+    WHERE tenant_id = CAST(:tenant_id AS uuid)
+      AND workflow_name = :workflow_name
+"""
+
+_LOOKUP_ORDER_LIMIT = """
+    ORDER BY updated_at DESC
+    LIMIT 1
+"""
+
 
 class WorkflowLifecyclesRepository:
     TABLE_NAME = "workflow_lifecycles"
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def _fetch_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        extra_predicate: str,
+        extra_params: dict[str, Any],
+    ) -> str | None:
+        sql = f"""
+            SELECT id::text
+            FROM {self.TABLE_NAME}
+            {_WHERE_TENANT_WORKFLOW}
+              {extra_predicate}
+            {_LOOKUP_ORDER_LIMIT}
+        """
+        params = {
+            "tenant_id": tenant_id,
+            "workflow_name": workflow_name,
+            **extra_params,
+        }
+        row = self._session.execute(text(sql), params).first()
+        if row and row[0]:
+            return str(row[0])
+        return None
 
     def get_for_update(
         self,
@@ -27,7 +66,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 SELECT status::text, sub_status::text, tenant_id::text, workflow_name
                 FROM {self.TABLE_NAME}
-                WHERE id = CAST(:lifecycle_id AS uuid)
+                {_WHERE_LIFECYCLE_ID}
                 FOR UPDATE
                 """
             ),
@@ -67,7 +106,7 @@ class WorkflowLifecyclesRepository:
         sql = f"""
             UPDATE {self.TABLE_NAME}
             SET {", ".join(updates)}
-            WHERE id = CAST(:lifecycle_id AS uuid)
+            {_WHERE_LIFECYCLE_ID}
         """
         result = self._session.execute(text(sql), params)
         return result.rowcount > 0
@@ -83,7 +122,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 UPDATE {self.TABLE_NAME}
                 SET email_thread_id = :email_thread_id, updated_at = NOW()
-                WHERE id = CAST(:lifecycle_id AS uuid)
+                {_WHERE_LIFECYCLE_ID}
                 """
             ),
             {
@@ -100,27 +139,12 @@ class WorkflowLifecyclesRepository:
         workflow_name: str,
         load_id: str,
     ) -> str | None:
-        row = self._session.execute(
-            text(
-                f"""
-                SELECT id::text
-                FROM {self.TABLE_NAME}
-                WHERE tenant_id = CAST(:tenant_id AS uuid)
-                  AND workflow_name = :workflow_name
-                  AND load_id = :load_id
-                ORDER BY updated_at DESC
-                LIMIT 1
-                """
-            ),
-            {
-                "tenant_id": tenant_id,
-                "workflow_name": workflow_name,
-                "load_id": load_id,
-            },
-        ).first()
-        if row and row[0]:
-            return str(row[0])
-        return None
+        return self._fetch_lifecycle_id(
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            extra_predicate="AND load_id = :load_id",
+            extra_params={"load_id": load_id},
+        )
 
     def find_existing_lifecycle_id(
         self,
@@ -147,26 +171,14 @@ class WorkflowLifecyclesRepository:
                 return found
 
         if tender_id:
-            row = self._session.execute(
-                text(
-                    f"""
-                    SELECT id::text
-                    FROM {self.TABLE_NAME}
-                    WHERE tenant_id = CAST(:tenant_id AS uuid)
-                      AND workflow_name = :workflow_name
-                      AND tender_id = CAST(:tender_id AS uuid)
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {
-                    "tenant_id": tenant_id,
-                    "workflow_name": workflow_name,
-                    "tender_id": tender_id,
-                },
-            ).first()
-            if row and row[0]:
-                return str(row[0])
+            found = self._fetch_lifecycle_id(
+                tenant_id=tenant_id,
+                workflow_name=workflow_name,
+                extra_predicate="AND tender_id = CAST(:tender_id AS uuid)",
+                extra_params={"tender_id": tender_id},
+            )
+            if found:
+                return found
 
         for field_name, field_value in (
             ("email_thread_id", thread_id),
@@ -174,26 +186,14 @@ class WorkflowLifecyclesRepository:
         ):
             if not field_value:
                 continue
-            row = self._session.execute(
-                text(
-                    f"""
-                    SELECT id::text
-                    FROM {self.TABLE_NAME}
-                    WHERE tenant_id = CAST(:tenant_id AS uuid)
-                      AND workflow_name = :workflow_name
-                      AND {field_name} = :field_value
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {
-                    "tenant_id": tenant_id,
-                    "workflow_name": workflow_name,
-                    "field_value": field_value,
-                },
-            ).first()
-            if row and row[0]:
-                return str(row[0])
+            found = self._fetch_lifecycle_id(
+                tenant_id=tenant_id,
+                workflow_name=workflow_name,
+                extra_predicate=f"AND {field_name} = :field_value",
+                extra_params={"field_value": field_value},
+            )
+            if found:
+                return found
         return None
 
     def insert_lifecycle(
@@ -248,7 +248,7 @@ class WorkflowLifecyclesRepository:
                 SELECT tenant_id::text, workflow_name, status::text, sub_status::text,
                        email_thread_id, tender_id::text, load_id
                 FROM {self.TABLE_NAME}
-                WHERE id = CAST(:lifecycle_id AS uuid)
+                {_WHERE_LIFECYCLE_ID}
                 """
             ),
             {"lifecycle_id": lifecycle_id},
@@ -272,7 +272,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 SELECT shipment_id::text, email_thread_id, workflow_name, load_id
                 FROM {self.TABLE_NAME}
-                WHERE id = CAST(:lifecycle_id AS uuid)
+                {_WHERE_LIFECYCLE_ID}
                 """
             ),
             {"lifecycle_id": lifecycle_id},
@@ -376,7 +376,7 @@ class WorkflowLifecyclesRepository:
                 SET
                     sub_status = CAST(:sub_status AS lifecycle_sub_status),
                     updated_at = NOW()
-                WHERE id = CAST(:lifecycle_id AS uuid)
+                {_WHERE_LIFECYCLE_ID}
                 """
             ),
             {

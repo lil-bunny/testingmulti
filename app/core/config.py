@@ -25,9 +25,6 @@ class Settings(BaseSettings):
 
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
-    TENANTS_TABLE: str = "tenants"
-    DOCUMENTS_TABLE: str = "documents"
-    DOCUMENT_ANALYSIS_TABLE: str = "document_analysis"
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int

@@ -6,15 +6,12 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from app.core.config import settings
 from app.core.db import db_scope, db_transaction, fetchone_dict
 from app.models.document_analysis import DocumentAnalysisType
 
 logger = logging.getLogger(__name__)
 
-
-def _table() -> str:
-    return settings.DOCUMENT_ANALYSIS_TABLE
+TABLE_NAME = "document_analysis"
 
 
 def upsert_document_analysis(
@@ -33,9 +30,8 @@ def upsert_document_analysis(
         return {"stored": False, "id": None, "error": "missing_shipment_id"}
 
     row_id = str(uuid.uuid4())
-    t = _table()
     sql = f"""
-        INSERT INTO {t} (
+        INSERT INTO {TABLE_NAME} (
             id, shipment_id, analysis_type, status, confidence_score,
             llm_model, attachments_used, findings
         )

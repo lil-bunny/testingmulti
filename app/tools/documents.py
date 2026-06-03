@@ -10,16 +10,13 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from app.core.config import settings
 from app.core.db import db_scope, db_transaction, fetchone_dict
 from app.models.document import DocumentType
 from app.services.s3bucket_service import normalize_object_key
 
 logger = logging.getLogger(__name__)
 
-
-def _table_name() -> str:
-    return settings.DOCUMENTS_TABLE
+TABLE_NAME = "documents"
 
 
 def insert_document(
@@ -54,9 +51,8 @@ def insert_document(
         return {"stored": False, "id": None, "error": "empty_object_key"}
 
     doc_id = str(uuid.uuid4())
-    t = _table_name()
     sql = f"""
-        INSERT INTO {t} (id, type, shipment_id, object_key)
+        INSERT INTO {TABLE_NAME} (id, type, shipment_id, object_key)
         VALUES (:id, :type, :shipment_id, :object_key)
         ON CONFLICT (object_key) DO UPDATE
         SET
@@ -124,10 +120,9 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             "error": "missing_shipment_id",
         }
 
-    t = _table_name()
     sql = f"""
         SELECT id, object_key, type, shipment_id, created_at
-        FROM {t}
+        FROM {TABLE_NAME}
         WHERE shipment_id = :shipment_id AND type = :type
           AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
         ORDER BY created_at DESC
