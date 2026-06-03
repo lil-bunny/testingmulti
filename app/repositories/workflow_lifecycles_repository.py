@@ -27,7 +27,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 SELECT status::text, sub_status::text, tenant_id::text, workflow_name
                 FROM {self.TABLE_NAME}
-                WHERE id = :lifecycle_id::uuid
+                WHERE id = CAST(:lifecycle_id AS uuid)
                 FOR UPDATE
                 """
             ),
@@ -53,11 +53,11 @@ class WorkflowLifecyclesRepository:
         params: dict[str, Any] = {"lifecycle_id": lifecycle_id}
 
         if status is not None:
-            updates.append("status = :status::lifecycle_status")
+            updates.append("status = CAST(:status AS lifecycle_status)")
             params["status"] = status.value
 
         if sub_status is not None:
-            updates.append("sub_status = :sub_status::lifecycle_sub_status")
+            updates.append("sub_status = CAST(:sub_status AS lifecycle_sub_status)")
             params["sub_status"] = sub_status.value
 
         if not updates:
@@ -67,7 +67,7 @@ class WorkflowLifecyclesRepository:
         sql = f"""
             UPDATE {self.TABLE_NAME}
             SET {", ".join(updates)}
-            WHERE id = :lifecycle_id::uuid
+            WHERE id = CAST(:lifecycle_id AS uuid)
         """
         result = self._session.execute(text(sql), params)
         return result.rowcount > 0
@@ -83,7 +83,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 UPDATE {self.TABLE_NAME}
                 SET email_thread_id = :email_thread_id, updated_at = NOW()
-                WHERE id = :lifecycle_id::uuid
+                WHERE id = CAST(:lifecycle_id AS uuid)
                 """
             ),
             {
@@ -105,7 +105,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 SELECT id::text
                 FROM {self.TABLE_NAME}
-                WHERE tenant_id = :tenant_id::uuid
+                WHERE tenant_id = CAST(:tenant_id AS uuid)
                   AND workflow_name = :workflow_name
                   AND load_id = :load_id
                 ORDER BY updated_at DESC
@@ -152,9 +152,9 @@ class WorkflowLifecyclesRepository:
                     f"""
                     SELECT id::text
                     FROM {self.TABLE_NAME}
-                    WHERE tenant_id = :tenant_id::uuid
+                    WHERE tenant_id = CAST(:tenant_id AS uuid)
                       AND workflow_name = :workflow_name
-                      AND tender_id = :tender_id::uuid
+                      AND tender_id = CAST(:tender_id AS uuid)
                     ORDER BY updated_at DESC
                     LIMIT 1
                     """
@@ -179,7 +179,7 @@ class WorkflowLifecyclesRepository:
                     f"""
                     SELECT id::text
                     FROM {self.TABLE_NAME}
-                    WHERE tenant_id = :tenant_id::uuid
+                    WHERE tenant_id = CAST(:tenant_id AS uuid)
                       AND workflow_name = :workflow_name
                       AND {field_name} = :field_value
                     ORDER BY updated_at DESC
@@ -219,11 +219,11 @@ class WorkflowLifecyclesRepository:
                     email_thread_id,
                     shipment_id
                 ) VALUES (
-                    :lifecycle_id::uuid,
-                    :tenant_id::uuid,
+                    CAST(:lifecycle_id AS uuid),
+                    CAST(:tenant_id AS uuid),
                     :workflow_name,
                     :load_id,
-                    :tender_id::uuid,
+                    CAST(:tender_id AS uuid),
                     :thread_id,
                     :shipment_id
                 )
@@ -248,7 +248,7 @@ class WorkflowLifecyclesRepository:
                 SELECT tenant_id::text, workflow_name, status::text, sub_status::text,
                        email_thread_id, tender_id::text, load_id
                 FROM {self.TABLE_NAME}
-                WHERE id = :lifecycle_id::uuid
+                WHERE id = CAST(:lifecycle_id AS uuid)
                 """
             ),
             {"lifecycle_id": lifecycle_id},
@@ -272,7 +272,7 @@ class WorkflowLifecyclesRepository:
                 f"""
                 SELECT shipment_id::text, email_thread_id, workflow_name, load_id
                 FROM {self.TABLE_NAME}
-                WHERE id = :lifecycle_id::uuid
+                WHERE id = CAST(:lifecycle_id AS uuid)
                 """
             ),
             {"lifecycle_id": lifecycle_id},
@@ -374,9 +374,9 @@ class WorkflowLifecyclesRepository:
                 f"""
                 UPDATE {self.TABLE_NAME}
                 SET
-                    sub_status = :sub_status::lifecycle_sub_status,
+                    sub_status = CAST(:sub_status AS lifecycle_sub_status),
                     updated_at = NOW()
-                WHERE id = :lifecycle_id::uuid
+                WHERE id = CAST(:lifecycle_id AS uuid)
                 """
             ),
             {

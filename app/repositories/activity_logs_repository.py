@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.db import execute_scalar
+from app.core.db import execute_scalar, jsonb_param
 
 
 class ActivityLogsRepository:
@@ -46,7 +46,7 @@ class ActivityLogsRepository:
                 CAST(:to_sub_status AS lifecycle_sub_status),
                 :actor_type,
                 CAST(:actor_id AS uuid),
-                :metadata
+                CAST(:metadata AS jsonb)
             )
             RETURNING id::text
             """,
@@ -62,7 +62,7 @@ class ActivityLogsRepository:
                 "to_sub_status": row.get("to_sub_status"),
                 "actor_type": row.get("actor_type"),
                 "actor_id": row.get("actor_id"),
-                "metadata": row.get("metadata") or {},
+                "metadata": jsonb_param(row.get("metadata") or {}),
             },
         )
         if not row_id:

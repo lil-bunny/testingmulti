@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.db import execute_scalar, fetchone_dict, parse_json
+from app.core.db import execute_scalar, fetchone_dict, jsonb_param, parse_json
 
 
 class DataImportsRepository:
@@ -46,7 +46,7 @@ class DataImportsRepository:
                 CAST(:data_type AS data_import_data_type),
                 CAST(:source_type AS data_import_source_type),
                 :file_name,
-                :raw_data
+                CAST(:raw_data AS jsonb)
             )
             RETURNING id::text
             """,
@@ -55,7 +55,7 @@ class DataImportsRepository:
                 "data_type": dt,
                 "source_type": st,
                 "file_name": file_name,
-                "raw_data": raw_data,
+                "raw_data": jsonb_param(raw_data),
             },
         )
         if not row_id:
@@ -166,14 +166,14 @@ class DataImportsRepository:
         if file_name is not None:
             sql = f"""
                 UPDATE {self.TABLE_NAME}
-                SET raw_data = :raw_data,
+                SET raw_data = CAST(:raw_data AS jsonb),
                     file_name = :file_name,
                     updated_at = NOW()
                 WHERE id = CAST(:data_import_id AS uuid)
                   AND tenant_id = CAST(:tenant_id AS uuid)
             """
             params: dict[str, Any] = {
-                "raw_data": raw_data,
+                "raw_data": jsonb_param(raw_data),
                 "file_name": file_name,
                 "data_import_id": did,
                 "tenant_id": tid,
@@ -181,13 +181,13 @@ class DataImportsRepository:
         else:
             sql = f"""
                 UPDATE {self.TABLE_NAME}
-                SET raw_data = :raw_data,
+                SET raw_data = CAST(:raw_data AS jsonb),
                     updated_at = NOW()
                 WHERE id = CAST(:data_import_id AS uuid)
                   AND tenant_id = CAST(:tenant_id AS uuid)
             """
             params = {
-                "raw_data": raw_data,
+                "raw_data": jsonb_param(raw_data),
                 "data_import_id": did,
                 "tenant_id": tid,
             }

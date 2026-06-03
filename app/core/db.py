@@ -50,6 +50,20 @@ def parse_json(raw: Any) -> dict[str, Any]:
     return {}
 
 
+def jsonb_param(value: Any) -> str | None:
+    """
+    Serialize a value for ``CAST(:name AS jsonb)`` bind parameters.
+
+    psycopg v3 does not adapt Python ``dict``/``list`` to JSONB in raw ``text()``
+    queries; pass the result of this helper instead. Returns ``None`` for SQL NULL.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, default=str)
+
+
 def _row_to_dict(row: Any, *, json_keys: frozenset[str] = frozenset()) -> dict[str, Any]:
     data = dict(row._mapping)
     for key in json_keys:

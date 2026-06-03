@@ -67,16 +67,16 @@ class WorkflowRunsRepository:
             f"""
             SELECT EXISTS (
                 SELECT 1 FROM {self.TABLE_NAME} wr
-                WHERE trim(both wr.workflow_lifecycle_id::text) = trim(both :wl::text)
+                WHERE trim(both wr.workflow_lifecycle_id::text) = trim(both CAST(:wl AS text))
                   AND wr.event_type = :et
-                  AND (:exc::text IS NULL OR trim(both wr.id::text) != trim(both :exc::text))
+                  AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
                 UNION ALL
                 SELECT 1 FROM {self.TABLE_NAME} wr
                 INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
-                WHERE trim(both wr.tenant_id::text) = trim(both :tid::text)
+                WHERE trim(both wr.tenant_id::text) = trim(both CAST(:tid AS text))
                   AND wr.event_type = 'route_completed'
                   AND wl.shipment_id IS NOT DISTINCT FROM :sid
-                  AND (:exc::text IS NULL OR trim(both wr.id::text) != trim(both :exc::text))
+                  AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
             )
             """,
             {"wl": wl, "et": et, "exc": exc, "tid": tid, "sid": sid},
@@ -114,7 +114,7 @@ class WorkflowRunsRepository:
                 )
                 VALUES (
                     :run_id,
-                    :tenant_id::uuid,
+                    CAST(:tenant_id AS uuid),
                     :event_type,
                     :workflow_lifecycle_id
                 )
@@ -145,7 +145,7 @@ class WorkflowRunsRepository:
                    created_at,
                    updated_at
             FROM {self.TABLE_NAME}
-            WHERE trim(both id::text) = trim(both :run_id::text)
+            WHERE trim(both id::text) = trim(both CAST(:run_id AS text))
             """,
             {"run_id": rid},
         )

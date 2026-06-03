@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.db import execute_scalar, fetchall_dicts
+from app.core.db import execute_scalar, fetchall_dicts, jsonb_param
 
 
 class CommunicationsRepository:
@@ -88,7 +88,7 @@ class CommunicationsRepository:
                 :external_id,
                 :thread_id,
                 :content,
-                :metadata,
+                CAST(:metadata AS jsonb),
                 CAST(:workflow_run_id AS uuid)
             )
             ON CONFLICT (tenant_id, external_id)
@@ -103,7 +103,7 @@ class CommunicationsRepository:
                 "external_id": row.get("external_id"),
                 "thread_id": row.get("thread_id"),
                 "content": row.get("content"),
-                "metadata": row.get("metadata") or {},
+                "metadata": jsonb_param(row.get("metadata") or {}),
                 "workflow_run_id": row.get("workflow_run_id"),
             },
         )

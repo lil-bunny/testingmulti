@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.db import parse_json
+from app.core.db import jsonb_param, parse_json
 
 
 class TenderProductsRepository:
@@ -64,7 +64,7 @@ class TenderProductsRepository:
                     pc.is_active
                 FROM {self.TABLE_NAME} tp
                 LEFT JOIN pack_codes pc ON pc.id = tp.pack_code_id
-                WHERE tp.tenant_id = :tenant_id::uuid AND tp.tender_id = :tender_id::uuid
+                WHERE tp.tenant_id = CAST(:tenant_id AS uuid) AND tp.tender_id = CAST(:tender_id AS uuid)
                 ORDER BY tp.created_at ASC, tp.id ASC
                 """
             ),
@@ -120,7 +120,7 @@ class TenderProductsRepository:
                 f"""
                 SELECT product_name, order_quantity, pack_code_id::text
                 FROM {self.TABLE_NAME}
-                WHERE tender_id = :tender_id::uuid
+                WHERE tender_id = CAST(:tender_id AS uuid)
                 """
             ),
             {"tender_id": tender_id},
@@ -154,9 +154,9 @@ class TenderProductsRepository:
                 metadata
             )
             VALUES (
-                :tenant_id::uuid,
-                :tender_id::uuid,
-                :pack_code_id::uuid,
+                CAST(:tenant_id AS uuid),
+                CAST(:tender_id AS uuid),
+                CAST(:pack_code_id AS uuid),
                 :product_name,
                 :order_quantity,
                 :price_per_unit,
@@ -174,7 +174,7 @@ class TenderProductsRepository:
                     "product_name": r["product_name"],
                     "order_quantity": r["order_quantity"],
                     "price_per_unit": r.get("price_per_unit"),
-                    "metadata": r.get("metadata") or {},
+                    "metadata": jsonb_param(r.get("metadata") or {}),
                 },
             )
 

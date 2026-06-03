@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.db import jsonb_param
 
 
 def _table() -> str:
@@ -124,7 +125,7 @@ class TurvoOAuthRepository:
                 f"UPDATE {table} SET settings = CAST(:settings AS jsonb) "
                 f"WHERE {_SQL_APP_USER_MATCH} = :needle"
             ),
-            {"settings": cfg, "needle": needle},
+            {"settings": jsonb_param(cfg), "needle": needle},
         )
         if result.rowcount == 0:
             raise RuntimeError(

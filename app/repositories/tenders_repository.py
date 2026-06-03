@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.db import parse_json
+from app.core.db import jsonb_param, parse_json
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ class TendersRepository:
                     delivery_address,
                     metadata
                 FROM {self.TABLE_NAME}
-                WHERE id = :tender_id::uuid AND tenant_id = :tenant_id::uuid
+                WHERE id = CAST(:tender_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)
                 LIMIT 1
                 """
             ),
@@ -102,7 +102,7 @@ class TendersRepository:
                 f"""
                 SELECT id::text, order_number
                 FROM {self.TABLE_NAME}
-                WHERE tenant_id = :tenant_id::uuid AND order_number = :order_number
+                WHERE tenant_id = CAST(:tenant_id AS uuid) AND order_number = :order_number
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """
@@ -127,8 +127,8 @@ class TendersRepository:
             text(
                 f"""
                 UPDATE {self.TABLE_NAME}
-                SET load_type = :load_type::load_type, updated_at = NOW()
-                WHERE id = :tender_id::uuid AND tenant_id = :tenant_id::uuid
+                SET load_type = CAST(:load_type AS load_type), updated_at = NOW()
+                WHERE id = CAST(:tender_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)
                 """
             ),
             {"load_type": lt, "tender_id": tr, "tenant_id": tid},
@@ -160,15 +160,15 @@ class TendersRepository:
                 metadata
             )
             VALUES (
-                :tenant_id::uuid,
+                CAST(:tenant_id AS uuid),
                 :order_number,
                 :customer_name,
                 :shipping_date,
                 :delivery_date,
-                :pickup_location_id::uuid,
-                :delivery_location_id::uuid,
-                :load_type::load_type,
-                :data_import_id::uuid,
+                CAST(:pickup_location_id AS uuid),
+                CAST(:delivery_location_id AS uuid),
+                CAST(:load_type AS load_type),
+                CAST(:data_import_id AS uuid),
                 CAST(:delivery_address AS jsonb),
                 CAST(:metadata AS jsonb)
             )
@@ -181,7 +181,7 @@ class TendersRepository:
             f"""
             SELECT id::text
             FROM {self.TABLE_NAME}
-            WHERE tenant_id = :tenant_id::uuid AND order_number = :order_number
+            WHERE tenant_id = CAST(:tenant_id AS uuid) AND order_number = :order_number
             LIMIT 1
             """
         )
@@ -199,8 +199,8 @@ class TendersRepository:
                     "delivery_location_id": r.get("delivery_location_id"),
                     "load_type": r["load_type"],
                     "data_import_id": r["data_import_id"],
-                    "delivery_address": r.get("delivery_address"),
-                    "metadata": r.get("metadata") or {},
+                    "delivery_address": jsonb_param(r.get("delivery_address")),
+                    "metadata": jsonb_param(r.get("metadata") or {}),
                 },
             ).first()
             if row and row[0]:
