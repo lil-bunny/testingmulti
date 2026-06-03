@@ -4,90 +4,41 @@ from __future__ import annotations
 
 from typing import Any
 
-import psycopg
-
-from app.core.config import settings
+from app.core.db import db_scope, fetchall_dicts, fetchone_dict
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-
-def _conn():
-    return psycopg.connect(settings.DATABASE_URL)
 
 
 def fetch_documents_for_shipment(*, shipment_id: str) -> list[dict[str, Any]]:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, type::text AS type, shipment_id, object_key, created_at
-                FROM documents
-                WHERE shipment_id = %s
-                ORDER BY created_at ASC
-                """,
-                (shipment_id,),
-            )
-            rows = cur.fetchall()
-            cols = ["id", "type", "shipment_id", "object_key", "created_at"]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    sql = """
+        SELECT id, type::text AS type, shipment_id, object_key, created_at
+        FROM documents
+        WHERE shipment_id = :shipment_id
+        ORDER BY created_at ASC
+    """
+    with db_scope() as repos:
+        return fetchall_dicts(repos.session, sql, {"shipment_id": shipment_id})
 
 
 def fetch_document_analysis_for_shipment(*, shipment_id: str) -> list[dict[str, Any]]:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, shipment_id, analysis_type::text AS analysis_type,
-                       status, findings, attachments_used, created_at
-                FROM document_analysis
-                WHERE shipment_id = %s
-                ORDER BY created_at ASC
-                """,
-                (shipment_id,),
-            )
-            rows = cur.fetchall()
-            cols = [
-                "id",
-                "shipment_id",
-                "analysis_type",
-                "status",
-                "findings",
-                "attachments_used",
-                "created_at",
-            ]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    sql = """
+        SELECT id, shipment_id, analysis_type::text AS analysis_type,
+               status, findings, attachments_used, created_at
+        FROM document_analysis
+        WHERE shipment_id = :shipment_id
+        ORDER BY created_at ASC
+    """
+    with db_scope() as repos:
+        return fetchall_dicts(repos.session, sql, {"shipment_id": shipment_id})
 
 
 def fetch_lifecycle_by_id(*, lifecycle_id: str) -> dict[str, Any] | None:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE id = %s
-                """,
-                (lifecycle_id,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return dict(zip(cols, row, strict=True))
-    finally:
-        conn.close()
+    sql = """
+        SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
+        FROM workflow_lifecycles
+        WHERE id = :lifecycle_id
+    """
+    with db_scope() as repos:
+        return fetchone_dict(repos.session, sql, {"lifecycle_id": lifecycle_id})
 
 
 def fetch_ratecon_lifecycle_for_thread(*, tenant_id: str, thread_id: str) -> dict[str, Any] | None:
@@ -96,35 +47,19 @@ def fetch_ratecon_lifecycle_for_thread(*, tenant_id: str, thread_id: str) -> dic
     th = (thread_id or "").strip()
     if not tid or not th:
         return None
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE tenant_id = %s
-                  AND workflow_name = 'ratecon'
-                  AND email_thread_id = %s
-                ORDER BY updated_at DESC
-                LIMIT 1
-                """,
-                (tid, th),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return dict(zip(cols, row, strict=True))
-    finally:
-        conn.close()
+    sql = """
+        SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
+        FROM workflow_lifecycles
+        WHERE tenant_id = :tenant_id
+          AND workflow_name = 'ratecon'
+          AND email_thread_id = :thread_id
+        ORDER BY updated_at DESC
+        LIMIT 1
+    """
+    with db_scope() as repos:
+        return fetchone_dict(
+            repos.session, sql, {"tenant_id": tid, "thread_id": th}
+        )
 
 
 def fetch_lifecycles_for_email_thread(*, tenant_id: str, thread_id: str) -> list[dict[str, Any]]:
@@ -133,30 +68,16 @@ def fetch_lifecycles_for_email_thread(*, tenant_id: str, thread_id: str) -> list
     th = (thread_id or "").strip()
     if not tid or not th:
         return []
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE tenant_id = %s AND email_thread_id = %s
-                ORDER BY updated_at DESC
-                """,
-                (tid, th),
-            )
-            rows = cur.fetchall()
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    sql = """
+        SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
+        FROM workflow_lifecycles
+        WHERE tenant_id = :tenant_id AND email_thread_id = :thread_id
+        ORDER BY updated_at DESC
+    """
+    with db_scope() as repos:
+        return fetchall_dicts(
+            repos.session, sql, {"tenant_id": tid, "thread_id": th}
+        )
 
 
 def fetch_lifecycles_for_tenant_shipment(*, tenant_id: str, shipment_id: str) -> list[dict[str, Any]]:
@@ -165,30 +86,16 @@ def fetch_lifecycles_for_tenant_shipment(*, tenant_id: str, shipment_id: str) ->
     sid = str(shipment_id or "").strip()
     if not tid or not sid:
         return []
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE tenant_id = %s AND shipment_id = %s
-                ORDER BY updated_at DESC
-                """,
-                (tid, sid),
-            )
-            rows = cur.fetchall()
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    sql = """
+        SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
+        FROM workflow_lifecycles
+        WHERE tenant_id = :tenant_id AND shipment_id = :shipment_id
+        ORDER BY updated_at DESC
+    """
+    with db_scope() as repos:
+        return fetchall_dicts(
+            repos.session, sql, {"tenant_id": tid, "shipment_id": sid}
+        )
 
 
 def count_workflow_runs_for_shipment(*, tenant_id: str, shipment_id: str) -> int:
@@ -202,19 +109,18 @@ def count_workflow_runs_for_shipment(*, tenant_id: str, shipment_id: str) -> int
     if not tid:
         return 0
 
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT COUNT(*)::bigint
-                FROM workflow_runs wr
-                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
-                WHERE wr.tenant_id = %s::uuid AND wl.shipment_id = %s
-                """,
-                (tid, sid),
-            )
-            row = cur.fetchone()
-            return int(row[0]) if row and row[0] is not None else 0
-    finally:
-        conn.close()
+    sql = """
+        SELECT COUNT(*)::bigint AS count
+        FROM workflow_runs wr
+        INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+        WHERE wr.tenant_id = CAST(:tenant_id AS uuid) AND wl.shipment_id = :shipment_id
+    """
+    with db_scope() as repos:
+        row = fetchone_dict(
+            repos.session,
+            sql,
+            {"tenant_id": tid, "shipment_id": sid},
+        )
+        if not row:
+            return 0
+        return int(row["count"] or 0)

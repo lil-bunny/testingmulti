@@ -4,16 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import psycopg
-
-from app.core.config import settings
+from app.core.db import db_scope, fetchall_dicts, fetchone_dict
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 _WORKFLOW_RUNS_TABLE = "workflow_runs"
-
-
-def _conn() -> psycopg.Connection:
-    return psycopg.connect(settings.DATABASE_URL)
 
 
 def _tenant_uuid_for_queries(tenant_id: str) -> str:
@@ -37,32 +31,27 @@ def fetch_latest_workflow_run_for_tenant_shipment(
     sid = str(shipment_id).strip()
     if not sid:
         return None
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id, wl.shipment_id
-                FROM {_WORKFLOW_RUNS_TABLE} wr
-                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
-                WHERE wr.tenant_id = %s::uuid AND wl.shipment_id IS NOT DISTINCT FROM %s
-                ORDER BY wr.created_at DESC
-                LIMIT 1
-                """,
-                (tenant_uuid, sid),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            return {
-                "id": str(row[0]),
-                "tenant_id": str(row[1]),
-                "event_type": row[2],
-                "workflow_lifecycle_id": str(row[3]),
-                "shipment_id": row[4],
-            }
-    finally:
-        conn.close()
+    sql = f"""
+        SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id, wl.shipment_id
+        FROM {_WORKFLOW_RUNS_TABLE} wr
+        INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+        WHERE wr.tenant_id = CAST(:tenant_id AS uuid) AND wl.shipment_id IS NOT DISTINCT FROM :shipment_id
+        ORDER BY wr.created_at DESC
+        LIMIT 1
+    """
+    with db_scope() as repos:
+        row = fetchone_dict(
+            repos.session, sql, {"tenant_id": tenant_uuid, "shipment_id": sid}
+        )
+    if row is None:
+        return None
+    return {
+        "id": str(row["id"]),
+        "tenant_id": str(row["tenant_id"]),
+        "event_type": row["event_type"],
+        "workflow_lifecycle_id": str(row["workflow_lifecycle_id"]),
+        "shipment_id": row["shipment_id"],
+    }
 
 
 def list_workflow_runs_for_lifecycle_event_type(
@@ -74,35 +63,33 @@ def list_workflow_runs_for_lifecycle_event_type(
     et = str(event_type).strip()
     if not wl or not et:
         return []
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id,
-                       wr.created_at
-                FROM {_WORKFLOW_RUNS_TABLE} wr
-                WHERE wr.workflow_lifecycle_id = %s::uuid AND wr.event_type = %s
-                ORDER BY wr.created_at ASC
-                """,
-                (wl, et),
-            )
-            rows = cur.fetchall()
-            out: list[dict[str, Any]] = []
-            for row in rows:
-                out.append(
-                    {
-                        "id": str(row[0]),
-                        "tenant_id": str(row[1]),
-                        "event_type": row[2],
-                        "workflow_lifecycle_id": str(row[3]),
-                        "created_at": row[4],
-                        "shipment_id": None,
-                    }
-                )
-            return out
-    finally:
-        conn.close()
+    sql = f"""
+        SELECT wr.id, wr.tenant_id, wr.event_type, wr.workflow_lifecycle_id,
+               wr.created_at
+        FROM {_WORKFLOW_RUNS_TABLE} wr
+        WHERE wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+          AND wr.event_type = :event_type
+        ORDER BY wr.created_at ASC
+    """
+    with db_scope() as repos:
+        rows = fetchall_dicts(
+            repos.session,
+            sql,
+            {"workflow_lifecycle_id": wl, "event_type": et},
+        )
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        out.append(
+            {
+                "id": str(row["id"]),
+                "tenant_id": str(row["tenant_id"]),
+                "event_type": row["event_type"],
+                "workflow_lifecycle_id": str(row["workflow_lifecycle_id"]),
+                "created_at": row["created_at"],
+                "shipment_id": None,
+            }
+        )
+    return out
 
 
 def execution_id_from_webhook_response(body: Any) -> str | None:

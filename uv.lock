@@ -453,6 +453,7 @@ dependencies = [
     { name = "pytest-order" },
     { name = "python-dotenv" },
     { name = "redis" },
+    { name = "sqlalchemy" },
     { name = "thefuzz" },
     { name = "uvicorn" },
 ]
@@ -462,7 +463,6 @@ dev = [
     { name = "alembic" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "sqlalchemy" },
 ]
 
 [package.metadata]
@@ -494,6 +494,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "redis", specifier = ">=5.0.0" },
     { name = "redis", specifier = ">=7.4.0" },
+    { name = "sqlalchemy", specifier = ">=2.0.44" },
     { name = "thefuzz", specifier = ">=0.22.1" },
     { name = "uvicorn", specifier = ">=0.39.0" },
 ]
@@ -503,7 +504,6 @@ dev = [
     { name = "alembic", specifier = ">=1.17.0" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.44" },
 ]
 
 [[package]]

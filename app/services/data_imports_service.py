@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.core.service_db import run_with_repos
 from app.domain.delivery_locations_import import (
     DELIVERY_LOCATIONS_FILE_NAME,
     is_delivery_locations_attachment,
@@ -14,7 +15,10 @@ from app.repositories.data_imports_repository import DataImportsRepository
 
 class DataImportsService:
     def __init__(self, repository: Optional[DataImportsRepository] = None) -> None:
-        self._repository = repository or DataImportsRepository()
+        self._repository = repository
+
+    def _repo(self, repos: Any) -> DataImportsRepository:
+        return self._repository or repos.data_imports
 
     def find_by_email_attachment_source(
         self,
@@ -23,10 +27,18 @@ class DataImportsService:
         email_id: str,
         attachment_id: str,
     ) -> str | None:
-        return self._repository.find_id_by_email_attachment_source(
-            tenant_id=tenant_id,
-            email_id=email_id,
-            attachment_id=attachment_id,
+        if self._repository is not None:
+            return self._repository.find_id_by_email_attachment_source(
+                tenant_id=tenant_id,
+                email_id=email_id,
+                attachment_id=attachment_id,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).find_id_by_email_attachment_source(
+                tenant_id=tenant_id,
+                email_id=email_id,
+                attachment_id=attachment_id,
+            )
         )
 
     def record_email_load_tendering_import(
@@ -61,12 +73,24 @@ class DataImportsService:
                 for k, v in source.items()
                 if v is not None and str(v).strip()
             }
-        return self._repository.insert(
-            tenant_id=tenant_id,
-            data_type=validated_data_type,
-            source_type=source_type.value,
-            file_name=file_name,
-            raw_data=raw_data,
+
+        if self._repository is not None:
+            return self._repository.insert(
+                tenant_id=tenant_id,
+                data_type=validated_data_type,
+                source_type=source_type.value,
+                file_name=file_name,
+                raw_data=raw_data,
+            )
+
+        return run_with_repos(
+            lambda repos: self._repo(repos).insert(
+                tenant_id=tenant_id,
+                data_type=validated_data_type,
+                source_type=source_type.value,
+                file_name=file_name,
+                raw_data=raw_data,
+            )
         )
 
     def _build_email_import_raw_data(
@@ -98,11 +122,6 @@ class DataImportsService:
         ingest_result: dict[str, Any],
         source: dict[str, str] | None = None,
     ) -> str:
-        """
-        Upsert delivery locations import keyed by tenant + ``delivery_location.xlsx``.
-
-        Updates ``raw_data`` when the same logical file was already stored for the tenant.
-        """
         if not isinstance(ingest_result, dict):
             raise ValueError("ingest_result must be a dict")
 
@@ -123,24 +142,49 @@ class DataImportsService:
             source=source,
         )
 
-        existing_id = self._repository.find_id_by_tenant_data_type_and_file_name(
-            tenant_id=tenant_id,
-            data_type=DataImportDataType.DELIVERY_LOCATION.value,
-            file_name=DELIVERY_LOCATIONS_FILE_NAME,
-        )
-        if existing_id:
-            self._repository.update_raw_data(
+        if self._repository is not None:
+            existing_id = self._repository.find_id_by_tenant_data_type_and_file_name(
                 tenant_id=tenant_id,
-                data_import_id=existing_id,
-                raw_data=raw_data,
+                data_type=DataImportDataType.DELIVERY_LOCATION.value,
                 file_name=DELIVERY_LOCATIONS_FILE_NAME,
             )
-            return existing_id
+            if existing_id:
+                self._repository.update_raw_data(
+                    tenant_id=tenant_id,
+                    data_import_id=existing_id,
+                    raw_data=raw_data,
+                    file_name=DELIVERY_LOCATIONS_FILE_NAME,
+                )
+                return existing_id
+            return self._repository.insert(
+                tenant_id=tenant_id,
+                data_type=DataImportDataType.DELIVERY_LOCATION.value,
+                source_type=source_type.value,
+                file_name=DELIVERY_LOCATIONS_FILE_NAME,
+                raw_data=raw_data,
+            )
 
-        return self._repository.insert(
-            tenant_id=tenant_id,
-            data_type=DataImportDataType.DELIVERY_LOCATION.value,
-            source_type=source_type.value,
-            file_name=DELIVERY_LOCATIONS_FILE_NAME,
-            raw_data=raw_data,
-        )
+        def _run(repos: Any) -> str:
+            repo = self._repo(repos)
+            existing_id = repo.find_id_by_tenant_data_type_and_file_name(
+                tenant_id=tenant_id,
+                data_type=DataImportDataType.DELIVERY_LOCATION.value,
+                file_name=DELIVERY_LOCATIONS_FILE_NAME,
+            )
+            if existing_id:
+                repo.update_raw_data(
+                    tenant_id=tenant_id,
+                    data_import_id=existing_id,
+                    raw_data=raw_data,
+                    file_name=DELIVERY_LOCATIONS_FILE_NAME,
+                )
+                return existing_id
+            return repo.insert(
+                tenant_id=tenant_id,
+                data_type=DataImportDataType.DELIVERY_LOCATION.value,
+                source_type=source_type.value,
+                file_name=DELIVERY_LOCATIONS_FILE_NAME,
+                raw_data=raw_data,
+            )
+
+        return run_with_repos(_run)

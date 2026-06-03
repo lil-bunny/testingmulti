@@ -13,14 +13,10 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import psycopg
-from psycopg.types.json import Json
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-
-
-def _conn():
-    return psycopg.connect(settings.DATABASE_URL)
 
 
 def _table() -> str:
@@ -97,18 +93,20 @@ _SQL_APP_USER_MATCH = "(settings::jsonb ->> 'app_user_id')"
 
 
 class TurvoOAuthRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
     def _load_config(self, app_user_id: str) -> Optional[dict[str, Any]]:
         needle = _resolve_needle(app_user_id)
         if not needle:
             return None
         table = _table()
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT settings FROM {table} WHERE {_SQL_APP_USER_MATCH} = %s",
-                    (needle,),
-                )
-                row = cur.fetchone()
+        row = self._session.execute(
+            text(
+                f"SELECT settings FROM {table} WHERE {_SQL_APP_USER_MATCH} = :needle"
+            ),
+            {"needle": needle},
+        ).first()
         if not row:
             return None
         return _normalize_config(row[0])
@@ -121,17 +119,17 @@ class TurvoOAuthRepository:
                 "TURVO_DEFAULT_APP_USER_ID)"
             )
         table = _table()
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"UPDATE {table} SET settings = %s WHERE {_SQL_APP_USER_MATCH} = %s",
-                    (Json(cfg), needle),
-                )
-                if cur.rowcount == 0:
-                    raise RuntimeError(
-                        f"No {table} row with settings.app_user_id={needle!r}; create tenant first."
-                    )
-            conn.commit()
+        result = self._session.execute(
+            text(
+                f"UPDATE {table} SET settings = CAST(:settings AS jsonb) "
+                f"WHERE {_SQL_APP_USER_MATCH} = :needle"
+            ),
+            {"settings": cfg, "needle": needle},
+        )
+        if result.rowcount == 0:
+            raise RuntimeError(
+                f"No {table} row with settings.app_user_id={needle!r}; create tenant first."
+            )
 
     def get_row(self, app_user_id: str) -> Optional[dict[str, Any]]:
         needle = _resolve_needle(app_user_id)

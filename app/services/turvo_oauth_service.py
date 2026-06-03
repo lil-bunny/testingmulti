@@ -9,6 +9,7 @@ from typing import Any, Optional
 from app.core.at_rest_secret import decrypt_password, encrypt_password
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.core.service_db import run_with_repos
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError, post_token
 from app.integrations.turvo.public_api_urls import (
     build_oauth_token_url,
@@ -52,7 +53,22 @@ def _expires_at_from_token_response(data: dict[str, Any]) -> Optional[datetime]:
 
 class TurvoOAuthService:
     def __init__(self, repository: Optional[TurvoOAuthRepository] = None):
-        self._repo = repository or TurvoOAuthRepository()
+        self._repo = repository
+
+    def _repo_or(self, repos: Any) -> TurvoOAuthRepository:
+        return self._repo or repos.turvo_oauth
+
+    def _get_row(self, app_user_id: str) -> Optional[dict[str, Any]]:
+        if self._repo is not None:
+            return self._repo.get_row(app_user_id)
+        return run_with_repos(lambda repos: self._repo_or(repos).get_row(app_user_id))
+
+    def has_user(self, app_user_id: str) -> bool:
+        if self._repo is not None:
+            return self._repo.has_user(app_user_id)
+        return run_with_repos(
+            lambda repos: self._repo_or(repos).has_user(app_user_id)
+        )
 
     async def authenticate_user(
         self,
@@ -71,16 +87,32 @@ class TurvoOAuthService:
         }
         data = await post_token(url, body, settings.TURVO_X_API_KEY)
         expires_at = _expires_at_from_token_response(data)
-        await asyncio.to_thread(
-            self._repo.upsert_user_oauth,
-            app_user_id,
-            turvo_username,
-            ciphertext,
-            data["access_token"],
-            data.get("refresh_token"),
-            data.get("token_type"),
-            expires_at,
-        )
+
+        def persist() -> None:
+            if self._repo is not None:
+                self._repo.upsert_user_oauth(
+                    app_user_id,
+                    turvo_username,
+                    ciphertext,
+                    data["access_token"],
+                    data.get("refresh_token"),
+                    data.get("token_type"),
+                    expires_at,
+                )
+            else:
+                run_with_repos(
+                    lambda repos: self._repo_or(repos).upsert_user_oauth(
+                        app_user_id,
+                        turvo_username,
+                        ciphertext,
+                        data["access_token"],
+                        data.get("refresh_token"),
+                        data.get("token_type"),
+                        expires_at,
+                    )
+                )
+
+        await asyncio.to_thread(persist)
         return {
             "success": True,
             "expires_in": data.get("expires_in"),
@@ -91,10 +123,7 @@ class TurvoOAuthService:
         _require_turvo_config()
         key = settings.TURVO_OAUTH_ENCRYPTION_KEY
 
-        def load():
-            return self._repo.get_row(app_user_id)
-
-        row = await asyncio.to_thread(load)
+        row = await asyncio.to_thread(self._get_row, app_user_id)
         if not row:
             raise ValueError("No Turvo credentials stored for this user")
 
@@ -137,14 +166,25 @@ class TurvoOAuthService:
         if new_refresh is None:
             new_refresh = row.get("refresh_token")
 
-        def persist():
-            self._repo.update_tokens_only(
-                app_user_id,
-                data["access_token"],
-                new_refresh,
-                data.get("token_type"),
-                expires_at,
-            )
+        def persist() -> None:
+            if self._repo is not None:
+                self._repo.update_tokens_only(
+                    app_user_id,
+                    data["access_token"],
+                    new_refresh,
+                    data.get("token_type"),
+                    expires_at,
+                )
+            else:
+                run_with_repos(
+                    lambda repos: self._repo_or(repos).update_tokens_only(
+                        app_user_id,
+                        data["access_token"],
+                        new_refresh,
+                        data.get("token_type"),
+                        expires_at,
+                    )
+                )
 
         await asyncio.to_thread(persist)
         return {
@@ -160,10 +200,7 @@ class TurvoOAuthService:
         _require_turvo_config()
         key = settings.TURVO_OAUTH_ENCRYPTION_KEY
 
-        def load():
-            return self._repo.get_row(app_user_id)
-
-        row = await asyncio.to_thread(load)
+        row = await asyncio.to_thread(self._get_row, app_user_id)
         if not row:
             return None
 
@@ -174,7 +211,7 @@ class TurvoOAuthService:
                 await self.refresh_user_token(app_user_id)
             except (TurvoOAuthHttpError, ValueError) as e:
                 logger.warning("Could not refresh missing access token: %s", e)
-            row = await asyncio.to_thread(load)
+            row = await asyncio.to_thread(self._get_row, app_user_id)
             if not row or not row.get("access_token"):
                 return None
 
@@ -183,7 +220,7 @@ class TurvoOAuthService:
                 await self.refresh_user_token(app_user_id)
             except (TurvoOAuthHttpError, ValueError) as e:
                 logger.exception("Proactive Turvo token refresh failed: %s", e)
-            row = await asyncio.to_thread(load)
+            row = await asyncio.to_thread(self._get_row, app_user_id)
             if not row:
                 return None
 

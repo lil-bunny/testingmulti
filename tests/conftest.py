@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import psycopg
 import pytest
+from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.db import db_scope, db_transaction
 
 
 # Stable UUID for TENANT_CONFIGS key ``t3ra`` so FK-backed tables can join in local/CI DBs.
@@ -25,21 +26,22 @@ def _ensure_seed_tenant_t3ra() -> None:
     if not url:
         return
     try:
-        with psycopg.connect(url) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO tenants (id, name, slug, settings)
-                    VALUES (
-                        %s::uuid,
-                        'test tenant t3ra',
-                        't3ra',
-                        '{}'::jsonb
-                    )
-                    ON CONFLICT (slug) DO NOTHING
-                    """,
-                    (_GRAPH_T3RA_TENANT_UUID,),
+        with db_scope() as repos:
+            with db_transaction(repos.session):
+                repos.session.execute(
+                    text(
+                        """
+                        INSERT INTO tenants (id, name, slug, settings)
+                        VALUES (
+                            CAST(:id AS uuid),
+                            'test tenant t3ra',
+                            't3ra',
+                            '{}'::jsonb
+                        )
+                        ON CONFLICT (slug) DO NOTHING
+                        """
+                    ),
+                    {"id": _GRAPH_T3RA_TENANT_UUID},
                 )
-            conn.commit()
     except Exception:
         return

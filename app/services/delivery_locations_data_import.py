@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.core.service_db import run_with_repos
 from app.domain.delivery_locations import rows_from_spreadsheet_sheets
 from app.domain.delivery_locations_import import (
     DELIVERY_LOCATIONS_FILE_NAME,
     DELIVERY_LOCATIONS_SHEET_NAME,
 )
 from app.models.data_import import DataImportDataType
-from app.repositories.data_imports_repository import DataImportsRepository
 
 logger = get_logger(__name__)
 
@@ -27,12 +27,19 @@ def load_delivery_location_rows_from_data_import(tenant_id: str) -> list[dict[st
     if not tid:
         return []
 
-    repo = DataImportsRepository()
-    import_id = repo.find_id_by_tenant_data_type_and_file_name(
-        tenant_id=tid,
-        data_type=DataImportDataType.DELIVERY_LOCATION.value,
-        file_name=DELIVERY_LOCATIONS_FILE_NAME,
-    )
+    def _load(repos: Any) -> tuple[str | None, dict[str, Any] | None]:
+        repo = repos.data_imports
+        import_id = repo.find_id_by_tenant_data_type_and_file_name(
+            tenant_id=tid,
+            data_type=DataImportDataType.DELIVERY_LOCATION.value,
+            file_name=DELIVERY_LOCATIONS_FILE_NAME,
+        )
+        if not import_id:
+            return None, None
+        raw_data = repo.fetch_raw_data_by_id(tenant_id=tid, data_import_id=import_id)
+        return import_id, raw_data
+
+    import_id, raw_data = run_with_repos(_load)
     if not import_id:
         logger.info(
             "delivery locations: no data_import for tenant_id=%s file_name=%s",
@@ -41,7 +48,6 @@ def load_delivery_location_rows_from_data_import(tenant_id: str) -> list[dict[st
         )
         return []
 
-    raw_data = repo.fetch_raw_data_by_id(tenant_id=tid, data_import_id=import_id)
     if not raw_data:
         return []
 

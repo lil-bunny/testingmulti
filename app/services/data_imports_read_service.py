@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence
 
+from app.core.service_db import run_with_repos
 from app.domain.column_projection import drop_all_empty_projected_rows, project_row
 from app.domain.data_import_tabular import iter_spreadsheet_rows
 from app.repositories.data_imports_repository import DataImportsRepository
@@ -11,7 +12,7 @@ from app.repositories.data_imports_repository import DataImportsRepository
 
 class DataImportsReadService:
     def __init__(self, repository: Optional[DataImportsRepository] = None) -> None:
-        self._repository = repository or DataImportsRepository()
+        self._repository = repository
 
     def get_projected_rows(
         self,
@@ -20,17 +21,17 @@ class DataImportsReadService:
         *,
         projection: Mapping[str, Sequence[str]],
     ) -> tuple[list[dict[str, Any]] | None, dict[str, Any]]:
-        """
-        Returns ``(None, {})`` when no row exists for the id+tenant pair.
+        if self._repository is not None:
+            raw = self._repository.fetch_raw_data_by_id(
+                tenant_id=tenant_id, data_import_id=data_import_id
+            )
+        else:
+            raw = run_with_repos(
+                lambda repos: repos.data_imports.fetch_raw_data_by_id(
+                    tenant_id=tenant_id, data_import_id=data_import_id
+                )
+            )
 
-        Returns ``([], meta)`` when a row exists but has no usable spreadsheet rows.
-
-        Projected rows that are entirely ``None`` or blank strings (typical blank Excel
-        lines) are dropped before returning.
-        """
-        raw = self._repository.fetch_raw_data_by_id(
-            tenant_id=tenant_id, data_import_id=data_import_id
-        )
         if raw is None:
             return None, {}
 

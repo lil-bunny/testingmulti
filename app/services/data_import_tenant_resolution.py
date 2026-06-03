@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from app.core.logger import get_logger
-from app.repositories.tenants_db_repository import TenantsDbRepository
+from app.core.service_db import run_with_repos
 
 logger = get_logger(__name__)
 
@@ -31,8 +31,14 @@ def resolve_email_data_import_tenant_id(
     """
     webhook_name = str(payload.get("webhook_name") or "")
 
-    repo = tenants_repo or TenantsDbRepository()
-    tid = repo.find_tenant_id_by_email_webhook_name(webhook_name)
+    if tenants_repo is not None:
+        tid = tenants_repo.find_tenant_id_by_email_webhook_name(webhook_name)
+    else:
+        tid = run_with_repos(
+            lambda repos: repos.tenants.find_tenant_id_by_email_webhook_name(
+                webhook_name
+            )
+        )
     if tid:
         return tid.strip()
 

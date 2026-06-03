@@ -1,8 +1,5 @@
 """Postgres persistence for `documents` (POD / ratecon artifacts).
 
-Mirrors the service-layer pattern: optional runtime
-``CREATE TABLE IF NOT EXISTS`` for dev, configurable table name via settings.
-
 S3 alignment: ``S3Bucket.upload_file`` returns ``object_key``; this module stores
 keys on each row for idempotent upserts by ``object_key``.
 """
@@ -13,59 +10,16 @@ import logging
 import uuid
 from typing import Any, Optional
 
-import psycopg
-
 from app.core.config import settings
+from app.core.db import db_scope, db_transaction, fetchone_dict
 from app.models.document import DocumentType
 from app.services.s3bucket_service import normalize_object_key
 
 logger = logging.getLogger(__name__)
 
-_PG_READY = False
-
-_DOC_TYPE_SQL_IN = ", ".join(f"'{m.value}'" for m in DocumentType)
-
-
-def _try_pg_connection():
-    return psycopg.connect(settings.DATABASE_URL)
-
 
 def _table_name() -> str:
     return settings.DOCUMENTS_TABLE
-
-
-def _ensure_pg_table() -> None:
-    global _PG_READY
-    if _PG_READY:
-        return
-    t = _table_name()
-    conn = _try_pg_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {t} (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL
-                        CHECK (type IN ({_DOC_TYPE_SQL_IN})),
-                    shipment_id TEXT NOT NULL,
-                    object_key TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-            cur.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{t}_shipment_id ON {t}(shipment_id)"
-            )
-            cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_type ON {t}(type)")
-            cur.execute(
-                f"CREATE UNIQUE INDEX IF NOT EXISTS uq_{t}_object_key ON {t}(object_key)"
-            )
-        conn.commit()
-        _PG_READY = True
-        logger.info("documents: ensured table %s exists", t)
-    finally:
-        conn.close()
 
 
 def insert_document(
@@ -99,42 +53,44 @@ def insert_document(
     if not key:
         return {"stored": False, "id": None, "error": "empty_object_key"}
 
-    _ensure_pg_table()
     doc_id = str(uuid.uuid4())
     t = _table_name()
-    conn = _try_pg_connection()
+    sql = f"""
+        INSERT INTO {t} (id, type, shipment_id, object_key)
+        VALUES (:id, :type, :shipment_id, :object_key)
+        ON CONFLICT (object_key) DO UPDATE
+        SET
+            type = EXCLUDED.type,
+            shipment_id = EXCLUDED.shipment_id
+        RETURNING id, type, shipment_id, object_key, created_at
+    """
+    params = {
+        "id": doc_id,
+        "type": doc_type.value,
+        "shipment_id": shipment_id,
+        "object_key": key,
+    }
+
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                INSERT INTO {t} (id, type, shipment_id, object_key)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (object_key) DO UPDATE
-                SET
-                    type = documents.type,
-                    shipment_id = documents.shipment_id
-                RETURNING id, type, shipment_id, object_key, created_at
-                """,
-                (doc_id, doc_type.value, shipment_id, key),
-            )
-            row = cur.fetchone()
-        conn.commit()
+        with db_scope() as repos:
+            with db_transaction(repos.session):
+                row = fetchone_dict(repos.session, sql, params)
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
         logger.info(
             "insert_document: stored id=%s type=%s shipment_id=%s object_key=%s",
-            row[0],
-            row[1],
-            row[2],
-            row[3],
+            row["id"],
+            row["type"],
+            row["shipment_id"],
+            row["object_key"],
         )
         return {
             "stored": True,
-            "id": row[0],
-            "type": str(row[1]),
-            "shipment_id": row[2],
-            "object_key": row[3],
-            "created_at": row[4],
+            "id": row["id"],
+            "type": str(row["type"]),
+            "shipment_id": row["shipment_id"],
+            "object_key": row["object_key"],
+            "created_at": row["created_at"],
         }
     except Exception as exc:
         logger.exception(
@@ -143,8 +99,6 @@ def insert_document(
             shipment_id,
         )
         return {"stored": False, "id": None, "error": str(exc)}
-    finally:
-        conn.close()
 
 
 def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
@@ -170,23 +124,20 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             "error": "missing_shipment_id",
         }
 
-    _ensure_pg_table()
     t = _table_name()
-    conn = _try_pg_connection()
+    sql = f"""
+        SELECT id, object_key, type, shipment_id, created_at
+        FROM {t}
+        WHERE shipment_id = :shipment_id AND type = :type
+          AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
+        ORDER BY created_at DESC
+        LIMIT 1
+    """
+    params = {"shipment_id": sid, "type": doc_type.value}
+
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT id, object_key, type, shipment_id, created_at
-                FROM {t}
-                WHERE shipment_id = %s AND type = %s
-                  AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (sid, doc_type.value),
-            )
-            row = cur.fetchone()
+        with db_scope() as repos:
+            row = fetchone_dict(repos.session, sql, params)
         if not row:
             logger.info(
                 "read_document: no row for shipment_id=%s type=%s",
@@ -204,11 +155,11 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             }
         return {
             "found": True,
-            "id": row[0],
-            "object_key": row[1],
-            "type": str(row[2]),
-            "shipment_id": row[3],
-            "created_at": row[4],
+            "id": row["id"],
+            "object_key": row["object_key"],
+            "type": str(row["type"]),
+            "shipment_id": row["shipment_id"],
+            "created_at": row["created_at"],
             "error": None,
         }
     except Exception as exc:
@@ -226,6 +177,3 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             "created_at": None,
             "error": str(exc),
         }
-    finally:
-        conn.close()
-
