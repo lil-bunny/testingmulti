@@ -13,7 +13,6 @@ from app.api.deps import (
 )
 from app.core.logger import get_logger
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError
-from app.repositories.turvo_oauth_repository import TurvoOAuthRepository
 from app.services.turvo_oauth_service import TurvoOAuthService
 from pydantic import BaseModel, Field
 
@@ -36,10 +35,6 @@ class TurvoAuthenticateResponse(BaseModel):
 
 class TurvoStatusResponse(BaseModel):
     linked: bool
-
-
-def get_turvo_status_repo() -> TurvoOAuthRepository:
-    return TurvoOAuthRepository()
 
 
 @router.post(
@@ -85,10 +80,10 @@ async def turvo_authenticate(
 )
 async def turvo_status(
     app_user_id: str = Depends(get_app_user_id),
-    repo: TurvoOAuthRepository = Depends(get_turvo_status_repo),
+    service: TurvoOAuthService = Depends(get_turvo_oauth_service),
 ) -> TurvoStatusResponse:
     try:
-        linked = repo.has_user(app_user_id)
+        linked = service.has_user(app_user_id)
     except Exception as e:
         logger.exception("Failed to read Turvo status")
         raise HTTPException(status_code=500, detail="Internal error") from e

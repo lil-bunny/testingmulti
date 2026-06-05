@@ -2,56 +2,41 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from unittest.mock import MagicMock
+
 import pytest
 
 from app.models.document import DocumentType
 from app.tools import documents as doc_mod
 
 
-class _FakeCursor:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return None
-
-    def execute(self, *args, **kwargs):
-        return None
-
-    def fetchone(self):
-        return (
-            "id-1",
-            "freightx/ratecon_attachments/ratecon_SHIP-1.pdf",
-            "ratecon",
-            "SHIP-1",
-            None,
-        )
-
-
-class _FakeConn:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return None
-
-    def cursor(self):
-        return _FakeCursor()
-
-    def commit(self):
-        pass
-
-    def close(self):
-        pass
-
-
 @pytest.fixture
-def patch_documents_pg(monkeypatch):
-    monkeypatch.setattr(doc_mod, "_ensure_pg_table", lambda: None)
-    monkeypatch.setattr(doc_mod, "_try_pg_connection", lambda: _FakeConn())
+def patch_documents_db(monkeypatch):
+    fake_row = {
+        "id": "id-1",
+        "object_key": "freightx/ratecon_attachments/ratecon_SHIP-1.pdf",
+        "type": "ratecon",
+        "shipment_id": "SHIP-1",
+        "created_at": None,
+    }
+    fake_documents = MagicMock()
+    fake_documents.find_latest_by_shipment_and_type.return_value = fake_row
+
+    class _FakeRepos:
+        session = object()
+        documents = fake_documents
+
+    fake_repos = _FakeRepos()
+
+    @contextmanager
+    def _fake_db_scope():
+        yield fake_repos
+
+    monkeypatch.setattr(doc_mod, "db_scope", _fake_db_scope)
 
 
-def test_read_document_returns_latest_row(monkeypatch, patch_documents_pg):
+def test_read_document_returns_latest_row(patch_documents_db):
     out = doc_mod.read_document("SHIP-1", DocumentType.RATECON)
     assert out["found"] is True
     assert out["id"] == "id-1"

@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any
+from typing import Any, Optional
 
-import psycopg
-
-from app.core.config import settings
+from app.core.service_db import run_with_repos
+from app.repositories.tenants_db_repository import TenantsDbRepository
 
 
 class TenantsService:
-    """Mirror style of ``WorkflowLifecycleService`` / ``WorkflowRunsService`` (psycopg + ``DATABASE_URL``)."""
-
-    TABLE_NAME = "tenants"
-
-    def _conn(self):
-        return psycopg.connect(settings.DATABASE_URL)
-
-    @staticmethod
-    def _clean(value: str | None) -> str | None:
-        if value is None:
-            return None
-        s = str(value).strip()
-        return s if s else None
+    def __init__(self, repository: Optional[TenantsDbRepository] = None) -> None:
+        self._repository = repository
 
     def get_by_slug(self, slug: str) -> dict[str, Any] | None:
         """
@@ -32,36 +19,6 @@ class TenantsService:
         ``settings`` is parsed JSON (empty dict if null).
         ``id`` is the UUID string used for ``tenders.tenant_id`` FK joins.
         """
-        s = self._clean(slug)
-        if not s:
-            return None
-        conn = self._conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT id, name, slug, settings
-                    FROM {self.TABLE_NAME}
-                    WHERE slug = %s
-                    LIMIT 1
-                    """,
-                    (s,),
-                )
-                row = cur.fetchone()
-                if not row:
-                    return None
-                raw_settings = row[3]
-                if isinstance(raw_settings, dict):
-                    parsed: dict[str, Any] = raw_settings
-                elif raw_settings in (None, ""):
-                    parsed = {}
-                else:
-                    parsed = json.loads(raw_settings)
-                return {
-                    "id": str(row[0]),
-                    "name": row[1] or "",
-                    "slug": row[2] or "",
-                    "settings": parsed,
-                }
-        finally:
-            conn.close()
+        if self._repository is not None:
+            return self._repository.get_by_slug(slug)
+        return run_with_repos(lambda repos: repos.tenants.get_by_slug(slug))

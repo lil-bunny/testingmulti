@@ -15,6 +15,7 @@ import uuid
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.core.service_db import run_with_repos
 from app.domain.activity_log_write import (
     ActivityLogSequence,
     ActivityLogSequenceResult,
@@ -35,7 +36,7 @@ logger = get_logger(__name__)
 
 class ActivityLogService:
     def __init__(self, repository: Optional[ActivityLogsRepository] = None) -> None:
-        self._repository = repository or ActivityLogsRepository()
+        self._repository = repository
 
     @staticmethod
     def _clean(value: Any) -> str | None:
@@ -351,23 +352,25 @@ class ActivityLogService:
         if not actor and actor_type_clean == ActorType.SYSTEM.value:
             actor = SYSTEM_ACTOR_ID
 
+        row = {
+            "tenant_id": tid_uuid,
+            "workflow_lifecycle_id": wl,
+            "workflow_run_id": wr,
+            "activity_type": at,
+            "description": self._clean(description),
+            "from_status": self._clean(from_status),
+            "to_status": self._clean(to_status),
+            "from_sub_status": self._clean(from_sub_status),
+            "to_sub_status": self._clean(to_sub_status),
+            "actor_type": self._clean(actor_type),
+            "actor_id": actor,
+            "metadata": metadata if metadata is not None else {},
+        }
+
         try:
-            return self._repository.insert(
-                {
-                    "tenant_id": tid_uuid,
-                    "workflow_lifecycle_id": wl,
-                    "workflow_run_id": wr,
-                    "activity_type": at,
-                    "description": self._clean(description),
-                    "from_status": self._clean(from_status),
-                    "to_status": self._clean(to_status),
-                    "from_sub_status": self._clean(from_sub_status),
-                    "to_sub_status": self._clean(to_sub_status),
-                    "actor_type": self._clean(actor_type),
-                    "actor_id": actor,
-                    "metadata": metadata if metadata is not None else {},
-                }
-            )
+            if self._repository is not None:
+                return self._repository.insert(row)
+            return run_with_repos(lambda repos: repos.activity_logs.insert(row))
         except Exception:
             logger.exception(
                 "activity_log insert failed activity_type=%r tenant_id=%s",

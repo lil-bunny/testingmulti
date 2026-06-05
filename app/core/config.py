@@ -25,7 +25,6 @@ class Settings(BaseSettings):
 
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
-    TENANTS_TABLE: str = "tenants"
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int
@@ -85,11 +84,22 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+#   for langgraph checkpointer
     @property
     def DATABASE_URL(self) -> str:
         encoded_password = quote_plus(self.DATABASE_PASSWORD)
         return (
             f"postgresql://{self.DATABASE_USER}:{encoded_password}"
+            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+        )
+
+    # for SQLAlchemy engine URL (psycopg v3 driver)
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        """SQLAlchemy engine URL (psycopg v3 driver)."""
+        encoded_password = quote_plus(self.DATABASE_PASSWORD)
+        return (
+            f"postgresql+psycopg://{self.DATABASE_USER}:{encoded_password}"
             f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
         )
 

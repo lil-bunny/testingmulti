@@ -174,8 +174,8 @@ def test_load_delivery_location_rows_from_stored_import(
     )
 
     with patch(
-        "app.services.delivery_locations_data_import.DataImportsRepository",
-        return_value=repo,
+        "app.services.delivery_locations_data_import.run_with_repos",
+        side_effect=lambda fn: fn(MagicMock(data_imports=repo)),
     ):
         loaded = load_delivery_location_rows_from_data_import(_TENANT_UUID)
 

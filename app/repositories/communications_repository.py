@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-import psycopg
-from psycopg.types.json import Json
+from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.db import execute_scalar, fetchall_dicts, jsonb_param
 
 
 class CommunicationsRepository:
     TABLE_NAME = "communications"
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
 
     def list_email_thread(
         self,
@@ -21,44 +23,40 @@ class CommunicationsRepository:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Return email communications for a thread, oldest first."""
-        conn = psycopg.connect(settings.DATABASE_URL)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT
-                        id::text,
-                        direction::text,
-                        content,
-                        metadata,
-                        created_at
-                    FROM {self.TABLE_NAME}
-                    WHERE tenant_id = %s::uuid
-                      AND thread_id = %s
-                      AND channel = 'email'::communication_channel
-                    ORDER BY created_at ASC
-                    LIMIT %s
-                    """,
-                    (tenant_id, thread_id, limit),
-                )
-                rows = cur.fetchall()
-        finally:
-            conn.close()
+        rows = fetchall_dicts(
+            self._session,
+            f"""
+            SELECT
+                id::text AS id,
+                direction::text AS direction,
+                content,
+                metadata,
+                created_at
+            FROM {self.TABLE_NAME}
+            WHERE tenant_id = CAST(:tenant_id AS uuid)
+              AND thread_id = :thread_id
+              AND channel = 'email'::communication_channel
+            ORDER BY created_at ASC
+            LIMIT :limit
+            """,
+            {"tenant_id": tenant_id, "thread_id": thread_id, "limit": limit},
+            json_keys=frozenset({"metadata"}),
+        )
 
         out: list[dict[str, Any]] = []
         for row in rows:
-            meta = row[3]
+            meta = row.get("metadata")
             if meta is None:
                 meta = {}
             elif not isinstance(meta, dict):
                 meta = dict(meta)
             out.append(
                 {
-                    "id": row[0],
-                    "direction": row[1],
-                    "content": row[2],
+                    "id": row["id"],
+                    "direction": row["direction"],
+                    "content": row["content"],
                     "metadata": meta,
-                    "created_at": row[4],
+                    "created_at": row["created_at"],
                 }
             )
         return out
@@ -70,52 +68,45 @@ class CommunicationsRepository:
         When ``external_id`` is set, duplicate ``(tenant_id, external_id)`` rows are
         skipped (``ON CONFLICT DO NOTHING``) and this returns ``None``.
         """
-        conn = psycopg.connect(settings.DATABASE_URL)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.TABLE_NAME} (
-                        tenant_id,
-                        channel,
-                        direction,
-                        external_id,
-                        thread_id,
-                        content,
-                        metadata,
-                        workflow_run_id
-                    )
-                    VALUES (
-                        %s::uuid,
-                        %s::communication_channel,
-                        %s::communication_direction,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s::uuid
-                    )
-                    ON CONFLICT (tenant_id, external_id)
-                    WHERE external_id IS NOT NULL
-                    DO NOTHING
-                    RETURNING id::text
-                    """,
-                    (
-                        row["tenant_id"],
-                        row["channel"],
-                        row["direction"],
-                        row.get("external_id"),
-                        row.get("thread_id"),
-                        row.get("content"),
-                        Json(row.get("metadata") or {}),
-                        row.get("workflow_run_id"),
-                    ),
-                )
-                out = cur.fetchone()
-            conn.commit()
-        finally:
-            conn.close()
-
-        if not out or not out[0]:
+        row_id = execute_scalar(
+            self._session,
+            f"""
+            INSERT INTO {self.TABLE_NAME} (
+                tenant_id,
+                channel,
+                direction,
+                external_id,
+                thread_id,
+                content,
+                metadata,
+                workflow_run_id
+            )
+            VALUES (
+                CAST(:tenant_id AS uuid),
+                CAST(:channel AS communication_channel),
+                CAST(:direction AS communication_direction),
+                :external_id,
+                :thread_id,
+                :content,
+                CAST(:metadata AS jsonb),
+                CAST(:workflow_run_id AS uuid)
+            )
+            ON CONFLICT (tenant_id, external_id)
+            WHERE external_id IS NOT NULL
+            DO NOTHING
+            RETURNING id::text
+            """,
+            {
+                "tenant_id": row["tenant_id"],
+                "channel": row["channel"],
+                "direction": row["direction"],
+                "external_id": row.get("external_id"),
+                "thread_id": row.get("thread_id"),
+                "content": row.get("content"),
+                "metadata": jsonb_param(row.get("metadata") or {}),
+                "workflow_run_id": row.get("workflow_run_id"),
+            },
+        )
+        if not row_id:
             return None
-        return str(out[0])
+        return str(row_id)

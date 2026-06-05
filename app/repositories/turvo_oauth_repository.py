@@ -13,19 +13,11 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import psycopg
-from psycopg.types.json import Json
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-
-
-def _conn():
-    return psycopg.connect(settings.DATABASE_URL)
-
-
-def _table() -> str:
-    t = settings.TENANTS_TABLE.strip()
-    return t if t else "tenants"
+from app.core.db import jsonb_param
 
 
 def _normalize_config(raw: Any) -> dict[str, Any]:
@@ -97,18 +89,21 @@ _SQL_APP_USER_MATCH = "(settings::jsonb ->> 'app_user_id')"
 
 
 class TurvoOAuthRepository:
+    TABLE_NAME = "tenants"
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
     def _load_config(self, app_user_id: str) -> Optional[dict[str, Any]]:
         needle = _resolve_needle(app_user_id)
         if not needle:
             return None
-        table = _table()
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT settings FROM {table} WHERE {_SQL_APP_USER_MATCH} = %s",
-                    (needle,),
-                )
-                row = cur.fetchone()
+        row = self._session.execute(
+            text(
+                f"SELECT settings FROM {self.TABLE_NAME} WHERE {_SQL_APP_USER_MATCH} = :needle"
+            ),
+            {"needle": needle},
+        ).first()
         if not row:
             return None
         return _normalize_config(row[0])
@@ -120,18 +115,17 @@ class TurvoOAuthRepository:
                 "Cannot save Turvo OAuth: no app user id (set X-App-User-Id or "
                 "TURVO_DEFAULT_APP_USER_ID)"
             )
-        table = _table()
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"UPDATE {table} SET settings = %s WHERE {_SQL_APP_USER_MATCH} = %s",
-                    (Json(cfg), needle),
-                )
-                if cur.rowcount == 0:
-                    raise RuntimeError(
-                        f"No {table} row with settings.app_user_id={needle!r}; create tenant first."
-                    )
-            conn.commit()
+        result = self._session.execute(
+            text(
+                f"UPDATE {self.TABLE_NAME} SET settings = CAST(:settings AS jsonb) "
+                f"WHERE {_SQL_APP_USER_MATCH} = :needle"
+            ),
+            {"settings": jsonb_param(cfg), "needle": needle},
+        )
+        if result.rowcount == 0:
+            raise RuntimeError(
+                f"No {self.TABLE_NAME} row with settings.app_user_id={needle!r}; create tenant first."
+            )
 
     def get_row(self, app_user_id: str) -> Optional[dict[str, Any]]:
         needle = _resolve_needle(app_user_id)
@@ -157,7 +151,7 @@ class TurvoOAuthRepository:
         cfg = self._load_config(app_user_id)
         if cfg is None:
             raise RuntimeError(
-                f"No {_table()} row with settings.app_user_id={needle!r}; create tenant first."
+                f"No {self.TABLE_NAME} row with settings.app_user_id={needle!r}; create tenant first."
             )
         patch = deepcopy(cfg)
         patch["app_user_id"] = needle
@@ -187,7 +181,7 @@ class TurvoOAuthRepository:
         cfg = self._load_config(app_user_id)
         if cfg is None:
             raise RuntimeError(
-                f"No {_table()} row with settings.app_user_id={needle!r}; create tenant first."
+                f"No {self.TABLE_NAME} row with settings.app_user_id={needle!r}; create tenant first."
             )
         patch = deepcopy(cfg)
         patch.setdefault("app_user_id", needle)

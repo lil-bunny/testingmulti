@@ -9,6 +9,7 @@ import uuid
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.core.service_db import run_with_repos
 from app.services.communications._mapper import (
     build_email_thread_llm_user_message,
     inbound_row_from_payload,
@@ -24,7 +25,10 @@ class CommunicationsService:
     def __init__(
         self, repository: Optional[CommunicationsRepository] = None
     ) -> None:
-        self._repository = repository or CommunicationsRepository()
+        self._repository = repository
+
+    def _repo(self, repos: Any) -> CommunicationsRepository:
+        return self._repository or repos.communications
 
     @staticmethod
     def _clean(value: Any) -> str | None:
@@ -89,7 +93,10 @@ class CommunicationsService:
             return None
 
         try:
-            comm_id = self._repository.insert(row)
+            if self._repository is not None:
+                comm_id = self._repository.insert(row)
+            else:
+                comm_id = run_with_repos(lambda repos: self._repo(repos).insert(row))
             if comm_id:
                 logger.info(
                     "communications inbound recorded id=%s external_id=%s tenant_id=%s",
@@ -160,7 +167,10 @@ class CommunicationsService:
             return None
 
         try:
-            comm_id = self._repository.insert(row)
+            if self._repository is not None:
+                comm_id = self._repository.insert(row)
+            else:
+                comm_id = run_with_repos(lambda repos: self._repo(repos).insert(row))
             if comm_id:
                 logger.info(
                     "communications outbound recorded id=%s external_id=%s tenant_id=%s",
@@ -213,11 +223,20 @@ class CommunicationsService:
             return []
 
         try:
-            rows = self._repository.list_email_thread(
-                tenant_id=tid,
-                thread_id=tid_s,
-                limit=limit,
-            )
+            if self._repository is not None:
+                rows = self._repository.list_email_thread(
+                    tenant_id=tid,
+                    thread_id=tid_s,
+                    limit=limit,
+                )
+            else:
+                rows = run_with_repos(
+                    lambda repos: self._repo(repos).list_email_thread(
+                        tenant_id=tid,
+                        thread_id=tid_s,
+                        limit=limit,
+                    )
+                )
             logger.info(
                 "communications list_thread_messages tenant_id=%s thread_id=%s count=%s",
                 tid,
