@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     LOGFIRE_SERVICE_NAME: Optional[str] = "freightx-local"
     OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
+    LANGSMITH_PROMPT_OWNER: Optional[str] = None
     LANGSMITH_PROJECT: Optional[str] = None
     LANGSMITH_ENDPOINT: Optional[str] = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = True

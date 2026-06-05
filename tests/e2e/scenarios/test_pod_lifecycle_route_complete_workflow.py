@@ -276,13 +276,9 @@ def _resolve_workflow_lifecycle_id_for_reminder_poll(ack: Any | None) -> str:
 
 def _pod_reminder_max_delay_hours() -> float:
     """Max step delay from t3ra ``tenant_settings.pod_lifecycle.reminders`` fixture."""
-    import json
-    from pathlib import Path
+    from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
-    fixture = (
-        Path(__file__).resolve().parents[3] / "scripts" / "t3ra_tenant_settings.json"
-    )
-    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    raw = load_tenant_settings_dev("t3ra")
     steps = raw["pod_lifecycle"]["reminders"]["steps"]
     return max(float(s["delay_hours"]) for s in steps)
 

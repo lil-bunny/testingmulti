@@ -1,7 +1,7 @@
 """Tests for generic workflow reminder scheduling.
 
 Gelita / t3ra ``tenant_settings`` are read from ``tenants.settings`` in Postgres
-(see ``scripts/*.tenant_settings.json`` for local dev only — not committed for CI).
+(see ``scripts/tenant_settings/<slug>/*.tenant_settings.dev.json`` for local dev fixtures).
 When ``DATABASE_URL`` is unset or the slug has no reminders block, DB-backed tests skip.
 """
 

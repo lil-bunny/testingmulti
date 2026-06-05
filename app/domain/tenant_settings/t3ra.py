@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 
@@ -18,4 +18,5 @@ class T3raTenantSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    prompts: dict[str, str] = Field(default_factory=dict)
     pod_lifecycle: T3raPodLifecycleSettings

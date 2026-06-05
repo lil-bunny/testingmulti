@@ -83,6 +83,7 @@ class WorkflowService:
             payload=payload,
             langsmith_extra={
                 "metadata": {
+                    "thread_id": workflow_lifecycle_id,
                     "workflow_lifecycle_id": workflow_lifecycle_id,
                     "tenant_id": tenant_id,
                     "tenant_slug": tenant_slug,

@@ -28,13 +28,7 @@ from app.workflows.nodes.gelita.calculate_tender_params import (
     calculate_tender_params,
     gelita_calculate_params,
 )
-
-_TENANT_SETTINGS_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "tenant_settings"
-    / "gelita.tenant_settings.dev.json"
-)
+from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 # Live DB snapshot (order_number → tender / products / pack_codes)
 TENANT_ID = "aadc75f4-3f79-45d7-84c3-aa778e226e92"
@@ -54,7 +48,7 @@ SHIP_DATE = date(2026, 5, 22)
 
 
 def _tenant_settings() -> dict:
-    return json.loads(_TENANT_SETTINGS_PATH.read_text(encoding="utf-8"))
+    return load_tenant_settings_dev("gelita")
 
 
 def _workflow_state(*, tender_id: str) -> WorkflowState:

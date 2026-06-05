@@ -5,18 +5,36 @@ from __future__ import annotations
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_carrier_ack_llm_action
 from app.domain.activity_log_write import ActivityLogWrite
+from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
+from app.integrations.langsmith import (
+    MissingTenantPromptRefError,
+    PromptTraceMetadata,
+    PromptUnavailableError,
+)
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.prompt_service import PromptService
 from app.tools.carrier_ack import (
     classify_carrier_acknowledgment,
     normalize_carrier_reply_body,
 )
-from app.utils.prompts import carrier_ack_system_prompt
 
 logger = get_logger(__name__)
+
+
+def _fail_closed_carrier_ack(state, *, reason: str) -> object:
+    state.data["carrier_ack_decision"] = StatusSubType.DO_NOTHING.value
+    state.data["carrier_ack_reason"] = reason
+    state.data["carrier_ack_llm"] = {
+        "decision": StatusSubType.DO_NOTHING.value,
+        "confidence": 0.0,
+        "reason": reason,
+    }
+    return state
+
 
 def classify_carrier_ack(state):
     """LLM gate: classify using full email thread from ``communications`` when available."""
@@ -41,9 +59,41 @@ def classify_carrier_ack(state):
     state.data["carrier_ack_normalized_reply"] = latest_reply
     state.data["carrier_ack_thread_llm_input"] = reply_text
     state.data["carrier_ack_thread_message_count"] = thread_message_count
+
+    tenant_settings = state.data.get("tenant_settings") or {}
+    prompt_service = PromptService()
+    try:
+        rendered, prompt_metadata = prompt_service.render_step(
+            tenant_settings=tenant_settings,
+            prompt_step_key=LOAD_TENDERING_CARRIER_ACK,
+            variables={"thread_text": reply_text},
+        )
+    except MissingTenantPromptRefError as exc:
+        logger.warning(
+            "classify_carrier_ack missing tenant prompt ref tender_id=%s: %s",
+            state.data.get("tender_id"),
+            exc,
+        )
+        return _fail_closed_carrier_ack(
+            state, reason="missing_tenant_prompt_configuration"
+        )
+    except PromptUnavailableError as exc:
+        logger.warning(
+            "classify_carrier_ack prompt unavailable tender_id=%s: %s",
+            state.data.get("tender_id"),
+            exc,
+        )
+        return _fail_closed_carrier_ack(state, reason="prompt_unavailable")
+
+    prompt_trace = PromptTraceMetadata.from_load(
+        LOAD_TENDERING_CARRIER_ACK,
+        prompt_metadata,
+    )
     result = classify_carrier_acknowledgment(
         reply_text,
-        system_prompt=carrier_ack_system_prompt,
+        system_prompt=rendered.system,
+        user_prompt=rendered.user,
+        prompt_trace=prompt_trace,
     )
     decision = str(result.get("decision") or StatusSubType.DO_NOTHING.value)
     state.data["carrier_ack_decision"] = decision
@@ -66,6 +116,17 @@ def classify_carrier_ack(state):
         except (TypeError, ValueError):
             confidence = None
         activity_log_service = ActivityLogService()
+        activity_metadata = {
+            "source": "classify_carrier_ack",
+            "tender_id": tender_id,
+            "carrier_ack_decision": decision,
+            "user_input": reply_text,
+            "output": result,
+            "prompt_step_key": LOAD_TENDERING_CARRIER_ACK,
+            "tenant_prompt_ref": prompt_metadata.tenant_prompt_ref,
+            "prompt_source": prompt_metadata.source,
+            "prompt_commit_hash": prompt_metadata.commit_hash,
+        }
         activity_log_id = activity_log_service.record_action(
             ActivityLogWrite(
                 tenant_id=tenant_id,
@@ -77,13 +138,7 @@ def classify_carrier_ack(state):
                     confidence=confidence,
                 ),
                 communication_id=communication_id,
-                metadata={
-                    "source": "classify_carrier_ack",
-                    "tender_id": tender_id,
-                    "carrier_ack_decision": decision,
-                    "user_input": reply_text,
-                    "output": result,
-                },
+                metadata=activity_metadata,
             )
         )
         if activity_log_id:

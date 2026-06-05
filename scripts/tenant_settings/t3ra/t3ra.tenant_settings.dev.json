@@ -1,0 +1,18 @@
+{
+  "pod_lifecycle": {
+    "reminders": {
+      "schedule_on_event_type": "route_completed",
+      "expire_grace_hours": 2,
+      "steps": [
+        { "delay_hours": 0.00833333, "event_type": "reminder_due", "step": 0 },
+        { "delay_hours": 0.01666666, "event_type": "reminder_due", "step": 1 },
+        { "delay_hours": 0.03333332, "event_type": "reminder_due", "step": 2 }
+      ],
+      "default_body": "Please send pod",
+      "subject_templates": {
+        "0": "POD Request",
+        "default": "POD Reminder ({offset_label})"
+      }
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+    "load_tendering": {
+        "ftl": {
+            "escalate_tender": {
+                "escalation_cc": [],
+                "escalation_bcc": [],
+                "escalation_email_body": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Escalation</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p style=\"margin-bottom: 12px;\"><strong>FTL tender escalation</strong></p>\n<p style=\"margin-bottom: 8px;\">No carrier acknowledgment received within the expected window.</p>\n<p style=\"margin-bottom: 0;\">Order #: <strong>{order_number}</strong></p>\n</body>\n</html>",
+                "escalation_notify_email": [
+                    "kansalayush28+fx@gmail.com"
+                ],
+                "escalation_email_subject": "(FTL) Tender escalation (order {order_number})"
+            },
+            "send_tender_email": {
+                "vendor_cc": [],
+                "vendor_bcc": [],
+                "vendor_email": [
+                    "kansalayush28+fx@gmail.com"
+                ],
+                "email_template_html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Request</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p style=\"margin-bottom: 18px;\"><strong>Deliver to:</strong><br />{delivery_address}</p>\n<p style=\"margin-bottom: 12px;\">Order # {order_number}<br />Customer PO # {customer_po}</p>\n<p style=\"margin-bottom: 12px;\">Ship date: {ship_date}<br />Delivery date: {delivery_date}</p>\n<p style=\"margin-bottom: 12px;\">{products_block}</p>\n<p style=\"margin-bottom: 12px;\"><strong>Delivery info:</strong><br />Delivery appointments are required. Carrier log into: opendock.com to schedule or Contact: Chris Maselli: 775-359-9990 ext. 3610 or email Chris.Maselli@nowfoods.com Receiving hours 7:00 a.m. to 1:30 p.m. PST.</p>\n<p style=\"margin-bottom: 0;\"><strong>Phone:</strong> 775-359-9990 ext. 3610</p>\n</body>\n</html>"
+            },
+            "send_tender_reminder": {
+                "reminder_body": "Following up on the tender request. Please reply with your acknowledgment at your earliest convenience."
+            }
+        },
+        "ltl": {
+            "escalate_tender": {
+                "escalation_cc": [],
+                "escalation_bcc": [],
+                "escalation_email_body": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita LTL Tender Escalation</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p style=\"margin-bottom: 12px;\"><strong>LTL tender escalation</strong></p>\n<p style=\"margin-bottom: 8px;\">No carrier acknowledgment received within the expected window.</p>\n<p style=\"margin-bottom: 0;\">Order #: <strong>{order_number}</strong></p>\n</body>\n</html>",
+                "escalation_notify_email": [
+                    "kansalayush28+fx@gmail.com"
+                ],
+                "escalation_email_subject": "(LTL) Tender escalation (order {order_number})"
+            },
+            "send_tender_email": {
+                "vendor_cc": [],
+                "vendor_bcc": [],
+                "vendor_email": [
+                    "kansalayush28+fx@gmail.com"
+                ],
+                "email_template_html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>BOL Request Template</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p style=\"margin-bottom: 4px;\"><span style=\"background-color: #fff176; font-weight: bold; padding: 2px 4px;\">Please Provide Your BOL by 1300 CST day prior of shipment or GELITA will use their own.</span> <span style=\"color: #555;\">\"Make sure to include your sales coordinator and the whole logistics team (Chris Alter, Taylor Hudson, &amp; Tonya Jackson) when sending your BOL\"</span></p>\n<br />\n<p style=\"margin-bottom: 18px;\"><strong>Pickup address:</strong><br />{pickup_address}</p>\n<p style=\"margin-bottom: 18px;\"><strong>Deliver to:</strong><br />{delivery_address}</p>\n<p style=\"margin-bottom: 0;\">Order #{order_number}<br />Customer PO #{customer_po}<br />Ship date: {ship_date}</p>\n<br />\n<p style=\"margin-top: 0;\">{products_block}</p>\n<p style=\"margin-top: 0;\">NMFC Code 73260-00 Class 70<br />Non-Stackable<br />Non-Hazardous</p>\n<br />\n<p><strong>Loading hours 1300-1600 day of shipment.</strong></p>\n</body>\n</html>"
+            },
+            "send_tender_reminder": {
+                "reminder_body": "Following up on the tender request. Please reply with your acknowledgment at your earliest convenience."
+            }
+        },
+        "reminders": {
+            "variants": {
+                "ftl": [
+                    {
+                        "step": 1,
+                        "event_type": "reminder_due",
+                        "delay_hours": 0.016
+                    },
+                    {
+                        "event_type": "escalation_due",
+                        "delay_hours": 0.033
+                    }
+                ],
+                "ltl": [
+                    {
+                        "step": 1,
+                        "event_type": "reminder_due",
+                        "delay_hours": 0.016
+                    },
+                    {
+                        "step": 2,
+                        "event_type": "reminder_due",
+                        "delay_hours": 0.05
+                    },
+                    {
+                        "event_type": "escalation_due",
+                        "delay_hours": 0.06
+                    }
+                ]
+            },
+            "variant_selector": "load_type",
+            "skip_sub_statuses": [
+                "accepted",
+                "rejected"
+            ],
+            "expire_grace_hours": 2,
+            "schedule_on_event_type": "carrier_email_received"
+        },
+        "tender_calculate": {
+            "pallet_threshold": 8,
+            "pallet_weight_lbs": 50,
+            "gelita_pickup_address": {
+                "city": "Harwood Heights",
+                "name": "GELITA USA",
+                "state": "IL",
+                "country": "United States",
+                "address1": "5905 N. Ridge Rd",
+                "postal_code": "60706"
+            }
+        }
+    },
+    "prompts": {
+        "load_tendering.carrier_ack": "carrier-ack-classify:staging"
+    },
+    "enabledProcesses": [
+        "load_tendering"
+    ],
+    "email_webhook_name": "gelita",
+    "ana_at_gelita_account_id": "umo3hTOoQ4KXxkZ1uKnIPg",
+    "ana_gelita_at_freightx_ai_account_id": "umo3hTOoQ4KXxkZ1uKnIPg"
+}
