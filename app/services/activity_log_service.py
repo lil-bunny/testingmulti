@@ -111,6 +111,9 @@ class ActivityLogService:
             record_activity=write.record_log,
             require_lifecycle_row=write.require_lifecycle_row,
             email_thread_id=write.email_thread_id,
+            communication_id=self._uuid_or_none(
+                write.communication_id, field_name="communication_id"
+            ),
         )
 
     def _step_to_command(
@@ -144,6 +147,9 @@ class ActivityLogService:
             record_activity=step.record_log,
             require_lifecycle_row=sequence.require_lifecycle_row,
             email_thread_id=sequence.email_thread_id,
+            communication_id=self._uuid_or_none(
+                step.communication_id, field_name="communication_id"
+            ),
         )
 
     def _apply_command(

@@ -23,6 +23,7 @@ class LifecycleTransitionCommand:
 
     description: str | None = None
     metadata: dict[str, Any] | None = None
+    communication_id: str | None = None
 
     actor_type: ActorType | None = None
     actor_id: str | None = None

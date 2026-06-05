@@ -10,7 +10,7 @@ from app.domain.delivery_locations_import import (
     unipile_delivery_locations_attachment,
     unipile_first_load_tender_xlsx_attachment,
 )
-from app.services.workflow_classifier_service import build_unipile_attachment_fetch_context
+from app.domain.unipile_email import build_unipile_attachment_fetch_context
 from app.tasks.email import run_email_webhook
 from app.tasks.email_handlers import (
     HANDLER_DELIVERY_LOCATIONS_IMPORT,

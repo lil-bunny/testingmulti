@@ -59,6 +59,7 @@ def classify_carrier_ack(state):
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()
     run_id = str(state.execution_id or state.data.get("execution_id") or "").strip()
+    communication_id = str(state.data.get("communication_id") or "").strip() or None
     if wl_id and tenant_id and tender_id and run_id:
         try:
             confidence = float(result.get("confidence"))
@@ -75,6 +76,7 @@ def classify_carrier_ack(state):
                     reason=state.data["carrier_ack_reason"],
                     confidence=confidence,
                 ),
+                communication_id=communication_id,
                 metadata={
                     "source": "classify_carrier_ack",
                     "tender_id": tender_id,

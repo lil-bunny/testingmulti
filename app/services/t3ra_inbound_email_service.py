@@ -36,7 +36,7 @@ class T3raInboundEmailService:
         tenant: UnipileTenantContext,
     ) -> JSONResponse:
         # store the inbound email in the communications table
-        self._communications.record_inbound(tenant.tenant_uuid, payload)
+        self._communications.record_or_resolve_inbound(tenant.tenant_uuid, payload)
 
         classification = WorkflowClassifierService().classify_workflow_type(payload)
         if not classification:

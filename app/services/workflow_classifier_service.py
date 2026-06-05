@@ -3,6 +3,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.domain.unipile_email import (
+    build_unipile_attachment_fetch_context,
+    extract_email_attachment_metadata,
+)
 from app.repositories.tenants_db_repository import find_tenant_id_by_settings_email_webhook_name
 logger = get_logger(__name__)
 
@@ -65,46 +69,6 @@ def _get_attachment_uri(attachment: dict) -> Optional[str]:
         if value is not None and str(value).strip():
             return str(value).strip()
     return None
-
-
-def build_unipile_attachment_fetch_context(
-    payload: dict[str, Any], attachment: dict[str, Any]
-) -> dict[str, str]:
-    """IDs needed for Unipile ``get_email_attachment`` / download APIs (webhook has no file URL)."""
-    fetch_context: dict[str, str] = {}
-    email_id = payload.get("email_id")
-    if email_id is not None and str(email_id).strip():
-        fetch_context["email_id"] = str(email_id).strip()
-    account_id = payload.get("account_id")
-    if account_id is not None and str(account_id).strip():
-        fetch_context["account_id"] = str(account_id).strip()
-    attachment_id = attachment.get("id")
-    if attachment_id is not None and str(attachment_id).strip():
-        fetch_context["attachment_id"] = str(attachment_id).strip()
-    return fetch_context
-
-
-def extract_email_attachment_metadata(attachment: dict[str, Any]) -> dict[str, Any]:
-    """Subset of Unipile attachment object (``id``, ``name``, ``mime``, ``extension``, ``size``)."""
-    if not isinstance(attachment, dict):
-        return {}
-    metadata: dict[str, Any] = {}
-    for key in ("id", "name", "mime", "extension", "size"):
-        if key not in attachment:
-            continue
-        value = attachment.get(key)
-        if value is None:
-            continue
-        if key == "size":
-            try:
-                metadata[key] = int(value)
-            except (TypeError, ValueError):
-                metadata[key] = value
-        else:
-            text_value = str(value).strip()
-            if text_value:
-                metadata[key] = text_value
-    return metadata
 
 
 def _extract_load_id_from_attachment_name(filename: str) -> Optional[str]:

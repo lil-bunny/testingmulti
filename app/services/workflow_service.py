@@ -88,7 +88,8 @@ class WorkflowService:
                     "tenant_slug": tenant_slug,
                     "event_type": event_type,
                     "shipment_id": payload.get("shipment_id"),
-                    "load_id": payload.get("load_id"),
+                    "tender_id": payload.get("tender_id"),
+                    "order_number": payload.get("order_number"),
                     "email_thread_id": payload.get("email_thread_id") or payload.get("thread_id"),
                 }
             },

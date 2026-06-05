@@ -14,6 +14,7 @@ from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_ID = "11111111-1111-1111-1111-111111111111"
+COMM_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 THREAD_ID = "thread-ack-1"
 
 
@@ -27,15 +28,16 @@ def _tenant() -> UnipileTenantContext:
 def _reply_payload() -> dict:
     return {
         "thread_id": THREAD_ID,
+        "email_id": "unipile-email-ack-1",
         "in_reply_to": "<msg-parent@example.com>",
         "body": "We accept the load.",
     }
 
 
-@patch("app.services.gelita_inbound_email_service.run_workflow_async")
+@patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_workflow")
 @patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
 def test_ack_received_skips_enqueue_when_lifecycle_completed(
-    mock_celery: MagicMock,
+    mock_enqueue: MagicMock,
 ) -> None:
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
@@ -64,13 +66,13 @@ def test_ack_received_skips_enqueue_when_lifecycle_completed(
     assert content["event_type"] == "ack_received"
     assert content["workflow_lifecycle_id"] == LIFECYCLE_ID
     assert "execution_id" not in content
-    mock_celery.apply_async.assert_not_called()
+    mock_enqueue.assert_not_called()
 
 
-@patch("app.services.gelita_inbound_email_service.run_workflow_async")
+@patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_workflow")
 @patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
 def test_ack_received_enqueues_when_lifecycle_not_completed(
-    mock_celery: MagicMock,
+    mock_enqueue: MagicMock,
 ) -> None:
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
@@ -86,33 +88,33 @@ def test_ack_received_enqueues_when_lifecycle_not_completed(
         "tender_id": "22222222-2222-2222-2222-222222222222",
     }
 
-    mock_task = MagicMock()
-    mock_task.apply_async.return_value = MagicMock(id="celery-ack-1")
-    mock_celery.apply_async = mock_task.apply_async
+    mock_enqueue.return_value = "exec-ack-1"
 
     response = svc._try_ack_received(
         payload=_reply_payload(),
         tenant=_tenant(),
         graph_slug="gelita",
+        communication_id=COMM_ID,
     )
 
     assert isinstance(response, JSONResponse)
     assert response.status_code == status.HTTP_200_OK
     content = json.loads(response.body)
     assert content["event_type"] == "ack_received"
-    assert content["execution_id"]
-    assert mock_task.apply_async.call_count == 1
-    wp = mock_task.apply_async.call_args.kwargs["kwargs"]["payload"]
-    assert wp["event_type"] == "ack_received"
+    assert content["execution_id"] == "exec-ack-1"
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.kwargs["event_type"] == "ack_received"
+    wp = mock_enqueue.call_args.kwargs["payload"]
     assert wp["workflow_lifecycle_id"] == LIFECYCLE_ID
     assert wp["tender_id"] == "22222222-2222-2222-2222-222222222222"
+    assert wp["communication_id"] == COMM_ID
 
 
 @pytest.mark.asyncio
-@patch("app.services.gelita_inbound_email_service.run_workflow_async")
+@patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_workflow")
 @patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
 async def test_handle_records_comms_but_skips_ack_when_completed(
-    mock_celery: MagicMock,
+    mock_enqueue: MagicMock,
 ) -> None:
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
@@ -127,6 +129,7 @@ async def test_handle_records_comms_but_skips_ack_when_completed(
         "sub_status": "accepted",
         "tender_id": "22222222-2222-2222-2222-222222222222",
     }
+    svc._communications.record_or_resolve_inbound.return_value = COMM_ID
 
     with patch(
         "app.services.gelita_inbound_email_service.resolve_workflow_graph_tenant_id",
@@ -137,8 +140,8 @@ async def test_handle_records_comms_but_skips_ack_when_completed(
             tenant=_tenant(),
         )
 
-    svc._communications.record_inbound.assert_called_once()
-    mock_celery.apply_async.assert_not_called()
+    svc._communications.record_or_resolve_inbound.assert_called_once()
+    mock_enqueue.assert_not_called()
     assert response.status_code == status.HTTP_200_OK
     content = json.loads(response.body)
     assert content["message"] == "lifecycle completed; ack not processed"

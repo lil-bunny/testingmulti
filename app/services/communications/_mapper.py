@@ -6,6 +6,8 @@ import re
 from html import unescape
 from typing import Any
 
+from app.domain.unipile_email import attachments_metadata_from_payload
+
 _QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)
 _BLOCKQUOTE_RE = re.compile(r"<blockquote\b", re.IGNORECASE)
 _ON_WROTE_RE = re.compile(r"\bOn .+ wrote:\s*", re.IGNORECASE | re.DOTALL)
@@ -129,6 +131,7 @@ def inbound_metadata_from_payload(
     *,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    attachments = attachments_metadata_from_payload(payload)
     meta: dict[str, Any] = {
         "subject": str(payload.get("subject") or ""),
         "from": _from_attendee_email(payload),
@@ -138,6 +141,7 @@ def inbound_metadata_from_payload(
         "event": payload.get("event"),
         "webhook_name": payload.get("webhook_name"),
         "account_id": payload.get("account_id"),
+        "attachments": attachments,
     }
     if extra:
         meta.update(extra)

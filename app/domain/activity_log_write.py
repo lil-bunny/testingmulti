@@ -19,6 +19,7 @@ class ActivityLogWrite:
 
     description: str | None = None
     metadata: dict[str, Any] | None = None
+    communication_id: str | None = None
     actor_type: ActorType | None = ActorType.SYSTEM
     actor_id: str | None = None
 
@@ -40,6 +41,7 @@ class ActivityLogStep:
     activity_type: ActivityType
     description: str | None = None
     metadata: dict[str, Any] | None = None
+    communication_id: str | None = None
 
     to_status: StatusType | None = None
     to_sub_status: StatusSubType | None = None

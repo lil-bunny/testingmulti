@@ -18,6 +18,7 @@ TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 ACTIVITY_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+COMM_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 
 def _command(**overrides) -> LifecycleTransitionCommand:
@@ -201,6 +202,40 @@ def test_apply_action_snapshots_lifecycle_without_update(
     assert result.lifecycle_updated is False
     assert result.from_status == StatusType.PENDING_REVIEW
     assert result.to_status == StatusType.PENDING_REVIEW
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_apply_action_passes_communication_id_to_insert(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.TENDER_SENT_TO_CARRIER.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    svc.apply(
+        _command(
+            activity_type=ActivityType.ACTION,
+            update_lifecycle=False,
+            description="Tender email sent",
+            communication_id=COMM_UUID,
+        )
+    )
+
+    row = activity_logs.insert.call_args[0][0]
+    assert row["communication_id"] == COMM_UUID
 
 
 @patch(

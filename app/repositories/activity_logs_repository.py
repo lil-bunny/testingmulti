@@ -32,7 +32,8 @@ class ActivityLogsRepository:
                 to_sub_status,
                 actor_type,
                 actor_id,
-                metadata
+                metadata,
+                communication_id
             )
             VALUES (
                 CAST(:tenant_id AS uuid),
@@ -46,7 +47,8 @@ class ActivityLogsRepository:
                 CAST(:to_sub_status AS lifecycle_sub_status),
                 :actor_type,
                 CAST(:actor_id AS uuid),
-                CAST(:metadata AS jsonb)
+                CAST(:metadata AS jsonb),
+                CAST(:communication_id AS uuid)
             )
             RETURNING id::text
             """,
@@ -63,6 +65,7 @@ class ActivityLogsRepository:
                 "actor_type": row.get("actor_type"),
                 "actor_id": row.get("actor_id"),
                 "metadata": jsonb_param(row.get("metadata") or {}),
+                "communication_id": row.get("communication_id"),
             },
         )
         if not row_id:

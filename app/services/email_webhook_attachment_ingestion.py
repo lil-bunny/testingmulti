@@ -21,11 +21,11 @@ from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
 from app.services.data_imports_service import DataImportsService
 from app.services.unipile_service import UnipileException
-from app.services.workflow_classifier_service import (
+from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
-    email_first_attachment,
     extract_email_attachment_metadata,
 )
+from app.services.workflow_classifier_service import email_first_attachment
 from app.tools.email import get_email_attachments
 
 logger = get_logger(__name__)

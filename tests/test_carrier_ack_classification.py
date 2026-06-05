@@ -25,6 +25,7 @@ TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 TENDER_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+COMM_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 
 def _state(*, decision: str | None = None, **data_extra):
@@ -184,13 +185,14 @@ def test_classify_carrier_ack_records_llm_action_activity(
     )
     mock_activity_svc_cls.return_value = activity_log_service
 
-    state = _state()
+    state = _state(communication_id=COMM_UUID)
     out = classify_carrier_ack(state)
 
     activity_log_service.record_action.assert_called_once()
     write = activity_log_service.record_action.call_args[0][0]
     assert write.workflow_lifecycle_id == LIFECYCLE_UUID
     assert write.workflow_run_id == RUN_UUID
+    assert write.communication_id == COMM_UUID
     assert write.metadata["carrier_ack_decision"] == StatusSubType.DO_NOTHING.value
     assert write.metadata["user_input"] == "We accept the load."
     assert write.metadata["output"] == llm_result

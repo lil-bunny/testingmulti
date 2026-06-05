@@ -1,6 +1,8 @@
 """Persist inbound/outbound channel messages in ``communications``.
 
-Failures are logged and return ``None`` so webhooks and graph runs are not blocked.
+Inbound: idempotent insert plus resolve existing ``communications.id`` on duplicate
+``external_id``. Failures are logged and return ``None`` so webhooks and graph runs
+are not blocked.
 """
 
 from __future__ import annotations
@@ -60,7 +62,30 @@ class CommunicationsService:
         resolved = resolve_graph_tenant_to_uuid(raw)
         return resolved or raw
 
-    def record_inbound(
+    def _find_inbound_id_by_external_id(
+        self, *, tenant_id: str, external_id: str
+    ) -> str | None:
+        try:
+            if self._repository is not None:
+                return self._repository.find_id_by_tenant_and_external_id(
+                    tenant_id=tenant_id,
+                    external_id=external_id,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.find_id_by_tenant_and_external_id(
+                    tenant_id=tenant_id,
+                    external_id=external_id,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications resolve inbound id failed external_id=%s tenant_id=%s",
+                external_id,
+                tenant_id,
+            )
+            return None
+
+    def record_or_resolve_inbound(
         self,
         tenant_id: str,
         payload: dict[str, Any],
@@ -68,8 +93,9 @@ class CommunicationsService:
         extra_metadata: dict[str, Any] | None = None,
     ) -> str | None:
         """
-        Log one inbound Unipile webhook email.
+        Persist one inbound Unipile webhook email and return ``communications.id``.
 
+        Inserts when new; on duplicate ``external_id`` returns the existing row id.
         ``tenant_id`` should be ``tenants.id`` (UUID) from webhook tenant resolution.
         """
         tid = self._tenant_uuid_or_none(tenant_id)
@@ -92,6 +118,10 @@ class CommunicationsService:
             )
             return None
 
+        external_id = self._clean(row.get("external_id"))
+        if not external_id:
+            return None
+
         try:
             if self._repository is not None:
                 comm_id = self._repository.insert(row)
@@ -101,23 +131,34 @@ class CommunicationsService:
                 logger.info(
                     "communications inbound recorded id=%s external_id=%s tenant_id=%s",
                     comm_id,
-                    row.get("external_id"),
+                    external_id,
                     tid,
                 )
-            else:
-                logger.info(
-                    "communications inbound duplicate skipped external_id=%s tenant_id=%s",
-                    row.get("external_id"),
-                    tid,
-                )
-            return comm_id
+                return comm_id
+            logger.info(
+                "communications inbound duplicate skipped external_id=%s tenant_id=%s",
+                external_id,
+                tid,
+            )
         except Exception:
             logger.exception(
                 "communications inbound insert failed external_id=%s tenant_id=%s",
-                row.get("external_id"),
+                external_id,
                 tid,
             )
-            return None
+
+        existing_id = self._find_inbound_id_by_external_id(
+            tenant_id=tid,
+            external_id=external_id,
+        )
+        if existing_id:
+            logger.info(
+                "communications inbound resolved existing id=%s external_id=%s tenant_id=%s",
+                existing_id,
+                external_id,
+                tid,
+            )
+        return existing_id
 
     def record_outbound_from_send(
         self,

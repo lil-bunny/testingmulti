@@ -112,6 +112,7 @@ class LifecycleTransitionService:
                 "actor_type": actor_type.value,
                 "actor_id": actor_id,
                 "metadata": command.metadata if command.metadata is not None else {},
+                "communication_id": command.communication_id,
             },
         )
 

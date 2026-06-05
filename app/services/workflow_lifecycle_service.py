@@ -19,12 +19,7 @@ class LifecycleResolution:
 
 
 class WorkflowLifecycleService:
-    """
-    Resolve or create workflow lifecycle rows from correlation keys.
-
-    ``load_id`` is the business order number for load tendering; other workflows
-    may pass a vendor load id in ``load_id`` when ``order_number`` is absent.
-    """
+    """Resolve or create workflow lifecycle rows from correlation keys."""
 
     def __init__(
         self,
@@ -61,15 +56,6 @@ class WorkflowLifecycleService:
         except (ValueError, AttributeError):
             return None
 
-    @staticmethod
-    def _extract_load_id(payload: dict[str, Any]) -> Optional[str]:
-        from app.domain.load_tendering_state import order_number_from_data
-
-        order = WorkflowLifecycleService._clean(order_number_from_data(payload))
-        if order:
-            return order
-        return WorkflowLifecycleService._clean(payload.get("load_id"))
-
     def read_lifecycle(
         self,
         *,
@@ -77,7 +63,7 @@ class WorkflowLifecycleService:
         workflow_name: str,
         thread_id: str | None = None,
         shipment_id: str | None = None,
-        load_id: str | None = None,
+        tender_id: str | None = None,
     ) -> dict:
         tid_raw = self._clean(tenant_id)
         wn = self._clean(workflow_name)
@@ -85,12 +71,16 @@ class WorkflowLifecycleService:
         if not tid or not wn:
             return {"found": False}
 
+        tender_uuid: str | None = None
+        if tender_id:
+            tender_uuid = self._extract_tender_id({"tender_id": tender_id})
+
         if self._lifecycles_repo is not None:
             repo = self._lifecycles_repo
             lifecycle_id = repo.find_existing_lifecycle_id_tx(
                 tenant_id=tid,
                 workflow_name=wn,
-                load_id=self._clean(load_id),
+                tender_id=tender_uuid,
                 thread_id=self._clean(thread_id),
                 shipment_id=self._clean(shipment_id),
             )
@@ -103,7 +93,7 @@ class WorkflowLifecycleService:
                 lifecycle_id = repo.find_existing_lifecycle_id_tx(
                     tenant_id=tid,
                     workflow_name=wn,
-                    load_id=self._clean(load_id),
+                    tender_id=tender_uuid,
                     thread_id=self._clean(thread_id),
                     shipment_id=self._clean(shipment_id),
                 )
@@ -116,7 +106,7 @@ class WorkflowLifecycleService:
                     "found": True,
                     "lifecycle_id": lifecycle_id,
                     "shipment_id": row.get("shipment_id") or "",
-                    "load_id": row.get("load_id") or "",
+                    "tender_id": row.get("tender_id") or "",
                     "email_thread_id": row.get("email_thread_id") or "",
                     "workflow_name": row.get("workflow_name") or "",
                 }
@@ -130,7 +120,7 @@ class WorkflowLifecycleService:
             "found": True,
             "lifecycle_id": lifecycle_id,
             "shipment_id": row.get("shipment_id") or "",
-            "load_id": row.get("load_id") or "",
+            "tender_id": row.get("tender_id") or "",
             "email_thread_id": row.get("email_thread_id") or "",
             "workflow_name": row.get("workflow_name") or "",
         }
@@ -163,7 +153,6 @@ class WorkflowLifecycleService:
         tenant_id: str,
         workflow_name: str,
         shipment_id: str | None = None,
-        load_id: str | None = None,
         thread_id: str | None = None,
         tender_id: str | None = None,
     ) -> dict:
@@ -181,7 +170,6 @@ class WorkflowLifecycleService:
             lifecycle_id = repo.find_existing_lifecycle_id_tx(
                 tenant_id=tid,
                 workflow_name=wn,
-                load_id=self._clean(load_id),
                 tender_id=tender_uuid,
                 thread_id=self._clean(thread_id),
                 shipment_id=self._clean(shipment_id),
@@ -225,7 +213,6 @@ class WorkflowLifecycleService:
                     existed=True,
                 )
 
-        load_id = self._extract_load_id(payload)
         tender_id = self._extract_tender_id(payload)
         thread_id = self._extract_thread_id(payload)
         shipment_id = self._extract_shipment_id(payload)
@@ -234,7 +221,6 @@ class WorkflowLifecycleService:
             lifecycle_id, existed = repo.resolve_or_create(
                 tenant_id=db_tenant_id,
                 workflow_name=workflow_name_clean,
-                load_id=load_id,
                 tender_id=tender_id,
                 thread_id=thread_id,
                 shipment_id=shipment_id,
@@ -255,6 +241,34 @@ class WorkflowLifecycleService:
         if self._lifecycles_repo is not None:
             return self._lifecycles_repo.read_row_by_id(lid)
         return run_with_repos(lambda repos: self._repo(repos).read_row_by_id(lid))
+
+    def find_lifecycle_row_by_tender_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        tender_id: str,
+    ) -> dict[str, Any] | None:
+        tid_raw = self._clean(tenant_id)
+        wn = self._clean(workflow_name)
+        tid = resolve_graph_tenant_to_uuid(tid_raw) if tid_raw else None
+        tender_uuid = self._extract_tender_id({"tender_id": tender_id})
+        if not tid or not wn or not tender_uuid:
+            return None
+
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.read_row_by_tender_id(
+                tenant_id=tid,
+                workflow_name=wn,
+                tender_id=tender_uuid,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).read_row_by_tender_id(
+                tenant_id=tid,
+                workflow_name=wn,
+                tender_id=tender_uuid,
+            )
+        )
 
     def update_lifecycle_status(
         self,

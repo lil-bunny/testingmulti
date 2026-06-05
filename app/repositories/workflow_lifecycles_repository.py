@@ -132,26 +132,11 @@ class WorkflowLifecyclesRepository:
         )
         return result.rowcount > 0
 
-    def find_id_by_load_id(
-        self,
-        *,
-        tenant_id: str,
-        workflow_name: str,
-        load_id: str,
-    ) -> str | None:
-        return self._fetch_lifecycle_id(
-            tenant_id=tenant_id,
-            workflow_name=workflow_name,
-            extra_predicate="AND load_id = :load_id",
-            extra_params={"load_id": load_id},
-        )
-
     def find_existing_lifecycle_id(
         self,
         *,
         tenant_id: str,
         workflow_name: str,
-        load_id: str | None = None,
         tender_id: str | None = None,
         thread_id: str | None = None,
         shipment_id: str | None = None,
@@ -159,17 +144,8 @@ class WorkflowLifecyclesRepository:
         """
         Resolve lifecycle PK by correlation keys.
 
-        Priority: ``load_id`` → ``tender_id`` → ``email_thread_id`` → ``shipment_id``.
+        Priority: ``tender_id`` → ``email_thread_id`` → ``shipment_id``.
         """
-        if load_id:
-            found = self.find_id_by_load_id(
-                tenant_id=tenant_id,
-                workflow_name=workflow_name,
-                load_id=load_id,
-            )
-            if found:
-                return found
-
         if tender_id:
             found = self._fetch_lifecycle_id(
                 tenant_id=tenant_id,
@@ -202,7 +178,6 @@ class WorkflowLifecyclesRepository:
         lifecycle_id: str,
         tenant_id: str,
         workflow_name: str,
-        load_id: str | None = None,
         tender_id: str | None = None,
         thread_id: str | None = None,
         shipment_id: str | None = None,
@@ -214,7 +189,6 @@ class WorkflowLifecyclesRepository:
                     id,
                     tenant_id,
                     workflow_name,
-                    load_id,
                     tender_id,
                     email_thread_id,
                     shipment_id
@@ -222,7 +196,6 @@ class WorkflowLifecyclesRepository:
                     CAST(:lifecycle_id AS uuid),
                     CAST(:tenant_id AS uuid),
                     :workflow_name,
-                    :load_id,
                     CAST(:tender_id AS uuid),
                     :thread_id,
                     :shipment_id
@@ -233,20 +206,30 @@ class WorkflowLifecyclesRepository:
                 "lifecycle_id": lifecycle_id,
                 "tenant_id": tenant_id,
                 "workflow_name": workflow_name,
-                "load_id": load_id,
                 "tender_id": tender_id,
                 "thread_id": thread_id,
                 "shipment_id": shipment_id,
             },
         )
 
+    def _row_dict_from_select(self, row: Any) -> dict[str, Any]:
+        return {
+            "id": row[0],
+            "tenant_id": row[1],
+            "workflow_name": row[2],
+            "status": row[3],
+            "sub_status": row[4],
+            "email_thread_id": row[5],
+            "tender_id": row[6] or "",
+        }
+
     def read_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
         """Return lifecycle row fields for a PK."""
         row = self._session.execute(
             text(
                 f"""
-                SELECT tenant_id::text, workflow_name, status::text, sub_status::text,
-                       email_thread_id, tender_id::text, load_id
+                SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
+                       email_thread_id, tender_id::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_LIFECYCLE_ID}
                 """
@@ -255,22 +238,43 @@ class WorkflowLifecyclesRepository:
         ).first()
         if not row:
             return None
-        return {
-            "tenant_id": row[0],
-            "workflow_name": row[1],
-            "status": row[2],
-            "sub_status": row[3],
-            "email_thread_id": row[4],
-            "tender_id": row[5] or "",
-            "load_id": row[6] or "",
-        }
+        return self._row_dict_from_select(row)
 
-    def read_correlation_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
-        """Shipment/thread/load_id fields for ``read_lifecycle`` responses."""
+    def read_row_by_tender_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        tender_id: str,
+    ) -> dict[str, Any] | None:
+        """Return the latest lifecycle row for tenant/workflow/tender correlation."""
         row = self._session.execute(
             text(
                 f"""
-                SELECT shipment_id::text, email_thread_id, workflow_name, load_id
+                SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
+                       email_thread_id, tender_id::text
+                FROM {self.TABLE_NAME}
+                {_WHERE_TENANT_WORKFLOW}
+                  AND tender_id = CAST(:tender_id AS uuid)
+                {_LOOKUP_ORDER_LIMIT}
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "tender_id": tender_id,
+            },
+        ).first()
+        if not row:
+            return None
+        return self._row_dict_from_select(row)
+
+    def read_correlation_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
+        """Shipment/thread/tender fields for ``read_lifecycle`` responses."""
+        row = self._session.execute(
+            text(
+                f"""
+                SELECT shipment_id::text, email_thread_id, workflow_name, tender_id::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_LIFECYCLE_ID}
                 """
@@ -283,7 +287,7 @@ class WorkflowLifecyclesRepository:
             "shipment_id": row[0] or "",
             "email_thread_id": row[1] or "",
             "workflow_name": row[2] or "",
-            "load_id": row[3] or "",
+            "tender_id": row[3] or "",
         }
 
     def find_existing_lifecycle_id_tx(
@@ -291,7 +295,6 @@ class WorkflowLifecyclesRepository:
         *,
         tenant_id: str,
         workflow_name: str,
-        load_id: str | None = None,
         tender_id: str | None = None,
         thread_id: str | None = None,
         shipment_id: str | None = None,
@@ -299,7 +302,6 @@ class WorkflowLifecyclesRepository:
         return self.find_existing_lifecycle_id(
             tenant_id=tenant_id,
             workflow_name=workflow_name,
-            load_id=load_id,
             tender_id=tender_id,
             thread_id=thread_id,
             shipment_id=shipment_id,
@@ -310,7 +312,6 @@ class WorkflowLifecyclesRepository:
         *,
         tenant_id: str,
         workflow_name: str,
-        load_id: str | None = None,
         tender_id: str | None = None,
         thread_id: str | None = None,
         shipment_id: str | None = None,
@@ -319,7 +320,6 @@ class WorkflowLifecyclesRepository:
         existing_id = self.find_existing_lifecycle_id(
             tenant_id=tenant_id,
             workflow_name=workflow_name,
-            load_id=load_id,
             tender_id=tender_id,
             thread_id=thread_id,
             shipment_id=shipment_id,
@@ -332,7 +332,6 @@ class WorkflowLifecyclesRepository:
             lifecycle_id=new_id,
             tenant_id=tenant_id,
             workflow_name=workflow_name,
-            load_id=load_id,
             tender_id=tender_id,
             thread_id=thread_id,
             shipment_id=shipment_id,

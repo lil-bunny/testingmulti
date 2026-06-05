@@ -24,7 +24,7 @@ def read_workflow_lifecycle(state):
         workflow_name=state.data.get(workflow_name_key),
         thread_id=state.data.get("thread_id"),
         shipment_id=state.data.get("shipment_id"),
-        load_id=state.data.get("load_id"),
+        tender_id=state.data.get("tender_id"),
     )
 
     result_key = "lookup_workflow_lifecycle" if workflow_name_key == "lookup_workflow_name" else "workflow_lifecycle_payload"
@@ -35,8 +35,8 @@ def read_workflow_lifecycle(state):
             state.data["thread_id"] = lookup_result["email_thread_id"]
         if not state.data.get("shipment_id") and lookup_result.get("shipment_id"):
             state.data["shipment_id"] = lookup_result["shipment_id"]
-        if not state.data.get("load_id") and lookup_result.get("load_id"):
-            state.data["load_id"] = lookup_result["load_id"]
+        if not state.data.get("tender_id") and lookup_result.get("tender_id"):
+            state.data["tender_id"] = lookup_result["tender_id"]
     return state
 
 

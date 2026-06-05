@@ -79,6 +79,7 @@ async def test_tender_created_skips_enqueue_when_order_already_exists(
     assert mock_task.apply_async.call_count == 1
     wp = mock_task.apply_async.call_args.kwargs["kwargs"]["payload"]
     assert wp["tender_id"] == "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    assert wp["order_number"] == "95009"
     assert wp["event_type"] == "tender_created"
 
 
@@ -122,7 +123,7 @@ async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
 
 @pytest.mark.asyncio
 @patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_tender_created_ingest")
-@patch("app.services.gelita_inbound_email_service.CommunicationsService.record_inbound")
+@patch("app.services.gelita_inbound_email_service.CommunicationsService.record_or_resolve_inbound")
 async def test_handle_xlsx_enqueues_background_ingest_not_inline_import(
     mock_record: MagicMock,
     mock_enqueue_ingest: MagicMock,

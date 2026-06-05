@@ -134,7 +134,7 @@ async def process_tender_created_from_email_webhook(
         workflow_payload_row: dict[str, Any] = {
             **shared_payload,
             "tender_id": tender_id,
-            "load_id": order_number,
+            "order_number": order_number,
             "tender_row_index": row_index,
         }
         set_tender(

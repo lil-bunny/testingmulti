@@ -90,9 +90,7 @@ def update_reminder_status(state):
         "tender_id": state.data.get("tender_id"),
     }
     action_meta = dict(transition_meta)
-    comm_id = str(state.data.get("communication_id") or "").strip()
-    if comm_id:
-        action_meta["communication_id"] = comm_id
+    communication_id = str(state.data.get("communication_id") or "").strip() or None
 
     current_status = status_type_from_db(prev.get("status")) if prev else None
     to_status = StatusType.PENDING_REVIEW
@@ -121,6 +119,7 @@ def update_reminder_status(state):
                     activity_type=ActivityType.ACTION,
                     description=format_reminder_sent_action(step=step),
                     metadata=dict(action_meta),
+                    communication_id=communication_id,
                 ),
                 transition_step,
             ),

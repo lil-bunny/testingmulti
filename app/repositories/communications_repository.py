@@ -110,3 +110,23 @@ class CommunicationsRepository:
         if not row_id:
             return None
         return str(row_id)
+
+    def find_id_by_tenant_and_external_id(
+        self,
+        *,
+        tenant_id: str,
+        external_id: str,
+    ) -> str | None:
+        """Return ``communications.id`` for a tenant-scoped Unipile ``email_id``."""
+        row_id = execute_scalar(
+            self._session,
+            f"""
+            SELECT id::text
+            FROM {self.TABLE_NAME}
+            WHERE tenant_id = CAST(:tenant_id AS uuid)
+              AND external_id = :external_id
+            LIMIT 1
+            """,
+            {"tenant_id": tenant_id, "external_id": external_id},
+        )
+        return str(row_id) if row_id else None

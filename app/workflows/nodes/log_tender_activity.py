@@ -46,8 +46,6 @@ def log_tender_activity(state):
 
         transition_meta: dict[str, Any] = {"tender_id": tender_id}
         action_meta = dict(transition_meta)
-        if communication_id:
-            action_meta["communication_id"] = communication_id
 
         activity_log_service.record_sequence(
             ActivityLogSequence(
@@ -59,6 +57,7 @@ def log_tender_activity(state):
                         activity_type=ActivityType.ACTION,
                         description=format_tender_sent_to_vendor(),
                         metadata=dict(action_meta),
+                        communication_id=communication_id,
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.SUB_STATUS_CHANGE,
