@@ -37,34 +37,45 @@ def _stub_shipment(shipment_id: Any, error: Optional[str] = None) -> dict[str, A
     return out
 
 
-def _is_turvo_configured() -> bool:
-    return bool(settings.TURVO_PUBLICAPI_URL)
+def _is_turvo_configured(tenant_slug: Optional[str]) -> bool:
+    slug = (tenant_slug or "").strip()
+    if not slug:
+        return False
+    from app.services.turvo_oauth_service import TurvoOAuthService
+
+    return TurvoOAuthService().has_tms_partner_config(slug)
+
+
+def _effective_tenant_slug(tenant_slug: Optional[str]) -> Optional[str]:
+    return (tenant_slug or settings.TURVO_DEFAULT_TENANT_SLUG or "").strip() or None
 
 
 def get_shipment(
     shipment_id: Any,
-    app_user_id: Optional[str] = None,
+    *,
+    tenant_slug: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return Turvo shipment details for a given shipment id.
 
-    ``app_user_id`` must be supplied by the caller when a live fetch is needed
-    (nodes typically use ``state.data["app_user_id"]`` or env default).
+    ``tenant_slug`` must be supplied by the caller when a live fetch is needed
+    (nodes use ``state.data["tenant_slug"]``).
 
-    Falls back to a minimal stub when Turvo is not configured or ``app_user_id``
+    Falls back to a minimal stub when Turvo is not configured or ``tenant_slug``
     is missing, so workflows remain testable without live Turvo creds.
     """
     if not shipment_id:
         return _stub_shipment(shipment_id)
 
-    if not app_user_id or not _is_turvo_configured():
+    slug = _effective_tenant_slug(tenant_slug)
+    if not slug or not _is_turvo_configured(slug):
         logger.info(
-            "Turvo not configured or app_user_id missing; returning stub shipment for %s",
+            "Turvo not configured or tenant_slug missing; returning stub shipment for %s",
             shipment_id,
         )
         return _stub_shipment(shipment_id)
 
     try:
-        return asyncio.run(get_shipment_async(app_user_id, shipment_id))
+        return asyncio.run(get_shipment_async(slug, shipment_id))
     except TurvoApiError as e:
         logger.warning(
             "Turvo get_shipment failed for shipment_id=%s status=%s body=%s",
@@ -83,14 +94,10 @@ def get_shipment(
 
 def check_pod_by_shipment_id(
     shipment_id: Any,
-    app_user_id: Optional[str] = None,
+    *,
+    tenant_slug: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Return whether Turvo documents list includes proof of delivery for this shipment.
-
-    Uses GET /v1/documents/list with a SHIPMENT context. When Turvo is
-    not configured or ``app_user_id`` is missing, returns ``success: False`` with
-    a clear message (no live call).
-    """
+    """Return whether Turvo documents list includes proof of delivery for this shipment."""
     empty = {
         "success": False,
         "shipment_id": "",
@@ -103,9 +110,10 @@ def check_pod_by_shipment_id(
         return empty
 
     sid = str(shipment_id)
-    if not app_user_id or not _is_turvo_configured():
+    slug = _effective_tenant_slug(tenant_slug)
+    if not slug or not _is_turvo_configured(slug):
         logger.info(
-            "Turvo not configured or app_user_id missing; skipping POD check for %s",
+            "Turvo not configured or tenant_slug missing; skipping POD check for %s",
             sid,
         )
         return {
@@ -114,11 +122,11 @@ def check_pod_by_shipment_id(
             "pod_exists": False,
             "pod_documents": [],
             "all_documents_count": 0,
-            "message": "Turvo not configured or app_user_id missing",
+            "message": "Turvo not configured or tenant_slug missing",
         }
 
     try:
-        return asyncio.run(check_pod_by_shipment_id_async(app_user_id, shipment_id))
+        return asyncio.run(check_pod_by_shipment_id_async(slug, shipment_id))
     except TurvoApiError as e:
         logger.warning(
             "Turvo check_pod_by_shipment_id failed shipment_id=%s status=%s body=%s",
@@ -158,13 +166,10 @@ def check_pod_by_shipment_id(
 
 def load_id_to_shipment_id(
     load_id: Any,
-    app_user_id: Optional[str] = None,
+    *,
+    tenant_slug: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Resolve Turvo load/custom id to canonical ``shipment_id`` via search + shipment API.
-
-    Uses the same per-user OAuth as ``get_shipment``. When ``app_user_id`` is
-    omitted, uses ``TURVO_DEFAULT_APP_USER_ID`` if set.
-    """
+    """Resolve Turvo load/custom id to canonical ``shipment_id`` via search + shipment API."""
     empty = {
         "success": False,
         "load_id": "",
@@ -175,22 +180,21 @@ def load_id_to_shipment_id(
         return empty
 
     lid = str(load_id).strip()
-    effective_user = (app_user_id or settings.TURVO_DEFAULT_APP_USER_ID or "").strip() or None
-
-    if not effective_user or not _is_turvo_configured():
+    slug = _effective_tenant_slug(tenant_slug)
+    if not slug or not _is_turvo_configured(slug):
         logger.info(
-            "Turvo not configured or app_user_id missing; skipping load_id resolution for %s",
+            "Turvo not configured or tenant_slug missing; skipping load_id resolution for %s",
             lid,
         )
         return {
             "success": False,
             "load_id": lid,
             "shipment_id": None,
-            "message": "Turvo not configured or app_user_id missing",
+            "message": "Turvo not configured or tenant_slug missing",
         }
 
     try:
-        sid = asyncio.run(load_id_to_shipment_id_async(effective_user, lid))
+        sid = asyncio.run(load_id_to_shipment_id_async(slug, lid))
         if sid is None:
             return {
                 "success": False,

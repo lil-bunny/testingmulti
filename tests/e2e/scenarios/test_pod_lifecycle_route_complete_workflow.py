@@ -397,15 +397,17 @@ def _default_workflow_tenant_id() -> str:
     return "t3ra"
 
 
-def _resolve_e2e_app_user_id() -> str | None:
+def _resolve_e2e_tenant_slug() -> str | None:
     for key in (
+        "TURVO_WEBHOOK_E2E_TENANT_SLUG",
         "TURVO_WEBHOOK_E2E_APP_USER_ID",
+        "TURVO_LIVE_TENANT_SLUG",
         "TURVO_LIVE_APP_USER_ID",
     ):
         v = os.environ.get(key, "").strip()
         if v:
             return v
-    return (settings.TURVO_DEFAULT_APP_USER_ID or "").strip() or None
+    return (settings.TURVO_DEFAULT_TENANT_SLUG or "").strip() or None
 
 
 def _merge_optional_env_headers(headers: dict[str, str]) -> None:
@@ -443,21 +445,21 @@ async def put_sandbox_shipment_route_complete_status() -> httpx.Response:
     if manual_bearer:
         headers = _oauth_bearer_headers(manual_bearer)
     else:
-        app_user_id = _resolve_e2e_app_user_id()
-        if not app_user_id:
+        tenant_slug = _resolve_e2e_tenant_slug()
+        if not tenant_slug:
             pytest.skip(
-                "Set TURVO_WEBHOOK_E2E_APP_USER_ID (or TURVO_DEFAULT_APP_USER_ID in .env) "
+                "Set TURVO_WEBHOOK_E2E_TENANT_SLUG (or TURVO_DEFAULT_TENANT_SLUG in .env) "
                 "for Turvo OAuth token lookup."
             )
         oauth = TurvoOAuthService()
         try:
-            tokens = await oauth.get_user_tokens(app_user_id)
+            tokens = await oauth.get_tenant_tokens(tenant_slug)
         except RuntimeError as e:
             pytest.skip(f"Turvo OAuth not configured or DB unreachable: {e}")
 
         if not tokens or not (tokens.get("access_token") or "").strip():
             pytest.skip(
-                f"No OAuth access_token for app user {app_user_id!r}; link Turvo in DB "
+                f"No OAuth access_token for tenant {tenant_slug!r}; link Turvo in DB "
                 "or pass TURVO_WEBHOOK_TRIGGER_BEARER for a one-off run."
             )
         headers = _oauth_bearer_headers(tokens["access_token"].strip())

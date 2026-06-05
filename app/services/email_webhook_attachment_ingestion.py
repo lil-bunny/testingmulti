@@ -17,6 +17,7 @@ from app.domain.delivery_locations_import import (
     unipile_delivery_locations_attachment,
     unipile_first_load_tender_xlsx_attachment,
 )
+from app.domain.ratecon_import import is_pdf_attachment
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
 from app.services.data_imports_service import DataImportsService
@@ -98,6 +99,9 @@ def infer_email_attachment_ingest_kind(
 
     if ext == "xlsx" or name.endswith(".xlsx") or "spreadsheetml" in mt:
         return "excel"
+
+    if is_pdf_attachment(attachment, name or ""):
+        return "pdf"
 
     return None
 
@@ -203,10 +207,8 @@ async def process_email_webhook_attachment_import_for_attachment(
         )
         return None
 
-    if (
-        skip_fetch_if_existing
-        and data_import_data_type == DataImportDataType.LOAD_TENDER
-    ):
+    dedupe_types = (DataImportDataType.LOAD_TENDER,)
+    if skip_fetch_if_existing and data_import_data_type in dedupe_types:
         existing = DataImportsService().find_by_email_attachment_source(
             tenant_id=tid,
             email_id=fetch_ctx["email_id"],

@@ -8,6 +8,7 @@ from app.core.service_db import run_with_repos
 from app.models.status import StatusSubType, StatusType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
+from app.services.shipments_service import ShipmentsService
 
 
 @dataclass(frozen=True)
@@ -25,8 +26,10 @@ class WorkflowLifecycleService:
         self,
         *,
         lifecycles_repository: WorkflowLifecyclesRepository | None = None,
+        shipments_service: ShipmentsService | None = None,
     ) -> None:
         self._lifecycles_repo = lifecycles_repository
+        self._shipments_service = shipments_service or ShipmentsService()
 
     def _repo(self, repos: Any) -> WorkflowLifecyclesRepository:
         return self._lifecycles_repo or repos.workflow_lifecycles
@@ -47,6 +50,28 @@ class WorkflowLifecycleService:
         return WorkflowLifecycleService._clean(payload.get("shipment_id"))
 
     @staticmethod
+    def _uuid_or_none(value: Any) -> Optional[str]:
+        raw = WorkflowLifecycleService._clean(value)
+        if not raw:
+            return None
+        try:
+            return str(uuid.UUID(raw))
+        except (ValueError, AttributeError, TypeError):
+            return None
+
+    @staticmethod
+    def _extract_db_shipment_id(payload: dict[str, Any]) -> Optional[str]:
+        """
+        ``workflow_lifecycles.shipment_id`` FK (``shipments.id`` UUID).
+
+        Prefer ``shipments_row_id`` from ratecon upsert; ignore Turvo numeric ``shipment_id``.
+        """
+        row_id = WorkflowLifecycleService._uuid_or_none(payload.get("shipments_row_id"))
+        if row_id:
+            return row_id
+        return WorkflowLifecycleService._uuid_or_none(payload.get("shipment_id"))
+
+    @staticmethod
     def _extract_tender_id(payload: dict[str, Any]) -> Optional[str]:
         raw = WorkflowLifecycleService._clean(payload.get("tender_id"))
         if not raw:
@@ -55,6 +80,20 @@ class WorkflowLifecycleService:
             return str(uuid.UUID(raw))
         except (ValueError, AttributeError):
             return None
+
+    @staticmethod
+    def _shipment_fk_for_lookup(
+        workflow_name: str | None,
+        shipment_id: str | None,
+    ) -> str | None:
+        """ratecon / pod_lifecycle: only ``shipments.id`` UUID; others pass through."""
+        wn = WorkflowLifecycleService._clean(workflow_name)
+        ship = WorkflowLifecycleService._clean(shipment_id)
+        if not ship:
+            return None
+        if wn in ("ratecon", "pod_lifecycle"):
+            return WorkflowLifecycleService._uuid_or_none(ship)
+        return ship
 
     def read_lifecycle(
         self,
@@ -65,6 +104,11 @@ class WorkflowLifecycleService:
         shipment_id: str | None = None,
         tender_id: str | None = None,
     ) -> dict:
+        """Read-only lookup. Returns lifecycle data if found, no row creation.
+
+        Response ``shipment_id`` is ``workflow_lifecycles.shipment_id`` (``shipments.id`` UUID).
+        ``shipment_number`` is the external TMS id from ``shipments.shipment_number``.
+        """
         tid_raw = self._clean(tenant_id)
         wn = self._clean(workflow_name)
         tid = resolve_graph_tenant_to_uuid(tid_raw) if tid_raw else None
@@ -75,6 +119,8 @@ class WorkflowLifecycleService:
         if tender_id:
             tender_uuid = self._extract_tender_id({"tender_id": tender_id})
 
+        ship_key = self._shipment_fk_for_lookup(wn, shipment_id)
+
         if self._lifecycles_repo is not None:
             repo = self._lifecycles_repo
             lifecycle_id = repo.find_existing_lifecycle_id_tx(
@@ -82,7 +128,7 @@ class WorkflowLifecycleService:
                 workflow_name=wn,
                 tender_id=tender_uuid,
                 thread_id=self._clean(thread_id),
-                shipment_id=self._clean(shipment_id),
+                shipment_id=ship_key,
             )
             if not lifecycle_id:
                 return {"found": False}
@@ -95,7 +141,7 @@ class WorkflowLifecycleService:
                     workflow_name=wn,
                     tender_id=tender_uuid,
                     thread_id=self._clean(thread_id),
-                    shipment_id=self._clean(shipment_id),
+                    shipment_id=ship_key,
                 )
                 if not lifecycle_id:
                     return {"found": False}
@@ -107,7 +153,6 @@ class WorkflowLifecycleService:
                     "lifecycle_id": lifecycle_id,
                     "shipment_id": row.get("shipment_id") or "",
                     "tender_id": row.get("tender_id") or "",
-                    "email_thread_id": row.get("email_thread_id") or "",
                     "workflow_name": row.get("workflow_name") or "",
                 }
 
@@ -121,9 +166,87 @@ class WorkflowLifecycleService:
             "lifecycle_id": lifecycle_id,
             "shipment_id": row.get("shipment_id") or "",
             "tender_id": row.get("tender_id") or "",
-            "email_thread_id": row.get("email_thread_id") or "",
             "workflow_name": row.get("workflow_name") or "",
         }
+
+    def link_shipment_row(
+        self,
+        *,
+        lifecycle_id: str,
+        shipments_row_id: str,
+    ) -> bool:
+        """Set ``workflow_lifecycles.shipment_id`` to ``shipments.id`` when still NULL."""
+        lid = self._clean(lifecycle_id)
+        sid = self._uuid_or_none(shipments_row_id)
+        if not lid or not sid:
+            return False
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.update_shipment_id_tx(
+                lifecycle_id=lid,
+                shipment_id=sid,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).update_shipment_id_tx(
+                lifecycle_id=lid,
+                shipment_id=sid,
+            )
+        )
+
+    def resolve_shipments_row_id(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict[str, Any],
+    ) -> str | None:
+        """
+        Resolve ``shipments.id`` from payload.
+
+        Uses ``shipments_row_id``, a UUID ``shipment_id``, or lookup by Turvo
+        ``shipment_number`` via ``shipments`` when ``shipment_id`` is external.
+        """
+        row_id = self._extract_db_shipment_id(payload)
+        if row_id:
+            return row_id
+
+        external = self._clean(payload.get("shipment_id"))
+        if not external:
+            return None
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        if not tid:
+            return None
+
+        row = self._shipments_service.get_by_shipment_number(
+            tenant_id=tid,
+            shipment_number=external,
+        )
+        if not row:
+            return None
+        return self._uuid_or_none(row.get("id"))
+
+    def ensure_lifecycle_shipment_linked(
+        self,
+        *,
+        lifecycle_id: str,
+        tenant_id: str,
+        payload: dict[str, Any],
+    ) -> str | None:
+        """
+        Idempotently link lifecycle FK to ``shipments.id`` when resolvable.
+
+        Returns the internal UUID when found (even if FK was already set).
+        """
+        row_id = self.resolve_shipments_row_id(
+            tenant_id=tenant_id,
+            payload=payload,
+        )
+        if not row_id:
+            return None
+        self.link_shipment_row(
+            lifecycle_id=lifecycle_id,
+            shipments_row_id=row_id,
+        )
+        return row_id
 
     def set_email_thread_id(
         self,
@@ -166,13 +289,18 @@ class WorkflowLifecycleService:
         if tender_id:
             tender_uuid = self._extract_tender_id({"tender_id": tender_id})
 
+        ship_key = self._shipment_fk_for_lookup(wn, shipment_id)
+        lookup_thread: str | None = self._clean(thread_id)
+        if wn in ("ratecon", "pod_lifecycle"):
+            lookup_thread = None
+
         def _lookup(repo: WorkflowLifecyclesRepository) -> dict:
             lifecycle_id = repo.find_existing_lifecycle_id_tx(
                 tenant_id=tid,
                 workflow_name=wn,
                 tender_id=tender_uuid,
-                thread_id=self._clean(thread_id),
-                shipment_id=self._clean(shipment_id),
+                thread_id=lookup_thread,
+                shipment_id=ship_key,
             )
             if lifecycle_id:
                 return {"exists": True, "lifecycle_id": lifecycle_id}
@@ -215,7 +343,9 @@ class WorkflowLifecycleService:
 
         tender_id = self._extract_tender_id(payload)
         thread_id = self._extract_thread_id(payload)
-        shipment_id = self._extract_shipment_id(payload)
+        if workflow_name_clean in ("ratecon", "pod_lifecycle"):
+            thread_id = None
+        shipment_id = self._extract_db_shipment_id(payload)
 
         def _resolve(repo: WorkflowLifecyclesRepository) -> LifecycleResolution:
             lifecycle_id, existed = repo.resolve_or_create(

@@ -20,3 +20,13 @@ CARRIER_ACK_LLM_ACTION_TEMPLATE = (
 )
 REMINDER_SENT_ACTION_TEMPLATE = "Reminder {step} sent to carrier"
 ESCALATION_SENT_ACTION = "Tender escalated to internal recipients"
+RATECON_RECEIVED_ACTION = "Ratecon email received"
+RATECON_DOCUMENT_UPLOADED_ACTION = "Ratecon document uploaded to S3"
+RATECON_DOCUMENT_UPLOAD_FAILED_ACTION = "Ratecon document upload failed"
+RATECON_DOCUMENT_PROCESSED_ACTION = "Ratecon document processed"
+RATECON_DOCUMENT_PROCESSING_FAILED_ACTION = "Ratecon document processing failed"
+RATECON_LLM_ACTION_TEMPLATE = (
+    "Ratecon LLM extracted document fields{confidence_suffix}: {reason}"
+)
+POD_STARTED_ACTION = "POD lifecycle started"
+POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"

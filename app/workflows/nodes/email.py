@@ -2,6 +2,8 @@ import logging
 from typing import Any, Dict, List
 
 from app.core.config import settings
+from app.services.unipile_service import UnipileException
+from app.tools.communication_metadata import stash_communication_id
 from app.tools.email import detect_attachment_bytes_type
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
 from app.services.s3bucket_service import bucket
@@ -12,21 +14,68 @@ from app.workflows.shipment_resolver import resolve_shipment_id
 
 logger = logging.getLogger(__name__)
 
+
 def send_email(state):
     tenant_raw = getattr(state, "tenant_id", None) or state.data.get("tenant_id")
-    send_email_tool(
-        state.data.get("to"),
-        state.data.get("subject", "POD Request"),
-        state.data.get("body", ""),
-        thread_id=state.data.get("thread_id"),
-        account_id=state.data.get("account_id"),
-        tenant_id=tenant_raw,
-        communication_metadata={
-            "source": "pod_send_email",
-            "thread_id": state.data.get("thread_id"),
-            "email_id": state.data.get("email_id"),
-        },
+    run_id = str(state.execution_id or "").strip() or None
+    send_result = None
+    try:
+        send_result = send_email_tool(
+            state.data.get("to"),
+            state.data.get("subject", "POD Request"),
+            state.data.get("body", ""),
+            thread_id=state.data.get("thread_id"),
+            account_id=state.data.get("account_id"),
+            tenant_id=tenant_raw,
+            workflow_run_id=run_id,
+            communication_metadata={
+                "source": "pod_send_email",
+                "thread_id": state.data.get("thread_id"),
+                "email_id": state.data.get("email_id"),
+                "workflow_lifecycle_id": state.data.get("workflow_lifecycle_id"),
+                "shipment_id": state.data.get("shipment_id"),
+            },
+        )
+    except UnipileException as exc:
+        logger.warning(
+            "send_email Unipile error lifecycle_id=%s shipment_id=%s: %s",
+            state.data.get("workflow_lifecycle_id"),
+            state.data.get("shipment_id"),
+            exc,
+        )
+        state.data["pod_reminder_result"] = send_result
+        state.data["pod_reminder_error"] = str(exc)
+        state.data["pod_reminder_sent"] = False
+        return state
+    except Exception:
+        logger.exception(
+            "send_email unexpected error lifecycle_id=%s shipment_id=%s",
+            state.data.get("workflow_lifecycle_id"),
+            state.data.get("shipment_id"),
+        )
+        state.data["pod_reminder_result"] = send_result
+        state.data["pod_reminder_error"] = "unexpected_error"
+        state.data["pod_reminder_sent"] = False
+        return state
+
+    if send_result is None:
+        state.data["pod_reminder_error"] = "send_skipped_or_no_result"
+        state.data["pod_reminder_sent"] = False
+        return state
+
+    stash_communication_id(
+        state,
+        send_result if isinstance(send_result, dict) else None,
     )
+    state.data["pod_reminder_result"] = send_result
+    success = True
+    if isinstance(send_result, dict):
+        success = bool(send_result.get("success", True))
+    state.data["pod_reminder_sent"] = success
+    if not success:
+        state.data["pod_reminder_error"] = (
+            (send_result or {}).get("error") if isinstance(send_result, dict) else None
+        ) or "unipile_send_failed"
     return state
 
 

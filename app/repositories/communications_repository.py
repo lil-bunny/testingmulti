@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, fetchall_dicts, jsonb_param
@@ -130,3 +131,56 @@ class CommunicationsRepository:
             {"tenant_id": tenant_id, "external_id": external_id},
         )
         return str(row_id) if row_id else None
+
+    def link_workflow_run(
+        self,
+        *,
+        communication_id: str,
+        workflow_run_id: str,
+    ) -> bool:
+        """Set ``workflow_run_id`` on inbound comm when still unlinked (idempotent)."""
+        rowcount = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET workflow_run_id = CAST(:workflow_run_id AS uuid)
+                WHERE id = CAST(:communication_id AS uuid)
+                  AND workflow_run_id IS NULL
+                """
+            ),
+            {
+                "communication_id": communication_id,
+                "workflow_run_id": workflow_run_id,
+            },
+        ).rowcount
+        return rowcount > 0
+
+    def find_inbound_thread_for_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+    ) -> str | None:
+        """``communications.thread_id`` from the latest linked ``email_received`` run."""
+        thread_id = execute_scalar(
+            self._session,
+            """
+            SELECT c.thread_id
+            FROM communications c
+            JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+            WHERE wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+              AND wr.tenant_id = CAST(:tenant_id AS uuid)
+              AND wr.event_type = 'email_received'
+              AND c.thread_id IS NOT NULL
+              AND TRIM(c.thread_id) <> ''
+            ORDER BY wr.created_at DESC
+            LIMIT 1
+            """,
+            {
+                "tenant_id": tenant_id,
+                "workflow_lifecycle_id": workflow_lifecycle_id,
+            },
+        )
+        if not thread_id:
+            return None
+        return str(thread_id).strip() or None

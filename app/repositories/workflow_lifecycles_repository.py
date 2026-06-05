@@ -117,20 +117,47 @@ class WorkflowLifecyclesRepository:
         lifecycle_id: str,
         email_thread_id: str,
     ) -> bool:
+        """No-op: ``email_thread_id`` column removed; thread lives on ``communications``."""
+        _ = (lifecycle_id, email_thread_id)
+        return True
+
+    def update_shipment_id(
+        self,
+        *,
+        lifecycle_id: str,
+        shipment_id: str,
+    ) -> bool:
+        """Set ``shipment_id`` FK only when currently NULL (idempotent)."""
         result = self._session.execute(
             text(
                 f"""
                 UPDATE {self.TABLE_NAME}
-                SET email_thread_id = :email_thread_id, updated_at = NOW()
-                {_WHERE_LIFECYCLE_ID}
+                SET shipment_id = CAST(:shipment_id AS uuid), updated_at = NOW()
+                WHERE id = CAST(:lifecycle_id AS uuid)
+                  AND shipment_id IS NULL
                 """
             ),
-            {
-                "email_thread_id": email_thread_id,
-                "lifecycle_id": lifecycle_id,
-            },
+            {"shipment_id": shipment_id, "lifecycle_id": lifecycle_id},
         )
         return result.rowcount > 0
+
+    def _find_existing_lifecycle_id_shipment_first(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        thread_id: str | None = None,
+        shipment_id: str | None = None,
+    ) -> str | None:
+        """ratecon / pod_lifecycle: ``shipment_id`` FK (UUID) only."""
+        if not shipment_id:
+            return None
+        return self._fetch_lifecycle_id(
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            extra_predicate="AND shipment_id = CAST(:shipment_id AS uuid)",
+            extra_params={"shipment_id": shipment_id},
+        )
 
     def find_existing_lifecycle_id(
         self,
@@ -144,8 +171,17 @@ class WorkflowLifecyclesRepository:
         """
         Resolve lifecycle PK by correlation keys.
 
-        Priority: ``tender_id`` → ``email_thread_id`` → ``shipment_id``.
+        ratecon / pod_lifecycle: ``shipment_id`` FK only.
+        Other workflows (e.g. load_tendering): ``tender_id`` → ``shipment_id``.
         """
+        if workflow_name in ("ratecon", "pod_lifecycle"):
+            return self._find_existing_lifecycle_id_shipment_first(
+                tenant_id=tenant_id,
+                workflow_name=workflow_name,
+                thread_id=thread_id,
+                shipment_id=shipment_id,
+            )
+
         if tender_id:
             found = self._fetch_lifecycle_id(
                 tenant_id=tenant_id,
@@ -156,17 +192,12 @@ class WorkflowLifecyclesRepository:
             if found:
                 return found
 
-        for field_name, field_value in (
-            ("email_thread_id", thread_id),
-            ("shipment_id", shipment_id),
-        ):
-            if not field_value:
-                continue
+        if shipment_id:
             found = self._fetch_lifecycle_id(
                 tenant_id=tenant_id,
                 workflow_name=workflow_name,
-                extra_predicate=f"AND {field_name} = :field_value",
-                extra_params={"field_value": field_value},
+                extra_predicate="AND shipment_id = CAST(:shipment_id AS uuid)",
+                extra_params={"shipment_id": shipment_id},
             )
             if found:
                 return found
@@ -190,15 +221,13 @@ class WorkflowLifecyclesRepository:
                     tenant_id,
                     workflow_name,
                     tender_id,
-                    email_thread_id,
                     shipment_id
                 ) VALUES (
                     CAST(:lifecycle_id AS uuid),
                     CAST(:tenant_id AS uuid),
                     :workflow_name,
                     CAST(:tender_id AS uuid),
-                    :thread_id,
-                    :shipment_id
+                    CAST(:shipment_id AS uuid)
                 )
                 """
             ),
@@ -207,7 +236,6 @@ class WorkflowLifecyclesRepository:
                 "tenant_id": tenant_id,
                 "workflow_name": workflow_name,
                 "tender_id": tender_id,
-                "thread_id": thread_id,
                 "shipment_id": shipment_id,
             },
         )
@@ -219,8 +247,7 @@ class WorkflowLifecyclesRepository:
             "workflow_name": row[2],
             "status": row[3],
             "sub_status": row[4],
-            "email_thread_id": row[5],
-            "tender_id": row[6] or "",
+            "tender_id": row[5] or "",
         }
 
     def read_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
@@ -229,7 +256,7 @@ class WorkflowLifecyclesRepository:
             text(
                 f"""
                 SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
-                       email_thread_id, tender_id::text
+                       tender_id::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_LIFECYCLE_ID}
                 """
@@ -252,7 +279,7 @@ class WorkflowLifecyclesRepository:
             text(
                 f"""
                 SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
-                       email_thread_id, tender_id::text
+                       tender_id::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_WORKFLOW}
                   AND tender_id = CAST(:tender_id AS uuid)
@@ -274,7 +301,7 @@ class WorkflowLifecyclesRepository:
         row = self._session.execute(
             text(
                 f"""
-                SELECT shipment_id::text, email_thread_id, workflow_name, tender_id::text
+                SELECT shipment_id::text, workflow_name, tender_id::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_LIFECYCLE_ID}
                 """
@@ -285,9 +312,8 @@ class WorkflowLifecyclesRepository:
             return None
         return {
             "shipment_id": row[0] or "",
-            "email_thread_id": row[1] or "",
-            "workflow_name": row[2] or "",
-            "tender_id": row[3] or "",
+            "workflow_name": row[1] or "",
+            "tender_id": row[2] or "",
         }
 
     def find_existing_lifecycle_id_tx(
@@ -347,6 +373,17 @@ class WorkflowLifecyclesRepository:
         return self.update_email_thread_id(
             lifecycle_id=lifecycle_id,
             email_thread_id=email_thread_id,
+        )
+
+    def update_shipment_id_tx(
+        self,
+        *,
+        lifecycle_id: str,
+        shipment_id: str,
+    ) -> bool:
+        return self.update_shipment_id(
+            lifecycle_id=lifecycle_id,
+            shipment_id=shipment_id,
         )
 
     def update_lifecycle_status_tx(

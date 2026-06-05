@@ -10,6 +10,14 @@ from app.domain.activity_log_constants import (
     SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE,
     TENDER_CREATED_ACTION_TEMPLATE,
     TENDER_SENT_TO_VENDOR_ACTION,
+    RATECON_RECEIVED_ACTION,
+    RATECON_DOCUMENT_UPLOADED_ACTION,
+    RATECON_DOCUMENT_UPLOAD_FAILED_ACTION,
+    RATECON_DOCUMENT_PROCESSED_ACTION,
+    RATECON_DOCUMENT_PROCESSING_FAILED_ACTION,
+    RATECON_LLM_ACTION_TEMPLATE,
+    POD_STARTED_ACTION,
+    POD_ESCALATION_SENT_ACTION,
 )
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -98,3 +106,44 @@ def format_reminder_sent_action(*, step: int) -> str:
 
 def format_escalation_sent_action() -> str:
     return ESCALATION_SENT_ACTION
+
+
+def format_ratecon_received_action() -> str:
+    return RATECON_RECEIVED_ACTION
+
+
+def format_ratecon_document_uploaded_action() -> str:
+    return RATECON_DOCUMENT_UPLOADED_ACTION
+
+
+def format_ratecon_document_upload_failed_action() -> str:
+    return RATECON_DOCUMENT_UPLOAD_FAILED_ACTION
+
+
+def format_ratecon_document_processed_action() -> str:
+    return RATECON_DOCUMENT_PROCESSED_ACTION
+
+
+def format_ratecon_document_processing_failed_action() -> str:
+    return RATECON_DOCUMENT_PROCESSING_FAILED_ACTION
+
+
+def format_ratecon_llm_action(
+    *,
+    reason: str,
+    confidence: float | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    reason_s = (reason or "").strip() or "no reason"
+    return RATECON_LLM_ACTION_TEMPLATE.format(
+        confidence_suffix=conf,
+        reason=reason_s,
+    )
+
+
+def format_pod_started_action() -> str:
+    return POD_STARTED_ACTION
+
+
+def format_pod_escalation_sent_action() -> str:
+    return POD_ESCALATION_SENT_ACTION

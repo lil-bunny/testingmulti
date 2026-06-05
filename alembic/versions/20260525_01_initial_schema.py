@@ -124,7 +124,10 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TYPE data_import_data_type AS ENUM ('load_tender', 'delivery_location')
+        CREATE TYPE data_import_data_type AS ENUM (
+            'load_tender',
+            'delivery_location'
+        )
         """
     )
 
@@ -239,16 +242,16 @@ def upgrade() -> None:
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
+            shipment_number TEXT NOT NULL,
             shipper_organization_id UUID
                 REFERENCES organizations(id),
-            status TEXT,
             pickup_location_id UUID REFERENCES locations(id),
             delivery_location_id UUID REFERENCES locations(id),
-            pack_code_id UUID REFERENCES pack_codes(id),
-            notes TEXT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT shipments_tenant_shipment_number_unique
+                UNIQUE (tenant_id, shipment_number)
         )
         """
     )
@@ -399,10 +402,6 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_shipments_tenant_id "
         "ON shipments (tenant_id)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_shipments_pack_code_id "
-        "ON shipments (pack_code_id)"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_tenders_tenant_id ON tenders (tenant_id)"

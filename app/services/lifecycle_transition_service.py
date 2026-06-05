@@ -179,7 +179,8 @@ class LifecycleTransitionService:
         next_sub = step_sub
         if update_lifecycle and row is not None:
             thread = self._clean(command.email_thread_id)
-            if thread:
+            workflow_name = str(row.get("workflow_name") or "").strip()
+            if thread and workflow_name not in ("ratecon", "pod_lifecycle"):
                 lifecycles.update_email_thread_id(
                     lifecycle_id=lifecycle_id,
                     email_thread_id=thread,

@@ -1,13 +1,13 @@
 """Live Turvo Public API smoke tests (opt-in).
 
 Requires a working ``.env`` (``TURVO_PUBLICAPI_URL``, DB, etc.) and a Turvo account
-with stored OAuth tokens for the app user you pass.
+with stored OAuth tokens for the tenant slug you pass.
 
 Print responses to the terminal::
 
     # PowerShell
     $env:TURVO_LIVE_TEST='1'
-    $env:TURVO_LIVE_APP_USER_ID='your-linked-app-user-id'   # optional if TURVO_DEFAULT_APP_USER_ID is set
+    $env:TURVO_LIVE_TENANT_SLUG='t3ra'   # optional if TURVO_DEFAULT_TENANT_SLUG is set
     $env:PYTHONPATH='C:\\freightx-agents'
     uv run pytest tests/test_turvo_shipment_live.py -s -v
 
@@ -34,11 +34,14 @@ def _live_enabled() -> bool:
     return v in ("1", "true", "yes")
 
 
-def _live_app_user_id() -> str | None:
-    explicit = os.environ.get("TURVO_LIVE_APP_USER_ID", "").strip()
+def _live_tenant_slug() -> str | None:
+    explicit = os.environ.get("TURVO_LIVE_TENANT_SLUG", "").strip()
     if explicit:
         return explicit
-    return (settings.TURVO_DEFAULT_APP_USER_ID or "").strip() or None
+    legacy = os.environ.get("TURVO_LIVE_APP_USER_ID", "").strip()
+    if legacy:
+        return legacy
+    return (settings.TURVO_DEFAULT_TENANT_SLUG or "").strip() or None
 
 
 def _skip_live(reason: str) -> None:
@@ -54,15 +57,15 @@ async def test_live_turvo_shipment_and_pod_check_prints_json():
     if not settings.TURVO_PUBLICAPI_URL:
         _skip_live("TURVO_PUBLICAPI_URL is not set.")
 
-    app_user_id = _live_app_user_id()
-    if not app_user_id:
+    tenant_slug = _live_tenant_slug()
+    if not tenant_slug:
         _skip_live(
-            "No app user id: set TURVO_LIVE_APP_USER_ID or TURVO_DEFAULT_APP_USER_ID in .env."
+            "No tenant slug: set TURVO_LIVE_TENANT_SLUG or TURVO_DEFAULT_TENANT_SLUG in .env."
         )
 
-    shipment: dict[str, Any] = await get_shipment(app_user_id, LIVE_SHIPMENT_ID)
+    shipment: dict[str, Any] = await get_shipment(tenant_slug, LIVE_SHIPMENT_ID)
     pod: dict[str, Any] = await documents_module.check_pod_by_shipment_id(
-        app_user_id, LIVE_SHIPMENT_ID
+        tenant_slug, LIVE_SHIPMENT_ID
     )
 
     print("\n=== Turvo GET /v1/shipments/{id} (no join params) ===\n")

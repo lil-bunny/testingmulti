@@ -1,8 +1,11 @@
-import re
-from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.domain.ratecon_import import (
+    attachment_display_filename,
+    load_id_from_ratecon_attachment_name,
+    unipile_ratecon_pdf_attachment,
+)
 from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
     extract_email_attachment_metadata,
@@ -12,18 +15,6 @@ logger = get_logger(__name__)
 
 
 _RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
-_CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET = "carrier_rate_confirmation"
-
-def _get_attachment_display_filename(attachment: Any) -> str:
-    """Resolve Unipile 
-     display name (``name`` / ``filename`` / ``file_name``)."""
-    if not isinstance(attachment, dict):
-        return ""
-    for key in ("name", "filename", "file_name"):
-        value = attachment.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return ""
 
 
 def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[str]:
@@ -34,7 +25,7 @@ def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[st
     attachments = payload.get("attachments")
     if isinstance(attachments, list):
         for attachment in attachments:
-            display = _get_attachment_display_filename(attachment)
+            display = attachment_display_filename(attachment)
             if display:
                 return display
     for key in ("file_name", "filename"):
@@ -42,13 +33,6 @@ def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[st
         if raw is not None and str(raw).strip():
             return str(raw).strip()
     return None
-
-
-def _is_pdf_attachment(attachment: dict, filename: str) -> bool:
-    mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
-    if mime == "application/pdf":
-        return True
-    return filename.lower().endswith(".pdf")
 
 
 def _get_attachment_uri(attachment: dict) -> Optional[str]:
@@ -90,9 +74,6 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
     Root-level ``thread_id`` is echoed for workflow correlation when present.
     """
     subject = str(payload.get("subject") or "").strip()
-    attachments = payload.get("attachments")
-    if not isinstance(attachments, list):
-        attachments = []
 
     raw_thread = payload.get("thread_id")
     thread_id = str(raw_thread).strip() or None if raw_thread else None
@@ -110,26 +91,12 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
         "ratecon_unipile_attachment_fetch": None,
     }
 
-    matching_attachment: Optional[dict] = None
-    matching_attachment_name: Optional[str] = None
-    for attachment in attachments:
-        if not isinstance(attachment, dict):
-            continue
-        attachment_name = _get_attachment_display_filename(attachment)
-        if not attachment_name:
-            continue
-        if _CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET not in attachment_name.lower():
-            continue
-        if not _is_pdf_attachment(attachment, attachment_name):
-            continue
-        matching_attachment = attachment
-        matching_attachment_name = attachment_name
-        break
-
-    if not matching_attachment_name or matching_attachment is None:
+    matching_attachment = unipile_ratecon_pdf_attachment(payload)
+    if matching_attachment is None:
         return empty_result
 
-    load_id = _extract_load_id_from_attachment_name(matching_attachment_name)
+    matching_attachment_name = attachment_display_filename(matching_attachment)
+    load_id = load_id_from_ratecon_attachment_name(matching_attachment_name)
     if not load_id:
         return empty_result
 

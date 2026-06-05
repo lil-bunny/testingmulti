@@ -1,8 +1,12 @@
-"""Tests for ``app.tools.email.check_ratecon_mail_payload`` (Unipile webhook shape)."""
+"""Tests for ratecon Unipile payload classification and attachment selection."""
 
 from __future__ import annotations
 
-from app.tools.email import check_ratecon_mail_payload
+from app.domain.ratecon_import import unipile_ratecon_pdf_attachment
+from app.services.workflow_classifier_service import (
+    extract_ratecon_metadata_from_payload,
+    has_rate_confirmation_subject,
+)
 
 
 def _sample_unipile_payload() -> dict:
@@ -25,36 +29,27 @@ def _sample_unipile_payload() -> dict:
     }
 
 
-def test_check_ratecon_mail_payload_positive_sample():
-    out = check_ratecon_mail_payload(_sample_unipile_payload())
-    assert out["is_ratecon_mail"] is True
-    assert out["load_id"] == "56368"
-    assert out["subject"] == "Rate confirmation for shipment: #59683"
-    assert out["thread_id"] == "sample-thread-id"
-    assert out["attachment_name"] == "Carrier_rate_confirmation_-__56368.pdf"
-    assert out["attachment_uri"] is None
-    assert out["attachment_id"] == "att1"
-    assert out["attachment_mime"] == "application/pdf"
-    assert out["attachment_unipile"] == {
-        "id": "att1",
-        "name": "Carrier_rate_confirmation_-__56368.pdf",
-        "mime": "application/pdf",
-        "extension": "pdf",
-    }
-    assert out["unipile_attachment_fetch"] == {
+def test_extract_ratecon_metadata_positive_unipile_shapes() -> None:
+    """Sample and production-like ``mail_received`` bodies (no attachment URL)."""
+    sample = _sample_unipile_payload()
+    out_sample = extract_ratecon_metadata_from_payload(sample)
+    assert out_sample["is_ratecon_mail"] is True
+    assert out_sample["load_id"] == "56368"
+    assert out_sample["thread_id"] == "sample-thread-id"
+    assert out_sample["ratecon_attachment_name"] == "Carrier_rate_confirmation_-__56368.pdf"
+    assert out_sample["ratecon_attachment_uri"] is None
+    assert out_sample["ratecon_attachment_id"] == "att1"
+    assert out_sample["ratecon_attachment_mime"] == "application/pdf"
+    assert out_sample["ratecon_unipile_attachment_fetch"] == {
         "email_id": "YPNSu5tsW32vaasFc4Rv_Q",
         "account_id": "FqA0zzsTQJ-5naFro793wQ",
         "attachment_id": "att1",
     }
 
-
-def test_check_ratecon_mail_payload_realistic_unipile_shape():
-    """mail_received attachments: id, name, mime, extension, size — no URL."""
-    payload = {
+    realistic = {
         "email_id": "w3M0L_3pW7us8vCCqCzz6w",
         "account_id": "FqA0zzsTQJ-5naFro793wQ",
         "subject": "Rate confirmation for shipment: #30381",
-        "has_attachments": True,
         "attachments": [
             {
                 "id": "AAMkLONG",
@@ -66,106 +61,71 @@ def test_check_ratecon_mail_payload_realistic_unipile_shape():
         ],
         "thread_id": "AAQkADY3YzkyMzZmLWM0MWMtNGJjNy05OGNhLTVlYjY1NmU4MWJjNQAQAMDQltZQqi1JrTLP7avn8rE=",
     }
-    out = check_ratecon_mail_payload(payload)
-    assert out["is_ratecon_mail"] is True
-    assert out["load_id"] == "30381"
-    assert out["thread_id"] == (
-        "AAQkADY3YzkyMzZmLWM0MWMtNGJjNy05OGNhLTVlYjY1NmU4MWJjNQAQAMDQltZQqi1JrTLP7avn8rE="
-    )
-    assert out["attachment_uri"] is None
-    assert out["attachment_unipile"]["size"] == 48124
-    assert out["unipile_attachment_fetch"]["attachment_id"] == "AAMkLONG"
+    out_real = extract_ratecon_metadata_from_payload(realistic)
+    assert out_real["is_ratecon_mail"] is True
+    assert out_real["load_id"] == "30381"
+    assert out_real["ratecon_attachment_uri"] is None
+    assert out_real["ratecon_attachment_unipile"]["size"] == 48124
 
 
-def test_check_ratecon_mail_payload_includes_attachment_uri_when_present():
+def test_unipile_ratecon_pdf_attachment_selection() -> None:
+    pdf_payload = {
+        "attachments": [
+            {
+                "id": "att-1",
+                "name": "carrier_rate_confirmation_30381.pdf",
+                "mime": "application/pdf",
+            },
+        ],
+    }
+    att = unipile_ratecon_pdf_attachment(pdf_payload)
+    assert att is not None
+    assert att["id"] == "att-1"
+    assert unipile_ratecon_pdf_attachment(
+        {
+            "attachments": [
+                {"id": "a1", "name": "carrier_rate_confirmation_1.xlsx", "extension": "xlsx"},
+            ],
+        }
+    ) is None
+
+
+def test_extract_ratecon_metadata_attachment_uri_and_filename_keys() -> None:
     p = _sample_unipile_payload()
     p["attachments"][0]["url"] = "https://example.com/file.pdf"
-    out = check_ratecon_mail_payload(p)
-    assert out["is_ratecon_mail"] is True
-    assert out["attachment_uri"] == "https://example.com/file.pdf"
-
-
-def test_check_ratecon_mail_payload_subject_case_insensitive():
-    p = _sample_unipile_payload()
-    p["subject"] = "RATE CONFIRMATION for shipment"
-    assert check_ratecon_mail_payload(p)["is_ratecon_mail"] is True
-
-
-def test_check_ratecon_mail_payload_negative_has_null_attachment_fields():
-    out = check_ratecon_mail_payload(
-        {"subject": "Rate confirmation x", "has_attachments": False, "attachments": []}
+    assert extract_ratecon_metadata_from_payload(p)["ratecon_attachment_uri"] == (
+        "https://example.com/file.pdf"
     )
-    assert out["attachment_name"] is None
-    assert out["attachment_uri"] is None
-    assert out["attachment_id"] is None
-    assert out["attachment_mime"] is None
-    assert out["attachment_unipile"] is None
-    assert out["unipile_attachment_fetch"] is None
-    assert out["thread_id"] is None
+
+    p2 = _sample_unipile_payload()
+    att = p2["attachments"][0]
+    del att["name"]
+    att["file_name"] = "Carrier_rate_confirmation_-__777.pdf"
+    assert extract_ratecon_metadata_from_payload(p2)["load_id"] == "777"
 
 
-def test_check_ratecon_mail_payload_wrong_subject():
-    p = _sample_unipile_payload()
-    p["subject"] = "Invoice attached"
-    out = check_ratecon_mail_payload(p)
-    assert out["is_ratecon_mail"] is False
-    assert out["load_id"] is None
-    assert out["attachment_name"] is None
-    assert out["attachment_uri"] is None
-    assert out["attachment_id"] is None
-    assert out["thread_id"] == "sample-thread-id"
-
-
-def test_check_ratecon_mail_payload_no_attachments():
-    p = _sample_unipile_payload()
-    p["has_attachments"] = False
-    p["attachments"] = []
-    out = check_ratecon_mail_payload(p)
-    assert out["is_ratecon_mail"] is False
-
-
-def test_check_ratecon_mail_payload_infers_has_attachments_when_none():
-    p = _sample_unipile_payload()
-    del p["has_attachments"]
-    assert check_ratecon_mail_payload(p)["is_ratecon_mail"] is True
-
-
-def test_check_ratecon_mail_payload_missing_filename_pattern():
+def test_extract_ratecon_metadata_rejects_invalid_attachments() -> None:
     p = _sample_unipile_payload()
     p["attachments"][0]["name"] = "other.pdf"
-    assert check_ratecon_mail_payload(p)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
 
-
-def test_check_ratecon_mail_payload_non_pdf_rejected():
     p = _sample_unipile_payload()
     p["attachments"][0]["name"] = "Carrier_rate_confirmation_-__56368.jpg"
     p["attachments"][0]["mime"] = "image/jpeg"
-    assert check_ratecon_mail_payload(p)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
 
-
-def test_check_ratecon_mail_payload_pdf_by_mime_only():
-    p = _sample_unipile_payload()
-    p["attachments"][0]["name"] = "Carrier_rate_confirmation_-__99"
-    p["attachments"][0]["mime"] = "application/pdf"
-    assert check_ratecon_mail_payload(p)["load_id"] == "99"
-
-
-def test_check_ratecon_mail_payload_uses_file_name_keys():
-    p = _sample_unipile_payload()
-    att = p["attachments"][0]
-    del att["name"]
-    att["file_name"] = "Carrier_rate_confirmation_-__777.pdf"
-    assert check_ratecon_mail_payload(p)["load_id"] == "777"
-
-
-def test_check_ratecon_mail_payload_no_digits_in_filename():
     p = _sample_unipile_payload()
     p["attachments"][0]["name"] = "Carrier_rate_confirmation.pdf"
-    assert check_ratecon_mail_payload(p)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
 
-
-def test_check_ratecon_mail_payload_attachments_not_list():
     p = _sample_unipile_payload()
     p["attachments"] = {}
-    p["has_attachments"] = True
-    assert check_ratecon_mail_payload(p)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
+
+    assert extract_ratecon_metadata_from_payload({"attachments": []})["is_ratecon_mail"] is False
+
+
+def test_has_rate_confirmation_subject() -> None:
+    assert has_rate_confirmation_subject("Rate confirmation for shipment") is True
+    assert has_rate_confirmation_subject("RATE CONFIRMATION for shipment") is True
+    assert has_rate_confirmation_subject("Invoice attached") is False

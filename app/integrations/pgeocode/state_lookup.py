@@ -101,3 +101,68 @@ def lookup_state(country_name: str | None, postal_code: object) -> str | None:
             return name
 
     return None
+
+
+def _state_matches_row(row: Any, state: str) -> bool:
+    state_norm = state.strip().lower()
+    if not state_norm:
+        return False
+    code = _series_field(row, "state_code")
+    if code and code.lower() == state_norm:
+        return True
+    name = _series_field(row, "state_name")
+    if name and name.lower() == state_norm:
+        return True
+    return False
+
+
+def lookup_postal(
+    country_name: str | None,
+    city: str | None,
+    state: str | None,
+) -> str | None:
+    """Return a postal code for (country, city, state) when Turvo omits zip on globalRoute."""
+    city_s = (city or "").strip()
+    state_s = (state or "").strip()
+    if not city_s or not state_s:
+        return None
+
+    iso2 = get_country_iso(country_name)
+    if iso2 is None:
+        return None
+
+    nomi = _get_nominatim(iso2)
+    if nomi is None:
+        return None
+
+    try:
+        df = nomi.query_location(city_s)
+    except Exception:
+        logger.warning(
+            "pgeocode: query_location failed iso2=%s city=%s",
+            iso2,
+            city_s,
+            exc_info=True,
+        )
+        return None
+
+    if df is None or getattr(df, "empty", True):
+        return None
+
+    try:
+        for _, row in df.iterrows():
+            if not _state_matches_row(row, state_s):
+                continue
+            postal = _series_field(row, "postal_code")
+            if postal:
+                return postal
+    except Exception:
+        logger.warning(
+            "pgeocode: failed iterating location rows iso2=%s city=%s",
+            iso2,
+            city_s,
+            exc_info=True,
+        )
+        return None
+
+    return None

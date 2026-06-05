@@ -1,25 +1,21 @@
+# Team-wide ignores (committed). Personal/local-only patterns: .git/info/exclude
+
 .env
 .env.*
 !.env.example
 
-# Local secrets directory (never commit)
+# Never commit secrets
 secrets/
 
-# Turvo integration architecture notes (local-only; remove this line to commit docs/turvo-integration.md)
-docs/turvo-integration.md
-
-# Workflow architecture guide (local-only; remove this line to commit docs/workflows.md)
-docs/workflows.md
-
-# Cursor local state; team rules under .cursor/rules/ are tracked
+# Cursor: track shared rules, ignore local IDE state
 .cursor/*
 !.cursor/rules/
 !.cursor/rules/**
+
+# Python
 __pycache__/
 *.pyc
-.DS_Store
 .venv/
-.langgraph_api/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
@@ -27,17 +23,10 @@ __pycache__/
 htmlcov/
 dist/
 build/
+
+# LangGraph / tooling
+.langgraph_api/
+
+# OS / archives
+.DS_Store
 *.zip
-
-.vscode
-.codex
-
-langsmith_init.py
-.agents
-
-docs
-*.sql
-
-# Local Power Automate webhook tester (contains signed URL — never commit)
-scripts/local_test_power_automate_webhook.py
-scripts/.power_automate_webhook_url

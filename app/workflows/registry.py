@@ -16,6 +16,7 @@ from app.workflows.nodes.turvo import (
     check_existing_pod,
     get_shipment,
     refresh_pod_before_send_email,
+    link_shipment_locations,
     resolve_load_to_shipment,
     update_shipment,
     upload_to_turvo,
@@ -27,6 +28,17 @@ from app.workflows.nodes.record_tender_sent_to_carrier import record_tender_sent
 from app.workflows.nodes.schedule_tender_reminders import schedule_tender_reminders
 from app.workflows.nodes.record_ack_received import classify_carrier_ack, record_ack_received
 from app.workflows.nodes.record_tender_created_activity import record_tender_created_activity
+from app.workflows.nodes.record_ratecon_activity import (
+    record_ratecon_llm_activity,
+    record_ratecon_processed_activity,
+    record_ratecon_received_activity,
+    record_ratecon_upload_activity,
+)
+from app.workflows.nodes.record_pod_activity import (
+    record_pod_escalation_activity,
+    record_pod_reminder_activity,
+    record_pod_started_activity,
+)
 from app.workflows.nodes.send_tender_reminder import send_tender_reminder
 from app.workflows.nodes.update_reminder_status import update_reminder_status
 from app.workflows.nodes.escalate_tender import escalate_tender
@@ -34,6 +46,7 @@ from app.workflows.nodes.tenders import read_tender_row
 
 NODE_REGISTRY = {
     "get_shipment": get_shipment,
+    "link_shipment_locations": link_shipment_locations,
     "resolve_load_to_shipment": resolve_load_to_shipment,
     "check_existing_pod": check_existing_pod,
     "refresh_pod_before_send_email": refresh_pod_before_send_email,
@@ -61,6 +74,13 @@ NODE_REGISTRY = {
     "classify_carrier_ack": classify_carrier_ack,
     "record_ack_received": record_ack_received,
     "record_tender_created_activity": record_tender_created_activity,
+    "record_ratecon_received_activity": record_ratecon_received_activity,
+    "record_ratecon_upload_activity": record_ratecon_upload_activity,
+    "record_ratecon_llm_activity": record_ratecon_llm_activity,
+    "record_ratecon_processed_activity": record_ratecon_processed_activity,
+    "record_pod_started_activity": record_pod_started_activity,
+    "record_pod_reminder_activity": record_pod_reminder_activity,
+    "record_pod_escalation_activity": record_pod_escalation_activity,
     "read_tender_row": read_tender_row,
     "send_tender_reminder": send_tender_reminder,
     "update_reminder_status": update_reminder_status,

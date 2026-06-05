@@ -67,7 +67,7 @@ def _pod_check_result(
 
 
 async def list_documents_for_shipment(
-    app_user_id: str,
+    tenant_slug: str,
     shipment_id: Any,
     *,
     client: Optional[TurvoApiClient] = None,
@@ -75,19 +75,20 @@ async def list_documents_for_shipment(
     """GET /v1/documents/list?filter=...&context=... — raw Turvo JSON body."""
     if not shipment_id:
         raise ValueError("shipment_id is required")
-    if not app_user_id:
-        raise ValueError("app_user_id is required")
+    slug = (tenant_slug or "").strip()
+    if not slug:
+        raise ValueError("tenant_slug is required")
     api = client or TurvoApiClient()
     return await api.request(
-        app_user_id=app_user_id,
-        method="GET",
-        path="/documents/list",
+        slug,
+        "GET",
+        "/documents/list",
         params=_documents_list_params(shipment_id),
     )
 
 
 async def check_pod_by_shipment_id(
-    app_user_id: str,
+    tenant_slug: str,
     shipment_id: Any,
     *,
     client: Optional[TurvoApiClient] = None,
@@ -95,14 +96,17 @@ async def check_pod_by_shipment_id(
     """Use documents list API; POD = any row with ``documentType.value`` proof of delivery."""
     if not shipment_id:
         raise ValueError("shipment_id is required")
-    if not app_user_id:
-        raise ValueError("app_user_id is required")
+    slug = (tenant_slug or "").strip()
+    if not slug:
+        raise ValueError("tenant_slug is required")
 
     sid = str(shipment_id)
     logger.info("Checking POD via Turvo GET /v1/documents/list shipment_id=%s", sid)
 
     payload = await list_documents_for_shipment(
-        app_user_id, shipment_id, client=client
+        slug,
+        shipment_id,
+        client=client,
     )
 
     status = str(payload.get("Status", "")).upper()

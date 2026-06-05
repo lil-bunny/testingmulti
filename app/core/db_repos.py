@@ -11,7 +11,9 @@ from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.data_imports_repository import DataImportsRepository
 from app.repositories.document_analysis_repository import DocumentAnalysisRepository
 from app.repositories.documents_repository import DocumentsRepository
+from app.repositories.locations_repository import LocationsRepository
 from app.repositories.pack_codes_repository import PackCodesRepository
+from app.repositories.shipments_repository import ShipmentsRepository
 from app.repositories.tender_products_repository import TenderProductsRepository
 from app.repositories.tenders_repository import TendersRepository
 from app.repositories.tenants_db_repository import TenantsDbRepository
@@ -35,6 +37,8 @@ class DbRepos:
     document_analysis: DocumentAnalysisRepository
     tenants: TenantsDbRepository
     turvo_oauth: TurvoOAuthRepository
+    shipments: ShipmentsRepository
+    locations: LocationsRepository
 
 
 def build_db_repos(session: Session) -> DbRepos:
@@ -52,4 +56,6 @@ def build_db_repos(session: Session) -> DbRepos:
         document_analysis=DocumentAnalysisRepository(session),
         tenants=TenantsDbRepository(session),
         turvo_oauth=TurvoOAuthRepository(session),
+        shipments=ShipmentsRepository(session),
+        locations=LocationsRepository(session),
     )

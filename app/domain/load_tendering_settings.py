@@ -12,6 +12,7 @@ from app.domain.tenant_settings.gelita import (
     GelitaTenantSettings,
 )
 from app.services.tender_service import TenderService
+from app.domain.state import workflow_state_data
 
 LOAD_TENDERING_SETTINGS_KEY = "load_tendering"
 _LOAD_TYPE_BUCKETS = frozenset({"ltl", "ftl"})
@@ -41,15 +42,6 @@ def tenant_settings_root(state_or_data: Any) -> dict[str, Any]:
             raw = None
     if isinstance(raw, dict):
         return raw
-    return {}
-
-
-def _data_dict(state_or_data: Any) -> dict[str, Any]:
-    if isinstance(state_or_data, dict):
-        return state_or_data
-    data = getattr(state_or_data, "data", None)
-    if isinstance(data, dict):
-        return data
     return {}
 
 
@@ -120,7 +112,7 @@ def resolve_load_type(state_or_data: Any) -> str:
     """
     from app.domain.load_tendering_state import load_type_from_data
 
-    data = _data_dict(state_or_data)
+    data = workflow_state_data(state_or_data)
     from_tender = load_type_from_data(data)
     if from_tender:
         return from_tender.upper()
@@ -172,12 +164,6 @@ def action_settings(
     if block is None:
         return dict(shared_accounts)
     return {**shared_accounts, **block}
-
-
-def tenant_slug_from_state(state_or_data: Any) -> str:
-    """Graph tenant slug from workflow state or Celery payload (``tenant_slug``)."""
-    data = _data_dict(state_or_data)
-    return str(data.get("tenant_slug") or "").strip().lower()
 
 
 def parse_gelita_tenant_settings(state_or_data: Any) -> GelitaTenantSettings:

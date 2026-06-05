@@ -1,6 +1,7 @@
 from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
+from app.services.ratecon_ingress_service import RateconIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
@@ -42,6 +43,7 @@ class WorkflowService:
         self.execution = ExecutionService()
         self.lifecycle_service = WorkflowLifecycleService()
         self.tenants_service = TenantsService()
+        self._ratecon_ingress = RateconIngressService()
 
     async def run(
         self,
@@ -62,6 +64,13 @@ class WorkflowService:
             tenant_row.get("settings") or {},
         )
 
+        if workflow_name == "ratecon":
+            payload = await self._ratecon_ingress.prepare_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+
         lifecycle = self.lifecycle_service.resolve_or_create_lifecycle(
             tenant_id=tenant_id,
             workflow_name=workflow_name,
@@ -70,6 +79,14 @@ class WorkflowService:
         workflow_lifecycle_id = lifecycle.workflow_lifecycle_id
         payload["workflow_lifecycle_id"] = workflow_lifecycle_id
         payload["workflow_name"] = workflow_name
+
+        shipments_row_id = self.lifecycle_service.ensure_lifecycle_shipment_linked(
+            lifecycle_id=workflow_lifecycle_id,
+            tenant_id=tenant_id,
+            payload=payload,
+        )
+        if shipments_row_id:
+            payload["shipments_row_id"] = shipments_row_id
 
         event_type = payload.get("event_type")
         traced = traceable(

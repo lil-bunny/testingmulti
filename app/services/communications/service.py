@@ -160,6 +160,92 @@ class CommunicationsService:
             )
         return existing_id
 
+    def link_inbound_to_workflow_run(
+        self,
+        *,
+        communication_id: str,
+        workflow_run_id: str,
+    ) -> bool:
+        """Link inbound ``communications`` row to a ``workflow_runs`` id (idempotent)."""
+        comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
+        run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not comm_id or not run_id:
+            return False
+        try:
+            if self._repository is not None:
+                linked = self._repository.link_workflow_run(
+                    communication_id=comm_id,
+                    workflow_run_id=run_id,
+                )
+            else:
+                linked = run_with_repos(
+                    lambda repos: repos.communications.link_workflow_run(
+                        communication_id=comm_id,
+                        workflow_run_id=run_id,
+                    )
+                )
+            if linked:
+                logger.info(
+                    "communications linked to workflow_run comm_id=%s run_id=%s",
+                    comm_id,
+                    run_id,
+                )
+            return linked
+        except Exception:
+            logger.exception(
+                "communications link to workflow_run failed comm_id=%s run_id=%s",
+                comm_id,
+                run_id,
+            )
+            return False
+
+    def resolve_thread_for_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+    ) -> str | None:
+        """Resolve email thread from communications linked to lifecycle inbound runs."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        if not tid or not lid:
+            return None
+        try:
+            if self._repository is not None:
+                thread = self._repository.find_inbound_thread_for_lifecycle(
+                    tenant_id=tid,
+                    workflow_lifecycle_id=lid,
+                )
+            else:
+                thread = run_with_repos(
+                    lambda repos: repos.communications.find_inbound_thread_for_lifecycle(
+                        tenant_id=tid,
+                        workflow_lifecycle_id=lid,
+                    )
+                )
+            if not thread:
+                return None
+            return str(thread).strip() or None
+        except Exception:
+            logger.exception(
+                "communications resolve_thread_for_lifecycle failed tenant_id=%s lifecycle_id=%s",
+                tid,
+                lid,
+            )
+
+        existing_id = self._find_inbound_id_by_external_id(
+            tenant_id=tid,
+            external_id=external_id,
+        )
+        if existing_id:
+            logger.info(
+                "communications inbound resolved existing id=%s external_id=%s tenant_id=%s",
+                existing_id,
+                external_id,
+                tid,
+            )
+        return existing_id
+
     def record_outbound_from_send(
         self,
         tenant_id: str,

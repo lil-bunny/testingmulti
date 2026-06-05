@@ -19,8 +19,8 @@ from typing import Any, Optional
 
 import httpx
 
-from app.core.config import settings
 from app.core.logger import get_logger
+from app.domain.tenant_settings.tms import TmsSettings
 from app.integrations.turvo.public_api_urls import (
     build_publicapi_v1_url,
     normalize_turvo_publicapi_url,
@@ -51,11 +51,17 @@ class TurvoApiError(Exception):
 class TurvoApiClient:
     """HTTP client for outbound calls to Turvo Public API v1."""
 
-    def __init__(self, oauth_service: Optional[TurvoOAuthService] = None):
+    def __init__(
+        self,
+        oauth_service: Optional[TurvoOAuthService] = None,
+    ):
         self._oauth = oauth_service or TurvoOAuthService()
 
-    async def _resolve_token(self, app_user_id: str) -> str:
-        tokens = await self._oauth.get_user_tokens(app_user_id)
+    def _load_tms(self, tenant_slug: str) -> TmsSettings:
+        return self._oauth._load_tms(tenant_slug)
+
+    async def _resolve_token(self, tenant_slug: str) -> str:
+        tokens = await self._oauth.get_tenant_tokens(tenant_slug)
         if not tokens or not tokens.get("access_token"):
             raise TurvoApiError(
                 "Turvo account not linked or no access token available",
@@ -63,19 +69,24 @@ class TurvoApiClient:
             )
         return tokens["access_token"]
 
-    def _build_headers(self, access_token: str) -> dict[str, str]:
+    def _build_headers(self, tms: TmsSettings, access_token: str) -> dict[str, str]:
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/json",
         }
-        if settings.TURVO_X_API_KEY:
-            headers["x-api-key"] = settings.TURVO_X_API_KEY
+        x_key = (tms.x_api_key or "").strip()
+        if x_key:
+            headers["x-api-key"] = x_key
         return headers
 
-    def _build_url(self, path: str) -> str:
-        if not settings.TURVO_PUBLICAPI_URL:
-            raise TurvoApiError("TURVO_PUBLICAPI_URL is not configured")
-        base = normalize_turvo_publicapi_url(settings.TURVO_PUBLICAPI_URL)
+    def _build_url(self, tms: TmsSettings, path: str) -> str:
+        public_api_url = (tms.public_api_url or "").strip()
+        if not public_api_url:
+            raise TurvoApiError(
+                f"Tenant TMS public_api_url is not configured",
+                status_code=503,
+            )
+        base = normalize_turvo_publicapi_url(public_api_url)
         return build_publicapi_v1_url(base, path)
 
     async def _send(
@@ -116,7 +127,7 @@ class TurvoApiClient:
 
     async def request(
         self,
-        app_user_id: str,
+        tenant_slug: str,
         method: str,
         path: str,
         *,
@@ -124,11 +135,16 @@ class TurvoApiClient:
         json_body: Optional[dict[str, Any]] = None,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
     ) -> dict[str, Any]:
-        url = self._build_url(path)
-        access_token = await self._resolve_token(app_user_id)
+        slug = (tenant_slug or "").strip()
+        if not slug:
+            raise TurvoApiError("tenant_slug is required for Turvo API calls", status_code=401)
+
+        tms = self._load_tms(slug)
+        url = self._build_url(tms, path)
+        access_token = await self._resolve_token(slug)
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
-            headers = self._build_headers(access_token)
+            headers = self._build_headers(tms, access_token)
             resp = await self._send(method, url, headers, params, json_body, timeout_s)
 
             if resp.status_code in (401, 403) and attempt < _MAX_ATTEMPTS:
@@ -139,13 +155,13 @@ class TurvoApiClient:
                     resp.status_code,
                 )
                 try:
-                    await self._oauth.refresh_user_token(app_user_id)
+                    await self._oauth.refresh_tenant_token(slug)
                 except Exception as e:
                     raise TurvoApiError(
                         f"Token refresh failed after {resp.status_code}: {e}",
                         status_code=resp.status_code,
                     ) from e
-                access_token = await self._resolve_token(app_user_id)
+                access_token = await self._resolve_token(slug)
                 continue
 
             if 200 <= resp.status_code < 300:

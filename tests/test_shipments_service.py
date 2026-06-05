@@ -1,0 +1,105 @@
+"""Unit tests for ShipmentsService."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from app.repositories.shipments_repository import ShipmentUpsertResult
+from app.services.shipments_service import ShipmentsService
+
+_TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
+
+
+def test_upsert_from_turvo_rejects_missing_load_id():
+    svc = ShipmentsService(shipments_repository=MagicMock())
+    out = svc.upsert_from_turvo(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="1000304706",
+        load_id="  ",
+    )
+    assert out["success"] is False
+    assert out["message"] == "missing_load_id"
+    svc._shipments.upsert_by_tenant_and_shipment_number_tx.assert_not_called()
+
+
+def test_upsert_from_turvo_metadata_includes_load_id():
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.return_value = ShipmentUpsertResult(
+        shipment_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        created=True,
+    )
+    svc = ShipmentsService(shipments_repository=repo)
+
+    out = svc.upsert_from_turvo(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="1000304706",
+        load_id="L42",
+        metadata={"extra": "x"},
+    )
+
+    assert out["success"] is True
+    assert out["created"] is True
+    assert out["shipments_row_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    repo.upsert_by_tenant_and_shipment_number_tx.assert_called_once()
+    call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
+    assert call_kw["tenant_id"] == _TENANT_UUID
+    assert call_kw["shipment_number"] == "1000304706"
+    assert call_kw["metadata"]["load_id"] == "L42"
+    assert call_kw["metadata"]["source"] == "ratecon"
+    assert call_kw["metadata"]["extra"] == "x"
+
+
+def test_upsert_from_turvo_caller_cannot_override_load_id_in_metadata():
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.return_value = ShipmentUpsertResult(
+        shipment_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        created=False,
+    )
+    svc = ShipmentsService(shipments_repository=repo)
+
+    svc.upsert_from_turvo(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="99",
+        load_id="real-load",
+        metadata={"load_id": "wrong"},
+    )
+
+    meta = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs["metadata"]
+    assert meta["load_id"] == "real-load"
+
+
+def test_upsert_from_turvo_soft_fails_on_repo_error():
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.side_effect = RuntimeError("db down")
+    svc = ShipmentsService(shipments_repository=repo)
+
+    out = svc.upsert_from_turvo(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="1",
+        load_id="L1",
+    )
+
+    assert out["success"] is False
+    assert out["message"] == "shipments_upsert_failed"
+
+
+def test_get_by_shipment_number_delegates_from_deprecated_turvo_alias():
+    repo = MagicMock()
+    repo.get_by_tenant_and_shipment_number_tx.return_value = {
+        "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "shipment_number": "1000324895",
+    }
+    svc = ShipmentsService(shipments_repository=repo)
+
+    out = svc.get_by_turvo_shipment_number(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="1000324895",
+    )
+
+    assert out is not None
+    repo.get_by_tenant_and_shipment_number_tx.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_number="1000324895",
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy import text
@@ -32,6 +33,16 @@ class WorkflowRunsRepository:
         return resolve_graph_tenant_to_uuid(self._clean(tenant_id))
 
     @staticmethod
+    def _uuid_or_none(val: str | None) -> str | None:
+        raw = WorkflowRunsRepository._clean(val)
+        if not raw:
+            return None
+        try:
+            return str(uuid.UUID(raw))
+        except (ValueError, AttributeError, TypeError):
+            return None
+
+    @staticmethod
     def reminder_run_event_type(reminder_step: int | None) -> str | None:
         """DB ``event_type`` for a Celery POD reminder."""
         if reminder_step is None:
@@ -57,10 +68,25 @@ class WorkflowRunsRepository:
         wl = self._clean(workflow_lifecycle_id)
         et = self._clean(event_type)
         sid = self._clean(shipment_id)
+        sid_uuid = self._uuid_or_none(sid)
         exc = self._clean(exclude_run_id)
 
         if not tid or not wl or et != "route_completed" or not sid:
             return False
+
+        shipment_match_sql = ""
+        params: dict[str, Any] = {"wl": wl, "et": et, "exc": exc, "tid": tid}
+        if sid_uuid:
+            shipment_match_sql = """
+                UNION ALL
+                SELECT 1 FROM {table} wr
+                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+                WHERE trim(both wr.tenant_id::text) = trim(both CAST(:tid AS text))
+                  AND wr.event_type = 'route_completed'
+                  AND wl.shipment_id IS NOT DISTINCT FROM CAST(:sid_uuid AS uuid)
+                  AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
+            """.format(table=self.TABLE_NAME)
+            params["sid_uuid"] = sid_uuid
 
         exists = execute_scalar(
             self._session,
@@ -70,16 +96,10 @@ class WorkflowRunsRepository:
                 WHERE trim(both wr.workflow_lifecycle_id::text) = trim(both CAST(:wl AS text))
                   AND wr.event_type = :et
                   AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
-                UNION ALL
-                SELECT 1 FROM {self.TABLE_NAME} wr
-                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
-                WHERE trim(both wr.tenant_id::text) = trim(both CAST(:tid AS text))
-                  AND wr.event_type = 'route_completed'
-                  AND wl.shipment_id IS NOT DISTINCT FROM :sid
-                  AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
+                {shipment_match_sql}
             )
             """,
-            {"wl": wl, "et": et, "exc": exc, "tid": tid, "sid": sid},
+            params,
         )
         return bool(exists)
 

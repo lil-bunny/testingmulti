@@ -61,9 +61,15 @@ class Settings(BaseSettings):
     TURVO_TENANT_REF: Optional[str] = None
     # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
     TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
-    # Optional fallback app user id used by workflow tools when the workflow state does not carry one (e.g. Turvo webhook-triggered runs).
-    # Turvo tokens + password: in tenants.settings (JSON); row match uses settings.app_user_id = X-App-User-Id
-    TURVO_DEFAULT_APP_USER_ID: Optional[str] = "deb-test"
+    # Optional fallback tenant slug for Turvo link/status API and local scripts when header is omitted.
+    # Turvo tokens + password: in tenants.settings (JSON); row match uses tenants.slug.
+    TURVO_DEFAULT_TENANT_SLUG: Optional[str] = Field(
+        default="t3ra",
+        validation_alias=AliasChoices(
+            "TURVO_DEFAULT_TENANT_SLUG",
+            "TURVO_DEFAULT_APP_USER_ID",
+        ),
+    )
 
     # Unipile
     UNIPILE_API_KEY: str

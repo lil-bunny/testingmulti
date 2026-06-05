@@ -1,0 +1,163 @@
+"""Reads/writes for ``shipments``."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.core.db import jsonb_param, parse_json
+
+
+@dataclass(frozen=True)
+class ShipmentUpsertResult:
+    """``created`` is True when a new row was inserted; False on conflict update."""
+
+    shipment_id: str
+    created: bool
+
+
+_WHERE_TENANT_SHIPMENT = """
+    WHERE tenant_id = CAST(:tenant_id AS uuid) AND shipment_number = :shipment_number
+"""
+
+
+class ShipmentsRepository:
+    TABLE_NAME = "shipments"
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    @staticmethod
+    def _clean(value: str | None) -> str | None:
+        if value is None:
+            return None
+        s = str(value).strip()
+        return s if s else None
+
+    def upsert_by_tenant_and_shipment_number_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_number: str,
+        metadata: dict[str, Any],
+    ) -> ShipmentUpsertResult:
+        tid = self._clean(tenant_id)
+        number = self._clean(shipment_number)
+        if not tid or not number:
+            raise ValueError("tenant_id and shipment_number are required")
+
+        row = self._session.execute(
+            text(
+                f"""
+                INSERT INTO {self.TABLE_NAME} (
+                    tenant_id,
+                    shipment_number,
+                    metadata
+                ) VALUES (
+                    CAST(:tenant_id AS uuid),
+                    :shipment_number,
+                    CAST(:metadata AS jsonb)
+                )
+                ON CONFLICT (tenant_id, shipment_number)
+                DO UPDATE SET
+                    updated_at = NOW(),
+                    metadata = {self.TABLE_NAME}.metadata || EXCLUDED.metadata
+                RETURNING id::text, (xmax = 0) AS created
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_number": number,
+                "metadata": jsonb_param(metadata),
+            },
+        ).first()
+        if not row or not row[0]:
+            raise RuntimeError("shipments upsert returned no row")
+        return ShipmentUpsertResult(
+            shipment_id=str(row[0]),
+            created=bool(row[1]),
+        )
+
+    def get_by_tenant_and_shipment_number_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_number: str,
+    ) -> dict[str, Any] | None:
+        tid = self._clean(tenant_id)
+        number = self._clean(shipment_number)
+        if not tid or not number:
+            return None
+
+        row = self._session.execute(
+            text(
+                f"""
+                SELECT id::text, shipment_number, metadata, delivery_address
+                FROM {self.TABLE_NAME}
+                {_WHERE_TENANT_SHIPMENT}
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": tid, "shipment_number": number},
+        ).first()
+        if not row:
+            return None
+
+        delivery_raw = row[3]
+        if isinstance(delivery_raw, dict):
+            delivery_address = delivery_raw
+        elif delivery_raw in (None, ""):
+            delivery_address = None
+        else:
+            delivery_address = parse_json(delivery_raw)
+            if not delivery_address:
+                delivery_address = None
+
+        return {
+            "id": str(row[0]),
+            "shipment_number": row[1] or "",
+            "metadata": parse_json(row[2]),
+            "delivery_address": delivery_address,
+        }
+
+    def update_location_ids_tx(
+        self,
+        *,
+        shipment_row_id: str,
+        pickup_location_id: str,
+        delivery_location_id: str,
+        delivery_address: dict[str, Any] | None = None,
+    ) -> None:
+        row_id = self._clean(shipment_row_id)
+        pickup_id = self._clean(pickup_location_id)
+        delivery_id = self._clean(delivery_location_id)
+        if not row_id or not pickup_id or not delivery_id:
+            raise ValueError(
+                "shipment_row_id, pickup_location_id, and delivery_location_id are required"
+            )
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET pickup_location_id = CAST(:pickup_location_id AS uuid),
+                    delivery_location_id = CAST(:delivery_location_id AS uuid),
+                    delivery_address = CAST(:delivery_address AS jsonb),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                """
+            ),
+            {
+                "pickup_location_id": pickup_id,
+                "delivery_location_id": delivery_id,
+                "delivery_address": jsonb_param(delivery_address),
+                "shipment_row_id": row_id,
+            },
+        )
+        if result.rowcount != 1:
+            raise RuntimeError(
+                f"shipments location update affected {result.rowcount} rows"
+            )

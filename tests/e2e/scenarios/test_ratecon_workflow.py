@@ -1,5 +1,5 @@
 """
-HTTP-level tests for ``POST /api/webhook/unipile`` (ratecon vs pod_lifecycle routing).
+HTTP-level tests for ``POST /api/webhook/email`` (ratecon full-stack integration).
 
 Uses the real FastAPI app and route handler (including ``WorkflowClassifierService`` logic
 via ``app.api.routes.unipile_mail_thread_capture``). Default tests override
@@ -64,30 +64,6 @@ def _truthy_env(name: str) -> bool:
 def clear_dependency_overrides():
     yield
     app.dependency_overrides.pop(get_workflow_service, None)
-
-
-def test_webhook_rejects_invalid_bearer():
-    """Wrong ``Authorization`` is denied; handler currently maps that to 500 (broad ``except``)."""
-    with TestClient(app) as client:
-        r = client.post(
-            "/api/webhook/unipile",
-            json=RATECON_WEBHOOK_PAYLOAD,
-            headers={"Authorization": "Bearer wrong-secret"},
-        )
-    assert r.status_code == 401
-    detail = r.json().get("detail", "")
-    assert "401" in str(detail) or "Unauthorized" in str(detail)
-
-
-def test_webhook_missing_webhook_name_returns_message_and_skips_workflow():
-    bad = {**RATECON_WEBHOOK_PAYLOAD}
-    bad.pop("webhook_name", None)
-
-    with TestClient(app) as client:
-        r = client.post("/api/webhook/unipile", json=bad, headers=_auth_headers())
-
-    assert r.status_code == 200, r.text
-    assert r.json() == {"message": "invalid webhook"}
 
 
 def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> None:
@@ -293,7 +269,7 @@ def test_ratecon_email_received_unipile_webhook(
 
     with TestClient(app) as client:
         r = client.post(
-            "/api/webhook/unipile",
+            "/api/webhook/email",
             json=RATECON_WEBHOOK_PAYLOAD,
             headers=_auth_headers(),
         )

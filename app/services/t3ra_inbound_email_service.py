@@ -35,8 +35,10 @@ class T3raInboundEmailService:
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
     ) -> JSONResponse:
-        # store the inbound email in the communications table
-        self._communications.record_or_resolve_inbound(tenant.tenant_uuid, payload)
+        communication_id = self._communications.record_or_resolve_inbound(
+            tenant.tenant_uuid,
+            payload,
+        )
 
         classification = WorkflowClassifierService().classify_workflow_type(payload)
         if not classification:
@@ -56,20 +58,26 @@ class T3raInboundEmailService:
                 content={"message": "invalid workflow type"},
             )
 
-        data_import_id = await process_email_webhook_attachment_import(
-            payload=payload,
-            workflow_name=str(workflow_name),
-            data_import_tenant_id=tenant.tenant_uuid,
-            data_import_data_type=DataImportDataType.LOAD_TENDER,
-            ingest_source_type=DataImportSourceType.EMAIL,
-        )
-
         if workflow_name == "ratecon":
-            workflow_payload = {**payload, **classification}
+            workflow_payload = {
+                **payload,
+                **classification,
+                "event_type": "email_received",
+            }
         else:
+            data_import_id = await process_email_webhook_attachment_import(
+                payload=payload,
+                workflow_name=str(workflow_name),
+                data_import_tenant_id=tenant.tenant_uuid,
+                data_import_data_type=DataImportDataType.LOAD_TENDER,
+                ingest_source_type=DataImportSourceType.EMAIL,
+            )
             workflow_payload = {**payload, "event_type": "email_received"}
-        if data_import_id:
-            workflow_payload["data_import_id"] = data_import_id
+            if data_import_id:
+                workflow_payload["data_import_id"] = data_import_id
+
+        if communication_id:
+            workflow_payload["communication_id"] = communication_id
 
         execution_id = str(uuid.uuid4())
         workflow_payload["execution_id"] = execution_id
