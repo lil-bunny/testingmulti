@@ -10,6 +10,7 @@ from typing import Any
 __all__ = [
     "TenderEmailBuildInput",
     "build_tender_email_input_from_tender",
+    "format_tender_email_subject",
     "build_ltl_tender_email_from_tender",
     "build_ftl_tender_email_from_tender",
 ]
@@ -131,6 +132,13 @@ def build_tender_email_input(
     return build_tender_email_input_from_tender(merged)
 
 
+def _format_gross_weight_lbs(value: str) -> str:
+    weight = value.strip()
+    if not weight:
+        return ""
+    return f"Gross weight: ~{weight} pounds"
+
+
 def _product_block_lines(
     line: TenderEmailProductLine,
     *,
@@ -139,14 +147,16 @@ def _product_block_lines(
 ) -> str:
     """One product section for ``{products_block}`` (pieces/pallets per line)."""
     rows: list[str] = []
-    if line.product_name:
-        rows.append(f"Product: {escape(line.product_name)}")
     if line.pieces_count:
         rows.append(f"Pieces: {line.pieces_count}")
     if line.pallets_count:
         rows.append(f"Number of pallets: {line.pallets_count}")
     if include_gross and line.gross_weight_lbs:
-        rows.append(f"Gross weight: ~{line.gross_weight_lbs}")
+        gross = _format_gross_weight_lbs(line.gross_weight_lbs)
+        if gross:
+            rows.append(gross)
+    if line.product_name:
+        rows.append(f"Product: {escape(line.product_name)}")
     if include_value and line.price:
         rows.append(f"Value: {line.price}")
     return "<br />".join(rows)
@@ -249,9 +259,20 @@ def _ftl_products_block(products: tuple[TenderEmailProductLine, ...]) -> str:
     return _products_block(products, include_gross=False, include_value=True)
 
 
+def format_tender_email_subject(subject_template: str, ctx: TenderEmailBuildInput) -> str:
+    """Fill tenant ``email_subject`` from tender order context."""
+    data = {
+        "order_number": ctx.order_number,
+        "customer_po": ctx.customer_po,
+        "po_number": ctx.customer_po,
+    }
+    return subject_template.format(**data)
+
+
 def build_ltl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
+    subject_template: str,
 ) -> dict[str, str]:
     """Fill LTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -266,17 +287,14 @@ def build_ltl_tender_email_from_tender(
         products_block=products_block,
     )
 
-    subject = (
-        f"(LTL) Load tender — Order {ctx.order_number}"
-        if ctx.order_number
-        else "(LTL) Load tender request"
-    )
+    subject = format_tender_email_subject(subject_template, ctx)
     return {"subject": subject, "body_html": body_html}
 
 
 def build_ftl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
+    subject_template: str,
 ) -> dict[str, str]:
     """Fill FTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -291,9 +309,5 @@ def build_ftl_tender_email_from_tender(
         products_block=products_block,
     )
 
-    subject = (
-        f"(FTL) Load tender — Order {ctx.order_number}"
-        if ctx.order_number
-        else "(FTL) Load tender request"
-    )
+    subject = format_tender_email_subject(subject_template, ctx)
     return {"subject": subject, "body_html": body_html}

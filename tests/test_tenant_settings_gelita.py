@@ -27,10 +27,13 @@ def test_fixture_validates_as_gelita_tenant_settings() -> None:
         "carrier-ack-classify"
     )
     ftl = model.load_tendering.ftl.send_tender_email
+    ltl = model.load_tendering.ltl.send_tender_email
     assert isinstance(ftl.vendor_email, list)
     assert len(ftl.vendor_email) >= 1
     assert ftl.vendor_cc == []
     assert ftl.vendor_bcc == []
+    assert ftl.email_subject == ltl.email_subject
+    assert "PICK UP REQUEST" in ftl.email_subject
 
 
 def test_parse_tenant_settings_registry() -> None:
