@@ -206,7 +206,7 @@ def test_pod_lifecycle_email_received_unipile_webhook(
     assert lc is not None
     assert lc.get("workflow_name") == "pod_lifecycle"
     assert lc.get("tenant_id") == _graph_tenant_row_uuid(tenant_id)
-    assert lc.get("email_thread_id") == thread_id or (lc.get("shipment_id") or "") == shipment_id
+    assert (lc.get("shipment_id") or "") == shipment_id
 
     after_docs = fetch_documents_for_shipment(shipment_id=shipment_id)
     new_docs = [d for d in after_docs if d["object_key"] not in before_keys]

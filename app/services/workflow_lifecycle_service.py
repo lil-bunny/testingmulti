@@ -248,28 +248,6 @@ class WorkflowLifecycleService:
         )
         return row_id
 
-    def set_email_thread_id(
-        self,
-        *,
-        lifecycle_id: str,
-        thread_id: str,
-    ) -> bool:
-        lid = self._clean(lifecycle_id)
-        thread = self._clean(thread_id)
-        if not lid or not thread:
-            return False
-        if self._lifecycles_repo is not None:
-            return self._lifecycles_repo.set_email_thread_id_tx(
-                lifecycle_id=lid,
-                email_thread_id=thread,
-            )
-        return run_with_repos(
-            lambda repos: self._repo(repos).set_email_thread_id_tx(
-                lifecycle_id=lid,
-                email_thread_id=thread,
-            )
-        )
-
     def check_lifecycle_exists(
         self,
         *,

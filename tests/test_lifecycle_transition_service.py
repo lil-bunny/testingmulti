@@ -10,6 +10,7 @@ from app.domain.lifecycle_transition import (
     LifecycleTransitionCommand,
     LifecycleTransitionError,
 )
+from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -363,6 +364,50 @@ def test_apply_sequence_action_then_status_in_one_transaction(
     )
 
     lifecycles.update_status.assert_called_once()
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_apply_from_state_passes_communication_id_to_insert(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.TENDER_CREATED.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    lifecycles.update_status.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    state = WorkflowState(
+        tenant_id="gelita",
+        tenant_slug="gelita",
+        execution_id=RUN_UUID,
+        data={
+            "workflow_lifecycle_id": LIFECYCLE_UUID,
+            "communication_id": COMM_UUID,
+            "thread_id": "provider-thread-1",
+        },
+    )
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    svc.apply_from_state(
+        state,
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
+        to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
+    )
+
+    row = activity_logs.insert.call_args[0][0]
+    assert row["communication_id"] == COMM_UUID
+    assert row["metadata"] == {}
 
 
 @patch(

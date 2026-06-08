@@ -1,4 +1,4 @@
-"""Node: first inbound carrier thread — persist thread id and ``tender_sent_to_carrier`` sub_status."""
+"""Node: first inbound carrier email — set ``tender_sent_to_carrier`` sub_status."""
 
 from __future__ import annotations
 
@@ -14,9 +14,8 @@ def record_tender_sent_to_carrier(state):
     """
     First inbound carrier email on the tender thread:
 
-    - persist ``email_thread_id`` when present
     - set lifecycle ``sub_status`` to ``tender_sent_to_carrier`` (top-level stays ``processing``)
-    - write activity log
+    - write activity log with ``communication_id`` from graph state when present
     """
 
     wl_id = str(
@@ -24,12 +23,6 @@ def record_tender_sent_to_carrier(state):
     ).strip()
 
     tenant_id = (state.tenant_id or "").strip()
-
-    thread_id = str(
-        state.data.get("thread_id")
-        or state.data.get("email_thread_id")
-        or ""
-    ).strip()
 
     if not wl_id or not tenant_id:
         logger.warning(
@@ -42,9 +35,7 @@ def record_tender_sent_to_carrier(state):
         state,
         to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
         activity_type=ActivityType.SUB_STATUS_CHANGE,
-        actor_type=ActorType.SYSTEM,
-        email_thread_id=thread_id or None,
-        metadata={"thread_id": thread_id} if thread_id else {},
+        actor_type=ActorType.SYSTEM
     )
 
     return state

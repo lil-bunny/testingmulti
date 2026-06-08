@@ -138,6 +138,7 @@ class WorkflowRunsRepository:
                     :event_type,
                     :workflow_lifecycle_id
                 )
+                ON CONFLICT (id) DO NOTHING
                 """
             ),
             {
