@@ -111,16 +111,6 @@ class WorkflowLifecyclesRepository:
         result = self._session.execute(text(sql), params)
         return result.rowcount > 0
 
-    def update_email_thread_id(
-        self,
-        *,
-        lifecycle_id: str,
-        email_thread_id: str,
-    ) -> bool:
-        """No-op: ``email_thread_id`` column removed; thread lives on ``communications``."""
-        _ = (lifecycle_id, email_thread_id)
-        return True
-
     def update_shipment_id(
         self,
         *,
@@ -363,17 +353,6 @@ class WorkflowLifecyclesRepository:
             shipment_id=shipment_id,
         )
         return new_id, False
-
-    def set_email_thread_id_tx(
-        self,
-        *,
-        lifecycle_id: str,
-        email_thread_id: str,
-    ) -> bool:
-        return self.update_email_thread_id(
-            lifecycle_id=lifecycle_id,
-            email_thread_id=email_thread_id,
-        )
 
     def update_shipment_id_tx(
         self,

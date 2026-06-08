@@ -26,13 +26,16 @@ _SNAPSHOT_SELECT = """
            tenant_id::text AS tenant_id,
            workflow_name,
            shipment_id::text AS shipment_id,
-           email_thread_id,
            updated_at
 """
 
-_WHERE_TENANT_THREAD = """
-    WHERE tenant_id = CAST(:tenant_id AS uuid)
-      AND email_thread_id = :thread_id
+_THREAD_LIFECYCLE_JOIN = """
+    FROM communications c
+    JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+    JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+    WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+      AND c.thread_id = :thread_id
+      AND c.workflow_run_id IS NOT NULL
 """
 
 
@@ -64,12 +67,15 @@ def find_latest_ratecon_by_thread(
     return fetchone_dict(
         session,
         f"""
-        {_SNAPSHOT_SELECT}
-        FROM {_TABLE}
-        WHERE tenant_id = CAST(:tenant_id AS uuid)
-          AND workflow_name = 'ratecon'
-          AND email_thread_id = :thread_id
-        {_LOOKUP_ORDER_LIMIT}
+        SELECT wl.id::text AS id,
+               wl.tenant_id::text AS tenant_id,
+               wl.workflow_name,
+               wl.shipment_id::text AS shipment_id,
+               wl.updated_at
+        {_THREAD_LIFECYCLE_JOIN}
+          AND wl.workflow_name = 'ratecon'
+        ORDER BY wl.updated_at DESC
+        LIMIT 1
         """,
         {"tenant_id": tid, "thread_id": th},
     )
@@ -88,10 +94,14 @@ def list_by_email_thread(
     return fetchall_dicts(
         session,
         f"""
-        {_SNAPSHOT_SELECT}
-        FROM {_TABLE}
-        {_WHERE_TENANT_THREAD}
-        ORDER BY updated_at DESC
+        SELECT DISTINCT ON (wl.id)
+               wl.id::text AS id,
+               wl.tenant_id::text AS tenant_id,
+               wl.workflow_name,
+               wl.shipment_id::text AS shipment_id,
+               wl.updated_at
+        {_THREAD_LIFECYCLE_JOIN}
+        ORDER BY wl.id, wl.updated_at DESC
         """,
         {"tenant_id": tid, "thread_id": th},
     )

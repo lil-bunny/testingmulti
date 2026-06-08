@@ -22,6 +22,8 @@ from app.services.email_import_projection import (
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
+from app.services.communications.service import CommunicationsService
+from app.services.workflow_runs_service import WorkflowRunsService
 from app.tasks.workflows import run_workflow_async
 
 logger = get_logger(__name__)
@@ -50,6 +52,52 @@ def enqueue_load_tendering_workflow(
         execution_id,
         event_type,
     )
+    return execution_id
+
+
+def enqueue_gelita_load_tendering_and_link(
+    *,
+    graph_slug: str,
+    tenant_uuid: str,
+    workflow_lifecycle_id: str,
+    payload: dict[str, Any],
+    event_type: str,
+    communication_id: str | None = None,
+    thread_id: str | None = None,
+) -> str:
+    """
+    Enqueue ``load_tendering``, record ``workflow_runs`` synchronously, and patch comms.
+
+    Recording the run before HTTP 200 lets ack ingress resolve thread → lifecycle via
+    prior patched rows on the same Unipile thread.
+    """
+    execution_id = enqueue_load_tendering_workflow(
+        graph_slug=graph_slug,
+        payload=payload,
+        event_type=event_type,
+    )
+
+    workflow_runs_service = WorkflowRunsService()
+    workflow_runs_service.record_workflow_run(
+        run_id=execution_id,
+        tenant_id=tenant_uuid,
+        event_type=event_type,
+        workflow_lifecycle_id=workflow_lifecycle_id,
+    )
+
+    communications_service = CommunicationsService()
+    if communication_id:
+        communications_service.link_inbound_to_workflow_run(
+            communication_id=communication_id,
+            workflow_run_id=execution_id,
+        )
+    if thread_id:
+        communications_service.link_workflow_run_to_thread(
+            tenant_id=tenant_uuid,
+            thread_id=thread_id,
+            workflow_run_id=execution_id,
+        )
+
     return execution_id
 
 

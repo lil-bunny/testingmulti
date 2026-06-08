@@ -34,6 +34,7 @@ class GelitaSendTenderEmailSettings(BaseModel):
     vendor_email: RequiredEmailList = Field(min_length=1)
     vendor_cc: OptionalEmailList = Field(default_factory=list)
     vendor_bcc: OptionalEmailList = Field(default_factory=list)
+    email_subject: str
     email_template_html: str
 
     @field_validator("vendor_email", mode="before")

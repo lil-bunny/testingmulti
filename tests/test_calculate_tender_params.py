@@ -271,7 +271,8 @@ def test_ltl_products_block_combines_same_product_name() -> None:
     assert block.count("Product: FORTIGEL B (US)") == 1
     assert "Pieces: 25" in block
     assert "Number of pallets: 5" in block
-    assert "Gross weight: ~350.00" in block
+    assert "Gross weight: ~350.00 pounds" in block
+    assert block.index("Gross weight:") < block.index("Product: FORTIGEL B (US)")
     assert "Value:" not in block
 
 

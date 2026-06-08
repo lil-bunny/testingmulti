@@ -17,6 +17,7 @@ from app.services.communications._mapper import (
     inbound_row_from_payload,
     outbound_row_from_send,
 )
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
@@ -204,6 +205,7 @@ class CommunicationsService:
         *,
         tenant_id: str,
         workflow_lifecycle_id: str,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.EMAIL_RECEIVED,
     ) -> str | None:
         """Resolve email thread from communications linked to lifecycle inbound runs."""
         tid = self._tenant_uuid_or_none(tenant_id)
@@ -215,12 +217,14 @@ class CommunicationsService:
                 thread = self._repository.find_inbound_thread_for_lifecycle(
                     tenant_id=tid,
                     workflow_lifecycle_id=lid,
+                    anchor_event_type=anchor_event_type,
                 )
             else:
                 thread = run_with_repos(
                     lambda repos: repos.communications.find_inbound_thread_for_lifecycle(
                         tenant_id=tid,
                         workflow_lifecycle_id=lid,
+                        anchor_event_type=anchor_event_type,
                     )
                 )
             if not thread:
@@ -232,19 +236,162 @@ class CommunicationsService:
                 tid,
                 lid,
             )
+            return None
 
-        existing_id = self._find_inbound_id_by_external_id(
-            tenant_id=tid,
-            external_id=external_id,
-        )
-        if existing_id:
-            logger.info(
-                "communications inbound resolved existing id=%s external_id=%s tenant_id=%s",
-                existing_id,
-                external_id,
+    def resolve_lifecycle_id_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_name: str = "load_tendering",
+    ) -> str | None:
+        """Thread → lifecycle via earliest patched comm + ``workflow_runs`` join."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        if not tid or not th:
+            return None
+        try:
+            if self._repository is not None:
+                lifecycle_id = self._repository.resolve_lifecycle_id_for_thread(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_name=workflow_name,
+                )
+            else:
+                lifecycle_id = run_with_repos(
+                    lambda repos: repos.communications.resolve_lifecycle_id_for_thread(
+                        tenant_id=tid,
+                        thread_id=th,
+                        workflow_name=workflow_name,
+                    )
+                )
+            return lifecycle_id
+        except Exception:
+            logger.exception(
+                "communications resolve_lifecycle_id_for_thread failed tenant_id=%s thread_id=%s",
                 tid,
+                th,
             )
-        return existing_id
+            return None
+
+    def is_thread_linked_to_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_lifecycle_id: str,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ) -> bool:
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        if not tid or not th or not lid:
+            return False
+        try:
+            if self._repository is not None:
+                return self._repository.is_thread_linked_to_lifecycle(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_lifecycle_id=lid,
+                    anchor_event_type=anchor_event_type,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.is_thread_linked_to_lifecycle(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_lifecycle_id=lid,
+                    anchor_event_type=anchor_event_type,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications is_thread_linked_to_lifecycle failed tenant_id=%s thread_id=%s",
+                tid,
+                th,
+            )
+            return False
+
+    def find_linked_thread_for_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ) -> str | None:
+        tid = self._tenant_uuid_or_none(tenant_id)
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        if not tid or not lid:
+            return None
+        try:
+            if self._repository is not None:
+                thread = self._repository.find_linked_thread_for_lifecycle(
+                    tenant_id=tid,
+                    workflow_lifecycle_id=lid,
+                    anchor_event_type=anchor_event_type,
+                )
+            else:
+                thread = run_with_repos(
+                    lambda repos: repos.communications.find_linked_thread_for_lifecycle(
+                        tenant_id=tid,
+                        workflow_lifecycle_id=lid,
+                        anchor_event_type=anchor_event_type,
+                    )
+                )
+            if not thread:
+                return None
+            return str(thread).strip() or None
+        except Exception:
+            logger.exception(
+                "communications find_linked_thread_for_lifecycle failed tenant_id=%s lifecycle_id=%s",
+                tid,
+                lid,
+            )
+            return None
+
+    def link_workflow_run_to_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_run_id: str,
+    ) -> int:
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not tid or not th or not run_id:
+            return 0
+        try:
+            if self._repository is not None:
+                patched = self._repository.link_workflow_run_to_thread(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_run_id=run_id,
+                )
+            else:
+                patched = run_with_repos(
+                    lambda repos: repos.communications.link_workflow_run_to_thread(
+                        tenant_id=tid,
+                        thread_id=th,
+                        workflow_run_id=run_id,
+                    )
+                )
+            if patched:
+                logger.info(
+                    "communications patched workflow_run on thread tenant_id=%s thread_id=%s "
+                    "run_id=%s count=%s",
+                    tid,
+                    th,
+                    run_id,
+                    patched,
+                )
+            return patched
+        except Exception:
+            logger.exception(
+                "communications link_workflow_run_to_thread failed tenant_id=%s thread_id=%s",
+                tid,
+                th,
+            )
+            return 0
 
     def record_outbound_from_send(
         self,

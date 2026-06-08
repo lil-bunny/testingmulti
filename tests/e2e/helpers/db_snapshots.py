@@ -6,6 +6,7 @@ from typing import Any
 
 from app.core.db import db_scope
 
+from tests.db.e2e import communications_correlation_snapshots as comms_snapshots
 from tests.db.e2e import document_analysis_reads, documents_reads
 from tests.db.e2e import workflow_lifecycle_snapshots as wl_snapshots
 from tests.db.e2e import workflow_runs_reads
@@ -44,6 +45,18 @@ def fetch_lifecycles_for_email_thread(*, tenant_id: str, thread_id: str) -> list
     """All ``workflow_lifecycles`` rows for this Unipile ``thread_id`` (``email_thread_id``), any workflow."""
     with db_scope() as repos:
         return wl_snapshots.list_by_email_thread(
+            repos.session,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+        )
+
+
+def fetch_load_tendering_lifecycle_for_thread(
+    *, tenant_id: str, thread_id: str
+) -> dict[str, Any] | None:
+    """``load_tendering`` lifecycle resolved via comms ``workflow_run_id`` (Gelita correlation)."""
+    with db_scope() as repos:
+        return comms_snapshots.find_load_tendering_lifecycle_by_thread(
             repos.session,
             tenant_id=tenant_id,
             thread_id=thread_id,

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.core.logger import get_logger
 from app.domain.status_parsing import status_type_from_db
 from app.models.status import StatusType
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.domain.delivery_locations_import import (
     unipile_delivery_locations_attachment,
@@ -21,7 +22,7 @@ from app.services.email_webhook_ingest_enqueue import (
 )
 from app.services.load_tendering_email_ingest_service import (
     WORKFLOW_NAME,
-    enqueue_load_tendering_workflow,
+    enqueue_gelita_load_tendering_and_link,
 )
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
@@ -136,6 +137,7 @@ class GelitaInboundEmailService:
                 payload=payload,
                 tenant=tenant,
                 graph_slug=graph_slug,
+                communication_id=communication_id,
             )
         except GelitaCarrierEmailIngressError as exc:
             logger.warning(
@@ -151,19 +153,6 @@ class GelitaInboundEmailService:
                     "reason": str(exc),
                 },
             )
-
-    def _enqueue(
-        self,
-        *,
-        graph_slug: str,
-        payload: dict[str, Any],
-        event_type: str,
-    ) -> str:
-        return enqueue_load_tendering_workflow(
-            graph_slug=graph_slug,
-            payload=payload,
-            event_type=event_type,
-        )
 
     def _enqueue_delivery_locations_import(
         self,
@@ -220,15 +209,13 @@ class GelitaInboundEmailService:
         if not thread_id:
             return None
 
-        lifecycle = self._lifecycle.read_lifecycle(
+        lifecycle_id = self._communications.resolve_lifecycle_id_for_thread(
             tenant_id=tenant.tenant_uuid,
-            workflow_name=WORKFLOW_NAME,
             thread_id=thread_id,
+            workflow_name=WORKFLOW_NAME,
         )
-        if not lifecycle.get("found"):
+        if not lifecycle_id:
             return None
-
-        lifecycle_id = lifecycle["lifecycle_id"]
         lifecycle_row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
         if status_type_from_db(lifecycle_row.get("status")) == StatusType.COMPLETED:
             logger.info(
@@ -246,7 +233,7 @@ class GelitaInboundEmailService:
                 },
             )
 
-        tender_id = lifecycle.get("tender_id") or lifecycle_row.get("tender_id") or ""
+        tender_id = lifecycle_row.get("tender_id") or ""
 
         workflow_payload: dict[str, Any] = {
             **payload,
@@ -258,10 +245,14 @@ class GelitaInboundEmailService:
         if communication_id:
             workflow_payload["communication_id"] = communication_id
 
-        execution_id = self._enqueue(
+        execution_id = enqueue_gelita_load_tendering_and_link(
             graph_slug=graph_slug,
+            tenant_uuid=tenant.tenant_uuid,
+            workflow_lifecycle_id=lifecycle_id,
             payload=workflow_payload,
-            event_type="ack_received",
+            event_type=WorkflowRunEventType.ACK_RECEIVED,
+            communication_id=communication_id,
+            thread_id=thread_id,
         )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -274,6 +265,7 @@ class GelitaInboundEmailService:
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
         graph_slug: str,
+        communication_id: str | None = None,
     ) -> JSONResponse:
         if not _is_inbox_role(payload):
             logger.info(
@@ -286,29 +278,32 @@ class GelitaInboundEmailService:
                 content={"message": "non-inbox email; carrier workflow not queued"},
             )
 
-        order_number, thread_id, lifecycle_id, tender_id, lifecycle_row = (
+        order_number, thread_id, lifecycle_id, tender_id, _lifecycle_row = (
             self._find_lifecycle_row_by_order_number(
                 payload=payload,
                 tenant_id=tenant.tenant_uuid,
             )
         )
 
-        existing_thread = str(lifecycle_row.get("email_thread_id") or "").strip()
-        if existing_thread:
-            if existing_thread == thread_id:
-                return JSONResponse(
-                    status_code=status.HTTP_200_OK,
-                    content={"message": "carrier thread already linked; no enqueue"},
-                )
-            raise GelitaCarrierEmailIngressError(
-                f"lifecycle {lifecycle_id} email_thread_id conflict: "
-                f"existing={existing_thread!r} incoming={thread_id!r}"
+        if self._communications.is_thread_linked_to_lifecycle(
+            tenant_id=tenant.tenant_uuid,
+            thread_id=thread_id,
+            workflow_lifecycle_id=lifecycle_id,
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"message": "carrier thread already linked; no enqueue"},
             )
 
-        self._lifecycle.set_email_thread_id(
-            lifecycle_id=lifecycle_id,
-            thread_id=thread_id,
+        linked_thread = self._communications.find_linked_thread_for_lifecycle(
+            tenant_id=tenant.tenant_uuid,
+            workflow_lifecycle_id=lifecycle_id,
         )
+        if linked_thread and linked_thread != thread_id:
+            raise GelitaCarrierEmailIngressError(
+                f"lifecycle {lifecycle_id} carrier thread conflict: "
+                f"existing={linked_thread!r} incoming={thread_id!r}"
+            )
 
         workflow_payload: dict[str, Any] = {
             **payload,
@@ -317,10 +312,17 @@ class GelitaInboundEmailService:
             "thread_id": thread_id,
             "workflow_lifecycle_id": lifecycle_id,
         }
-        execution_id = self._enqueue(
+        if communication_id:
+            workflow_payload["communication_id"] = communication_id
+
+        execution_id = enqueue_gelita_load_tendering_and_link(
             graph_slug=graph_slug,
+            tenant_uuid=tenant.tenant_uuid,
+            workflow_lifecycle_id=lifecycle_id,
             payload=workflow_payload,
             event_type="carrier_email_received",
+            communication_id=communication_id,
+            thread_id=thread_id,
         )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
