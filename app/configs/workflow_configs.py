@@ -154,7 +154,6 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "ltl_path": "send_tender_email",
                     "ftl_path": "send_tender_email",
-                    "error_path": "end",
                 },
             },
             "read_tender_row": {
