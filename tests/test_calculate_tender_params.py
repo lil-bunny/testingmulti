@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.domain.error_catalog import BusinessError
 from app.domain.load_tendering_state import get_tender
 from app.domain.state import WorkflowState
 from app.tools.tender_email import (
@@ -122,6 +123,26 @@ def _ltl_bundle() -> dict:
             _line("FORTIBONE (US)", "315"),
         ],
     }
+
+
+def test_calculate_tender_params_missing_tenant_id_returns_error_code() -> None:
+    state = WorkflowState(
+        tenant_id="",
+        tenant_slug="gelita",
+        execution_id="test-run-calculate-tender-params",
+        data={
+            "tender_id": FTL_TENDER_ID,
+            "tenant_settings": _tenant_settings(),
+        },
+    )
+
+    result = calculate_tender_params(state)
+
+    assert isinstance(result, dict)
+    error = result["data"]["error"]
+    assert error["code"] == BusinessError.MISSING_TENANT_ID
+    assert error["category"] == BusinessError.CATEGORY.value
+    assert error["message"] == BusinessError.MISSING_TENANT_ID.description
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")

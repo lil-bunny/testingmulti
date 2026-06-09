@@ -11,14 +11,10 @@ from app.domain.load_tendering_settings import (
     load_type_from_pallet_totals,
 )
 from app.domain.load_tendering_state import get_tender, ingest_pack_code, set_tender
+from app.domain.error_catalog import BusinessError, SystemError
+from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
-from app.workflows.nodes.tender_calc_failure import record_tender_calc_failure
-
-
-def _fail(state, error_code: str):
-    state.data["tender_calc_error"] = error_code
-    record_tender_calc_failure(state, error_code=error_code)
-    return state
+from app.workflows.utils.decorators import safe_node
 
 
 def gelita_calculate_params(
@@ -62,6 +58,7 @@ def gelita_calculate_params(
     return pieces_int, pallets_int, gross_weight_dec, product_value
 
 
+@safe_node
 def calculate_tender_params(state):
     """
     Load tenant + tender, apply Gelita formulas per product line, persist order ``load_type``.
@@ -72,22 +69,22 @@ def calculate_tender_params(state):
     tender_id = str(state.data.get("tender_id") or "").strip()
 
     if not tenant_id:
-        return _fail(state, "missing_tenant_id")
+        raise WorkflowException(BusinessError.MISSING_TENANT_ID)
     if not tender_id:
-        return _fail(state, "missing_tender_id")
+        raise WorkflowException(BusinessError.MISSING_TENDER_ID)
 
     cfg = action_settings(state, "tender_calculate")
     try:
         pallet_weight_lb = float(cfg["pallet_weight_lbs"])
     except (KeyError, TypeError, ValueError):
-        return _fail(state, "missing_tenant_settings_pallet_weight_lbs")
+        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_WEIGHT_LBS)
     try:
         pallet_threshold = int(cfg["pallet_threshold"])
     except (KeyError, TypeError, ValueError):
-        return _fail(state, "missing_tenant_settings_pallet_threshold")
+        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_THRESHOLD)
     pickup_address = cfg.get("gelita_pickup_address")
     if not isinstance(pickup_address, dict):
-        return _fail(state, "missing_tenant_settings_gelita_pickup_address")
+        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS)
 
     tender_service = TenderService()
     bundle = tender_service.read_order(
@@ -95,12 +92,12 @@ def calculate_tender_params(state):
         tender_id=tender_id,
     )
     if not bundle:
-        return _fail(state, "tender_not_found")
+        raise WorkflowException(BusinessError.TENDER_NOT_FOUND)
 
     tender = bundle["tender"]
     products = bundle["products"]
     if not products:
-        return _fail(state, "missing_product_lines")
+        raise WorkflowException(BusinessError.MISSING_PRODUCT_LINES)
 
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
@@ -115,16 +112,16 @@ def calculate_tender_params(state):
                 existing = get_tender(state.data) or {}
                 existing["pack_code"] = excel_pack
                 set_tender(state.data, existing)
-            return _fail(state, "missing_pack_code")
+            raise WorkflowException(BusinessError.MISSING_PACK_CODE)
 
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
         total_qty = product.get("total_qty")
 
         if qty_per_unit is None or qty_per_unit == 0:
-            return _fail(state, "missing_qty_per_unit")
+            raise WorkflowException(BusinessError.MISSING_QTY_PER_UNIT)
         if total_qty is None or total_qty == 0:
-            return _fail(state, "missing_total_qty")
+            raise WorkflowException(BusinessError.MISSING_TOTAL_QTY)
 
         pieces_int, pallets_int, gross_weight_dec, product_value = gelita_calculate_params(
             order_quantity=order_quantity,
@@ -169,7 +166,7 @@ def calculate_tender_params(state):
         prior = get_tender(state.data) or {}
         customer_po = str(prior.get("customer_po") or prior.get("po_number") or "").strip()
     if not customer_po:
-        raise ValueError("missing customer PO number")
+        raise WorkflowException(BusinessError.MISSING_CUSTOMER_PO)
 
     ship_date = tender.get("shipping_date")
     ship_date_str = ship_date.isoformat() if hasattr(ship_date, "isoformat") else str(ship_date or "")

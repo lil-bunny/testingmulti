@@ -77,19 +77,6 @@ def load_type_router(state):
 
     Uses ``state.data['tender']['pallets_count']`` and ``pallet_threshold`` (default 8).
     """
-    err = state.data.get("tender_calc_error")
-
-    if err:
-        state.data["tender_email_error"] = f"skip_send:{err}"
-
-        logger.warning(
-            "send_tender_email skipped tender_id=%s reason=%s",
-            state.data.get("tender_id"),
-            err,
-        )
-
-        return "error_path"
-
     tender = get_tender(state.data) or {}
     try:
         pallets = float(tender.get("pallets_count") or 0)
