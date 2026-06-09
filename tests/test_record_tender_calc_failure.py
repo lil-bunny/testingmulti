@@ -1,9 +1,10 @@
-"""Tests for ``record_tender_calc_failure`` helper."""
+"""Tests for ``record_workflow_failure_node`` global failure sink."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from app.domain.error_catalog import BusinessError, workflow_error_payload
 from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType
 from app.models.status import StatusType
@@ -14,11 +15,11 @@ RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 TENDER_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 
-@patch("app.workflows.nodes.tender_calc_failure.LifecycleTransitionService")
-def test_record_tender_calc_failure_applies_transition(
+@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
+def test_record_workflow_failure_node_applies_transition(
     mock_transition_cls: MagicMock,
 ) -> None:
-    from app.workflows.nodes.tender_calc_failure import record_tender_calc_failure
+    from app.workflows.nodes.error_handler import record_workflow_failure_node
 
     mock_svc = MagicMock()
     mock_transition_cls.return_value = mock_svc
@@ -31,14 +32,25 @@ def test_record_tender_calc_failure_applies_transition(
             "workflow_lifecycle_id": LIFECYCLE_UUID,
             "tender_id": TENDER_UUID,
             "pack_code": "9999",
+            "error": workflow_error_payload(
+                code=BusinessError.MISSING_PACK_CODE.value,
+                message=BusinessError.MISSING_PACK_CODE.description,
+                category=BusinessError.CATEGORY,
+            ),
         },
     )
 
-    record_tender_calc_failure(state, error_code="missing_pack_code")
+    record_workflow_failure_node(state)
 
-    mock_svc.apply.assert_called_once()
-    command = mock_svc.apply.call_args[0][0]
-    assert command.to_status == StatusType.FAILED
-    assert command.activity_type == ActivityType.STATUS_CHANGE
-    assert command.metadata["error"] == "missing_pack_code"
-    assert command.metadata["pack_code"] == "9999"
+    mock_svc.apply_from_state.assert_called_once()
+    kwargs = mock_svc.apply_from_state.call_args.kwargs
+    assert kwargs["to_status"] == StatusType.PENDING_REVIEW
+    assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
+    assert kwargs["metadata"]["error"] == BusinessError.MISSING_PACK_CODE
+    assert kwargs["metadata"]["error_category"] == BusinessError.CATEGORY.value
+    assert (
+        kwargs["metadata"]["error_description"]
+        == BusinessError.MISSING_PACK_CODE.description
+    )
+    assert kwargs["metadata"]["tender_id"] == TENDER_UUID
+    assert kwargs["metadata"]["pack_code"] == "9999"
