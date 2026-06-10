@@ -308,6 +308,37 @@ class CommunicationsService:
             )
             return None
 
+    def find_shipment_context_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+    ) -> list[dict[str, Any]]:
+        """Thread → lifecycles with ``shipments.id`` FK, newest per shipment."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        if not tid or not th:
+            return []
+        try:
+            if self._repository is not None:
+                return self._repository.find_shipment_context_for_thread(
+                    tenant_id=tid,
+                    thread_id=th,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.find_shipment_context_for_thread(
+                    tenant_id=tid,
+                    thread_id=th,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications find_shipment_context_for_thread failed tenant_id=%s thread_id=%s",
+                tid,
+                th,
+            )
+            return []
+
     def is_thread_linked_to_lifecycle(
         self,
         *,

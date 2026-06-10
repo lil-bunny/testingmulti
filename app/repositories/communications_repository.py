@@ -289,6 +289,39 @@ class CommunicationsRepository:
             return None
         return str(lifecycle_id).strip() or None
 
+    def find_shipment_context_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+    ) -> list[dict[str, Any]]:
+        """
+        Lifecycles on this thread that have a linked ``shipments`` row, newest first.
+
+        Each row: ``lifecycle_id``, ``workflow_name``, ``shipments_row_id``,
+        ``shipment_number``, ``updated_at``.
+        """
+        return fetchall_dicts(
+            self._session,
+            """
+            SELECT wl.id::text AS lifecycle_id,
+                   wl.workflow_name,
+                   wl.shipment_id::text AS shipments_row_id,
+                   s.shipment_number,
+                   wl.updated_at
+            FROM communications c
+            JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+            JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+            JOIN shipments s ON s.id = wl.shipment_id
+            WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+              AND c.thread_id = :thread_id
+              AND c.workflow_run_id IS NOT NULL
+              AND wl.shipment_id IS NOT NULL
+            ORDER BY wl.updated_at DESC
+            """,
+            {"tenant_id": tenant_id, "thread_id": thread_id},
+        )
+
     def is_thread_linked_to_lifecycle(
         self,
         *,

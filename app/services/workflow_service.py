@@ -96,6 +96,16 @@ class WorkflowService:
 
         if (
             workflow_name == "pod_lifecycle"
+            and payload.get("event_type") == "email_received"
+        ):
+            payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+
+        if (
+            workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "route_completed"
         ):
             duplicate = self._pod_lifecycle_ingress.check_route_completed_duplicate(
