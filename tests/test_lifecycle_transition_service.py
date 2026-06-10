@@ -214,7 +214,7 @@ def test_apply_requires_workflow_lifecycle_id() -> None:
         svc.apply(
             _command(
                 activity_type=ActivityType.ACTION,
-                workflow_lifecycle_id="",
+                workflow_lifecycle_id=None,
                 workflow_run_id=None,
                 description="PoD review acknowledged",
                 update_lifecycle=False,

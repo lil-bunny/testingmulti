@@ -166,10 +166,6 @@ def projected_row_to_tender_insert(
     if not resolved_customer:
         return None
 
-    weight_unit = parse_weight_unit(row.get("weight_unit"))
-    if weight_unit is None:
-        return None
-
     delivery = _parse_optional_date(row.get("delivery_date"))
     shipping = _parse_optional_date(row.get("shipping_date"))
     po_number = identifier_string_from_cell(row.get("po_number")) or ""
@@ -187,7 +183,6 @@ def projected_row_to_tender_insert(
         "pickup_location_id": None,
         "delivery_location_id": None,
         "load_type": LoadType.LTL.value,
-        "weight_unit": weight_unit,
         "metadata": metadata,
     }
 
@@ -216,6 +211,10 @@ def projected_row_to_tender_product_insert(
     if qty is None:
         return None
 
+    weight_unit = parse_weight_unit(row.get("weight_unit"))
+    if weight_unit is None:
+        return None
+
     pack_id = resolve_pack_code_id(
         row,
         active_pack_code_index=active_pack_code_index,
@@ -229,6 +228,7 @@ def projected_row_to_tender_product_insert(
         "order_quantity": qty,
         "pack_code_id": pack_id,
         "price_per_unit": price_per_unit,
+        "weight_unit": weight_unit,
         "metadata": {},
     }
 

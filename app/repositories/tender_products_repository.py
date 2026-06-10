@@ -61,7 +61,8 @@ class TenderProductsRepository:
                     pc.unit_dims,
                     pc.pallet_dims,
                     pc.pallet_type,
-                    pc.is_active
+                    pc.is_active,
+                    tp.weight_unit::text
                 FROM {self.TABLE_NAME} tp
                 LEFT JOIN pack_codes pc ON pc.id = tp.pack_code_id
                 WHERE tp.tenant_id = CAST(:tenant_id AS uuid) AND tp.tender_id = CAST(:tender_id AS uuid)
@@ -107,6 +108,7 @@ class TenderProductsRepository:
                     "pallet_dims": row[13] or "",
                     "pallet_type": row[14] or "",
                     "pack_is_active": row[15],
+                    "weight_unit": row[16] or "",
                 }
             )
         return products
@@ -151,7 +153,8 @@ class TenderProductsRepository:
                 product_name,
                 order_quantity,
                 price_per_unit,
-                metadata
+                metadata,
+                weight_unit
             )
             VALUES (
                 CAST(:tenant_id AS uuid),
@@ -160,7 +163,8 @@ class TenderProductsRepository:
                 :product_name,
                 :order_quantity,
                 :price_per_unit,
-                CAST(:metadata AS jsonb)
+                CAST(:metadata AS jsonb),
+                CAST(:weight_unit AS weight_unit)
             )
             """
         )
@@ -175,6 +179,7 @@ class TenderProductsRepository:
                     "order_quantity": r["order_quantity"],
                     "price_per_unit": r.get("price_per_unit"),
                     "metadata": jsonb_param(r.get("metadata") or {}),
+                    "weight_unit": r.get("weight_unit"),
                 },
             )
 

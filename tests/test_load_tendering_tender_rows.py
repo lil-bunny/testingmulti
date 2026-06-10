@@ -64,7 +64,7 @@ def test_mapper_header_happy_path() -> None:
     assert out["delivery_date"] == date(2026, 6, 1)
     assert out["shipping_date"] == date(2026, 5, 15)
     assert out["load_type"] == "LTL"
-    assert out["weight_unit"] == "kg"
+    assert "weight_unit" not in out
     assert out["metadata"] == {"customer_name_source": CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION}
 
 
@@ -75,6 +75,7 @@ def test_mapper_product_happy_path() -> None:
         "product_name": "Widget",
         "order_quantity": 12,
         "price_per_unit": "123.45",
+        "weight_unit": "KG",
         "pack_code_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
     }
     out = projected_row_to_tender_product_insert(row)
@@ -82,6 +83,7 @@ def test_mapper_product_happy_path() -> None:
     assert out["product_name"] == "Widget"
     assert out["order_quantity"] == Decimal("12")
     assert out["price_per_unit"] == Decimal("123.45")
+    assert out["weight_unit"] == "kg"
     assert out["pack_code_id"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 
 
@@ -141,9 +143,14 @@ def test_parse_weight_unit_normalizes_me(raw: str | None, expected: str | None) 
 
 def test_mapper_skips_invalid_weight_unit() -> None:
     assert (
-        projected_row_to_tender_insert(
-            {"order_number": "1", "weight_unit": "TON"},
-            customer_name="Acme",
+        projected_row_to_tender_product_insert(
+            {
+                "order_number": "1",
+                "order_position": 5,
+                "product_name": "P",
+                "order_quantity": 1,
+                "weight_unit": "TON",
+            }
         )
         is None
     )
@@ -212,6 +219,7 @@ def test_product_mapper_skips_blank_product_or_invalid_qty() -> None:
                 "customer_match": "B",
                 "product_name": "  ",
                 "order_quantity": 1,
+                "weight_unit": "KG",
             }
         )
         is None
@@ -223,6 +231,7 @@ def test_product_mapper_skips_blank_product_or_invalid_qty() -> None:
                 "order_position": 5,
                 "product_name": "P",
                 "order_quantity": "nope",
+                "weight_unit": "KG",
             }
         )
         is None
@@ -235,6 +244,7 @@ def test_product_mapper_unknown_pack_code_text_becomes_null_id() -> None:
         "order_position": 1,
         "product_name": "P",
         "order_quantity": 1,
+        "weight_unit": "KG",
         "pack_code": "9999",
     }
     out = projected_row_to_tender_product_insert(row, active_pack_code_index={})
@@ -248,6 +258,7 @@ def test_product_mapper_resolves_pack_code_text_via_index() -> None:
         "order_position": 1,
         "product_name": "P",
         "order_quantity": 1,
+        "weight_unit": "KG",
         "pack_code": " 5137 ",
     }
     index = {"5137": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"}
@@ -326,12 +337,12 @@ def test_ingest_service_batches_valid_rows() -> None:
     assert batch[0]["data_import_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert batch[0]["order_number"] == "N1"
     assert batch[0]["customer_name"] == CUSTOMER_NAME_PLACEHOLDER
-    assert batch[0]["weight_unit"] == "kg"
     assert batch[0]["metadata"] == {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN}
     products.insert_batch.assert_called_once()
     product_batch = products.insert_batch.call_args[0][0]
     assert len(product_batch) == 1
     assert product_batch[0]["tender_id"] == tender_uuid
+    assert product_batch[0]["weight_unit"] == "kg"
 
 
 def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
@@ -367,11 +378,12 @@ def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
         projected_rows=rows,
     )
     batch = repo.insert_batch.call_args[0][0]
-    assert batch[0]["weight_unit"] == "lb"
     assert batch[0]["metadata"] == {
         "po_number": "BEST-PO-1",
         "customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN,
     }
+    product_batch = products.insert_batch.call_args[0][0]
+    assert product_batch[0]["weight_unit"] == "lb"
 
 
 def test_ingest_duplicate_order_position_inserts_one_product_line() -> None:
@@ -422,3 +434,46 @@ def test_ingest_duplicate_order_position_inserts_one_product_line() -> None:
     assert len(product_batch) == 2
     names = {p["product_name"] for p in product_batch}
     assert names == {"A", "C"}
+
+
+def test_ingest_same_order_distinct_weight_unit_per_product_line() -> None:
+    repo = MagicMock()
+    products = MagicMock()
+    products.existing_line_keys.return_value = set()
+    tender_uuid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    repo.insert_batch.return_value = [
+        TenderInsertResult(tender_id=tender_uuid, created=True),
+    ]
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
+    svc = TendersIngestService(
+        repository=repo,
+        tender_products_repository=products,
+        pack_codes_repository=pack_codes,
+    )
+    rows = [
+        {
+            "order_number": "93384",
+            "order_position": 5,
+            "weight_unit": "KG",
+            "product_name": "Widget A",
+            "order_quantity": 1,
+        },
+        {
+            "order_number": "93384",
+            "order_position": 10,
+            "weight_unit": "LB",
+            "product_name": "Widget B",
+            "order_quantity": 2,
+        },
+    ]
+    svc.persist_from_projected_rows(
+        tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        data_import_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        projected_rows=rows,
+    )
+    assert len(repo.insert_batch.call_args[0][0]) == 1
+    product_batch = products.insert_batch.call_args[0][0]
+    assert len(product_batch) == 2
+    units_by_name = {p["product_name"]: p["weight_unit"] for p in product_batch}
+    assert units_by_name == {"Widget A": "kg", "Widget B": "lb"}

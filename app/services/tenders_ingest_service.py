@@ -215,6 +215,7 @@ class TendersIngestService:
                         "product_name": product["product_name"],
                         "order_quantity": product["order_quantity"],
                         "price_per_unit": product.get("price_per_unit"),
+                        "weight_unit": product.get("weight_unit"),
                         "metadata": product.get("metadata") or {},
                     }
                 )

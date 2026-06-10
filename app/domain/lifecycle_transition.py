@@ -101,7 +101,7 @@ class LifecycleTransitionCommand:
         return cls(
             tenant_id=str(tenant_raw or "").strip(),
             activity_type=activity_type,
-            workflow_lifecycle_id=wl_clean or "",
+            workflow_lifecycle_id=wl_clean,
             workflow_run_id=wr_clean,
             to_status=to_status,
             to_sub_status=to_sub_status,
