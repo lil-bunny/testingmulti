@@ -1,3 +1,8 @@
 {
-  "mikey_account_id": "7jKV_5jBQVG8med4nvXHJw"
+  "mikey_account_id": "7jKV_5jBQVG8med4nvXHJw",
+  "prompts": {
+    "pod_lifecycle.page_extraction": "pod-page-extraction:staging",
+    "ratecon.page_extraction": "ratecon-page-extraction:staging",
+    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging"
+  }
 }

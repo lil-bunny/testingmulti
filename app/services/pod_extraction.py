@@ -20,6 +20,9 @@ from typing import Any
 from pdf2image import convert_from_path
 from PIL import Image, UnidentifiedImageError
 
+from app.integrations.langsmith import RenderedPrompt
+from app.integrations.langsmith.types import PromptTraceMetadata
+from app.services.prompt_service import resolve_pod_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_vision_json
 
 logger = logging.getLogger(__name__)
@@ -50,77 +53,14 @@ def _resize_for_vision(image: Image.Image, max_side_px: int) -> Image.Image:
 
 def get_prompt(broker_name=None):
     """
-    Returns the prompt for the LLM.
+    Returns the inline fallback prompt for the LLM (legacy/tests).
 
-    NOTE: pickup_location is NOT passed to the prompt to ensure unbiased extraction.
-    The POD pickup_location should be extracted independently from the document,
-    then compared with RateCon pickup_location during validation.
+    Prefer ``resolve_pod_vision_prompts`` for Hub-managed prompts.
     """
-    broker_context = ""
-    if broker_name:
-        broker_context = f"\n\n🚨 CRITICAL RULE: The broker for this shipment is '{broker_name}'. This is the freight broker who arranged the shipment, NOT the carrier company. \n\n❌ NEVER extract '{broker_name}' or similar variations as the 'carrier_name'. \n\n✅ The carrier is the actual trucking company or cargo company that physically transported the goods. If you cannot find a different carrier name than '{broker_name}', then DO NOT extract any carrier information. and mark it as null"
+    from app.domain.vision_prompt_templates import render_inline_pod_prompts
 
-    return f"""
-Analyze this document page, which is part of a Proof of Delivery (POD) packet.
-Extract logistical information and evidence of receipt with high precision.{broker_context}
-
-Return ONLY a single JSON object with the following structure:
-{{
-  "page_type": "...",
-  "fields": [
-    {{
-      "key": "...",
-      "value": "...",
-      "confidence": ...,
-      "context_snippet": "..."
-    }}
-  ],
-  "proof_of_receipt": {{
-    "has_receiver_signature": true/false,
-    "receiver_signature_location": "...",
-    "has_stamp": true/false,
-    "delivery_confirmation_reasoning": "..."
-  }},
-  "stop_times": [
-    {{ "pickup_checkin_time": "", "pickup_checkout_time": "", "delivery_checkin_time": "", "delivery_checkout_time": "" }}
-  ]
-}}
-
-SCHEMA and INSTRUCTIONS:
-CRITICAL RULE: If you cannot find a specific piece of information with high confidence, DO NOT GUESS. Omit that field from the "fields" array. It is better to have a missing field than an incorrect one.
-
---- LOCATION & ADDRESS RULES (VERY IMPORTANT) ---
-1.  The `pickup_location` and `pickup_address` MUST come from the section explicitly labeled 'Shipper', 'From', 'Origin', or 'Ship Site'.
-2.  The `destination_location` and `destination_address` MUST come from the section explicitly labeled 'Consignee', 'To', 'Destination', or 'Ship To'.
-3.  NEVER mix information between these sections. An address found under the 'Shipper' block cannot be the `destination_address`.
-4.  Pay close attention to the visual layout to correctly associate a location name with its corresponding address.
-
---- GENERAL FIELDS ---
-1.  "page_type": Classify the page. Must be one of: "BILL_OF_LADING", "LUMPER_RECEIPT", "ITEMIZED_LIST", "UNKNOWN".
-2.  "fields": An array of extracted data.
-    - "key": Must be one of: "carrier_name", "po_number", "pickup_location", "pickup_address", "destination_location", "destination_address", "stamp_company_name".
-    - "value": The extracted value as a string.
-    - "confidence": Your confidence (1-100).
-    - "context_snippet": A small text snippet showing the value's context.
-3.  "proof_of_receipt": An object for delivery evidence.
-    - "has_receiver_signature": CRITICAL - Set to true if there is a signature in the CONSIGNEE/RECEIVER section OR a printed name in a 'Receiver' or 'RECVR' field on a warehouse receipt. Do NOT count signatures in the carrier or driver boxes.
-    - "receiver_signature_location": If a signature is found, specify location: "Consignee Box", "On Stamp", "Receiver Field", "Handwritten Note", "N/A".
-    - "has_stamp": true if a company ink stamp is visible, otherwise false.
-    - "delivery_confirmation_reasoning": Provide a brief, specific explanation of what evidence you found (or didn't find) for delivery confirmation. Examples: "Receiver signature visible in consignee box", "Company stamp present with date", "No signature or stamp evidence found", "Handwritten receiver name in delivery field".
-
---- FIELD-SPECIFIC RULES ---
-- "carrier_name": The actual trucking company or cargo company that physically transported the goods (e.g., 'Bajwa Truckers'). Look for this on 'LUMPER_RECEIPT' or 'BILL_OF_LADING' or next to 'Warehouse Carrier'. Make sure to identify if there are any updations or changes made to the existing carrier name and catch them precisely. If you cannot find a different carrier name than '{broker_name}', then DO NOT extract any carrier information. and mark it as null
-- "po_number": Scan the entire page for all possible PO(Purchase Order) numbers and Delivery numbers precisely without missing out on any possible PO or Delivery numbers. Extract ONLY the clean numeric/alphanumeric identifiers from the document and do not pick up any other words or text. READ CAREFULLY AND ACCURATELY - do not miss any middle characters or digits when extracting these numbers.
-
---- STOP TIMES (CHECK-IN / CHECK-OUT) ---
-4.  "stop_times": REQUIRED. You MUST always include a "stop_times" array in your response. Look for any of: check-in time, check-out time, arrival time, departure time, gate in, gate out, appointment time, scheduled time, actual time, in/out times, or similar time blocks on the page (common on warehouse receipts, dock receipts, BOLs with time blocks, delivery tickets).
-    - For each logical stop (pickup and/or delivery) on the page, add one object with: "pickup_checkin_time", "pickup_checkout_time", "delivery_checkin_time", "delivery_checkout_time". Use empty string "" for any time not found or not applicable for that stop.
-    - pickup_checkin_time / pickup_checkout_time: use for origin/shipper/pickup stop arrival and departure.
-    - delivery_checkin_time / delivery_checkout_time: use for destination/consignee/delivery stop arrival and departure.
-    - TIMESTAMP FORMAT: Every non-empty time value MUST be ISO 8601 UTC: "YYYY-MM-DDTHH:mm:ssZ" (e.g. "2026-02-06T07:34:49Z"). Convert document times (e.g. "02/06/26 7:34 AM", "Jan 15 08:00", "7:34 AM") to this format. If timezone is given, convert to UTC and append Z. If no times are found on the page, return one object with all four keys set to "".
-    - Example (one pickup + one delivery): [{{"pickup_checkin_time":"2026-02-06T07:34:49Z","pickup_checkout_time":"2026-02-06T09:30:00Z","delivery_checkin_time":"","delivery_checkout_time":""}}, {{"pickup_checkin_time":"","pickup_checkout_time":"","delivery_checkin_time":"2026-02-07T14:00:00Z","delivery_checkout_time":"2026-02-07T14:45:00Z"}}]
-    - Example (no times on page): [{{"pickup_checkin_time":"","pickup_checkout_time":"","delivery_checkin_time":"","delivery_checkout_time":""}}]
-"""
+    system, _user = render_inline_pod_prompts(broker_name)
+    return system
 
 
 def reconcile_pod_data(page_results, broker_name=None):
@@ -477,23 +417,31 @@ def analyze_page(
     page_number: int,
     broker_name=None,
     *,
+    vision_prompts: RenderedPrompt | None = None,
+    prompt_trace: PromptTraceMetadata | None = None,
     max_tokens: int | None = None,
     temperature: float = 0.0,
 ) -> dict[str, Any]:
     """Per-page vision extraction (sync ``chat_vision_json``, same pattern as ratecon)."""
     load_id = Path(image_path).stem
-    prompt_text = get_prompt(broker_name)
+    if vision_prompts is None:
+        system_prompt = get_prompt(broker_name)
+        user_prompt = " "
+    else:
+        system_prompt = vision_prompts.system
+        user_prompt = vision_prompts.user
 
     try:
         with open(image_path, "rb") as f:
             image_data = f.read()
         extracted_data = chat_vision_json(
-            prompt_text,
-            " ",
+            system_prompt,
+            user_prompt,
             image_data,
             timeout_s=300.0,
             temperature=temperature,
             max_tokens=max_tokens,
+            prompt_trace=prompt_trace,
         )
         if not isinstance(extracted_data, dict):
             extracted_data = {}
@@ -520,6 +468,7 @@ def extract_from_pdf_path(
     pdf_path: str,
     *,
     broker_name: str | None = None,
+    tenant_settings: dict[str, Any] | None = None,
     model_label: str | None = None,
     fast_mode: bool = False,
     max_pages: int | None = None,
@@ -531,6 +480,14 @@ def extract_from_pdf_path(
     Returns ``(page_results, final_pod_data, validation_issues, reconciliation_log)``.
     """
     load_id = Path(pdf_path).stem.replace(" POD", "").replace("_", "")
+
+    from app.domain.prompt_step_keys import POD_PAGE_EXTRACTION
+
+    vision_prompts, prompt_metadata = resolve_pod_vision_prompts(
+        tenant_settings,
+        broker_name,
+    )
+    prompt_trace = PromptTraceMetadata.from_load(POD_PAGE_EXTRACTION, prompt_metadata)
 
     work_dir = tempfile.mkdtemp(prefix="pod_extraction_")
     try:
@@ -591,6 +548,8 @@ def extract_from_pdf_path(
                 img_path,
                 page_num,
                 broker_name,
+                vision_prompts=vision_prompts,
+                prompt_trace=prompt_trace,
                 max_tokens=max_tokens,
                 temperature=0.0,
             )

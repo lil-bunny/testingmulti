@@ -15,6 +15,9 @@ from typing import Any
 
 from thefuzz import fuzz
 
+from app.domain.prompt_step_keys import POD_VS_RATECON_SUMMARY
+from app.integrations.langsmith.types import PromptTraceMetadata
+from app.services.prompt_service import resolve_pod_vs_ratecon_summary_prompts
 from app.tools.llm_client import LLMClientError, chat_json
 
 logger = logging.getLogger(__name__)
@@ -351,59 +354,25 @@ def validate_pod_against_ratecon(pod_data: dict, ratecon_data: dict) -> dict[str
 def generate_validation_summary(
     cross_validation: dict[str, Any],
     pod_analysis: dict[str, Any],
+    *,
+    tenant_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    LLM-powered validation summary and confidence score (legacy prompt preserved).
-    """
-    signature_present = pod_analysis.get("signature_present", False)
-    stamp_present = pod_analysis.get("stamp_present", False)
-    delivery_confirmed = pod_analysis.get("delivery_confirmed", False)
-    delivery_confirmation_reasoning = pod_analysis.get("delivery_confirmation_reasoning", "")
-
-    prompt = f"""Analyze this POD vs RateCon cross-validation result and provide a concise 2-line summary with confidence score.
-
-VALIDATION RESULTS:
-{json.dumps(cross_validation, indent=2)}
-
-POD ANALYSIS DATA:
-- Signature Present: {signature_present}
-- Stamp Present: {stamp_present}
-- Delivery Confirmed: {delivery_confirmed}
-- Delivery Confirmation Reasoning: {delivery_confirmation_reasoning}
-
-INSTRUCTIONS:
-1. Provide exactly 2 lines (no more, no less):
-   - Line 1: Field matches/discrepancies summary
-   - Line 2: Delivery status and key business insights
-
-2. Calculate confidence score (0.0 to 1.0) using simple 50/50 weighting:
-   - 50% weight: Signature/Stamp/Delivery confirmations (higher points for present/confirmed)
-   - 50% weight: Field validation results (higher points for PASS status)
-
-   Simple scoring logic:
-   - Signature present: +0.15 points
-   - Stamp present: +0.15 points
-   - Delivery confirmed: +0.20 points
-   - Each field validation PASS: +0.50 points divided by total fields
-   - Start from base 0.1, cap at 1.0
-
-3. Do NOT mention "PASS", "FAIL", or "Line 1/Line 2" in summary. Be direct and business-focused.
-
-RESPONSE FORMAT (JSON only):
-{{
-  "summary": "Field validation summary line.\\nDelivery confirmation and business insights line.",
-  "confidence_score": 0.85
-}}
-
-Be extremely concise."""
-
-    system = (
-        "You are a logistics validation expert. Provide concise, accurate summaries of "
-        "POD vs RateCon validation results for freight operations. Always respond with valid JSON."
+    """LLM-powered validation summary and confidence score (LangSmith Hub or inline fallback)."""
+    rendered, prompt_metadata = resolve_pod_vs_ratecon_summary_prompts(
+        tenant_settings,
+        cross_validation,
+        pod_analysis,
     )
+    prompt_trace = PromptTraceMetadata.from_load(POD_VS_RATECON_SUMMARY, prompt_metadata)
 
     try:
-        llm_result = chat_json(system, prompt, temperature=0.1, timeout_s=120.0)
+        llm_result = chat_json(
+            rendered.system,
+            rendered.user,
+            temperature=0.1,
+            timeout_s=120.0,
+            prompt_trace=prompt_trace,
+        )
         summary = str(llm_result.get("summary", "Validation analysis completed")).strip()
         confidence_score = float(llm_result.get("confidence_score", 0.5))
         confidence_score = max(0.0, min(1.0, confidence_score))

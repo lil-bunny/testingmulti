@@ -212,7 +212,9 @@ def ratecon_analysis(data: dict) -> dict:
             os.close(fd)
 
         page_results, extracted = extract_ratecon_from_pdf_path(
-            tmp_path, model_label=settings.LLM_MODEL or ""
+            tmp_path,
+            model_label=settings.LLM_MODEL or "",
+            tenant_settings=data.get("tenant_settings"),
         )
         good_pages = sum(1 for p in page_results if p.get("extracted_data"))
         has_ids = bool(extracted.get("shipment_identifiers")) or bool(
@@ -360,6 +362,7 @@ def pod_analysis(data: dict) -> dict:
                 tmp_path,
                 broker_name=broker_name,
                 model_label=settings.LLM_MODEL or "",
+                tenant_settings=data.get("tenant_settings"),
             )
         )
 
@@ -514,7 +517,11 @@ def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
 
     try:
         cross = validate_pod_against_ratecon(pod_data, ratecon_data)
-        summary_result = generate_validation_summary(cross, pod_data)
+        summary_result = generate_validation_summary(
+            cross,
+            pod_data,
+            tenant_settings=data.get("tenant_settings"),
+        )
     except Exception as exc:
         logger.exception("pod_vs_ratecon_analysis failed shipment_id=%s", sid)
         return {

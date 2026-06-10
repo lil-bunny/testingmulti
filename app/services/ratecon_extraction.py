@@ -15,76 +15,20 @@ from typing import Any
 
 from pdf2image import convert_from_path
 
+from app.domain.prompt_step_keys import RATECON_PAGE_EXTRACTION
+from app.domain.vision_prompt_templates import (
+    RATECON_PAGE_SYSTEM,
+    RATECON_PAGE_USER,
+)
+from app.integrations.langsmith.types import PromptTraceMetadata
+from app.services.prompt_service import resolve_ratecon_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_vision_json
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an elite document intelligence specialist with deep expertise in freight logistics documentation. You possess exceptional visual-spatial reasoning and can accurately extract structured data from complex rate confirmation documents.
-
-Core competencies:
-- Master-level pattern recognition for shipment identifiers across document layouts
-- Expert understanding of freight industry terminology and document hierarchies
-- Advanced spatial awareness to distinguish context-dependent information
-- Precise field extraction with zero tolerance for misclassification
-
-You operate with surgical precision and never make contextual errors.
-
-CRITICAL: You MUST return ONLY valid JSON - no markdown blocks, no comments, no explanations."""
-
-USER_PROMPT = """MISSION: Extract ALL shipment identifiers and logistics data from this rate confirmation document.
-
-IDENTIFIER EXTRACTION STRATEGY:
-Scan the ENTIRE document and collect ALL numbers that serve as shipment/order identifiers:
-
-**PO NUMBERS** (Primary Target - collect ALL):
-• Purchase Order numbers (labeled "PO #", "PO Number", "Purchase Order")
-• Pickup numbers (labeled "Pickup #", "Pickup Number", "Pickup ID")
-• Delivery numbers (labeled "Delivery #", "Delivery Number", "Delivery ID")
-• Load numbers (labeled "Load #", "Load Number", "Load ID")
-• Shipment numbers (labeled "Shipment #", "Shipment Number", "Shipment ID")
-• Reference numbers (labeled "Ref #", "Reference", "Order #")
-• ANY number in boxes, fields, or sections that identifies this shipment/order
-
-⚠️ CRITICAL: For each number or word, verify ALL characters or digits are captured - start, middle, AND end characters or digits.
-
-**EXTRACTION PRINCIPLE**: In logistics, pickup numbers, delivery numbers, load numbers, and shipment numbers are ALL functionally PO numbers - they identify the order/shipment. Collect them ALL.
-
-**OTHER REQUIRED DATA**:
-• Carrier Name: Trucking company performing the transport
-• Pickup Location: Origin company/facility name
-• Pickup Address: Complete pickup address
-• Delivery Location: Destination company/facility name
-• Delivery Address: Complete delivery address
-• Pickup Date: Scheduled pickup date
-• Delivery Date: Scheduled delivery date
-• Broker Name: The freight brokerage company that issued this rate confirmation document
-  → Look in: Document header, letterhead, "From:" section, company logo area, footer signatures
-  → Identify: The company whose letterhead/contact info appears at TOP of document
-  → Extract: Full company name including "Inc", "LLC", "Corp" suffixes but EXCLUDE MC# numbers
-
-**OUTPUT FORMAT** - Return ONLY clean JSON with no extra text, comments, or explanations:
-{
-  "shipment_identifiers": ["ALL_FOUND_IDENTIFIERS_AS_ARRAY"],
-  "primary_identifier": "MOST_PROMINENT_IDENTIFIER",
-  "po_number": "PRIMARY_OR_FIRST_IDENTIFIER",
-  "carrier_name": "",
-  "pickup_location": "",
-  "pickup_address": "",
-  "delivery_location": "",
-  "delivery_address": "",
-  "pickup_date": "",
-  "delivery_date": "",
-  "broker_name": ""
-}
-
-**EXECUTION RULES**:
-✓ Scan headers, body, pickup sections, delivery sections, footers - EVERYWHERE
-✓ Collect EVERY identifier found - missing one is failure
-✓ Use null only for truly absent fields
-✓ CRITICAL: Broker ≠ Carrier - Broker is document issuer (top/header), Carrier is transport company (in body)
-✓ VISION ACCURACY: Read each identifier character-by-character. Double-check middle digits/characters are not skipped.
-✓ RESPONSE FORMAT: Return ONLY the JSON object - no markdown, no comments, no explanations
-✓ Be exhaustive - this is mission-critical logistics data"""
+# Legacy aliases for tests and direct imports.
+SYSTEM_PROMPT = RATECON_PAGE_SYSTEM
+USER_PROMPT = RATECON_PAGE_USER
 
 
 def _has_all_required_fields(extracted_data: dict[str, Any]) -> bool:
@@ -126,12 +70,23 @@ def _merge_extracted_data(
     return merged
 
 
-def extract_from_pdf_path(pdf_path: str, *, model_label: str | None) -> tuple[list[Any], dict[str, Any]]:
+def extract_from_pdf_path(
+    pdf_path: str,
+    *,
+    tenant_settings: dict[str, Any] | None = None,
+    model_label: str | None = None,
+) -> tuple[list[Any], dict[str, Any]]:
     """
     Render each PDF page to JPEG, run vision JSON extraction per page, merge fields.
 
     Returns ``(page_results, merged_extracted_data)``.
     """
+    vision_prompts, prompt_metadata = resolve_ratecon_vision_prompts(tenant_settings)
+    prompt_trace = PromptTraceMetadata.from_load(
+        RATECON_PAGE_EXTRACTION,
+        prompt_metadata,
+    )
+
     work_dir = tempfile.mkdtemp(prefix="ratecon_extract_")
     try:
         images = convert_from_path(pdf_path, fmt="jpeg")
@@ -169,7 +124,12 @@ def extract_from_pdf_path(pdf_path: str, *, model_label: str | None) -> tuple[li
             with open(img_path, "rb") as f:
                 jpeg_bytes = f.read()
             try:
-                extracted = chat_vision_json(SYSTEM_PROMPT, USER_PROMPT, jpeg_bytes)
+                extracted = chat_vision_json(
+                    vision_prompts.system,
+                    vision_prompts.user,
+                    jpeg_bytes,
+                    prompt_trace=prompt_trace,
+                )
                 page_results.append(
                     {
                         "page_number": page_num,

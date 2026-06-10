@@ -92,6 +92,7 @@ def chat_vision_json(
     timeout_s: float = 120.0,
     temperature: float = 0.2,
     max_tokens: int | None = None,
+    prompt_trace: PromptTraceMetadata | None = None,
 ) -> dict:
     """OpenAI-compatible vision call (single JPEG) using the same LLM_* settings as ``chat_json``."""
     base_url = settings.LLM_BASE_URL
@@ -125,12 +126,32 @@ def chat_vision_json(
         "Content-Type": "application/json",
     }
 
+    traced = traceable(run_type="llm", name="chat_vision_json")(_chat_vision_json_impl)
+
     try:
-        with httpx.Client(timeout=timeout_s) as client:
-            response = client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            body = response.json()
-        content = body["choices"][0]["message"]["content"]
-        return _extract_json(content)
+        langsmith_extra: dict[str, Any] | None = None
+        if prompt_trace is not None:
+            langsmith_extra = {"metadata": prompt_trace.to_langsmith_metadata()}
+        return traced(
+            endpoint,
+            headers,
+            payload,
+            timeout_s,
+            langsmith_extra=langsmith_extra,
+        )
     except (httpx.HTTPError, KeyError, json.JSONDecodeError, ValueError) as exc:
         raise LLMClientError("Failed LLM chat_vision_json call") from exc
+
+
+def _chat_vision_json_impl(
+    endpoint: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout_s: float,
+) -> dict:
+    with httpx.Client(timeout=timeout_s) as client:
+        response = client.post(endpoint, headers=headers, json=payload)
+        response.raise_for_status()
+        body = response.json()
+    content = body["choices"][0]["message"]["content"]
+    return _extract_json(content)

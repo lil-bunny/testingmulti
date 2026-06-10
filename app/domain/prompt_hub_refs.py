@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 CARRIER_ACK_CLASSIFY_PROMPT = "carrier-ack-classify"
+POD_PAGE_EXTRACTION_PROMPT = "pod-page-extraction"
+RATECON_PAGE_EXTRACTION_PROMPT = "ratecon-page-extraction"
+POD_VS_RATECON_SUMMARY_PROMPT = "pod-vs-ratecon-summary"
 
 
 def hub_prompt_id(prompt_name: str, *, owner: str | None = None) -> str:
