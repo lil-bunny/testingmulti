@@ -8,8 +8,11 @@ import pytest
 
 from app.domain.load_tendering_settings import (
     action_settings,
+    gelita_tender_calculate_settings,
+    load_type_from_pallet_totals,
     load_tendering_settings_root,
 )
+from app.domain.tenant_settings.gelita import normalize_pallet_type_label
 from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 
@@ -22,8 +25,9 @@ def test_action_settings_from_state_data() -> None:
         data={"tenant_settings": _gelita_tenant_settings()},
     )
     calc = action_settings(state, "tender_calculate")
-    assert calc["pallet_weight_lbs"] == 50.0
-    assert calc["pallet_threshold"] == 8
+    wood = calc["pallet_profiles"]["wood_4way"]
+    assert wood["weight_lbs"] == 50.0
+    assert wood["threshold"] == 8
     assert calc["gelita_pickup_address"]["name"] == "GELITA USA"
 
 
@@ -79,6 +83,41 @@ def test_shared_unipile_accounts_merged_from_tenant_settings_root() -> None:
     assert "ana_at_gelita_account_id" not in _gelita_tenant_settings()["load_tendering"]["ftl"][
         "escalate_tender"
     ]
+
+
+def test_gelita_tender_calculate_resolves_pack_code_pallet_types() -> None:
+    state = SimpleNamespace(
+        data={"tenant_settings": _gelita_tenant_settings()},
+    )
+    calc = gelita_tender_calculate_settings(state)
+    assert calc is not None
+    assert calc.resolve_pallet_type("4-way wood")[0] == "wood_4way"
+    assert calc.resolve_pallet_type("4 way plastic")[0] == "plastic_4way"
+    assert calc.resolve_pallet_type("European Pallet")[0] == "european"
+    assert normalize_pallet_type_label("4-way plastic") == normalize_pallet_type_label(
+        "4 way plastic"
+    )
+
+
+def test_load_type_from_pallet_totals_buckets_by_profile_threshold() -> None:
+    assert (
+        load_type_from_pallet_totals(
+            [
+                {"pallets_count": 5, "pallet_profile": "wood_4way", "pallet_threshold": 8},
+                {"pallets_count": 4, "pallet_profile": "european", "pallet_threshold": 6},
+            ]
+        )
+        == "LTL"
+    )
+    assert (
+        load_type_from_pallet_totals(
+            [
+                {"pallets_count": 5, "pallet_profile": "wood_4way", "pallet_threshold": 8},
+                {"pallets_count": 7, "pallet_profile": "european", "pallet_threshold": 6},
+            ]
+        )
+        == "FTL"
+    )
 
 
 def test_reminder_schedule_hours_only_under_load_tendering_reminders() -> None:

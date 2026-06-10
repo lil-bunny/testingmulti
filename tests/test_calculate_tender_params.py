@@ -86,6 +86,7 @@ def _ftl_bundle() -> dict:
                 "pack_code": PACK_CODE,
                 "qty_per_unit": QTY_PER_UNIT,
                 "total_qty": TOTAL_QTY,
+                "pallet_type": "4-way wood",
                 "metadata": {},
             }
         ],
@@ -106,6 +107,7 @@ def _ltl_bundle() -> dict:
             "pack_code": PACK_CODE,
             "qty_per_unit": QTY_PER_UNIT,
             "total_qty": TOTAL_QTY,
+            "pallet_type": "4-way wood",
             "metadata": {},
         }
 
@@ -239,6 +241,19 @@ def test_calculate_tender_params_order_96399_ltl(mock_svc_cls: MagicMock) -> Non
 )
 def test_round_pallet_count_qa_tolerance(pallets_raw: Decimal, expected: int) -> None:
     assert _round_pallet_count(pallets_raw) == expected
+
+
+def test_gelita_calculate_params_uses_european_pallet_weight() -> None:
+    pieces, pallets, gross, _value = gelita_calculate_params(
+        order_quantity=Decimal("600"),
+        qty_per_unit=QTY_PER_UNIT,
+        total_qty=TOTAL_QTY,
+        pallet_weight_lb=56,
+        unit_price=None,
+    )
+    assert pieces == 40
+    assert pallets == 1
+    assert gross == Decimal("1378.76")
 
 
 def test_gelita_calculate_params_matches_db_order_96564() -> None:

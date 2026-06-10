@@ -73,22 +73,13 @@ def event_type_router(state):
 
 def load_type_router(state):
     """
-    Route to LTL when pallet count is at or below threshold.
+    Route by computed order load type from ``calculate_tender_params``.
 
-    Uses ``state.data['tender']['pallets_count']`` and ``pallet_threshold`` (default 8).
+    Uses ``state.data['tender']['load_type']`` (``LTL`` / ``FTL``).
     """
     tender = get_tender(state.data) or {}
-    try:
-        pallets = float(tender.get("pallets_count") or 0)
-    except (TypeError, ValueError):
-        pallets = 0.0
-
-    try:
-        pallet_threshold = float(tender.get("pallet_threshold") or 8)
-    except (TypeError, ValueError):
-        pallet_threshold = 8.0
-
-    return "ltl_path" if pallets <= pallet_threshold else "ftl_path"
+    load_type = str(tender.get("load_type") or "").strip().upper()
+    return "ftl_path" if load_type == "FTL" else "ltl_path"
 
 
 def pod_request_triggered_router(state):

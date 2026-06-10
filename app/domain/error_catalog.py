@@ -77,13 +77,13 @@ class SystemError(_CatalogError):
 
     CATEGORY = ErrorCategory.SYSTEM
 
-    MISSING_TENANT_SETTINGS_PALLET_WEIGHT_LBS = (
-        "missing_tenant_settings_pallet_weight_lbs",
-        "Tenant setting pallet_weight_lbs is required",
+    MISSING_TENANT_SETTINGS_PALLET_PROFILES = (
+        "missing_tenant_settings_pallet_profiles",
+        "Tenant setting pallet_profiles is required",
     )
-    MISSING_TENANT_SETTINGS_PALLET_THRESHOLD = (
-        "missing_tenant_settings_pallet_threshold",
-        "Tenant setting pallet_threshold is required",
+    UNKNOWN_PACK_CODE_PALLET_TYPE = (
+        "unknown_pack_code_pallet_type",
+        "pack_codes.pallet_type is missing or not configured in tenant pallet_profiles",
     )
     MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS = (
         "missing_tenant_settings_gelita_pickup_address",

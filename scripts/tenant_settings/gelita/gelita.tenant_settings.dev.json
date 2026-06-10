@@ -85,15 +85,30 @@
             "schedule_on_event_type": "carrier_email_received"
         },
         "tender_calculate": {
-            "pallet_threshold": 8,
-            "pallet_weight_lbs": 50,
+            "pallet_profiles": {
+                "wood_4way": {
+                    "weight_lbs": 50,
+                    "threshold": 8,
+                    "match": ["4-way wood", "2-way wood"]
+                },
+                "european": {
+                    "weight_lbs": 56,
+                    "threshold": 8,
+                    "match": ["European Pallet", "European pallet"]
+                },
+                "plastic_4way": {
+                    "weight_lbs": 66,
+                    "threshold": 8,
+                    "match": ["4-way plastic", "4 way plastic"]
+                }
+            },
             "gelita_pickup_address": {
-                "city": "Harwood Heights",
+                "city": "Sergeant Bluff",
                 "name": "GELITA USA",
-                "state": "IL",
+                "state": "IA",
                 "country": "United States",
-                "address1": "5905 N. Ridge Rd",
-                "postal_code": "60706"
+                "address1": "2445 Port Neal Industrial Road",
+                "postal_code": "51054"
             }
         }
     },

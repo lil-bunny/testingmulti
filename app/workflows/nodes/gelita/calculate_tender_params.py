@@ -7,7 +7,7 @@ from typing import Any
 
 from app.domain.delivery_address import format_usps_mailing_address
 from app.domain.load_tendering_settings import (
-    action_settings,
+    gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
 )
 from app.domain.load_tendering_state import get_tender, ingest_pack_code, set_tender
@@ -87,18 +87,10 @@ def calculate_tender_params(state):
     if not tender_id:
         raise WorkflowException(BusinessError.MISSING_TENDER_ID)
 
-    cfg = action_settings(state, "tender_calculate")
-    try:
-        pallet_weight_lb = float(cfg["pallet_weight_lbs"])
-    except (KeyError, TypeError, ValueError):
-        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_WEIGHT_LBS)
-    try:
-        pallet_threshold = int(cfg["pallet_threshold"])
-    except (KeyError, TypeError, ValueError):
-        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_THRESHOLD)
-    pickup_address = cfg.get("gelita_pickup_address")
-    if not isinstance(pickup_address, dict):
-        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS)
+    calc_settings = gelita_tender_calculate_settings(state)
+    if calc_settings is None:
+        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES)
+    pickup_address = calc_settings.gelita_pickup_address.model_dump()
 
     tender_service = TenderService()
     bundle = tender_service.read_order(
@@ -137,15 +129,28 @@ def calculate_tender_params(state):
         if total_qty is None or total_qty == 0:
             raise WorkflowException(BusinessError.MISSING_TOTAL_QTY)
 
+        try:
+            profile_key, pallet_profile = calc_settings.resolve_pallet_type(
+                product.get("pallet_type")
+            )
+        except ValueError:
+            raise WorkflowException(SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE)
+
         pieces_int, pallets_int, gross_weight_dec, product_value = gelita_calculate_params(
             order_quantity=order_quantity,
             qty_per_unit=qty_per_unit,
             total_qty=total_qty,
-            pallet_weight_lb=pallet_weight_lb,
+            pallet_weight_lb=pallet_profile.weight_lbs,
             unit_price=product.get("price_per_unit"),
         )
 
-        products_calc.append({"pallets_count": pallets_int})
+        products_calc.append(
+            {
+                "pallets_count": pallets_int,
+                "pallet_profile": profile_key,
+                "pallet_threshold": pallet_profile.threshold,
+            }
+        )
         total_pieces += pieces_int
         total_pallets += pallets_int
         total_gross += gross_weight_dec
@@ -163,10 +168,7 @@ def calculate_tender_params(state):
         }
         enriched_products.append(enriched)
 
-    load_type = load_type_from_pallet_totals(
-        products_calc,
-        pallet_threshold=pallet_threshold,
-    )
+    load_type = load_type_from_pallet_totals(products_calc)
 
     tender_service.update_load_type(
         tenant_id=tenant_id,
@@ -222,14 +224,9 @@ def calculate_tender_params(state):
             "customer_po": customer_po,
             "ship_date": ship_date_str,
             "delivery_date": delivery_date_str,
-            # "order_value": order_value,
             "pickup_address": pickup_formatted,
             "delivery_address": delivery_formatted,
-            # "pieces_count": f"{total_pieces:.2f}",
-            # "pallets_count": str(total_pallets),
-            # "gross_weight_lbs": f"{total_gross:,.2f}",
-            # "pallet_weight_lb": pallet_weight_lb,
-            "pallet_threshold": pallet_threshold,
+            "pallets_count": str(total_pallets),
             "load_type": load_type.lower(),
             "tender_products": enriched_products,
         },
