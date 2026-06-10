@@ -26,6 +26,7 @@ from app.tools.tender_email import (
     build_tender_email_input_from_tender,
 )
 from app.workflows.nodes.gelita.calculate_tender_params import (
+    _round_pallet_count,
     calculate_tender_params,
     gelita_calculate_params,
 )
@@ -211,17 +212,33 @@ def test_calculate_tender_params_order_96399_ltl(mock_svc_cls: MagicMock) -> Non
     fortibone = by_name["FORTIBONE (US)"]
     assert fortibone["pieces_count"] == "21"
     assert fortibone["pallets_count"] == "1"
-    assert fortibone["gross_weight_lbs"] == "743.00"
+    assert fortibone["gross_weight_lbs"] == "744.45"
 
     fortigel = by_name["FORTIGEL B (US)"]
     assert fortigel["pieces_count"] == "21"
     assert fortigel["pallets_count"] == "1"
-    assert fortigel["gross_weight_lbs"] == "743.00"
+    assert fortigel["gross_weight_lbs"] == "744.45"
 
     verisol = by_name["VERISOL® B (US)"]
     assert verisol["pieces_count"] == "11"
     assert verisol["pallets_count"] == "1"
-    assert verisol["gross_weight_lbs"] == "413.00"
+    assert verisol["gross_weight_lbs"] == "413.76"
+
+
+@pytest.mark.parametrize(
+    ("pallets_raw", "expected"),
+    [
+        (Decimal("3.04"), 3),
+        (Decimal("3.05"), 3),
+        (Decimal("3.06"), 4),
+        (Decimal("11.2"), 12),
+        (Decimal("12.05"), 12),
+        (Decimal("12.06"), 13),
+        (Decimal("0.525"), 1),
+    ],
+)
+def test_round_pallet_count_qa_tolerance(pallets_raw: Decimal, expected: int) -> None:
+    assert _round_pallet_count(pallets_raw) == expected
 
 
 def test_gelita_calculate_params_matches_db_order_96564() -> None:
@@ -234,7 +251,7 @@ def test_gelita_calculate_params_matches_db_order_96564() -> None:
     )
     assert pieces == 448
     assert pallets == 12
-    assert gross == Decimal("15384.0")
+    assert gross == Decimal("15414.912")
     assert value == Decimal("138835.20")
 
 
@@ -363,9 +380,9 @@ def test_products_block_uses_trim_exact_product_name_matching() -> None:
 @pytest.mark.parametrize(
     ("product_name", "order_quantity", "pieces", "pallets", "gross"),
     [
-        ("FORTIBONE (US)", Decimal("315"), 21, 1, Decimal("743.0")),
-        ("FORTIGEL B (US)", Decimal("315"), 21, 1, Decimal("743.0")),
-        ("VERISOL® B (US)", Decimal("165"), 11, 1, Decimal("413.0")),
+        ("FORTIBONE (US)", Decimal("315"), 21, 1, Decimal("744.449")),
+        ("FORTIGEL B (US)", Decimal("315"), 21, 1, Decimal("744.449")),
+        ("VERISOL® B (US)", Decimal("165"), 11, 1, Decimal("413.759")),
     ],
 )
 def test_gelita_calculate_params_matches_db_order_96399_lines(

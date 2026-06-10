@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from app.domain.delivery_address import format_usps_mailing_address
@@ -15,6 +15,20 @@ from app.domain.error_catalog import BusinessError, SystemError
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
 from app.workflows.utils.decorators import safe_node
+
+_PALLET_ROUND_TOLERANCE = Decimal("0.05")
+
+
+def _round_pallet_count(pallets_raw: Decimal) -> int:
+    """
+    QA pallet rounding: if fractional part is <= 0.05, round down; else round up.
+
+    Examples: 3.04 -> 3, 3.05 -> 3, 3.06 -> 4.
+    """
+    floor_val = int(pallets_raw.to_integral_value(rounding=ROUND_FLOOR))
+    if pallets_raw - Decimal(floor_val) <= _PALLET_ROUND_TOLERANCE:
+        return floor_val
+    return floor_val + 1
 
 
 def gelita_calculate_params(
@@ -39,10 +53,10 @@ def gelita_calculate_params(
     pieces_raw = order_quantity / qty_per_unit
     pieces_int = int(pieces_raw.to_integral_value(rounding=ROUND_CEILING))
     pallets_raw = order_quantity / total_qty
-    pallets_int = int(pallets_raw.to_integral_value(rounding=ROUND_CEILING))
+    pallets_int = _round_pallet_count(pallets_raw)
     # pallets_dec = Decimal(pallets_int)
 
-    gross_weight_dec = (order_quantity * Decimal("2.2")) + (
+    gross_weight_dec = (order_quantity * Decimal("2.2046")) + (
         Decimal(str(pallet_weight_lb)) * pallets_int
     )
 
