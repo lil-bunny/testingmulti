@@ -251,7 +251,8 @@ def send_email(
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
     has at least one valid address, send a new message. Requires ``UNIPILE_API_KEY`` and
-    sending ``account_id`` (argument or ``settings.UNIPILE_ACCOUNT_ID``).
+    a sending ``account_id`` (argument, ``tenants.settings.mikey_account_id``, or legacy
+    ``settings.UNIPILE_ACCOUNT_ID``).
 
     ``to``, ``cc``, and ``bcc`` accept a single email string or a list of strings.
 

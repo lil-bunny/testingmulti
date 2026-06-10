@@ -122,7 +122,8 @@ def link_shipment_locations(state):
 
 
 def upload_to_turvo(state):
-    upload_to_turvo_tool(state.data)
+    result = upload_to_turvo_tool(state.data)
+    state.data["turvo_upload_result"] = result
     return state
 
 
@@ -134,12 +135,6 @@ def update_shipment(state):
 
 def check_existing_pod(state):
     _merge_pod_exists_from_turvo(state)
-    if (
-        state.data.get("event_type") == "route_completed"
-        and state.data.get("pod_request_blocked")
-        and not state.data.get("pod_exists")
-    ):
-        state.data["_force_mark_pod_request"] = True
     return state
 
 

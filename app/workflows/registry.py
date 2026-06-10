@@ -1,8 +1,13 @@
 from app.workflows.nodes.ratecon import upload_ratecon_attachments
-from app.workflows.nodes.pod import classify_attachments, ratecon_analysis, pod_analysis, pod_vs_ratecon_analysis
+from app.workflows.nodes.pod import (
+    classify_attachments,
+    load_ratecon_analysis,
+    pod_analysis,
+    pod_vs_ratecon_analysis,
+    ratecon_analysis,
+)
 from app.workflows.nodes.email import send_email, get_email_attachments
 from app.workflows.nodes.pod_request import (
-    check_pod_request_triggered,
     record_and_schedule_pod_request,
     record_reminder_run,
 )
@@ -29,7 +34,6 @@ from app.workflows.nodes.schedule_tender_reminders import schedule_tender_remind
 from app.workflows.nodes.record_ack_received import classify_carrier_ack, record_ack_received
 from app.workflows.nodes.record_tender_created_activity import record_tender_created_activity
 from app.workflows.nodes.record_ratecon_activity import (
-    record_ratecon_llm_activity,
     record_ratecon_processed_activity,
     record_ratecon_received_activity,
     record_ratecon_upload_activity,
@@ -38,6 +42,9 @@ from app.workflows.nodes.record_pod_activity import (
     record_pod_escalation_activity,
     record_pod_reminder_activity,
     record_pod_started_activity,
+)
+from app.workflows.nodes.record_pod_tms_upload_activity import (
+    record_pod_tms_upload_activity,
 )
 from app.workflows.nodes.send_tender_reminder import send_tender_reminder
 from app.workflows.nodes.update_reminder_status import update_reminder_status
@@ -54,11 +61,11 @@ NODE_REGISTRY = {
     "upload_to_turvo": upload_to_turvo,
     "update_shipment": update_shipment,
     "send_email": send_email,
-    "check_pod_request_triggered": check_pod_request_triggered,
     "record_and_schedule_pod_request": record_and_schedule_pod_request,
     "record_reminder_run": record_reminder_run,
     "get_email_attachments": get_email_attachments,
     "classify_attachments": classify_attachments,
+    "load_ratecon_analysis": load_ratecon_analysis,
     "ratecon_analysis": ratecon_analysis,
     "pod_analysis": pod_analysis,
     "pod_vs_ratecon_analysis": pod_vs_ratecon_analysis,
@@ -77,11 +84,11 @@ NODE_REGISTRY = {
     "record_tender_created_activity": record_tender_created_activity,
     "record_ratecon_received_activity": record_ratecon_received_activity,
     "record_ratecon_upload_activity": record_ratecon_upload_activity,
-    "record_ratecon_llm_activity": record_ratecon_llm_activity,
     "record_ratecon_processed_activity": record_ratecon_processed_activity,
     "record_pod_started_activity": record_pod_started_activity,
     "record_pod_reminder_activity": record_pod_reminder_activity,
     "record_pod_escalation_activity": record_pod_escalation_activity,
+    "record_pod_tms_upload_activity": record_pod_tms_upload_activity,
     "read_tender_row": read_tender_row,
     "send_tender_reminder": send_tender_reminder,
     "update_reminder_status": update_reminder_status,

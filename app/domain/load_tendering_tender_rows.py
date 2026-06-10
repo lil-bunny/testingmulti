@@ -106,6 +106,24 @@ def dedupe_projected_rows_by_order_and_position(
     return kept
 
 
+_KG_ALIASES = frozenset({"kg", "kgm", "kilogram", "kilograms"})
+_LB_ALIASES = frozenset({"lb", "lbs", "pound", "pounds"})
+
+
+def parse_weight_unit(val: Any) -> str | None:
+    """Normalize Ship Schedule ``ME`` cell to ``kg`` or ``lb`` enum label."""
+    if val is None:
+        return None
+    text = str(val).strip().casefold()
+    if not text:
+        return None
+    if text in _KG_ALIASES:
+        return "kg"
+    if text in _LB_ALIASES:
+        return "lb"
+    return None
+
+
 def resolve_pack_code_id(
     row: dict[str, Any],
     *,
@@ -129,35 +147,47 @@ def resolve_pack_code_id(
 def projected_row_to_tender_insert(
     row: dict[str, Any],
     *,
+    customer_name: str | None = None,
+    customer_name_source: str | None = None,
     active_pack_code_index: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """
     Build kwargs for ``TendersRepository.insert_batch`` (excluding tenant/data_import_id).
 
     Header-only: no product fields. Workflow enqueue when insert returns ``created=True``.
+    ``customer_name`` is supplied by ingest (delivery locations column J); not KDMATCH.
     """
     _ = active_pack_code_index
     order_number = identifier_string_from_cell(row.get("order_number")) or ""
     if not order_number:
         return None
 
-    customer_name = str(row.get("customer_match") or "").strip()
-    if not customer_name:
+    resolved_customer = str(customer_name or "").strip()
+    if not resolved_customer:
+        return None
+
+    weight_unit = parse_weight_unit(row.get("weight_unit"))
+    if weight_unit is None:
         return None
 
     delivery = _parse_optional_date(row.get("delivery_date"))
     shipping = _parse_optional_date(row.get("shipping_date"))
     po_number = identifier_string_from_cell(row.get("po_number")) or ""
-    metadata: dict[str, Any] = {"po_number": po_number} if po_number else {}
+    metadata: dict[str, Any] = {}
+    if po_number:
+        metadata["po_number"] = po_number
+    if customer_name_source:
+        metadata["customer_name_source"] = customer_name_source
 
     return {
         "order_number": order_number,
-        "customer_name": customer_name,
+        "customer_name": resolved_customer,
         "shipping_date": shipping,
         "delivery_date": delivery,
         "pickup_location_id": None,
         "delivery_location_id": None,
         "load_type": LoadType.LTL.value,
+        "weight_unit": weight_unit,
         "metadata": metadata,
     }
 

@@ -43,6 +43,7 @@ class TmsSettings(BaseModel):
     access_token_expires_at: str | None = None
     token_created_at: str | None = None
     token_updated_at: str | None = None
+    pod_document_lookup_id: str | None = None
 
 
 def _clean(value: Any) -> str | None:

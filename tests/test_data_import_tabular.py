@@ -129,6 +129,7 @@ def test_project_row_maps_gelita_sap_column_aliases() -> None:
         "EINTREFFDAT": "2026-06-01",
         "LIEDAT": "2026-05-28",
         "MEBEST": 12,
+        "ME": "KG",
         "POSIT": 10,
     }
     out = project_row(row, LOAD_TENDERING_ROW_PROJECTION)
@@ -141,6 +142,7 @@ def test_project_row_maps_gelita_sap_column_aliases() -> None:
     assert out["delivery_date"] == "2026-06-01"
     assert out["shipping_date"] == "2026-05-28"
     assert out["order_quantity"] == 12
+    assert out["weight_unit"] == "KG"
 
 
 def test_data_imports_read_service_none_when_missing_row() -> None:

@@ -5,7 +5,6 @@ WORKFLOW_CONFIGS = {
         "nodes": [
             "route_event",
             "get_shipment",
-            "check_pod_request_triggered",
             "read_workflow_lifecycle",
             "check_existing_pod",
             "send_email",
@@ -13,21 +12,22 @@ WORKFLOW_CONFIGS = {
             "record_pod_started_activity",
             "record_pod_reminder_activity",
             "get_email_attachments",
+            "load_ratecon_analysis",
             "classify_attachments",
-            "ratecon_analysis",
             "pod_analysis",
             "pod_vs_ratecon_analysis",
             "upload_to_turvo",
+            "record_pod_tms_upload_activity",
             "update_shipment",
             "end",
         ],
         "edges": [
-            ["get_email_attachments", "ratecon_analysis"],
-            ["ratecon_analysis","classify_attachments"],
+            ["get_email_attachments", "load_ratecon_analysis"],
             ["classify_attachments", "pod_analysis"],
             ["pod_analysis", "pod_vs_ratecon_analysis"],
             ["pod_vs_ratecon_analysis", "upload_to_turvo"],
-            ["upload_to_turvo", "update_shipment"],
+            ["upload_to_turvo", "record_pod_tms_upload_activity"],
+            ["record_pod_tms_upload_activity", "update_shipment"],
             ["update_shipment", "end"],
             ["send_email", "record_pod_reminder_activity"],
             ["record_pod_reminder_activity", "end"],
@@ -38,16 +38,10 @@ WORKFLOW_CONFIGS = {
             "route_event": {
                 "router": "event_type",
                 "map": {
-                    "route_completed": "check_pod_request_triggered",
+                    "route_completed": "get_shipment",
                     "email_received": "read_workflow_lifecycle",
+                    "manual_pod_upload": "read_workflow_lifecycle",
                     "reminder_due": "check_existing_pod",
-                },
-            },
-            "check_pod_request_triggered": {
-                "router": "pod_request_triggered_router",
-                "map": {
-                    "blocked": "end",
-                    "continue": "get_shipment",
                 },
             },
             "get_shipment": {
@@ -58,6 +52,7 @@ WORKFLOW_CONFIGS = {
                     "non_convoy": "check_existing_pod",
                     # Pod reply workflow
                     "valid_shipment_status": "get_email_attachments",
+                    "manual_pod_valid": "load_ratecon_analysis",
                     "invalid_shipment_status": "end",
                 },
             },
@@ -73,7 +68,11 @@ WORKFLOW_CONFIGS = {
             "read_workflow_lifecycle": {
                 "router": "read_workflow_lifecycle_router",
                 "map": {"is_found": "get_shipment", "missing": "end"},
-            }
+            },
+            "load_ratecon_analysis": {
+                "router": "ratecon_cache_router",
+                "map": {"ready": "classify_attachments", "missing": "end"},
+            },
         },
     },
     "ratecon": {
@@ -88,7 +87,6 @@ WORKFLOW_CONFIGS = {
             "upload_ratecon_attachments",
             "record_ratecon_upload_activity",
             "ratecon_analysis",
-            "record_ratecon_llm_activity",
             "record_ratecon_processed_activity",
             "check_ratecon_workflow_lifecycle",
             "end",
@@ -101,8 +99,7 @@ WORKFLOW_CONFIGS = {
             ["record_ratecon_received_activity", "upload_ratecon_attachments"],
             ["upload_ratecon_attachments", "record_ratecon_upload_activity"],
             ["record_ratecon_upload_activity", "ratecon_analysis"],
-            ["ratecon_analysis", "record_ratecon_llm_activity"],
-            ["record_ratecon_llm_activity", "record_ratecon_processed_activity"],
+            ["ratecon_analysis", "record_ratecon_processed_activity"],
             ["record_ratecon_processed_activity", "check_ratecon_workflow_lifecycle"],
             ["check_ratecon_workflow_lifecycle", "end"],
         ],

@@ -140,6 +140,29 @@ class ShipmentsService:
             )
         )
 
+    def get_by_id(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+    ) -> dict[str, Any] | None:
+        """Lookup ``shipments`` row by primary key (``shipments.id`` UUID)."""
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_id)
+        if not tid or not sid:
+            return None
+        if self._shipments is not None:
+            return self._shipments.get_by_tenant_and_id_tx(
+                tenant_id=tid,
+                shipment_id=sid,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).get_by_tenant_and_id_tx(
+                tenant_id=tid,
+                shipment_id=sid,
+            )
+        )
+
     def get_by_turvo_shipment_number(
         self,
         *,

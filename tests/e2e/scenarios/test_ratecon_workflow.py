@@ -103,8 +103,8 @@ def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> Non
         return
 
     parts: list[str] = [
-        "Before snapshot failed (check 2): expected no `workflow_lifecycles` row for this Unipile "
-        f"thread, but found {len(lifecycles)} row(s) where `email_thread_id` matches `thread_id`.",
+        "Before snapshot failed (check 2): expected no lifecycle linked to this Unipile "
+        f"thread via communications, but found {len(lifecycles)} row(s).",
         f"  tenant_id={tenant_id!r} thread_id={thread_id!r}",
     ]
 

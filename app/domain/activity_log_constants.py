@@ -25,8 +25,11 @@ RATECON_DOCUMENT_UPLOADED_ACTION = "Ratecon document uploaded to S3"
 RATECON_DOCUMENT_UPLOAD_FAILED_ACTION = "Ratecon document upload failed"
 RATECON_DOCUMENT_PROCESSED_ACTION = "Ratecon document processed"
 RATECON_DOCUMENT_PROCESSING_FAILED_ACTION = "Ratecon document processing failed"
-RATECON_LLM_ACTION_TEMPLATE = (
-    "Ratecon LLM extracted document fields{confidence_suffix}: {reason}"
+RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE = (
+    "Ratecon document processed — LLM extraction{confidence_suffix}"
 )
 POD_STARTED_ACTION = "POD lifecycle started"
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
+POD_UPLOADED_TO_TMS_ACTION = "POD document uploaded to TMS"
+POD_UPLOAD_TO_TMS_FAILED_ACTION = "POD upload to TMS failed"
+POD_ALREADY_ON_TMS_ACTION = "POD already present on TMS; upload skipped"

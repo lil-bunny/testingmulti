@@ -62,7 +62,8 @@ class TendersRepository:
                     pickup_location_id::text,
                     delivery_location_id::text,
                     delivery_address,
-                    metadata
+                    metadata,
+                    weight_unit::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_TENDER_PK}
                 LIMIT 1
@@ -94,6 +95,7 @@ class TendersRepository:
             "delivery_location_id": row[7],
             "delivery_address": delivery_address,
             "metadata": parse_json(row[9]),
+            "weight_unit": row[10] or "",
         }
 
     def get_by_order_number(
@@ -165,7 +167,8 @@ class TendersRepository:
                 load_type,
                 data_import_id,
                 delivery_address,
-                metadata
+                metadata,
+                weight_unit
             )
             VALUES (
                 CAST(:tenant_id AS uuid),
@@ -178,7 +181,8 @@ class TendersRepository:
                 CAST(:load_type AS load_type),
                 CAST(:data_import_id AS uuid),
                 CAST(:delivery_address AS jsonb),
-                CAST(:metadata AS jsonb)
+                CAST(:metadata AS jsonb),
+                CAST(:weight_unit AS weight_unit)
             )
             ON CONFLICT ON CONSTRAINT tenders_tenant_order_number_unique
             DO NOTHING
@@ -209,6 +213,7 @@ class TendersRepository:
                     "data_import_id": r["data_import_id"],
                     "delivery_address": jsonb_param(r.get("delivery_address")),
                     "metadata": jsonb_param(r.get("metadata") or {}),
+                    "weight_unit": r.get("weight_unit"),
                 },
             ).first()
             if row and row[0]:

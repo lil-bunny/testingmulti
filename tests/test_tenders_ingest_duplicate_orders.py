@@ -16,7 +16,7 @@ def _row(*, order_number: str, order_position: int, product_name: str = "Widget"
     return {
         "order_number": order_number,
         "order_position": order_position,
-        "customer_match": "Acme",
+        "weight_unit": "KG",
         "product_name": product_name,
         "order_quantity": 1,
     }

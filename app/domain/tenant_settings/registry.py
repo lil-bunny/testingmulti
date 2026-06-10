@@ -8,12 +8,13 @@ from pydantic import BaseModel
 
 from app.domain.tenant_settings.gelita import GelitaTenantSettings
 from app.domain.tenant_settings.t3ra import T3raTenantSettings
+from app.models.tenants import TenantSlug
 
 TSettings = TypeVar("TSettings", bound=BaseModel)
 
 _TENANT_SETTINGS_MODELS: dict[str, type[BaseModel]] = {
-    "gelita": GelitaTenantSettings,
-    "t3ra": T3raTenantSettings,
+    TenantSlug.GELITA: GelitaTenantSettings,
+    TenantSlug.T3RA: T3raTenantSettings,
 }
 
 

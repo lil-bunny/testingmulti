@@ -6,7 +6,11 @@ from typing import Any, Optional
 
 from app.core.service_db import run_with_repos
 from app.core.logger import get_logger
-from app.domain.delivery_address import resolve_delivery_address
+from app.domain.delivery_address import (
+    CUSTOMER_NAME_SOURCE_UNKNOWN,
+    resolve_customer_name,
+    resolve_delivery_address,
+)
 from app.domain.load_tendering_tender_rows import (
     dedupe_projected_rows_by_order_and_position,
     projected_row_to_tender_insert,
@@ -72,8 +76,23 @@ class TendersIngestService:
         skipped_invalid = 0
 
         for row_index, row in kept:
+            resolved_customer_name, customer_name_source = resolve_customer_name(
+                row.get("delivery_address_code"),
+                locations_index,
+            )
+            if customer_name_source == CUSTOMER_NAME_SOURCE_UNKNOWN:
+                logger.warning(
+                    "tenders ingest: customer_name unresolved from delivery locations "
+                    "column J; using placeholder order_number=%r delivery_code=%r "
+                    "data_import_id=%s",
+                    row.get("order_number"),
+                    row.get("delivery_address_code"),
+                    did,
+                )
             header = projected_row_to_tender_insert(
                 row,
+                customer_name=resolved_customer_name,
+                customer_name_source=customer_name_source,
                 active_pack_code_index=pack_code_index,
             )
             product = projected_row_to_tender_product_insert(

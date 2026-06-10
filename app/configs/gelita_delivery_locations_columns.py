@@ -3,6 +3,7 @@
 Business layout (unchanged):
 - C: delivery address code (join key to Ship Schedule column E / LIEFAN)
 - E: delivery address name
+- J: customer name (tenders.customer_name via LIEFAN lookup)
 - L: street address
 - N: zip code
 - Q: city
@@ -18,6 +19,7 @@ GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS: Final[DeliveryLocationsColumnMapping] = 
     DeliveryLocationsColumnMapping(
         delivery_number="C",
         name="E",
+        customer_name="J",
         street="L",
         street2="M",
         zip_code="N",

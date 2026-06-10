@@ -111,3 +111,29 @@ def test_unipile_webhook_pod_carries_import_id_but_not_array_of_tenders(
     wpayload = celery_capture[0]["kwargs"]["payload"]
     assert wpayload["data_import_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert "array_of_tenders" not in wpayload
+
+
+def test_unipile_webhook_ratecon_carries_event_type_email_received(
+    monkeypatch: pytest.MonkeyPatch,
+    webhook_headers: dict[str, str],
+    celery_capture: list[dict],
+) -> None:
+    from tests.e2e.fixtures.main import RATECON_WEBHOOK_PAYLOAD
+
+    monkeypatch.setattr(
+        WorkflowClassifierService,
+        "classify_workflow_type",
+        lambda self, payload: {"workflow_name": "ratecon", "load_id": "30389"},
+    )
+    client = TestClient(create_app())
+    r = client.post(
+        "/api/webhook/email",
+        json=RATECON_WEBHOOK_PAYLOAD,
+        headers=webhook_headers,
+    )
+    assert r.status_code == 200, r.text
+    kwargs = celery_capture[0]["kwargs"]
+    assert kwargs["workflow_name"] == "ratecon"
+    wpayload = kwargs["payload"]
+    assert wpayload["event_type"] == "email_received"
+    assert wpayload["load_id"] == "30389"

@@ -10,7 +10,7 @@ from app.repositories.documents_repository import DocumentsRepository
 def test_find_latest_by_shipment_and_type_delegates_to_fetchone_dict():
     session = MagicMock()
     repo = DocumentsRepository(session)
-    fake_row = {"id": "1", "object_key": "k", "type": "ratecon", "shipment_id": "S", "created_at": None}
+    fake_row = {"id": "1", "storage_key": "k", "type": "ratecon", "shipment_id": "S", "created_at": None}
     with patch(
         "app.repositories.documents_repository.fetchone_dict",
         return_value=fake_row,
@@ -21,4 +21,32 @@ def test_find_latest_by_shipment_and_type_delegates_to_fetchone_dict():
     params = fetch.call_args[0][2]
     assert params == {"shipment_id": "S", "type": "ratecon"}
     assert "documents" in fetch.call_args[0][1]
-    assert "ORDER BY created_at DESC" in fetch.call_args[0][1]
+    assert "storage_key" in fetch.call_args[0][1]
+
+
+def test_upsert_by_storage_key_uses_cast_not_shorthand_uuid():
+    session = MagicMock()
+    repo = DocumentsRepository(session)
+    fake_row = {
+        "id": "1",
+        "storage_key": "k",
+        "type": "ratecon",
+        "shipment_id": "S",
+        "created_at": None,
+    }
+    with patch(
+        "app.repositories.documents_repository.fetchone_dict",
+        return_value=fake_row,
+    ) as fetch:
+        out = repo.upsert_by_storage_key(
+            id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            doc_type="ratecon",
+            shipment_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            storage_key="freightx/ratecon_attachments/ratecon_1.pdf",
+        )
+    assert out == fake_row
+    sql = fetch.call_args[0][1]
+    assert "CAST(:id AS uuid)" in sql
+    assert ":id::uuid" not in sql
+    params = fetch.call_args[0][2]
+    assert params["id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"

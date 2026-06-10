@@ -180,3 +180,35 @@ class WorkflowRunsRepository:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def find_latest_by_lifecycle_id(self, *, lifecycle_id: str) -> dict[str, Any] | None:
+        """Most recent ``workflow_runs`` row for a lifecycle (for API activity logging)."""
+        wl = self._clean(lifecycle_id)
+        if not wl:
+            return None
+        row = fetchone_dict(
+            self._session,
+            f"""
+            SELECT id::text AS id,
+                   tenant_id::text AS tenant_id,
+                   event_type,
+                   workflow_lifecycle_id::text AS workflow_lifecycle_id,
+                   created_at,
+                   updated_at
+            FROM {self.TABLE_NAME}
+            WHERE trim(both workflow_lifecycle_id::text) = trim(both CAST(:wl AS text))
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            {"wl": wl},
+        )
+        if row is None:
+            return None
+        return {
+            "id": str(row["id"]),
+            "tenant_id": str(row["tenant_id"]),
+            "event_type": row["event_type"],
+            "workflow_lifecycle_id": str(row["workflow_lifecycle_id"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }

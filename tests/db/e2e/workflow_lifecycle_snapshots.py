@@ -29,7 +29,7 @@ _SNAPSHOT_SELECT = """
            updated_at
 """
 
-_THREAD_LIFECYCLE_JOIN = """
+_COMM_THREAD_LIFECYCLE_JOIN = """
     FROM communications c
     JOIN workflow_runs wr ON wr.id = c.workflow_run_id
     JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
@@ -60,6 +60,7 @@ def find_latest_ratecon_by_thread(
     tenant_id: str,
     thread_id: str,
 ) -> dict[str, Any] | None:
+    """Latest ``ratecon`` lifecycle linked to this thread via ``communications`` → ``workflow_runs``."""
     tid = resolve_tenant_uuid(session, tenant_id)
     th = (thread_id or "").strip()
     if not tid or not th:
@@ -72,9 +73,9 @@ def find_latest_ratecon_by_thread(
                wl.workflow_name,
                wl.shipment_id::text AS shipment_id,
                wl.updated_at
-        {_THREAD_LIFECYCLE_JOIN}
+        {_COMM_THREAD_LIFECYCLE_JOIN}
           AND wl.workflow_name = 'ratecon'
-        ORDER BY wl.updated_at DESC
+        ORDER BY wr.created_at DESC
         LIMIT 1
         """,
         {"tenant_id": tid, "thread_id": th},
@@ -87,6 +88,7 @@ def list_by_email_thread(
     tenant_id: str,
     thread_id: str,
 ) -> list[dict[str, Any]]:
+    """Lifecycles linked to this Unipile thread via ``communications`` → ``workflow_runs``."""
     tid = resolve_tenant_uuid(session, tenant_id)
     th = (thread_id or "").strip()
     if not tid or not th:
@@ -94,14 +96,13 @@ def list_by_email_thread(
     return fetchall_dicts(
         session,
         f"""
-        SELECT DISTINCT ON (wl.id)
-               wl.id::text AS id,
+        SELECT DISTINCT wl.id::text AS id,
                wl.tenant_id::text AS tenant_id,
                wl.workflow_name,
                wl.shipment_id::text AS shipment_id,
                wl.updated_at
-        {_THREAD_LIFECYCLE_JOIN}
-        ORDER BY wl.id, wl.updated_at DESC
+        {_COMM_THREAD_LIFECYCLE_JOIN}
+        ORDER BY wl.updated_at DESC
         """,
         {"tenant_id": tid, "thread_id": th},
     )

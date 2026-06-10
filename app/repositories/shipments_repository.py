@@ -37,6 +37,25 @@ class ShipmentsRepository:
         s = str(value).strip()
         return s if s else None
 
+    @staticmethod
+    def _row_to_dict(row: Any) -> dict[str, Any]:
+        delivery_raw = row[3]
+        if isinstance(delivery_raw, dict):
+            delivery_address = delivery_raw
+        elif delivery_raw in (None, ""):
+            delivery_address = None
+        else:
+            delivery_address = parse_json(delivery_raw)
+            if not delivery_address:
+                delivery_address = None
+
+        return {
+            "id": str(row[0]),
+            "shipment_number": row[1] or "",
+            "metadata": parse_json(row[2]),
+            "delivery_address": delivery_address,
+        }
+
     def upsert_by_tenant_and_shipment_number_tx(
         self,
         *,
@@ -106,22 +125,35 @@ class ShipmentsRepository:
         if not row:
             return None
 
-        delivery_raw = row[3]
-        if isinstance(delivery_raw, dict):
-            delivery_address = delivery_raw
-        elif delivery_raw in (None, ""):
-            delivery_address = None
-        else:
-            delivery_address = parse_json(delivery_raw)
-            if not delivery_address:
-                delivery_address = None
+        return self._row_to_dict(row)
 
-        return {
-            "id": str(row[0]),
-            "shipment_number": row[1] or "",
-            "metadata": parse_json(row[2]),
-            "delivery_address": delivery_address,
-        }
+    def get_by_tenant_and_id_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+    ) -> dict[str, Any] | None:
+        tid = self._clean(tenant_id)
+        sid = self._clean(shipment_id)
+        if not tid or not sid:
+            return None
+
+        row = self._session.execute(
+            text(
+                f"""
+                SELECT id::text, shipment_number, metadata, delivery_address
+                FROM {self.TABLE_NAME}
+                WHERE id = CAST(:shipment_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                LIMIT 1
+                """
+            ),
+            {"tenant_id": tid, "shipment_id": sid},
+        ).first()
+        if not row:
+            return None
+
+        return self._row_to_dict(row)
 
     def update_location_ids_tx(
         self,

@@ -18,8 +18,12 @@ from app.services.pod_vs_ratecon_validation import (
 )
 from app.services.ratecon_extraction import extract_from_pdf_path as extract_ratecon_from_pdf_path
 from app.models.document import DocumentType
-from app.tools.documents import read_document
-from app.workflows.shipment_resolver import resolve_shipment_id
+from app.tools.document_analysis import read_ratecon_extraction
+from app.tools.documents import read_document, resolve_merged_pod_object_key
+from app.workflows.shipment_resolver import (
+    resolve_shipment_id,
+    resolve_shipments_row_id_for_db,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +67,73 @@ def classify_attachments(state):
     return state
 
 
+def load_ratecon_analysis(data: dict) -> dict:
+    """
+    Hydrate ``ratecon_analysis_results`` from cached ``document_analysis`` row
+    written by the ratecon workflow (no S3 download or LLM re-run).
+    """
+    sid = resolve_shipment_id(data)
+    if not sid:
+        return {"success": False, "error": "missing_shipment_id"}
+
+    shipments_row_id = resolve_shipments_row_id_for_db(data)
+    if not shipments_row_id:
+        return {"success": False, "error": "missing_shipments_row_id", "shipment_id": sid}
+
+    read_result = read_ratecon_extraction(shipments_row_id)
+    if read_result.get("error"):
+        return {
+            "success": False,
+            "error": read_result["error"],
+            "shipment_id": sid,
+        }
+    if not read_result.get("found"):
+        logger.info(
+            "load_ratecon_analysis: no cached ratecon_extraction shipment_id=%s",
+            sid,
+        )
+        return {
+            "success": False,
+            "skipped": True,
+            "reason": "no_ratecon_extraction",
+            "shipment_id": sid,
+        }
+
+    row = read_result["row"]
+    findings = row.get("results") if isinstance(row.get("results"), dict) else {}
+    extracted = findings.get("extracted_fields") if isinstance(findings, dict) else {}
+    if not isinstance(extracted, dict):
+        extracted = {}
+
+    if not extracted:
+        logger.info(
+            "load_ratecon_analysis: incomplete cache shipment_id=%s (no extracted_fields)",
+            sid,
+        )
+        return {
+            "success": False,
+            "skipped": True,
+            "reason": "no_ratecon_extraction",
+            "shipment_id": sid,
+        }
+
+    analysis_id = row.get("id")
+    logger.info(
+        "load_ratecon_analysis: cache hit shipment_id=%s document_analysis_id=%s",
+        sid,
+        analysis_id,
+    )
+    return {
+        "success": True,
+        "shipment_id": sid,
+        "findings": findings,
+        "confidence_score": row.get("confidence_score"),
+        "document_id": str(row["document_id"]) if row.get("document_id") else None,
+        "cached": True,
+        "document_analysis_id": str(analysis_id) if analysis_id is not None else None,
+    }
+
+
 def ratecon_analysis(data: dict) -> dict:
     """
     Load the rate confirmation PDF from ``documents`` (``type='ratecon'``) by
@@ -73,7 +144,11 @@ def ratecon_analysis(data: dict) -> dict:
     if not sid:
         return {"success": False, "error": "missing_shipment_id"}
 
-    doc = read_document(sid, DocumentType.RATECON)
+    shipments_row_id = resolve_shipments_row_id_for_db(data)
+    if not shipments_row_id:
+        return {"success": False, "error": "missing_shipments_row_id", "shipment_id": sid}
+
+    doc = read_document(shipments_row_id, DocumentType.RATECON)
     if doc.get("error"):
         return {
             "success": False,
@@ -81,7 +156,7 @@ def ratecon_analysis(data: dict) -> dict:
             "shipment_id": sid,
         }
 
-    if not doc.get("found") or not doc.get("object_key"):
+    if not doc.get("found") or not doc.get("storage_key"):
         logger.info(
             "ratecon_analysis: no ratecon document row for shipment_id=%s",
             sid,
@@ -93,7 +168,7 @@ def ratecon_analysis(data: dict) -> dict:
             "shipment_id": sid,
         }
 
-    raw_key = doc["object_key"]
+    raw_key = doc["storage_key"]
     try:
         object_key = normalize_object_key(raw_key)
     except ValueError as exc:
@@ -177,9 +252,7 @@ def ratecon_analysis(data: dict) -> dict:
             "primary_identifier": extracted.get("primary_identifier"),
             "identifiers_found": extracted.get("shipment_identifiers"),
             "findings": findings,
-            "attachments_used": [{"document_id": document_id, "type": "ratecon"}]
-            if document_id
-            else [],
+            "document_id": document_id,
             "confidence_score": confidence,
         }
     except Exception as exc:
@@ -196,26 +269,6 @@ def ratecon_analysis(data: dict) -> dict:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-
-
-def _resolve_pod_pdf_url(data: dict) -> tuple[str | None, dict[str, Any]]:
-    """Prefer merged POD object key from workflow state; fallback to latest ``pod_merged_final`` row."""
-    refs = data.get("pod_object_keys") or []
-    if isinstance(refs, list):
-        for u in refs:
-            if u and str(u).strip():
-                return str(u).strip(), {"source": "state"}
-    merged = data.get("pod_merged_pdf_object_key")
-    if merged and str(merged).strip():
-        return str(merged).strip(), {"source": "state"}
-    sid = resolve_shipment_id(data)
-    if sid:
-        doc = read_document(sid, DocumentType.POD_MERGED_FINAL)
-        if doc.get("error"):
-            return None, {"source": "documents", "error": doc["error"]}
-        if doc.get("found") and doc.get("object_key"):
-            return doc["object_key"], {"source": "documents", "document_id": doc.get("id")}
-    return None, {}
 
 
 def _broker_name_from_ratecon_results(data: dict) -> str | None:
@@ -240,7 +293,7 @@ def pod_analysis(data: dict) -> dict:
     if not sid:
         return {"success": False, "error": "missing_shipment_id"}
 
-    storage_ref, url_meta = _resolve_pod_pdf_url(data)
+    storage_ref, url_meta = resolve_merged_pod_object_key(data)
     if not storage_ref:
         logger.info(
             "pod_analysis: no POD object key in state or documents shipment_id=%s", sid
@@ -339,10 +392,6 @@ def pod_analysis(data: dict) -> dict:
         }
         confidence = pod_confidence_score(page_results, final_pod_data, validation_issues)
 
-        attachments_used: list[dict[str, Any]] = []
-        if document_id:
-            attachments_used.append({"document_id": document_id, "type": "pod_merged_final"})
-
         if final_pod_data.get("delivery_confirmed") and not validation_issues:
             pod_status = "PASS"
         elif ok_pages:
@@ -356,7 +405,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_object_key": object_key,
             "pod_document_id": document_id,
             "findings": findings,
-            "attachments_used": attachments_used,
+            "document_id": document_id,
             "confidence_score": confidence,
             "pod_status": pod_status,
             "delivery_confirmed": final_pod_data.get("delivery_confirmed"),
@@ -487,10 +536,9 @@ def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
         "validation_summary": summary_result.get("summary"),
     }
 
-    attachments_used: list[dict[str, Any]] = []
-    for batch in (pod_res.get("attachments_used"), rc_res.get("attachments_used")):
-        if batch:
-            attachments_used.extend(batch)
+    document_id = pod_res.get("document_id")
+    if document_id is not None:
+        document_id = str(document_id)
 
     confidence = summary_result.get("confidence_score")
     if confidence is None:
@@ -504,5 +552,5 @@ def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
         "confidence_score": confidence,
         "validation_summary": summary_result.get("summary"),
         "findings": findings,
-        "attachments_used": attachments_used,
+        "document_id": document_id,
     }

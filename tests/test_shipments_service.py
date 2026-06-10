@@ -10,6 +10,7 @@ from app.repositories.shipments_repository import ShipmentUpsertResult
 from app.services.shipments_service import ShipmentsService
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
+_SHIPMENTS_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
 def test_upsert_from_turvo_rejects_missing_load_id():
@@ -103,3 +104,30 @@ def test_get_by_shipment_number_delegates_from_deprecated_turvo_alias():
         tenant_id=_TENANT_UUID,
         shipment_number="1000324895",
     )
+
+
+def test_get_by_id_delegates_to_repo():
+    repo = MagicMock()
+    repo.get_by_tenant_and_id_tx.return_value = {
+        "id": _SHIPMENTS_ROW_UUID,
+        "shipment_number": "1000324895",
+    }
+    svc = ShipmentsService(shipments_repository=repo)
+
+    out = svc.get_by_id(
+        tenant_id=_TENANT_UUID,
+        shipment_id=_SHIPMENTS_ROW_UUID,
+    )
+
+    assert out is not None
+    repo.get_by_tenant_and_id_tx.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_id=_SHIPMENTS_ROW_UUID,
+    )
+
+
+def test_get_by_id_returns_none_for_invalid_uuid():
+    svc = ShipmentsService(shipments_repository=MagicMock())
+
+    assert svc.get_by_id(tenant_id=_TENANT_UUID, shipment_id="1000324895") is None
+    svc._shipments.get_by_tenant_and_id_tx.assert_not_called()

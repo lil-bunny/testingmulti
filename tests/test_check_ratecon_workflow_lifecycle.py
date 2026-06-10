@@ -43,8 +43,6 @@ def test_check_ratecon_uses_shipment_uuid_not_load_id() -> None:
         tenant_id=_TENANT_UUID,
         workflow_name="ratecon",
         shipment_id=_ROW_UUID,
-        thread_id="thread-abc",
-        load_id=None,
     )
     result = out.data["ratecon_workflow_lifecycle"]
     assert result["in_workflow_lifecycle"] is True

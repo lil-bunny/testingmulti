@@ -7,13 +7,12 @@ from typing import TYPE_CHECKING
 from app.configs.tenant_configs import TENANT_CONFIGS
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
+from app.models.tenants import TenantSlug
 
 if TYPE_CHECKING:
     from app.repositories.tenants_db_repository import TenantsDbRepository
 
 logger = get_logger(__name__)
-
-_DEFAULT_GRAPH_TENANT_ID = "t3ra"
 
 
 def resolve_workflow_graph_tenant_id(
@@ -72,7 +71,7 @@ def resolve_workflow_graph_tenant_id(
 
     logger.info(
         "workflow_graph_tenant: tenant_id=%r resolved_from=default data_import_tenant_id=%s",
-        _DEFAULT_GRAPH_TENANT_ID,
+        TenantSlug.T3RA,
         tenant_uuid,
     )
-    return _DEFAULT_GRAPH_TENANT_ID
+    return TenantSlug.T3RA

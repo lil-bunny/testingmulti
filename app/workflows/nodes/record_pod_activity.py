@@ -118,15 +118,6 @@ def record_pod_started_activity(state):
         )
         return state
 
-    blocked = bool(state.data.get("pod_request_blocked"))
-    force_mark = bool(state.data.get("_force_mark_pod_request"))
-    if blocked and not force_mark:
-        logger.info(
-            "record_pod_started_activity skipping blocked initial path lifecycle_id=%s",
-            state.data.get("workflow_lifecycle_id"),
-        )
-        return state
-
     scope = _scope_ids(state)
     if scope is None:
         logger.warning(

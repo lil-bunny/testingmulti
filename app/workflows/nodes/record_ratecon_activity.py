@@ -6,17 +6,15 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
-    format_ratecon_document_processed_action,
+    format_ratecon_document_processed_with_llm_action,
     format_ratecon_document_processing_failed_action,
     format_ratecon_document_upload_failed_action,
     format_ratecon_document_uploaded_action,
-    format_ratecon_llm_action,
     format_ratecon_received_action,
 )
 from app.domain.activity_log_write import (
     ActivityLogSequence,
     ActivityLogStep,
-    ActivityLogWrite,
 )
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -107,7 +105,7 @@ def _analysis_success(state) -> bool:
 
 
 def _processed_success_metadata(state) -> dict[str, Any]:
-    meta: dict[str, Any] = {}
+    meta: dict[str, Any] = {"source": "ratecon_analysis"}
     persist = state.data.get("document_analysis_ratecon")
     if isinstance(persist, dict):
         analysis_id = persist.get("id")
@@ -115,10 +113,17 @@ def _processed_success_metadata(state) -> dict[str, Any]:
             meta["document_analysis_id"] = str(analysis_id).strip()
     results = state.data.get("ratecon_analysis_results")
     if isinstance(results, dict):
+        meta["output"] = results
         if results.get("confidence_score") is not None:
             meta["confidence_score"] = results.get("confidence_score")
-        if results.get("attachments_used"):
-            meta["attachments_used"] = results.get("attachments_used")
+        document_id = results.get("document_id")
+        if document_id is not None and str(document_id).strip():
+            meta["document_id"] = str(document_id).strip()
+    for key in ("shipment_id", "shipments_row_id"):
+        raw = state.data.get(key)
+        if raw is not None and str(raw).strip():
+            meta["shipment_id"] = str(raw).strip()
+            break
     return meta
 
 
@@ -144,79 +149,6 @@ def _communication_id(state) -> str | None:
         return None
     cid = str(raw).strip()
     return cid or None
-
-
-def _ratecon_llm_reason(results: dict[str, Any]) -> str:
-    reason = results.get("reason") or results.get("error")
-    if reason is not None and str(reason).strip():
-        return str(reason).strip()
-    if results.get("success"):
-        return "extraction completed"
-    return "no reason"
-
-
-def _ratecon_llm_metadata(state, results: dict[str, Any]) -> dict[str, Any]:
-    meta: dict[str, Any] = {
-        "source": "ratecon_analysis",
-        "output": results,
-    }
-    for key in ("shipment_id", "shipments_row_id"):
-        raw = state.data.get(key)
-        if raw is not None and str(raw).strip():
-            meta["shipment_id"] = str(raw).strip()
-            break
-    persist = state.data.get("document_analysis_ratecon")
-    if isinstance(persist, dict):
-        analysis_id = persist.get("id")
-        if analysis_id is not None and str(analysis_id).strip():
-            meta["document_analysis_id"] = str(analysis_id).strip()
-    return meta
-
-
-def record_ratecon_llm_activity(state):
-    """
-    Log ratecon LLM extraction outcome for this run (mirrors carrier ack LLM action).
-
-    Runs after ``ratecon_analysis``; does not update lifecycle status.
-    """
-    scope = _scope_ids(state)
-    if scope is None:
-        logger.warning(
-            "record_ratecon_llm_activity skipped missing ids "
-            "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
-            bool(state.data.get("workflow_lifecycle_id")),
-            bool(state.tenant_id or state.data.get("tenant_id")),
-            bool(state.execution_id),
-        )
-        return state
-
-    results = state.data.get("ratecon_analysis_results")
-    if not isinstance(results, dict):
-        results = {}
-
-    wl_id, tenant_id, run_id = scope
-    try:
-        confidence = float(results.get("confidence_score"))
-    except (TypeError, ValueError):
-        confidence = None
-
-    meta = _ratecon_llm_metadata(state, results)
-    activity_log_id = ActivityLogService().record_action(
-        ActivityLogWrite(
-            tenant_id=tenant_id,
-            workflow_lifecycle_id=wl_id,
-            workflow_run_id=run_id,
-            description=format_ratecon_llm_action(
-                reason=_ratecon_llm_reason(results),
-                confidence=confidence,
-            ),
-            communication_id=_communication_id(state),
-            metadata=meta,
-        )
-    )
-    if activity_log_id:
-        state.data["ratecon_llm_activity_log_id"] = activity_log_id
-    return state
 
 
 def record_ratecon_received_activity(state):
@@ -367,6 +299,14 @@ def record_ratecon_processed_activity(state):
 
     if _analysis_success(state):
         meta = _processed_success_metadata(state)
+        results = state.data.get("ratecon_analysis_results")
+        if not isinstance(results, dict):
+            results = {}
+        try:
+            confidence = float(results.get("confidence_score"))
+        except (TypeError, ValueError):
+            confidence = None
+        comm_id = _communication_id(state)
         activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -375,8 +315,11 @@ def record_ratecon_processed_activity(state):
                 steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_ratecon_document_processed_action(),
+                        description=format_ratecon_document_processed_with_llm_action(
+                            confidence=confidence,
+                        ),
                         metadata=meta,
+                        communication_id=comm_id,
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,

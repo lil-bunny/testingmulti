@@ -16,6 +16,7 @@ from app.services.workflow_lifecycle_service import (
 from app.services.workflow_service import WorkflowService
 from app.workflows.nodes import ratecon as ratecon_node
 from app.workflows.nodes import turvo as turvo_nodes
+from app.workflows.nodes import pod as pod_nodes
 
 _RATECON_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
@@ -50,13 +51,8 @@ def ratecon_lifecycle_stubs(monkeypatch):
 def ratecon_ingress_mocks(monkeypatch):
     """Pre-graph Turvo resolve + shipment upsert (RateconIngressService)."""
 
-    def fake_load_id_to_shipment(load_id, *, tenant_slug=None):
-        return {
-            "success": True,
-            "load_id": str(load_id),
-            "shipment_id": "SHIP-99",
-            "message": "ok",
-        }
+    async def fake_load_id_to_shipment_async(load_id, tenant_slug, **kwargs):
+        return "SHIP-99"
 
     def fake_upsert_from_turvo(self, **kwargs):
         return {
@@ -67,8 +63,8 @@ def ratecon_ingress_mocks(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "app.services.ratecon_ingress_service.load_id_to_shipment_id",
-        fake_load_id_to_shipment,
+        "app.services.ratecon_ingress_service.load_id_to_shipment_id_async",
+        fake_load_id_to_shipment_async,
     )
     monkeypatch.setattr(
         "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_turvo",
@@ -177,8 +173,8 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> tuple[list[dict], list[tuple]]:
 
     persisted: list[tuple] = []
 
-    def fake_insert(doc_type, shipment_id, object_key, **kwargs):
-        persisted.append((doc_type, shipment_id, object_key, kwargs))
+    def fake_insert(doc_type, storage_key, **kwargs):
+        persisted.append((doc_type, storage_key, kwargs))
         return {"stored": True, "id": "doc-row-1"}
 
     monkeypatch.setattr(
@@ -187,6 +183,21 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> tuple[list[dict], list[tuple]]:
         fake_upload_to_s3,
     )
     monkeypatch.setattr(ratecon_node, "insert_document", fake_insert)
+
+    def fake_ratecon_analysis(data):
+        return {
+            "success": True,
+            "shipment_id": data.get("shipment_id") or "SHIP-99",
+            "findings": {"extracted_fields": {"primary_identifier": "SHIP-99"}},
+            "confidence_score": 1.0,
+            "document_id": "doc-row-1",
+        }
+
+    def fake_upsert_ratecon_extraction(shipment_id, **kwargs):
+        return {"stored": True, "id": "analysis-row-1"}
+
+    monkeypatch.setattr(pod_nodes, "get_ratecon_analysis", fake_ratecon_analysis)
+    monkeypatch.setattr(pod_nodes, "upsert_ratecon_extraction", fake_upsert_ratecon_extraction)
 
     return link_calls, persisted
 
@@ -239,8 +250,11 @@ async def test_ratecon_workflow_happy_path_mocked(
 
     assert persisted
     assert persisted[0][0] == DocumentType.RATECON
-    assert persisted[0][1] == "SHIP-99"
-    assert persisted[0][2] == expect_key
+    assert persisted[0][1] == expect_key
+    assert persisted[0][2].get("shipments_row_id") == _RATECON_ROW_UUID
     r0 = result["data"]["ratecon_s3_upload"]["results"][0]
     assert r0["document_persist"]["stored"] is True
     assert r0["document_persist"]["id"] == "doc-row-1"
+    assert result["data"]["ratecon_analysis_results"]["success"] is True
+    assert result["data"]["document_analysis_ratecon"]["stored"] is True
+    assert result["data"]["document_analysis_ratecon"]["id"] == "analysis-row-1"

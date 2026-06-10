@@ -97,9 +97,15 @@ class TurvoApiClient:
         params: Optional[dict[str, Any]],
         json_body: Optional[dict[str, Any]],
         timeout_s: float,
+        *,
+        files: Optional[dict[str, Any]] = None,
     ) -> httpx.Response:
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
+                if files is not None:
+                    return await client.request(
+                        method, url, headers=headers, params=params, files=files
+                    )
                 if json_body is not None:
                     return await client.request(
                         method, url, headers=headers, params=params, json=json_body
@@ -145,7 +151,64 @@ class TurvoApiClient:
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             headers = self._build_headers(tms, access_token)
-            resp = await self._send(method, url, headers, params, json_body, timeout_s)
+            resp = await self._send(
+                method, url, headers, params, json_body, timeout_s, files=None
+            )
+
+            if resp.status_code in (401, 403) and attempt < _MAX_ATTEMPTS:
+                logger.info(
+                    "Turvo %s %s returned %s; refreshing token and retrying",
+                    method,
+                    path,
+                    resp.status_code,
+                )
+                try:
+                    await self._oauth.refresh_tenant_token(slug)
+                except Exception as e:
+                    raise TurvoApiError(
+                        f"Token refresh failed after {resp.status_code}: {e}",
+                        status_code=resp.status_code,
+                    ) from e
+                access_token = await self._resolve_token(slug)
+                continue
+
+            if 200 <= resp.status_code < 300:
+                return self._parse_success(resp)
+
+            self._raise_for_status(method, path, resp)
+
+        raise TurvoApiError(f"Turvo {method} {path} failed after {_MAX_ATTEMPTS} attempts")
+
+    async def request_multipart(
+        self,
+        tenant_slug: str,
+        method: str,
+        path: str,
+        *,
+        params: Optional[dict[str, Any]] = None,
+        files: Optional[dict[str, Any]] = None,
+        timeout_s: float = _DEFAULT_TIMEOUT_S,
+    ) -> dict[str, Any]:
+        """Multipart upload (e.g. POST /documents with attachment0)."""
+        slug = (tenant_slug or "").strip()
+        if not slug:
+            raise TurvoApiError("tenant_slug is required for Turvo API calls", status_code=401)
+
+        tms = self._load_tms(slug)
+        url = self._build_url(tms, path)
+        access_token = await self._resolve_token(slug)
+
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            headers = self._build_headers(tms, access_token)
+            resp = await self._send(
+                method,
+                url,
+                headers,
+                params,
+                None,
+                timeout_s,
+                files=files,
+            )
 
             if resp.status_code in (401, 403) and attempt < _MAX_ATTEMPTS:
                 logger.info(

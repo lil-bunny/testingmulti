@@ -40,9 +40,8 @@ pytestmark = [pytest.mark.e2e, pytest.mark.pod_lifecycle_email_workflow]
 _POST_WEBHOOK_WAIT_S = 240
 
 
-_ALL_DOCUMENT_ANALYSIS_TYPES = frozenset(
+_POD_DOCUMENT_ANALYSIS_TYPES = frozenset(
     (
-        DocumentAnalysisType.RATECON_EXTRACTION.value,
         DocumentAnalysisType.POD_EXTRACTION.value,
         DocumentAnalysisType.POD_VS_RATECON_COMPARISON.value,
     )
@@ -60,38 +59,64 @@ def _assert_no_pod_attachment_documents_before_e2e(
     ]
     if not pod_rows:
         return
-    keys = [d.get("object_key") for d in pod_rows]
+    keys = [d.get("storage_key") for d in pod_rows]
     ids = [d.get("id") for d in pod_rows]
     pytest.fail(
         "E2E precondition failed: `documents` already contains `pod_attachment` row(s) for this "
         f"shipment_id. Remove them first, then re-run.\n"
         f"  shipment_id={shipment_id!r}\n"
         f"  document ids={ids!r}\n"
-        f"  object_keys={keys!r}\n"
+        f"  storage_keys={keys!r}\n"
         "  (Only `ratecon` rows, or no rows, are allowed before this test.)"
     )
 
 
-def _assert_no_tracked_document_analysis_before_e2e(
+def _assert_no_pod_document_analysis_before_e2e(
     *, before_analysis: list[dict], shipment_id: str
 ) -> None:
-    """Fail if any row uses one of the three workflow analysis types for this shipment."""
+    """Fail if POD analysis rows already exist; ratecon_extraction from ratecon workflow is allowed."""
     offending = [
         r
         for r in before_analysis
-        if str(r.get("analysis_type") or "").strip() in _ALL_DOCUMENT_ANALYSIS_TYPES
+        if str(r.get("analysis_type") or "").strip() in _POD_DOCUMENT_ANALYSIS_TYPES
     ]
     if not offending:
         return
     types_hit = sorted({str(r.get("analysis_type")) for r in offending})
     ids = [r.get("id") for r in offending]
     pytest.fail(
-        "E2E precondition failed: `document_analysis` already has row(s) for this shipment whose "
-        "`analysis_type` is one of: ratecon_extraction, pod_extraction, pod_vs_ratecon_comparison. "
-        "Remove those rows or pick another shipment_id, then re-run.\n"
+        "E2E precondition failed: `document_analysis` already has POD analysis row(s) for this "
+        "shipment. Remove pod_extraction / pod_vs_ratecon_comparison rows or pick another "
+        f"shipment_id, then re-run.\n"
         f"  shipment_id={shipment_id!r}\n"
         f"  analysis_types_found={types_hit!r}\n"
         f"  row ids={ids!r}"
+    )
+
+
+def _assert_ratecon_extraction_before_e2e(
+    *, before_analysis: list[dict], shipment_id: str
+) -> None:
+    """Pod lifecycle loads cached ratecon extraction; ratecon workflow must have run first."""
+    rows = [
+        r
+        for r in before_analysis
+        if str(r.get("analysis_type") or "").strip()
+        == DocumentAnalysisType.RATECON_EXTRACTION.value
+    ]
+    with_extracted_fields = [
+        r
+        for r in rows
+        if isinstance(r.get("results"), dict)
+        and (r.get("results") or {}).get("extracted_fields")
+    ]
+    if with_extracted_fields:
+        return
+    pytest.fail(
+        "Prerequisite: `ratecon_extraction` row with `results.extracted_fields` required "
+        "in `document_analysis` before POD reply e2e (pod lifecycle no longer re-runs ratecon LLM).\n"
+        f"  shipment_id={shipment_id!r}\n"
+        f"  ratecon_extraction rows found={len(rows)} with_extracted_fields={len(with_extracted_fields)}"
     )
 
 
@@ -115,8 +140,8 @@ def test_pod_lifecycle_email_received_unipile_webhook(
     ratecon_lc = fetch_ratecon_lifecycle_for_thread(tenant_id=tenant_id, thread_id=thread_id)
     if not ratecon_lc:
         pytest.fail(
-            "Prerequisite: no `workflow_lifecycles` row for workflow_name='ratecon' with "
-            f"email_thread_id matching webhook thread_id.\n"
+            "Prerequisite: no ratecon lifecycle linked to this thread via communications → "
+            "workflow_runs.\n"
             f"  thread_id={thread_id!r}\n"
             "  Seed or run ratecon for this thread before the POD reply e2e."
         )
@@ -140,7 +165,7 @@ def test_pod_lifecycle_email_received_unipile_webhook(
     assert secret
 
     before_docs = fetch_documents_for_shipment(shipment_id=shipment_id)
-    before_keys = {d["object_key"] for d in before_docs}
+    before_keys = {d["storage_key"] for d in before_docs}
     before_analysis = fetch_document_analysis_for_shipment(shipment_id=shipment_id)
     before_analysis_ids = {row["id"] for row in before_analysis}
     before_run_count = count_workflow_runs_for_shipment(
@@ -150,7 +175,10 @@ def test_pod_lifecycle_email_received_unipile_webhook(
     _assert_no_pod_attachment_documents_before_e2e(
         before_docs=before_docs, shipment_id=shipment_id
     )
-    _assert_no_tracked_document_analysis_before_e2e(
+    _assert_no_pod_document_analysis_before_e2e(
+        before_analysis=before_analysis, shipment_id=shipment_id
+    )
+    _assert_ratecon_extraction_before_e2e(
         before_analysis=before_analysis, shipment_id=shipment_id
     )
 
@@ -209,7 +237,7 @@ def test_pod_lifecycle_email_received_unipile_webhook(
     assert (lc.get("shipment_id") or "") == shipment_id
 
     after_docs = fetch_documents_for_shipment(shipment_id=shipment_id)
-    new_docs = [d for d in after_docs if d["object_key"] not in before_keys]
+    new_docs = [d for d in after_docs if d["storage_key"] not in before_keys]
 
     after_analysis = fetch_document_analysis_for_shipment(shipment_id=shipment_id)
     new_analysis = [r for r in after_analysis if r["id"] not in before_analysis_ids]
@@ -229,17 +257,28 @@ def test_pod_lifecycle_email_received_unipile_webhook(
 
     for d in new_docs:
         assert d["shipment_id"] == shipment_id
-        assert "freightx/" in d["object_key"] or "pod_attachments" in d["object_key"], (
-            f"object_key unexpected: {d['object_key']}"
+        assert "freightx/" in d["storage_key"] or "pod_attachments" in d["storage_key"], (
+            f"storage_key unexpected: {d['storage_key']}"
         )
 
+    new_ratecon_rows = [
+        r
+        for r in new_analysis
+        if str(r.get("analysis_type") or "").strip()
+        == DocumentAnalysisType.RATECON_EXTRACTION.value
+    ]
+    assert not new_ratecon_rows, (
+        "pod_lifecycle must not re-run ratecon extraction; "
+        f"unexpected new ratecon_extraction rows: {new_ratecon_rows!r}"
+    )
+
     for row in new_analysis:
-        if row.get("analysis_type") == "pod_extraction" and row.get("findings") is not None:
-            assert isinstance(row["findings"], dict)
+        if row.get("analysis_type") == "pod_extraction" and row.get("results") is not None:
+            assert isinstance(row["results"], dict)
 
     pod_rows = [r for r in after_analysis if r.get("analysis_type") == "pod_extraction"]
     if pod_rows:
-        assert (pod_rows[-1].get("status") or "").lower() == "completed"
+        assert isinstance(pod_rows[-1].get("results"), dict)
 
     dup_check = WorkflowRunsService().fetch_workflow_run_by_id(run_id=str(execution_id))
     assert dup_check is not None and dup_check.get("id") == str(execution_id)

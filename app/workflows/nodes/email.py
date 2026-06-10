@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict, List
 
 from app.core.config import settings
+from app.domain.pod_lifecycle_settings import resolve_pod_sender_account_id
 from app.services.unipile_service import UnipileException
 from app.tools.communication_metadata import stash_communication_id
 from app.tools.email import detect_attachment_bytes_type
@@ -10,7 +11,10 @@ from app.services.s3bucket_service import bucket
 from app.services.attachment_normalizer import pod_individual_attachment_filename
 from app.models.document import DocumentType
 from app.tools.documents import insert_document
-from app.workflows.shipment_resolver import resolve_shipment_id
+from app.workflows.shipment_resolver import (
+    resolve_shipment_id,
+    resolve_shipments_row_id_for_db,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +22,17 @@ logger = logging.getLogger(__name__)
 def send_email(state):
     tenant_raw = getattr(state, "tenant_id", None) or state.data.get("tenant_id")
     run_id = str(state.execution_id or "").strip() or None
+    sender_account_id = resolve_pod_sender_account_id(state)
+    if not sender_account_id:
+        logger.error(
+            "send_email: mikey_account_id not configured lifecycle_id=%s shipment_id=%s",
+            state.data.get("workflow_lifecycle_id"),
+            state.data.get("shipment_id"),
+        )
+        state.data["pod_reminder_error"] = "missing_mikey_account_id"
+        state.data["pod_reminder_sent"] = False
+        return state
+
     send_result = None
     try:
         send_result = send_email_tool(
@@ -25,7 +40,7 @@ def send_email(state):
             state.data.get("subject", "POD Request"),
             state.data.get("body", ""),
             thread_id=state.data.get("thread_id"),
-            account_id=state.data.get("account_id"),
+            account_id=sender_account_id,
             tenant_id=tenant_raw,
             workflow_run_id=run_id,
             communication_metadata={
@@ -86,7 +101,9 @@ def get_email_attachments(state):
     """
     attachments = state.data.get("attachments") or []
     email_id = state.data.get("email_id")
-    account_id = state.data.get("account_id")
+    account_id = resolve_pod_sender_account_id(state)
+    if not account_id:
+        raise RuntimeError("missing_mikey_account_id: cannot fetch POD email attachments")
     attachments_ids = [attachment.get("id") for attachment in attachments]
 
     shipment_id = resolve_shipment_id(state.data)
@@ -153,8 +170,8 @@ def get_email_attachments(state):
             if upload_success and uploaded_key:
                 persist = insert_document(
                     DocumentType.POD_ATTACHMENT,
-                    ship_token,
-                    uploaded_key,
+                    storage_key=uploaded_key,
+                    shipments_row_id=resolve_shipments_row_id_for_db(state.data),
                     email_id=email_id,
                     attachment_id=str(attachment_id)
                     if attachment_id is not None

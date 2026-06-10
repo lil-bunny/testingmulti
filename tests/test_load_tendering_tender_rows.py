@@ -6,9 +6,19 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
+
+from app.domain.delivery_address import (
+    CUSTOMER_NAME_PLACEHOLDER,
+    CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+    CUSTOMER_NAME_SOURCE_UNKNOWN,
+    resolve_customer_name,
+)
+from app.domain.delivery_locations import DeliveryLocationsIndex
 from app.domain.load_tendering_tender_rows import (
     dedupe_projected_rows_by_order_and_position,
     parse_order_position,
+    parse_weight_unit,
     projected_row_to_tender_insert,
     projected_row_to_tender_product_insert,
     resolve_pack_code_id,
@@ -37,11 +47,16 @@ def test_dedupe_keeps_distinct_positions_drops_duplicate() -> None:
 def test_mapper_header_happy_path() -> None:
     row = {
         "order_number": "PO-1",
-        "customer_match": "Acme",
+        "customer_match": "ShipScheduleName",
+        "weight_unit": "KG",
         "delivery_date": "2026-06-01",
         "shipping_date": "2026-05-15T00:00:00",
     }
-    out = projected_row_to_tender_insert(row)
+    out = projected_row_to_tender_insert(
+        row,
+        customer_name="Acme",
+        customer_name_source=CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+    )
     assert out is not None
     assert out["order_number"] == "PO-1"
     assert out["customer_name"] == "Acme"
@@ -49,7 +64,8 @@ def test_mapper_header_happy_path() -> None:
     assert out["delivery_date"] == date(2026, 6, 1)
     assert out["shipping_date"] == date(2026, 5, 15)
     assert out["load_type"] == "LTL"
-    assert out["metadata"] == {}
+    assert out["weight_unit"] == "kg"
+    assert out["metadata"] == {"customer_name_source": CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION}
 
 
 def test_mapper_product_happy_path() -> None:
@@ -72,39 +88,119 @@ def test_mapper_product_happy_path() -> None:
 def test_mapper_metadata_po_number_from_besttxt() -> None:
     row = {
         "order_number": "PO-1",
-        "customer_match": "Acme",
+        "weight_unit": "LB",
         "po_number": "4500123456",
     }
-    out = projected_row_to_tender_insert(row)
+    out = projected_row_to_tender_insert(
+        row,
+        customer_name="Acme",
+        customer_name_source=CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+    )
     assert out is not None
-    assert out["metadata"] == {"po_number": "4500123456"}
+    assert out["metadata"] == {
+        "po_number": "4500123456",
+        "customer_name_source": CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+    }
 
 
 def test_mapper_metadata_empty_when_po_number_blank() -> None:
     row = {
         "order_number": "PO-1",
-        "customer_match": "Acme",
+        "weight_unit": "kg",
         "po_number": "   ",
     }
-    out = projected_row_to_tender_insert(row)
+    out = projected_row_to_tender_insert(
+        row,
+        customer_name="Acme",
+        customer_name_source=CUSTOMER_NAME_SOURCE_UNKNOWN,
+    )
     assert out is not None
-    assert out["metadata"] == {}
+    assert out["metadata"] == {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN}
 
 
 def test_mapper_skips_blank_order_number() -> None:
     assert projected_row_to_tender_insert({"order_number": "  "}) is None
 
 
-def test_mapper_skips_blank_customer() -> None:
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("KG", "kg"),
+        ("KGM", "kg"),
+        ("lb", "lb"),
+        ("LBS", "lb"),
+        ("  LB  ", "lb"),
+        (None, None),
+        ("", None),
+        ("TON", None),
+    ],
+)
+def test_parse_weight_unit_normalizes_me(raw: str | None, expected: str | None) -> None:
+    assert parse_weight_unit(raw) == expected
+
+
+def test_mapper_skips_invalid_weight_unit() -> None:
     assert (
         projected_row_to_tender_insert(
-            {
-                "order_number": "1",
-                "customer_match": "",
-            }
+            {"order_number": "1", "weight_unit": "TON"},
+            customer_name="Acme",
         )
         is None
     )
+
+
+def test_mapper_skips_blank_customer_name_param() -> None:
+    assert (
+        projected_row_to_tender_insert(
+            {"order_number": "1", "customer_match": "Ignored"},
+            customer_name="  ",
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("location_rows", "delivery_code", "expected_name", "expected_source"),
+    [
+        (
+            [{"delviery": "41000100", "Customer Name": "MERICAL"}],
+            "41000100",
+            "MERICAL",
+            CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+        ),
+        (
+            [{"delviery": "41000100", "Customer Name": "MERICAL", "Name": "Addr Name"}],
+            "41000100",
+            "MERICAL",
+            CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+        ),
+        (
+            [{"delviery": "41000100", "Customer Name": None, "Name": "Addr Name"}],
+            "41000100",
+            CUSTOMER_NAME_PLACEHOLDER,
+            CUSTOMER_NAME_SOURCE_UNKNOWN,
+        ),
+        (None, "41000100", CUSTOMER_NAME_PLACEHOLDER, CUSTOMER_NAME_SOURCE_UNKNOWN),
+        (
+            [{"delviery": "41000100", "Customer Name": "MERICAL"}],
+            "999",
+            CUSTOMER_NAME_PLACEHOLDER,
+            CUSTOMER_NAME_SOURCE_UNKNOWN,
+        ),
+    ],
+)
+def test_resolve_customer_name_column_j_only(
+    location_rows: list[dict] | None,
+    delivery_code: str,
+    expected_name: str,
+    expected_source: str,
+) -> None:
+    index = (
+        DeliveryLocationsIndex(location_rows) if location_rows is not None else None
+    )
+    name, source = resolve_customer_name(delivery_code, index)
+    assert name == expected_name
+    assert source == expected_source
 
 
 def test_product_mapper_skips_blank_product_or_invalid_qty() -> None:
@@ -211,7 +307,7 @@ def test_ingest_service_batches_valid_rows() -> None:
         {
             "order_number": "N1",
             "order_position": 1,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "P",
             "order_quantity": 2,
         },
@@ -229,7 +325,9 @@ def test_ingest_service_batches_valid_rows() -> None:
     assert batch[0]["tenant_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert batch[0]["data_import_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert batch[0]["order_number"] == "N1"
-    assert batch[0]["metadata"] == {}
+    assert batch[0]["customer_name"] == CUSTOMER_NAME_PLACEHOLDER
+    assert batch[0]["weight_unit"] == "kg"
+    assert batch[0]["metadata"] == {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN}
     products.insert_batch.assert_called_once()
     product_batch = products.insert_batch.call_args[0][0]
     assert len(product_batch) == 1
@@ -257,7 +355,7 @@ def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
         {
             "order_number": "N1",
             "order_position": 1,
-            "customer_match": "C",
+            "weight_unit": "LB",
             "product_name": "P",
             "order_quantity": 2,
             "po_number": "BEST-PO-1",
@@ -269,7 +367,11 @@ def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
         projected_rows=rows,
     )
     batch = repo.insert_batch.call_args[0][0]
-    assert batch[0]["metadata"] == {"po_number": "BEST-PO-1"}
+    assert batch[0]["weight_unit"] == "lb"
+    assert batch[0]["metadata"] == {
+        "po_number": "BEST-PO-1",
+        "customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN,
+    }
 
 
 def test_ingest_duplicate_order_position_inserts_one_product_line() -> None:
@@ -291,21 +393,21 @@ def test_ingest_duplicate_order_position_inserts_one_product_line() -> None:
         {
             "order_number": "123",
             "order_position": 10,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "A",
             "order_quantity": 1,
         },
         {
             "order_number": "123",
             "order_position": 10,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "B",
             "order_quantity": 2,
         },
         {
             "order_number": "123",
             "order_position": 5,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "C",
             "order_quantity": 3,
         },

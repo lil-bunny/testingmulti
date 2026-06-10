@@ -15,9 +15,12 @@ from app.domain.activity_log_constants import (
     RATECON_DOCUMENT_UPLOAD_FAILED_ACTION,
     RATECON_DOCUMENT_PROCESSED_ACTION,
     RATECON_DOCUMENT_PROCESSING_FAILED_ACTION,
-    RATECON_LLM_ACTION_TEMPLATE,
+    RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE,
     POD_STARTED_ACTION,
     POD_ESCALATION_SENT_ACTION,
+    POD_UPLOADED_TO_TMS_ACTION,
+    POD_UPLOAD_TO_TMS_FAILED_ACTION,
+    POD_ALREADY_ON_TMS_ACTION,
 )
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -128,16 +131,13 @@ def format_ratecon_document_processing_failed_action() -> str:
     return RATECON_DOCUMENT_PROCESSING_FAILED_ACTION
 
 
-def format_ratecon_llm_action(
+def format_ratecon_document_processed_with_llm_action(
     *,
-    reason: str,
     confidence: float | None = None,
 ) -> str:
     conf = f" confidence={confidence:.2f}" if confidence is not None else ""
-    reason_s = (reason or "").strip() or "no reason"
-    return RATECON_LLM_ACTION_TEMPLATE.format(
+    return RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE.format(
         confidence_suffix=conf,
-        reason=reason_s,
     )
 
 
@@ -147,3 +147,15 @@ def format_pod_started_action() -> str:
 
 def format_pod_escalation_sent_action() -> str:
     return POD_ESCALATION_SENT_ACTION
+
+
+def format_pod_uploaded_to_tms_action() -> str:
+    return POD_UPLOADED_TO_TMS_ACTION
+
+
+def format_pod_upload_to_tms_failed_action() -> str:
+    return POD_UPLOAD_TO_TMS_FAILED_ACTION
+
+
+def format_pod_already_on_tms_action() -> str:
+    return POD_ALREADY_ON_TMS_ACTION

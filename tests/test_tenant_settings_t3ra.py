@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from app.domain.tenant_settings import parse_tenant_settings
 from app.domain.tenant_settings.t3ra import T3raTenantSettings
-from tests.fixtures.tenant_settings import load_tenant_settings_dev
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_T3RA_SETTINGS = json.loads(
+    (_REPO_ROOT / "scripts/t3ra_tenant_settings.json").read_text(encoding="utf-8")
+)
 
 
 def test_t3ra_fixture_validates() -> None:
-    raw = load_tenant_settings_dev("t3ra")
-    model = T3raTenantSettings.model_validate(raw)
+    model = T3raTenantSettings.model_validate(_T3RA_SETTINGS)
+    assert model.mikey_account_id == "7jKV_5jBQVG8med4nvXHJw"
     assert len(model.pod_lifecycle.reminders.steps) == 3
-    parsed = parse_tenant_settings("t3ra", raw)
+    parsed = parse_tenant_settings("t3ra", _T3RA_SETTINGS)
     assert isinstance(parsed, T3raTenantSettings)

@@ -14,6 +14,7 @@ DELIVERY_NUMBER_FIELD = "delviery"
 
 # Canonical keys consumed by delivery_address_from_location_row.
 _CANONICAL_NAME = "Name"
+_CANONICAL_CUSTOMER_NAME = "Customer Name"
 _CANONICAL_STREET = "Street"
 _CANONICAL_STREET2 = "Street 2"
 _CANONICAL_ZIP = "Zip Code"
@@ -51,6 +52,9 @@ class DeliveryLocationsHeaderMapping(BaseModel):
 
     delivery_number: list[str] = Field(default_factory=lambda: list(_DELIVERY_NUMBER_ALIASES))
     name: list[str] = Field(default_factory=lambda: ["Name", "name"])
+    customer_name: list[str] = Field(
+        default_factory=lambda: ["Customer Name", "customer name", "customer_name"]
+    )
     street: list[str] = Field(default_factory=lambda: ["Street", "street"])
     street2: list[str] = Field(default_factory=lambda: ["Street 2", "street2", "street 2"])
     zip_code: list[str] = Field(default_factory=lambda: ["Zip Code", "zip", "zip code"])
@@ -72,6 +76,9 @@ class DeliveryLocationsHeaderMapping(BaseModel):
                 row, self.delivery_number
             ),
             _CANONICAL_NAME: self._value_for_aliases(row, self.name),
+            _CANONICAL_CUSTOMER_NAME: self._value_for_aliases(
+                row, self.customer_name
+            ),
             _CANONICAL_STREET: self._value_for_aliases(row, self.street),
             _CANONICAL_STREET2: self._value_for_aliases(row, self.street2),
             _CANONICAL_ZIP: self._value_for_aliases(row, self.zip_code),
@@ -90,6 +97,7 @@ class DeliveryLocationsColumnMapping(BaseModel):
 
     delivery_number: str = Field(description="Excel column for delivery lookup key")
     name: str
+    customer_name: str = Field(description="Excel column for tender customer name")
     street: str
     street2: str
     zip_code: str
@@ -109,6 +117,9 @@ class DeliveryLocationsColumnMapping(BaseModel):
         return {
             DELIVERY_NUMBER_FIELD: delivery_id,
             _CANONICAL_NAME: clean_cell_value(self._cell(row, self.name)),
+            _CANONICAL_CUSTOMER_NAME: clean_cell_value(
+                self._cell(row, self.customer_name)
+            ),
             _CANONICAL_STREET: clean_cell_value(self._cell(row, self.street)),
             _CANONICAL_STREET2: clean_cell_value(self._cell(row, self.street2)),
             _CANONICAL_ZIP: clean_cell_value(self._cell(row, self.zip_code)),

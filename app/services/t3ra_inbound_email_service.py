@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.logger import get_logger
 from app.models.data_import import DataImportDataType, DataImportSourceType
+from app.models.tenants import TenantSlug
 from app.services.communications.service import CommunicationsService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
@@ -19,8 +20,6 @@ from app.services.workflow_classifier_service import WorkflowClassifierService
 from app.tasks.workflows import run_workflow_async
 
 logger = get_logger(__name__)
-
-T3RA_GRAPH_SLUG = "t3ra"
 
 
 class T3raInboundEmailService:
@@ -84,7 +83,7 @@ class T3raInboundEmailService:
 
         task = run_workflow_async.apply_async(
             kwargs={
-                "tenant_slug": T3RA_GRAPH_SLUG,
+                "tenant_slug": TenantSlug.T3RA,
                 "workflow_name": str(workflow_name),
                 "payload": workflow_payload,
             }

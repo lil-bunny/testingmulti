@@ -28,7 +28,7 @@ def pod_missing_dispatch_router(state):
 def shipment_router(state):
     event_type = event_type_router(state)
 
-    if event_type == "email_received":
+    if event_type in ("email_received", "manual_pod_upload"):
         shipment = state.data.get("shipment") or {}
         status_key = (
             shipment.get("details", {})
@@ -37,14 +37,28 @@ def shipment_router(state):
             .get("key")
         )
         allowed_status_codes = {"2116", "2106", "2105"} # Route Complete, EnRoute, At Delivery
-        return "valid_shipment_status" if str(status_key) in allowed_status_codes else "invalid_shipment_status"
+        status_ok = str(status_key) in allowed_status_codes
+        if event_type == "manual_pod_upload":
+            return "manual_pod_valid" if status_ok else "invalid_shipment_status"
+        return "valid_shipment_status" if status_ok else "invalid_shipment_status"
 
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
 
 
+def ratecon_cache_router(state):
+    """Route POD processing only when cached ratecon extraction is available."""
+    rc = state.data.get("ratecon_analysis_results") or {}
+    if rc.get("success") and not rc.get("skipped"):
+        findings = rc.get("findings") or {}
+        extracted = findings.get("extracted_fields") or {}
+        if extracted:
+            return "ready"
+    return "missing"
+
+
 def read_workflow_lifecycle_router(state):
     event_type = event_type_router(state)
-    if event_type == "email_received":
+    if event_type in ("email_received", "manual_pod_upload"):
         lifecycle = (
             state.data.get("lookup_workflow_lifecycle")
             or state.data.get("workflow_lifecycle_payload")
@@ -68,6 +82,8 @@ def event_type_router(state):
         return event_type
     if event_type == "email_received":
         return "email_received"
+    if event_type == "manual_pod_upload":
+        return "manual_pod_upload"
     return "route_completed"
 
 
@@ -80,10 +96,6 @@ def load_type_router(state):
     tender = get_tender(state.data) or {}
     load_type = str(tender.get("load_type") or "").strip().upper()
     return "ftl_path" if load_type == "FTL" else "ltl_path"
-
-
-def pod_request_triggered_router(state):
-    return "blocked" if state.data.get("pod_request_blocked") else "continue"
 
 
 def tender_status_router(state):

@@ -275,7 +275,7 @@ def test_classify_carrier_ack_records_llm_action_activity(
     )
     mock_activity_svc_cls.return_value = activity_log_service
 
-    state = _state(communication_id=COMM_UUID, thread_id="thread-abc")
+    state = _state(communication_id=COMM_UUID)
     out = classify_carrier_ack(state)
 
     activity_log_service.record_action.assert_called_once()

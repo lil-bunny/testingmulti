@@ -13,16 +13,18 @@ from tests.db.e2e import workflow_runs_reads
 
 
 def fetch_documents_for_shipment(*, shipment_id: str) -> list[dict[str, Any]]:
+    """``shipment_id`` is ``shipments.id`` (UUID), matching ``workflow_lifecycles.shipment_id``."""
     with db_scope() as repos:
         return documents_reads.list_by_shipment(
-            repos.session, shipment_id=shipment_id
+            repos.session, shipments_row_id=shipment_id
         )
 
 
 def fetch_document_analysis_for_shipment(*, shipment_id: str) -> list[dict[str, Any]]:
+    """``shipment_id`` is ``shipments.id`` (UUID)."""
     with db_scope() as repos:
         return document_analysis_reads.list_by_shipment(
-            repos.session, shipment_id=shipment_id
+            repos.session, shipments_row_id=shipment_id
         )
 
 
@@ -32,7 +34,7 @@ def fetch_lifecycle_by_id(*, lifecycle_id: str) -> dict[str, Any] | None:
 
 
 def fetch_ratecon_lifecycle_for_thread(*, tenant_id: str, thread_id: str) -> dict[str, Any] | None:
-    """Latest ``ratecon`` lifecycle row for this Unipile ``thread_id`` (``email_thread_id``)."""
+    """Latest ``ratecon`` lifecycle for this thread via ``communications`` → ``workflow_runs``."""
     with db_scope() as repos:
         return wl_snapshots.find_latest_ratecon_by_thread(
             repos.session,
@@ -42,7 +44,7 @@ def fetch_ratecon_lifecycle_for_thread(*, tenant_id: str, thread_id: str) -> dic
 
 
 def fetch_lifecycles_for_email_thread(*, tenant_id: str, thread_id: str) -> list[dict[str, Any]]:
-    """All ``workflow_lifecycles`` rows for this Unipile ``thread_id`` (``email_thread_id``), any workflow."""
+    """Lifecycles linked to this Unipile ``thread_id`` via ``communications`` → ``workflow_runs``."""
     with db_scope() as repos:
         return wl_snapshots.list_by_email_thread(
             repos.session,

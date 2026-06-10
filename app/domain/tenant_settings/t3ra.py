@@ -24,6 +24,7 @@ class T3raTenantSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     email_webhook_name: str
+    mikey_account_id: str
     tms: TmsSettings
     prompts: dict[str, str] = Field(default_factory=dict)
     pod_lifecycle: T3raPodLifecycleSettings

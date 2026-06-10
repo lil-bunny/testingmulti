@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote_plus
 import os
 
+from app.models.tenants import TenantSlug
+
 
 class Settings(BaseSettings):
     APP_NAME: str = "Freight AI Platform"
@@ -44,10 +46,11 @@ class Settings(BaseSettings):
     # Unipile (required for POD reminder replies in thread)
     UNIPILE_API_KEY: str
     UNIPILE_BASE_URL: str = "https://api16.unipile.com:14674"
-    UNIPILE_ACCOUNT_ID: str
+    # Legacy fallback; prefer tenants.settings.mikey_account_id for T3RA POD mail
+    UNIPILE_ACCOUNT_ID: Optional[str] = None
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
-    STUDIO_TENANT_SLUG: str = "t3ra"
+    STUDIO_TENANT_SLUG: str = TenantSlug.T3RA
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
 
     # Turvo
@@ -64,12 +67,19 @@ class Settings(BaseSettings):
     # Optional fallback tenant slug for Turvo link/status API and local scripts when header is omitted.
     # Turvo tokens + password: in tenants.settings (JSON); row match uses tenants.slug.
     TURVO_DEFAULT_TENANT_SLUG: Optional[str] = Field(
-        default="t3ra",
+        default=TenantSlug.T3RA,
         validation_alias=AliasChoices(
             "TURVO_DEFAULT_TENANT_SLUG",
             "TURVO_DEFAULT_APP_USER_ID",
         ),
     )
+    # Turvo POST /documents payload limit (sandbox returns 413 above 10 MB).
+    TURVO_POD_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024
+    TURVO_POD_UPLOAD_TIMEOUT_S: float = 180.0
+    TURVO_POD_UPLOAD_MAX_ATTEMPTS: int = 3
+    TURVO_POD_OPTIMIZE_DPI: int = 150
+    TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
+    TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 2000
 
     # Unipile
     UNIPILE_API_KEY: str
@@ -89,6 +99,12 @@ class Settings(BaseSettings):
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
 
+    # freightx-api (portal auth delegation)
+    FREIGHTX_API_BASE_URL: str = "http://localhost:8001"
+    FREIGHTX_API_TIMEOUT_S: float = 10.0
+
+    CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 #   for langgraph checkpointer
@@ -101,6 +117,10 @@ class Settings(BaseSettings):
         )
 
     # for SQLAlchemy engine URL (psycopg v3 driver)
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ALLOW_ORIGINS.split(",") if o.strip()]
+
     @property
     def sqlalchemy_database_url(self) -> str:
         """SQLAlchemy engine URL (psycopg v3 driver)."""

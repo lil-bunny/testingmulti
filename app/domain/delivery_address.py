@@ -11,6 +11,7 @@ from app.integrations.pgeocode.state_lookup import lookup_state
 
 # Delivery locations sheet column names (source spreadsheet headers).
 _SHEET_NAME = "Name"
+_SHEET_CUSTOMER_NAME = "Customer Name"
 _SHEET_NAME2 = "Name2"
 _SHEET_STREET = "Street"
 _SHEET_STREET2 = "Street 2"
@@ -20,6 +21,10 @@ _SHEET_COUNTRY = "country name"
 
 # (country_name, postal_code) -> state name (or None when unresolved).
 StateResolver = Callable[[str | None, object], str | None]
+
+CUSTOMER_NAME_PLACEHOLDER = "Unknown Customer"
+CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION = "delivery_location"
+CUSTOMER_NAME_SOURCE_UNKNOWN = "unknown"
 
 
 def _required_str(val: Any) -> str:
@@ -74,6 +79,36 @@ def delivery_address_from_location_row(
         "postal_code": postal,
         "country": country,
     }
+
+
+def customer_name_from_location_row(location_row: dict[str, Any]) -> str | None:
+    """Return tender customer name from delivery locations column J (canonical key)."""
+    cleaned = clean_cell_value(location_row.get(_SHEET_CUSTOMER_NAME))
+    if cleaned is None:
+        return None
+    text = str(cleaned).strip()
+    return text or None
+
+
+def resolve_customer_name(
+    delivery_code: Any,
+    index: DeliveryLocationsIndex | None,
+) -> tuple[str, str]:
+    """
+    Resolve ``tenders.customer_name`` from delivery locations column J via ``LIEFAN``.
+
+    Returns ``(name, customer_name_source)`` where source is
+    ``CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION`` or ``CUSTOMER_NAME_SOURCE_UNKNOWN``.
+    """
+    if index is not None:
+        key = normalize_delivery_number(delivery_code)
+        if key:
+            location_row = index.lookup(key)
+            if location_row is not None:
+                name = customer_name_from_location_row(location_row)
+                if name:
+                    return name, CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION
+    return CUSTOMER_NAME_PLACEHOLDER, CUSTOMER_NAME_SOURCE_UNKNOWN
 
 
 def resolve_delivery_address(

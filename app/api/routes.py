@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.models.tenants import TenantSlug
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
@@ -13,6 +14,7 @@ from app.services.gelita_inbound_email_service import GelitaInboundEmailService
 from app.services.shipments_service import ShipmentsService
 from app.services.t3ra_inbound_email_service import T3raInboundEmailService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
+from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.workflows import run_workflow_async
 
@@ -36,7 +38,7 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     ):
         if candidate:
             return candidate
-    return "t3ra"
+    return TenantSlug.T3RA
 
 
 @router.post(
@@ -59,9 +61,9 @@ async def webhook_email(request: Request):
             return {"message": "invalid webhook"}
         
         # L1 routing by tenant slug using webhook_name
-        if tenant.tenant_slug == "gelita":
+        if tenant.tenant_slug == TenantSlug.GELITA:
             return await GelitaInboundEmailService().handle(payload=payload, tenant=tenant)
-        if tenant.tenant_slug == "t3ra":
+        if tenant.tenant_slug == TenantSlug.T3RA:
             return await T3raInboundEmailService().handle(payload=payload, tenant=tenant)
 
         logger.warning(
@@ -149,6 +151,29 @@ async def listen_turvo_status(request: Request) -> Response:
                 "lifecycle_id=%s shipment_number=%s",
                 lifecycle_id,
                 external_shipment_number,
+            )
+
+    if tenant_uuid:
+        duplicate = PodLifecycleIngressService().check_route_completed_duplicate(
+            tenant_id=tenant_uuid,
+            payload={
+                **payload,
+                **({"shipments_row_id": lifecycle_shipment_uuid} if lifecycle_shipment_uuid else {}),
+            },
+        )
+        if duplicate.is_duplicate:
+            logger.info(
+                "Turvo webhook skipped: duplicate route_completed shipment_number=%s "
+                "lifecycle_id=%s",
+                external_shipment_number,
+                duplicate.lifecycle_id,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "skipped": "duplicate_route_completed",
+                    "lifecycle_id": duplicate.lifecycle_id,
+                },
             )
 
     try:
