@@ -111,6 +111,12 @@ def format_escalation_sent_action() -> str:
     return ESCALATION_SENT_ACTION
 
 
+def format_workflow_error_alert_sent_action(*, channel: str) -> str:
+    """Human-readable action text for one successful error alert delivery."""
+    label = (channel or "unknown").replace("_", " ").strip().title()
+    return f"Workflow error alert sent ({label})"
+
+
 def format_ratecon_received_action() -> str:
     return RATECON_RECEIVED_ACTION
 

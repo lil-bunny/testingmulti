@@ -228,19 +228,22 @@ def outbound_row_from_send(
     account_id: str | None = None,
     extra_metadata: dict[str, Any] | None = None,
     workflow_run_id: str | None = None,
+    channel: str = "email",
 ) -> dict[str, Any] | None:
     if not send_result.get("success"):
         return None
     external_id = str(
         send_result.get("message_id") or send_result.get("tracking_id") or ""
     ).strip()
+    if not external_id and extra_metadata:
+        external_id = str(extra_metadata.get("idempotency_key") or "").strip()
     if not external_id:
         return None
     tid = str(thread_id or send_result.get("thread_id") or "").strip() or None
     content = resolve_email_content(body_html=body)
     row: dict[str, Any] = {
         "tenant_id": tenant_id,
-        "channel": "email",
+        "channel": channel,
         "direction": "outbound",
         "external_id": external_id,
         "thread_id": tid,

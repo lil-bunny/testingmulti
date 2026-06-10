@@ -40,6 +40,7 @@ if settings.CELERY_BROKER_URL.startswith("redis"):
 # and autodiscover alone loads only ``app.tasks.tasks``, which is a separate import from ``reminders``.
 import app.tasks.email  # noqa: E402
 import app.tasks.reminders  # noqa: E402
+import app.tasks.workflow_error_alerts  # noqa: E402
 import app.tasks.workflows  # noqa: E402
 
 # Resolves ``app.tasks.tasks`` (shim re-export) for deployments that rely on autodiscover Related name.

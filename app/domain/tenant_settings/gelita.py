@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import EmailRecipients, coerce_email_list
+from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
 
 # Reusable list fields: required TO accepts str | list; optional CC/BCC default empty.
 RequiredEmailList = list[str]
@@ -143,6 +144,7 @@ class GelitaLoadTenderingSettings(BaseModel):
     ltl: GelitaLoadTypeBranch
     ftl: GelitaLoadTypeBranch
     tender_calculate: GelitaTenderCalculateSettings
+    workflow_error_alerts: WorkflowErrorAlertSettings | None = None
 
 
 class GelitaTenantSettings(BaseModel):
@@ -160,6 +162,7 @@ class GelitaTenantSettings(BaseModel):
     ana_gelita_at_freightx_ai_account_id: str
     prompts: dict[str, str]
     load_tendering: GelitaLoadTenderingSettings
+    workflow_error_alerts: WorkflowErrorAlertSettings | None = None
 
     @model_validator(mode="after")
     def _require_carrier_ack_prompt(self) -> GelitaTenantSettings:

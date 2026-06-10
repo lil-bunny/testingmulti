@@ -427,6 +427,40 @@ class CommunicationsService:
             )
             return 0
 
+    def find_outbound_id_by_idempotency_key(
+        self,
+        *,
+        tenant_id: str,
+        idempotency_key: str,
+        channel: str | None = None,
+    ) -> str | None:
+        """Lookup a prior outbound alert row by idempotency metadata."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        key = self._clean(idempotency_key)
+        if not tid or not key:
+            return None
+        try:
+            if self._repository is not None:
+                return self._repository.find_outbound_id_by_idempotency_key(
+                    tenant_id=tid,
+                    idempotency_key=key,
+                    channel=channel,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.find_outbound_id_by_idempotency_key(
+                    tenant_id=tid,
+                    idempotency_key=key,
+                    channel=channel,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications idempotency lookup failed tenant_id=%s key=%s",
+                tid,
+                key,
+            )
+            return None
+
     def record_outbound_from_send(
         self,
         tenant_id: str,

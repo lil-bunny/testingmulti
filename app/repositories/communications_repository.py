@@ -113,6 +113,38 @@ class CommunicationsRepository:
             return None
         return str(row_id)
 
+    def find_outbound_id_by_idempotency_key(
+        self,
+        *,
+        tenant_id: str,
+        idempotency_key: str,
+        channel: str | None = None,
+    ) -> str | None:
+        """Return outbound communications id matching stored alert idempotency metadata."""
+        channel_filter = ""
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "idempotency_key": idempotency_key,
+        }
+        if channel:
+            channel_filter = "AND channel = CAST(:channel AS communication_channel)"
+            params["channel"] = channel
+
+        row_id = execute_scalar(
+            self._session,
+            f"""
+            SELECT id::text
+            FROM {self.TABLE_NAME}
+            WHERE tenant_id = CAST(:tenant_id AS uuid)
+              AND direction = 'outbound'::communication_direction
+              AND metadata->>'idempotency_key' = :idempotency_key
+              {channel_filter}
+            LIMIT 1
+            """,
+            params,
+        )
+        return str(row_id) if row_id else None
+
     def find_id_by_tenant_and_external_id(
         self,
         *,

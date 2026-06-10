@@ -84,6 +84,21 @@
             "expire_grace_hours": 2,
             "schedule_on_event_type": "carrier_email_received"
         },
+        "workflow_error_alerts": {
+            "enabled": true,
+            "channels": [
+                {
+                    "channel": "email",
+                    "to": [
+                        "kansalayush28+fx@gmail.com"
+                    ],
+                    "cc": [],
+                    "bcc": [],
+                    "subject": "Exception: Gelita Order Processing Failure PO {customer_po}",
+                    "body_template": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita Order Processing Failure</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p>Dear Team,</p>\n<p>We are unable to process the below Gelita order due to an exception.</p>\n<p><strong>Reason for Failure:</strong><br />{failure_reason}</p>\n<p><strong>Order ID:</strong> {order_number}</p>\n<p>Regards,<br />Ana</p>\n</body>\n</html>"
+                }
+            ]
+        },
         "tender_calculate": {
             "pallet_profiles": {
                 "wood_4way": {
