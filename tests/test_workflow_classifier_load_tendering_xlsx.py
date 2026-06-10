@@ -17,10 +17,15 @@ _LOAD_TENDER_WEBHOOK = "load_tender_test_hook"
 def sample_payload(*, attach_ext: tuple[str, ...] | None = ("pdf", "xlsx")) -> dict:
     attachments = []
     for i, ext in enumerate(attach_ext or ()):
+        name = (
+            f"customers_orders_file{i}.{ext}"
+            if ext == "xlsx"
+            else f"file{i}.{ext}"
+        )
         attachments.append(
             {
                 "id": f"aid-{i}",
-                "name": f"file{i}.{ext}",
+                "name": name,
                 "extension": ext,
                 "mime": "application/octet-stream",
             }
@@ -72,7 +77,7 @@ def test_unipile_first_attachment_by_extension_skips_prior_non_xlsx() -> None:
     att = unipile_first_attachment_by_extension(p, "xlsx")
     assert att is not None
     assert att.get("extension") == "xlsx"
-    assert att.get("name") == "file1.xlsx"
+    assert att.get("name") == "customers_orders_file1.xlsx"
 
 
 def test_unipile_first_attachment_by_extension_returns_none_when_no_match() -> None:
@@ -85,6 +90,14 @@ def test_is_load_tendering_when_webhook_maps_and_xlsx_present(
 ) -> None:
     p = sample_payload()
     assert _is_load_tendering_unipile(p) is True
+
+
+def test_is_load_tendering_false_when_only_non_prefixed_xlsx(
+    mapped_load_tender_webhook: None,
+) -> None:
+    p = sample_payload(attach_ext=("xlsx",))
+    p["attachments"][0]["name"] = "loads.xlsx"
+    assert _is_load_tendering_unipile(p) is False
 
 
 def test_is_load_tendering_false_when_webhook_not_in_db(monkeypatch: pytest.MonkeyPatch) -> None:

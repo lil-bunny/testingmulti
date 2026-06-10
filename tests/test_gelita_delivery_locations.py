@@ -99,7 +99,7 @@ def test_gelita_email_with_dl_and_tender_enqueues_both(
         "has_attachments": True,
         "attachments": [
             {"id": "1", "extension": "xlsx", "name": "delivery_location.xlsx"},
-            {"id": "2", "extension": "xlsx", "name": "Customer_Orders.xlsx"},
+            {"id": "2", "extension": "xlsx", "name": "customers_orders_ship_schedule.xlsx"},
         ],
     }
     svc = GelitaInboundEmailService()

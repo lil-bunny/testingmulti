@@ -10,7 +10,9 @@ from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
     extract_email_attachment_metadata,
 )
+from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
 from app.repositories.tenants_db_repository import find_tenant_id_by_settings_email_webhook_name
+
 logger = get_logger(__name__)
 
 
@@ -170,7 +172,7 @@ def _is_load_tendering_unipile(payload: dict[str, Any]) -> bool:
         return False
     if not isinstance(payload.get("attachments"), list):
         return False
-    return unipile_first_attachment_by_extension(payload, "xlsx") is not None
+    return email_load_tender_xlsx_attachment(payload) is not None
 
 
 class WorkflowClassifierService:

@@ -15,8 +15,8 @@ from app.core.logger import get_logger
 from app.domain.delivery_locations_import import (
     DELIVERY_LOCATIONS_FILE_NAME,
     unipile_delivery_locations_attachment,
-    unipile_first_load_tender_xlsx_attachment,
 )
+from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
 from app.domain.ratecon_import import is_pdf_attachment
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
@@ -26,7 +26,6 @@ from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
     extract_email_attachment_metadata,
 )
-from app.services.workflow_classifier_service import email_first_attachment
 from app.tools.email import get_email_attachments
 
 logger = get_logger(__name__)
@@ -263,8 +262,7 @@ async def process_email_webhook_attachment_import(
     """
     If the payload has an ingestible attachment, fetch bytes and persist import rows.
 
-    When ``attachment`` is omitted, uses the first load-tender xlsx (skips
-    ``delivery_location.xlsx``).
+    When ``attachment`` is omitted, uses the first ``customers_orders_*.xlsx`` attachment.
     """
     tid = data_import_tenant_id.strip()
     if not tid:
@@ -275,9 +273,7 @@ async def process_email_webhook_attachment_import(
         if data_import_data_type == DataImportDataType.DELIVERY_LOCATION:
             chosen = unipile_delivery_locations_attachment(payload)
         else:
-            chosen = unipile_first_load_tender_xlsx_attachment(payload)
-            if chosen is None:
-                chosen = email_first_attachment(payload)
+            chosen = email_load_tender_xlsx_attachment(payload)
 
     if chosen is None:
         return None

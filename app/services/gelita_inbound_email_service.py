@@ -12,10 +12,8 @@ from app.domain.status_parsing import status_type_from_db
 from app.models.status import StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
-from app.domain.delivery_locations_import import (
-    unipile_delivery_locations_attachment,
-    unipile_first_load_tender_xlsx_attachment,
-)
+from app.domain.delivery_locations_import import unipile_delivery_locations_attachment
+from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
 from app.services.email_webhook_ingest_enqueue import (
     enqueue_delivery_locations_import,
     enqueue_load_tendering_tender_created_ingest,
@@ -50,7 +48,7 @@ def _has_load_tender_xlsx_attachment(payload: dict[str, Any]) -> bool:
         return False
     if not isinstance(payload.get("attachments"), list):
         return False
-    return unipile_first_load_tender_xlsx_attachment(payload) is not None
+    return email_load_tender_xlsx_attachment(payload) is not None
 
 
 def _has_in_reply_to(payload: dict[str, Any]) -> bool:

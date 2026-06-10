@@ -20,7 +20,7 @@ def _xlsx_payload() -> dict:
         "attachments": [
             {
                 "id": "att-1",
-                "name": "load.xlsx",
+                "name": "customers_orders_load.xlsx",
                 "extension": "xlsx",
                 "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             },
@@ -75,7 +75,7 @@ async def test_process_returns_row_id_after_excel_ingest() -> None:
         "tenant_id": payload["account_id"],
         "data_type": "load_tender",
         "data": {},
-        "file_name": "load.xlsx",
+        "file_name": "customers_orders_load.xlsx",
     }
     with (
         patch(
