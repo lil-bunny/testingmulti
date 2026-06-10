@@ -76,6 +76,8 @@ def test_send_workflow_error_alert_email_channel(mock_send_email: MagicMock) -> 
     assert metadata["error_code"] == BusinessError.MISSING_PACK_CODE.value
     assert metadata["idempotency_key"]
     activity_log_service.record_action.assert_called_once()
+    write = activity_log_service.record_action.call_args.args[0]
+    assert write.description == BusinessError.MISSING_PACK_CODE.description
 
 
 @patch("app.services.workflow_error_alert_service.send_email")

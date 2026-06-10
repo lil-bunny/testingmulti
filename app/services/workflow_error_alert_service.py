@@ -257,7 +257,9 @@ class WorkflowErrorAlertService:
                 tenant_id=payload.tenant_id,
                 workflow_lifecycle_id=payload.workflow_lifecycle_id,
                 workflow_run_id=payload.workflow_run_id,
-                description=format_workflow_error_alert_sent_action(channel=channel),
+                description=format_workflow_error_alert_sent_action(
+                    error_code=error_code
+                ),
                 metadata=metadata,
                 communication_id=communication_id,
             )

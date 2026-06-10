@@ -10,6 +10,7 @@ from uuid import UUID
 
 from app.domain.spreadsheet_cells import identifier_string_from_cell
 from app.models.load_type import LoadType
+from app.models.weight_unit import WeightUnit
 
 
 def _parse_optional_date(val: Any) -> date | None:
@@ -106,22 +107,10 @@ def dedupe_projected_rows_by_order_and_position(
     return kept
 
 
-_KG_ALIASES = frozenset({"kg", "kgm", "kilogram", "kilograms"})
-_LB_ALIASES = frozenset({"lb", "lbs", "pound", "pounds"})
-
-
 def parse_weight_unit(val: Any) -> str | None:
-    """Normalize Ship Schedule ``ME`` cell to ``kg`` or ``lb`` enum label."""
-    if val is None:
-        return None
-    text = str(val).strip().casefold()
-    if not text:
-        return None
-    if text in _KG_ALIASES:
-        return "kg"
-    if text in _LB_ALIASES:
-        return "lb"
-    return None
+    """Normalize Ship Schedule ``ME`` cell to ``kg`` or ``lbs`` enum label."""
+    parsed = WeightUnit.parse(val)
+    return parsed.value if parsed is not None else None
 
 
 def resolve_pack_code_id(

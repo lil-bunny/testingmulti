@@ -19,7 +19,7 @@ def upgrade() -> None:
     op.execute(
         """
         DO $$ BEGIN
-            CREATE TYPE weight_unit AS ENUM ('kg', 'lb');
+            CREATE TYPE weight_unit AS ENUM ('kg', 'lbs');
         EXCEPTION
             WHEN duplicate_object THEN NULL;
         END $$;

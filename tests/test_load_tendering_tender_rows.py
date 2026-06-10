@@ -90,7 +90,7 @@ def test_mapper_product_happy_path() -> None:
 def test_mapper_metadata_po_number_from_besttxt() -> None:
     row = {
         "order_number": "PO-1",
-        "weight_unit": "LB",
+        "weight_unit": "LBS",
         "po_number": "4500123456",
     }
     out = projected_row_to_tender_insert(
@@ -129,9 +129,8 @@ def test_mapper_skips_blank_order_number() -> None:
     [
         ("KG", "kg"),
         ("KGM", "kg"),
-        ("lb", "lb"),
-        ("LBS", "lb"),
-        ("  LB  ", "lb"),
+        ("LBS", "lbs"),
+        ("  LBS  ", "lbs"),
         (None, None),
         ("", None),
         ("TON", None),
@@ -366,7 +365,7 @@ def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
         {
             "order_number": "N1",
             "order_position": 1,
-            "weight_unit": "LB",
+            "weight_unit": "LBS",
             "product_name": "P",
             "order_quantity": 2,
             "po_number": "BEST-PO-1",
@@ -383,7 +382,7 @@ def test_ingest_service_passes_metadata_po_number_to_repository() -> None:
         "customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN,
     }
     product_batch = products.insert_batch.call_args[0][0]
-    assert product_batch[0]["weight_unit"] == "lb"
+    assert product_batch[0]["weight_unit"] == "lbs"
 
 
 def test_ingest_duplicate_order_position_inserts_one_product_line() -> None:
@@ -462,7 +461,7 @@ def test_ingest_same_order_distinct_weight_unit_per_product_line() -> None:
         {
             "order_number": "93384",
             "order_position": 10,
-            "weight_unit": "LB",
+            "weight_unit": "LBS",
             "product_name": "Widget B",
             "order_quantity": 2,
         },
@@ -476,4 +475,4 @@ def test_ingest_same_order_distinct_weight_unit_per_product_line() -> None:
     product_batch = products.insert_batch.call_args[0][0]
     assert len(product_batch) == 2
     units_by_name = {p["product_name"]: p["weight_unit"] for p in product_batch}
-    assert units_by_name == {"Widget A": "kg", "Widget B": "lb"}
+    assert units_by_name == {"Widget A": "kg", "Widget B": "lbs"}

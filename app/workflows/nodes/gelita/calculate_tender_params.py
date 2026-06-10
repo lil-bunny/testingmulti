@@ -6,6 +6,7 @@ from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from app.domain.delivery_address import format_usps_mailing_address
+from app.models.weight_unit import WeightUnit
 from app.domain.load_tendering_settings import (
     gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
@@ -17,6 +18,13 @@ from app.services.tender_service import TenderService
 from app.workflows.utils.decorators import safe_node
 
 _PALLET_ROUND_TOLERANCE = Decimal("0.05")
+_KG_TO_LBS = Decimal("2.2046")
+
+
+def _product_weight_lbs(order_quantity: Decimal, weight_unit: WeightUnit) -> Decimal:
+    if weight_unit is WeightUnit.LBS:
+        return order_quantity
+    return order_quantity * _KG_TO_LBS
 
 
 def _round_pallet_count(pallets_raw: Decimal) -> int:
@@ -38,6 +46,7 @@ def gelita_calculate_params(
     total_qty,
     pallet_weight_lb,
     unit_price,
+    weight_unit: WeightUnit | str | None = None,
 ):
     """
     Per-product Gelita formulas.
@@ -56,8 +65,12 @@ def gelita_calculate_params(
     pallets_int = _round_pallet_count(pallets_raw)
     # pallets_dec = Decimal(pallets_int)
 
-    gross_weight_dec = (order_quantity * Decimal("2.2046")) + (
+    unit = WeightUnit.parse(weight_unit) or WeightUnit.KG
+    gross_weight_raw = _product_weight_lbs(order_quantity, unit) + (
         Decimal(str(pallet_weight_lb)) * pallets_int
+    )
+    gross_weight_dec = Decimal(
+        int(gross_weight_raw.to_integral_value(rounding=ROUND_CEILING))
     )
 
     product_value: Decimal | None = None
@@ -129,6 +142,10 @@ def calculate_tender_params(state):
         if total_qty is None or total_qty == 0:
             raise WorkflowException(BusinessError.MISSING_TOTAL_QTY)
 
+        pallet_dims = product.get("pallet_dims")
+        if pallet_dims is None or not str(pallet_dims).strip():
+            raise WorkflowException(BusinessError.MISSING_PALLET_DIMS)
+
         try:
             profile_key, pallet_profile = calc_settings.resolve_pallet_type(
                 product.get("pallet_type")
@@ -142,6 +159,7 @@ def calculate_tender_params(state):
             total_qty=total_qty,
             pallet_weight_lb=pallet_profile.weight_lbs,
             unit_price=product.get("price_per_unit"),
+            weight_unit=product.get("weight_unit"),
         )
 
         products_calc.append(
@@ -161,7 +179,7 @@ def calculate_tender_params(state):
             **product,
             "pieces_count": str(pieces_int),
             "pallets_count": str(pallets_int),
-            "gross_weight_lbs": f"{gross_weight_dec:,.2f}",
+            "gross_weight_lbs": f"{int(gross_weight_dec):,}",
             "qty_per_unit": str(qty_per_unit_dec),
             "total_qty": str(total_qty_dec),
             "product_value": product_value,
@@ -227,6 +245,7 @@ def calculate_tender_params(state):
             "pickup_address": pickup_formatted,
             "delivery_address": delivery_formatted,
             "pallets_count": str(total_pallets),
+            "gross_weight_lbs": f"{int(total_gross):,}",
             "load_type": load_type.lower(),
             "tender_products": enriched_products,
         },

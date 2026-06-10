@@ -23,6 +23,7 @@ from app.domain.activity_log_constants import (
     POD_ALREADY_ON_TMS_ACTION,
     POD_REVIEW_ACKNOWLEDGED_ACTION,
 )
+from app.domain.error_catalog import error_description
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 
@@ -112,10 +113,12 @@ def format_escalation_sent_action() -> str:
     return ESCALATION_SENT_ACTION
 
 
-def format_workflow_error_alert_sent_action(*, channel: str) -> str:
+def format_workflow_error_alert_sent_action(*, error_code: str) -> str:
     """Human-readable action text for one successful error alert delivery."""
-    label = (channel or "unknown").replace("_", " ").strip().title()
-    return f"Workflow error alert sent ({label})"
+    catalog_text = error_description(error_code)
+    if catalog_text:
+        return catalog_text
+    return (error_code or "unknown").replace("_", " ").strip().title()
 
 
 def format_ratecon_received_action() -> str:

@@ -25,6 +25,7 @@ from app.tools.tender_email import (
     _ltl_products_block,
     build_tender_email_input_from_tender,
 )
+from app.models.weight_unit import WeightUnit
 from app.workflows.nodes.gelita.calculate_tender_params import (
     _round_pallet_count,
     calculate_tender_params,
@@ -38,6 +39,7 @@ PACK_CODE_ID = "9d579b89-2280-4fb0-8f1b-12acf9c5f178"
 PACK_CODE = "5366"
 QTY_PER_UNIT = Decimal("15")
 TOTAL_QTY = Decimal("600")
+PALLET_DIMS = '48"x40"x5"'
 
 FTL_TENDER_ID = "86e5fd7a-42e5-430f-94d7-216589748c9c"
 FTL_ORDER_NUMBER = "96564"
@@ -47,6 +49,31 @@ LTL_TENDER_ID = "8dadc297-13db-4052-8737-299589b24241"
 LTL_ORDER_NUMBER = "96399"
 LTL_CUSTOMER_PO = "8510"
 SHIP_DATE = date(2026, 5, 22)
+
+
+def _email_product_line(
+    *,
+    product_name: str,
+    pieces_count: str,
+    pallets_count: str,
+    gross_weight_lbs: str,
+    price: str = "",
+    pack_code: str = PACK_CODE,
+    qty_per_unit: str = "15",
+    weight_unit: str = "kg",
+    pallet_dims: str = PALLET_DIMS,
+) -> TenderEmailProductLine:
+    return TenderEmailProductLine(
+        product_name=product_name,
+        pack_code=pack_code,
+        pieces_count=pieces_count,
+        qty_per_unit=qty_per_unit,
+        weight_unit=weight_unit,
+        pallets_count=pallets_count,
+        pallet_dims=pallet_dims,
+        gross_weight_lbs=gross_weight_lbs,
+        price=price,
+    )
 
 
 def _tenant_settings() -> dict:
@@ -87,6 +114,7 @@ def _ftl_bundle() -> dict:
                 "qty_per_unit": QTY_PER_UNIT,
                 "total_qty": TOTAL_QTY,
                 "pallet_type": "4-way wood",
+                "pallet_dims": PALLET_DIMS,
                 "metadata": {},
             }
         ],
@@ -108,6 +136,7 @@ def _ltl_bundle() -> dict:
             "qty_per_unit": QTY_PER_UNIT,
             "total_qty": TOTAL_QTY,
             "pallet_type": "4-way wood",
+            "pallet_dims": PALLET_DIMS,
             "metadata": {},
         }
 
@@ -149,6 +178,27 @@ def test_calculate_tender_params_missing_tenant_id_returns_error_code() -> None:
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_missing_pallet_dims_returns_error_code(
+    mock_svc_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["products"][0].pop("pallet_dims")
+    mock_svc.read_order.return_value = bundle
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    result = calculate_tender_params(state)
+
+    assert isinstance(result, dict)
+    error = result["data"]["error"]
+    assert error["code"] == BusinessError.MISSING_PALLET_DIMS
+    assert error["category"] == BusinessError.CATEGORY.value
+    assert error["message"] == BusinessError.MISSING_PALLET_DIMS.description
+    mock_svc.update_load_type.assert_not_called()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
 def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
@@ -177,12 +227,20 @@ def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> Non
     assert line["pieces_count"] == "448"
     assert line["pallets_count"] == "12"
     assert line["product_value"] == Decimal("138835.20")
+    assert tender["gross_weight_lbs"] == "15,415"
 
     ctx = build_tender_email_input_from_tender(tender)
-    block = _ftl_products_block(ctx.products)
-    assert "Pieces: 448" in block
-    assert "Number of pallets: 12" in block
+    block = _ftl_products_block(
+        ctx.products,
+        order_gross_weight_lbs=ctx.gross_weight_lbs,
+        order_value=ctx.order_value,
+    )
+    assert "Gross weight: ~15,415 pounds" in block
+    assert "Pieces: 448 bags @ 15kg each" in block
+    assert "Number of pallets: 12 pallets ~ 48&quot;x40&quot;x5&quot;" in block
+    assert block.count("Value:") == 1
     assert f"Value: {_format_price(Decimal('138835.20'))}" in block
+    assert block.index("Value:") < block.index("Product:")
     assert _format_price(Decimal("138835.20")) == "138,835.20"
 
 
@@ -214,17 +272,27 @@ def test_calculate_tender_params_order_96399_ltl(mock_svc_cls: MagicMock) -> Non
     fortibone = by_name["FORTIBONE (US)"]
     assert fortibone["pieces_count"] == "21"
     assert fortibone["pallets_count"] == "1"
-    assert fortibone["gross_weight_lbs"] == "744.45"
+    assert fortibone["gross_weight_lbs"] == "745"
 
     fortigel = by_name["FORTIGEL B (US)"]
     assert fortigel["pieces_count"] == "21"
     assert fortigel["pallets_count"] == "1"
-    assert fortigel["gross_weight_lbs"] == "744.45"
+    assert fortigel["gross_weight_lbs"] == "745"
 
     verisol = by_name["VERISOL® B (US)"]
     assert verisol["pieces_count"] == "11"
     assert verisol["pallets_count"] == "1"
-    assert verisol["gross_weight_lbs"] == "413.76"
+    assert verisol["gross_weight_lbs"] == "414"
+    assert tender["gross_weight_lbs"] == "1,904"
+
+    ctx = build_tender_email_input_from_tender(tender)
+    block = _ltl_products_block(
+        ctx.products,
+        order_gross_weight_lbs=ctx.gross_weight_lbs,
+    )
+    assert block.count("Gross weight:") == 1
+    assert "Gross weight: ~1,904 pounds" in block
+    assert "Pieces: 21 bags @ 15kg each" in block
 
 
 @pytest.mark.parametrize(
@@ -253,7 +321,35 @@ def test_gelita_calculate_params_uses_european_pallet_weight() -> None:
     )
     assert pieces == 40
     assert pallets == 1
-    assert gross == Decimal("1378.76")
+    assert gross == Decimal("1379")
+
+
+def test_gelita_calculate_params_kg_converts_to_lbs() -> None:
+    pieces, pallets, gross, _value = gelita_calculate_params(
+        order_quantity=Decimal("1000"),
+        qty_per_unit=Decimal("40"),
+        total_qty=Decimal("2000"),
+        pallet_weight_lb=50,
+        unit_price=None,
+        weight_unit=WeightUnit.KG,
+    )
+    assert pieces == 25
+    assert pallets == 1
+    assert gross == Decimal("2255")
+
+
+def test_gelita_calculate_params_lbs_skips_conversion() -> None:
+    pieces, pallets, gross, _value = gelita_calculate_params(
+        order_quantity=Decimal("1000"),
+        qty_per_unit=Decimal("40"),
+        total_qty=Decimal("2000"),
+        pallet_weight_lb=50,
+        unit_price=None,
+        weight_unit=WeightUnit.LBS,
+    )
+    assert pieces == 25
+    assert pallets == 1
+    assert gross == Decimal("1050")
 
 
 def test_gelita_calculate_params_matches_db_order_96564() -> None:
@@ -266,26 +362,24 @@ def test_gelita_calculate_params_matches_db_order_96564() -> None:
     )
     assert pieces == 448
     assert pallets == 12
-    assert gross == Decimal("15414.912")
+    assert gross == Decimal("15415")
     assert value == Decimal("138835.20")
 
 
 def test_ftl_products_block_combines_same_product_name() -> None:
     products = (
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="FORTIGEL B (US)",
-            pack_code="5366",
             pieces_count="10",
             pallets_count="2",
-            gross_weight_lbs="100.00",
+            gross_weight_lbs="100",
             price="1,000.00",
         ),
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="FORTIGEL B (US)",
-            pack_code="5366",
             pieces_count="15",
             pallets_count="3",
-            gross_weight_lbs="250.00",
+            gross_weight_lbs="250",
             price="2,500.00",
         ),
     )
@@ -293,28 +387,29 @@ def test_ftl_products_block_combines_same_product_name() -> None:
     block = _ftl_products_block(products)
 
     assert block.count("Product: FORTIGEL B (US)") == 1
-    assert "Pieces: 25" in block
-    assert "Number of pallets: 5" in block
+    assert "Pieces: 25 bags @ 15kg each" in block
+    assert "Number of pallets: 5 pallets ~ 48&quot;x40&quot;x5&quot;" in block
+    assert block.count("Value:") == 1
     assert "Value: 3,500.00" in block
-    assert "Gross weight" not in block
+    assert block.index("Value:") < block.index("Product: FORTIGEL B (US)")
+    assert block.count("Gross weight:") == 1
+    assert "Gross weight: ~350 pounds" in block
 
 
 def test_ltl_products_block_combines_same_product_name() -> None:
     products = (
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="FORTIGEL B (US)",
-            pack_code="5366",
             pieces_count="10",
             pallets_count="2",
-            gross_weight_lbs="100.00",
+            gross_weight_lbs="100",
             price="1,000.00",
         ),
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="FORTIGEL B (US)",
-            pack_code="5366",
             pieces_count="15",
             pallets_count="3",
-            gross_weight_lbs="250.00",
+            gross_weight_lbs="250",
             price="2,500.00",
         ),
     )
@@ -322,29 +417,28 @@ def test_ltl_products_block_combines_same_product_name() -> None:
     block = _ltl_products_block(products)
 
     assert block.count("Product: FORTIGEL B (US)") == 1
-    assert "Pieces: 25" in block
-    assert "Number of pallets: 5" in block
-    assert "Gross weight: ~350.00 pounds" in block
+    assert block.count("Gross weight:") == 1
+    assert "Pieces: 25 bags @ 15kg each" in block
+    assert "Number of pallets: 5 pallets ~ 48&quot;x40&quot;x5&quot;" in block
+    assert "Gross weight: ~350 pounds" in block
     assert block.index("Gross weight:") < block.index("Product: FORTIGEL B (US)")
     assert "Value:" not in block
 
 
 def test_products_block_keeps_different_product_names_separate() -> None:
     products = (
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="FORTIGEL B (US)",
-            pack_code="5366",
             pieces_count="10",
             pallets_count="2",
-            gross_weight_lbs="100.00",
+            gross_weight_lbs="100",
             price="1,000.00",
         ),
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="VERISOL B (US)",
-            pack_code="5366",
             pieces_count="15",
             pallets_count="3",
-            gross_weight_lbs="250.00",
+            gross_weight_lbs="250",
             price="2,500.00",
         ),
     )
@@ -352,34 +446,35 @@ def test_products_block_keeps_different_product_names_separate() -> None:
     block = _ftl_products_block(products)
 
     assert block.count("Product:") == 2
+    assert block.count("Gross weight:") == 1
+    assert block.count("Value:") == 1
+    assert "Value: 3,500.00" in block
+    assert "Gross weight: ~350 pounds" in block
     assert "Product: FORTIGEL B (US)" in block
     assert "Product: VERISOL B (US)" in block
 
 
 def test_products_block_uses_trim_exact_product_name_matching() -> None:
     products = (
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="FORTIGEL B (US)",
-            pack_code="5366",
             pieces_count="10",
             pallets_count="2",
-            gross_weight_lbs="100.00",
+            gross_weight_lbs="100",
             price="1,000.00",
         ),
-        TenderEmailProductLine(
+        _email_product_line(
             product_name=" FORTIGEL B (US) ",
-            pack_code="5366",
             pieces_count="15",
             pallets_count="3",
-            gross_weight_lbs="250.00",
+            gross_weight_lbs="250",
             price="2,500.00",
         ),
-        TenderEmailProductLine(
+        _email_product_line(
             product_name="fortigel b (us)",
-            pack_code="5366",
             pieces_count="20",
             pallets_count="4",
-            gross_weight_lbs="300.00",
+            gross_weight_lbs="300",
             price="3,000.00",
         ),
     )
@@ -387,17 +482,32 @@ def test_products_block_uses_trim_exact_product_name_matching() -> None:
     block = _ftl_products_block(products)
 
     assert block.count("Product: FORTIGEL B (US)") == 1
-    assert "Pieces: 25" in block
+    assert "Pieces: 25 bags @ 15kg each" in block
     assert "Product: fortigel b (us)" in block
-    assert "Pieces: 20" in block
+    assert "Pieces: 20 bags @ 15kg each" in block
+
+
+def test_format_bags_line_uses_lbs_weight_unit() -> None:
+    products = (
+        _email_product_line(
+            product_name="Gelatin",
+            pieces_count="25",
+            pallets_count="1",
+            gross_weight_lbs="1050",
+            qty_per_unit="50",
+            weight_unit="lbs",
+        ),
+    )
+    block = _ltl_products_block(products)
+    assert "Pieces: 25 bags @ 50lbs each" in block
 
 
 @pytest.mark.parametrize(
     ("product_name", "order_quantity", "pieces", "pallets", "gross"),
     [
-        ("FORTIBONE (US)", Decimal("315"), 21, 1, Decimal("744.449")),
-        ("FORTIGEL B (US)", Decimal("315"), 21, 1, Decimal("744.449")),
-        ("VERISOL® B (US)", Decimal("165"), 11, 1, Decimal("413.759")),
+        ("FORTIBONE (US)", Decimal("315"), 21, 1, Decimal("745")),
+        ("FORTIGEL B (US)", Decimal("315"), 21, 1, Decimal("745")),
+        ("VERISOL® B (US)", Decimal("165"), 11, 1, Decimal("414")),
     ],
 )
 def test_gelita_calculate_params_matches_db_order_96399_lines(
