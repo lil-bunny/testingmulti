@@ -90,7 +90,7 @@ def record_pod_tms_upload_activity(state):
 
     actor_type, actor_id = _resolve_actor(state)
 
-    recorded = record_pod_tms_upload_activity_fn(
+    sequence_result = record_pod_tms_upload_activity_fn(
         scope=scope,
         shipment_id=shipment_id,
         outcome=outcome,
@@ -98,6 +98,6 @@ def record_pod_tms_upload_activity(state):
         actor_type=actor_type,
         actor_id=actor_id,
     )
-    state.data["pod_tms_upload_activity_recorded"] = recorded
+    state.data["pod_tms_upload_activity_recorded"] = sequence_result is not None
     state.data["pod_tms_upload_outcome"] = outcome
     return state

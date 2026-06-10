@@ -30,14 +30,14 @@ def test_record_uploaded_activity_sequence_matches_ratecon_complete_pattern():
     svc = MagicMock()
     svc.record_sequence.return_value = MagicMock()
 
-    ok = record_pod_tms_upload_activity(
+    result = record_pod_tms_upload_activity(
         scope=_scope(),
         shipment_id="1000324895",
         outcome="uploaded",
         activity_log_service=svc,
     )
 
-    assert ok is True
+    assert result is not None
     sequence = svc.record_sequence.call_args[0][0]
     assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.ACTION
@@ -102,6 +102,21 @@ def test_record_skipped_when_already_on_tms_action_only():
     sequence = svc.record_sequence.call_args[0][0]
     assert len(sequence.steps) == 1
     assert sequence.steps[0].activity_type == ActivityType.ACTION
+
+
+def test_record_uploaded_activity_with_null_workflow_run_id():
+    svc = MagicMock()
+    svc.record_sequence.return_value = MagicMock()
+
+    record_pod_tms_upload_activity(
+        scope=_scope(workflow_run_id=None),
+        shipment_id="1000324895",
+        outcome="uploaded",
+        activity_log_service=svc,
+    )
+
+    sequence = svc.record_sequence.call_args[0][0]
+    assert sequence.workflow_run_id is None
 
 
 def test_record_failed_activity_marks_failed():

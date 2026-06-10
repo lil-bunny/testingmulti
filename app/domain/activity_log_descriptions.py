@@ -21,6 +21,7 @@ from app.domain.activity_log_constants import (
     POD_UPLOADED_TO_TMS_ACTION,
     POD_UPLOAD_TO_TMS_FAILED_ACTION,
     POD_ALREADY_ON_TMS_ACTION,
+    POD_REVIEW_ACKNOWLEDGED_ACTION,
 )
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -165,3 +166,7 @@ def format_pod_upload_to_tms_failed_action() -> str:
 
 def format_pod_already_on_tms_action() -> str:
     return POD_ALREADY_ON_TMS_ACTION
+
+
+def format_pod_review_acknowledged_action() -> str:
+    return POD_REVIEW_ACKNOWLEDGED_ACTION

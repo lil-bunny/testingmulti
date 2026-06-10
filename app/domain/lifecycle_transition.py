@@ -27,9 +27,9 @@ class LifecycleTransitionCommand:
     """One business transition: optional lifecycle update + optional activity log."""
 
     tenant_id: str
-    workflow_lifecycle_id: str
-    workflow_run_id: str
     activity_type: ActivityType
+    workflow_lifecycle_id: str
+    workflow_run_id: str | None = None
 
     to_status: StatusType | None = None
     to_sub_status: StatusSubType | None = None
@@ -96,11 +96,13 @@ class LifecycleTransitionCommand:
         if comm is None and isinstance(data, dict):
             comm = data.get("communication_id")
 
+        wl_clean = str(wl or "").strip() or None
+        wr_clean = str(wr or "").strip() or None
         return cls(
             tenant_id=str(tenant_raw or "").strip(),
-            workflow_lifecycle_id=str(wl or "").strip(),
-            workflow_run_id=str(wr or "").strip(),
             activity_type=activity_type,
+            workflow_lifecycle_id=wl_clean or "",
+            workflow_run_id=wr_clean,
             to_status=to_status,
             to_sub_status=to_sub_status,
             description=description,

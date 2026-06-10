@@ -15,7 +15,7 @@ class ActivityLogWrite:
 
     tenant_id: str
     workflow_lifecycle_id: str
-    workflow_run_id: str
+    workflow_run_id: str | None = None
 
     description: str | None = None
     metadata: dict[str, Any] | None = None
@@ -58,8 +58,8 @@ class ActivityLogSequence:
 
     tenant_id: str
     workflow_lifecycle_id: str
-    workflow_run_id: str
     steps: tuple[ActivityLogStep, ...]
+    workflow_run_id: str | None = None
 
     actor_type: ActorType | None = ActorType.SYSTEM
     actor_id: str | None = None

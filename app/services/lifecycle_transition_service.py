@@ -82,8 +82,8 @@ class LifecycleTransitionService:
         activity_logs: ActivityLogsRepository,
         *,
         tenant_uuid: str,
-        lifecycle_id: str,
-        run_id: str,
+        lifecycle_id: str | None,
+        run_id: str | None,
         command: LifecycleTransitionCommand,
         actor_type: ActorType,
         actor_id: str,
@@ -140,8 +140,8 @@ class LifecycleTransitionService:
         *,
         command: LifecycleTransitionCommand,
         tenant_uuid: str,
-        lifecycle_id: str,
-        run_id: str,
+        lifecycle_id: str | None,
+        run_id: str | None,
         row: dict[str, Any] | None,
         current_status: StatusType | None,
         current_sub: StatusSubType | None,
@@ -216,20 +216,30 @@ class LifecycleTransitionService:
 
     def _prepare_scope(
         self, command: LifecycleTransitionCommand
-    ) -> tuple[str, str, str, ActorType, str]:
+    ) -> tuple[str, str | None, str | None, ActorType, str]:
         tenant_uuid = resolve_graph_tenant_to_uuid(self._clean(command.tenant_id))
         if not tenant_uuid:
             raise LifecycleTransitionError(
                 f"cannot resolve tenant_id={command.tenant_id!r} to tenants.id"
             )
+
+        lifecycle_raw = self._clean(command.workflow_lifecycle_id)
+        run_raw = self._clean(command.workflow_run_id)
+        if lifecycle_raw is None:
+            raise LifecycleTransitionError("workflow_lifecycle_id is required")
         lifecycle_id = self._uuid_or_raise(
             command.workflow_lifecycle_id,
             field_name="workflow_lifecycle_id",
         )
-        run_id = self._uuid_or_raise(
-            command.workflow_run_id,
-            field_name="workflow_run_id",
+        run_id = (
+            self._uuid_or_raise(
+                command.workflow_run_id,
+                field_name="workflow_run_id",
+            )
+            if run_raw is not None
+            else None
         )
+
         actor_type = command.actor_type or ActorType.SYSTEM
         actor_id = self._clean(command.actor_id)
         if not actor_id and actor_type == ActorType.SYSTEM:
@@ -246,11 +256,13 @@ class LifecycleTransitionService:
             command
         )
 
-        row = lifecycles.get_for_update(lifecycle_id=lifecycle_id)
-        if row is None and command.require_lifecycle_row:
-            raise LifecycleTransitionError(
-                f"workflow_lifecycle not found id={lifecycle_id}"
-            )
+        row: dict[str, Any] | None = None
+        if lifecycle_id is not None:
+            row = lifecycles.get_for_update(lifecycle_id=lifecycle_id)
+            if row is None and command.require_lifecycle_row:
+                raise LifecycleTransitionError(
+                    f"workflow_lifecycle not found id={lifecycle_id}"
+                )
 
         current_status, current_sub = self._resolve_current_status(command, row)
         (
@@ -324,6 +336,9 @@ class LifecycleTransitionService:
         activity_log_ids: list[str | None] = []
         any_lifecycle_updated = False
 
+        if lifecycle_id is None:
+            raise LifecycleTransitionError("apply_sequence requires workflow_lifecycle_id")
+
         row = lifecycles.get_for_update(lifecycle_id=lifecycle_id)
         if row is None and first.require_lifecycle_row:
             raise LifecycleTransitionError(
@@ -338,20 +353,25 @@ class LifecycleTransitionService:
                 raise LifecycleTransitionError(
                     "apply_sequence commands must share tenant_id"
                 )
-            if (
-                self._uuid_or_raise(
-                    command.workflow_lifecycle_id,
-                    field_name="workflow_lifecycle_id",
-                )
-                != lifecycle_id
-                or self._uuid_or_raise(
-                    command.workflow_run_id, field_name="workflow_run_id"
-                )
-                != run_id
-            ):
+            cmd_lifecycle = self._uuid_or_raise(
+                command.workflow_lifecycle_id,
+                field_name="workflow_lifecycle_id",
+            )
+            if cmd_lifecycle != lifecycle_id:
                 raise LifecycleTransitionError(
-                    "apply_sequence commands must share "
-                    "workflow_lifecycle_id and workflow_run_id"
+                    "apply_sequence commands must share workflow_lifecycle_id"
+                )
+            cmd_run_raw = self._clean(command.workflow_run_id)
+            if cmd_run_raw is None:
+                cmd_run_id = None
+            else:
+                cmd_run_id = self._uuid_or_raise(
+                    command.workflow_run_id,
+                    field_name="workflow_run_id",
+                )
+            if cmd_run_id != run_id:
+                raise LifecycleTransitionError(
+                    "apply_sequence commands must share workflow_run_id"
                 )
 
             step_actor_type = command.actor_type or actor_type

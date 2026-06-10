@@ -176,6 +176,106 @@ def test_record_activity_skips_without_lifecycle_and_run(mock_repo: MagicMock) -
     assert out is None
 
 
+def test_record_action_skips_without_workflow_lifecycle_id(mock_repo: MagicMock) -> None:
+    svc = ActivityLogService(repository=mock_repo)
+    out = svc.record_action(
+        _write(
+            workflow_lifecycle_id="",
+            workflow_run_id=None,
+            description="PoD review acknowledged",
+        )
+    )
+    assert out is None
+
+
+@patch("app.services.activity_log_service.LifecycleTransitionService")
+def test_record_action_portal_lifecycle_scoped_without_run_id(
+    mock_transition_cls: MagicMock,
+    mock_repo: MagicMock,
+) -> None:
+    from app.domain.lifecycle_transition import LifecycleTransitionResult
+
+    mock_transition = MagicMock()
+    mock_transition.apply.return_value = LifecycleTransitionResult(
+        lifecycle_updated=False,
+        activity_log_id=ACTIVITY_UUID,
+        from_status=StatusType.PROCESSING,
+        from_sub_status=StatusSubType.POD_STARTED,
+        to_status=StatusType.PROCESSING,
+        to_sub_status=StatusSubType.POD_STARTED,
+    )
+    mock_transition_cls.return_value = mock_transition
+
+    svc = ActivityLogService(repository=mock_repo)
+    out = svc.record_action(
+        _write(
+            workflow_lifecycle_id=LIFECYCLE_UUID,
+            workflow_run_id=None,
+            description="PoD review acknowledged",
+        )
+    )
+
+    assert out == ACTIVITY_UUID
+    command = mock_transition.apply.call_args[0][0]
+    assert command.workflow_lifecycle_id == LIFECYCLE_UUID
+    assert command.workflow_run_id is None
+    assert command.update_lifecycle is False
+
+
+@patch("app.services.activity_log_service.LifecycleTransitionService")
+def test_record_sequence_portal_lifecycle_scoped_without_run_id(
+    mock_transition_cls: MagicMock,
+    mock_repo: MagicMock,
+) -> None:
+    from app.domain.lifecycle_transition import LifecycleTransitionSequenceResult
+
+    mock_transition = MagicMock()
+    mock_transition.apply_sequence.return_value = LifecycleTransitionSequenceResult(
+        activity_log_ids=[ACTIVITY_UUID, "ffffffff-ffff-ffff-ffff-ffffffffffff"],
+        lifecycle_updated=True,
+    )
+    mock_transition_cls.return_value = mock_transition
+
+    svc = ActivityLogService(repository=mock_repo)
+    result = svc.record_sequence(
+        ActivityLogSequence(
+            tenant_id=TENANT_UUID,
+            workflow_lifecycle_id=LIFECYCLE_UUID,
+            workflow_run_id=None,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description="POD document uploaded to TMS",
+                ),
+                ActivityLogStep(
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    to_status=StatusType.COMPLETED,
+                    to_sub_status=StatusSubType.UPLOADED_TO_TMS,
+                ),
+            ),
+        )
+    )
+
+    assert result is not None
+    mock_transition.apply_sequence.assert_called_once()
+    commands = mock_transition.apply_sequence.call_args[0]
+    assert commands[0].workflow_run_id is None
+
+
+def test_record_status_change_skips_without_lifecycle_and_run(
+    mock_repo: MagicMock,
+) -> None:
+    svc = ActivityLogService(repository=mock_repo)
+    out = svc.record_status_change(
+        _write(
+            workflow_lifecycle_id="",
+            workflow_run_id=None,
+            to_status=StatusType.COMPLETED,
+        )
+    )
+    assert out is None
+
+
 def test_record_from_workflow_state(mock_repo: MagicMock) -> None:
     state = WorkflowState(
         tenant_id="gelita",

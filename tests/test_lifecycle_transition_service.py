@@ -205,6 +205,122 @@ def test_apply_action_snapshots_lifecycle_without_update(
     assert result.to_status == StatusType.PENDING_REVIEW
 
 
+def test_apply_requires_workflow_lifecycle_id() -> None:
+    svc = LifecycleTransitionService(
+        lifecycles_repo=MagicMock(),
+        activity_logs_repo=MagicMock(),
+    )
+    with pytest.raises(LifecycleTransitionError, match="workflow_lifecycle_id is required"):
+        svc.apply(
+            _command(
+                activity_type=ActivityType.ACTION,
+                workflow_lifecycle_id="",
+                workflow_run_id=None,
+                description="PoD review acknowledged",
+                update_lifecycle=False,
+            )
+        )
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_apply_portal_lifecycle_scoped_action_without_run_id(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.POD_STARTED.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "pod_lifecycle",
+    }
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply(
+        _command(
+            activity_type=ActivityType.ACTION,
+            workflow_run_id=None,
+            description="PoD review acknowledged",
+            update_lifecycle=False,
+            actor_type=ActorType.USER,
+            actor_id="99999999-9999-9999-9999-999999999999",
+        )
+    )
+
+    lifecycles.get_for_update.assert_called_once_with(lifecycle_id=LIFECYCLE_UUID)
+    lifecycles.update_status.assert_not_called()
+    row = activity_logs.insert.call_args[0][0]
+    assert row["workflow_lifecycle_id"] == LIFECYCLE_UUID
+    assert row["workflow_run_id"] is None
+    assert row["from_status"] == StatusType.PROCESSING.value
+    assert row["to_status"] == StatusType.PROCESSING.value
+    assert row["from_sub_status"] == StatusSubType.POD_STARTED.value
+    assert row["to_sub_status"] == StatusSubType.POD_STARTED.value
+    assert result.activity_log_id == ACTIVITY_UUID
+    assert result.lifecycle_updated is False
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
+def test_apply_sequence_portal_lifecycle_scoped_without_run_id(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.POD_STARTED.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "pod_lifecycle",
+    }
+    lifecycles.update_status.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert.side_effect = [
+        ACTIVITY_UUID,
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    ]
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    action = _command(
+        activity_type=ActivityType.ACTION,
+        workflow_run_id=None,
+        description="POD document uploaded to TMS",
+        update_lifecycle=False,
+        actor_type=ActorType.USER,
+        actor_id="99999999-9999-9999-9999-999999999999",
+    )
+    status_change = _command(
+        activity_type=ActivityType.STATUS_CHANGE,
+        workflow_run_id=None,
+        to_status=StatusType.COMPLETED,
+        to_sub_status=StatusSubType.UPLOADED_TO_TMS,
+        actor_type=ActorType.USER,
+        actor_id="99999999-9999-9999-9999-999999999999",
+    )
+
+    result = svc.apply_sequence(action, status_change)
+
+    lifecycles.update_status.assert_called_once()
+    assert activity_logs.insert.call_count == 2
+    assert result.activity_log_ids == [
+        ACTIVITY_UUID,
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    ]
+    first_row = activity_logs.insert.call_args_list[0][0][0]
+    assert first_row["workflow_run_id"] is None
+
+
 @patch(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,

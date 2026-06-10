@@ -10,7 +10,11 @@ from app.domain.activity_log_descriptions import (
     format_pod_upload_to_tms_failed_action,
     format_pod_uploaded_to_tms_action,
 )
-from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
+from app.domain.activity_log_write import (
+    ActivityLogSequence,
+    ActivityLogSequenceResult,
+    ActivityLogStep,
+)
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
@@ -23,7 +27,7 @@ PodTmsUploadOutcome = Literal["uploaded", "skipped", "failed"]
 class PodLifecycleScope:
     tenant_id: str
     workflow_lifecycle_id: str
-    workflow_run_id: str
+    workflow_run_id: str | None
     shipments_row_id: str | None
     from_status: StatusType
     from_sub_status: StatusSubType
@@ -118,7 +122,7 @@ def record_pod_tms_upload_activity(
     actor_type: ActorType | None = None,
     actor_id: str | None = None,
     activity_log_service: ActivityLogService | None = None,
-) -> bool:
+) -> ActivityLogSequenceResult | None:
     """Write activity log + lifecycle transition for POD TMS upload outcome."""
     svc = activity_log_service or ActivityLogService()
 
@@ -156,7 +160,7 @@ def record_pod_tms_upload_activity(
             ),
         )
 
-    result = svc.record_sequence(
+    return svc.record_sequence(
         ActivityLogSequence(
             tenant_id=scope.tenant_id,
             workflow_lifecycle_id=scope.workflow_lifecycle_id,
@@ -166,14 +170,33 @@ def record_pod_tms_upload_activity(
             steps=steps,
         )
     )
-    return result is not None
+
+
+def expected_completion_status(
+    scope: PodLifecycleScope,
+) -> tuple[StatusType, StatusSubType]:
+    """Terminal status after a successful uploaded/skipped/portal-resolve completion."""
+    transition = _completed_transition_step(scope=scope, meta={})
+    if transition is None:
+        return scope.from_status, scope.from_sub_status
+    if transition.activity_type == ActivityType.STATUS_CHANGE:
+        return (
+            transition.to_status or StatusType.COMPLETED,
+            transition.to_sub_status or StatusSubType.UPLOADED_TO_TMS,
+        )
+    return (
+        scope.from_status
+        if scope.from_status != StatusType.NONE
+        else StatusType.COMPLETED,
+        transition.to_sub_status or StatusSubType.UPLOADED_TO_TMS,
+    )
 
 
 def scope_from_lifecycle_row(
     *,
     tenant_id: str,
     workflow_lifecycle_id: str,
-    workflow_run_id: str,
+    workflow_run_id: str | None = None,
     lifecycle_row: dict[str, Any],
     shipments_row_id: str | None = None,
 ) -> PodLifecycleScope:

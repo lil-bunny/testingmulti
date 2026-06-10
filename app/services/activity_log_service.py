@@ -62,22 +62,44 @@ class ActivityLogService:
             )
             return None
 
-    def _validate_scope(self, write: ActivityLogWrite) -> tuple[str, str, str] | None:
+    def _validate_scope(
+        self,
+        write: ActivityLogWrite,
+        *,
+        portal_lifecycle_scoped: bool = False,
+    ) -> tuple[str | None, str | None, str] | None:
+        tenant_id = self._clean(write.tenant_id)
+        if not tenant_id:
+            logger.warning("activity_log skipped: tenant_id is required")
+            return None
+
         wl = self._uuid_or_none(
             write.workflow_lifecycle_id, field_name="workflow_lifecycle_id"
         )
         wr = self._uuid_or_none(write.workflow_run_id, field_name="workflow_run_id")
-        if not wl or not wr:
+
+        if wl is None:
             logger.warning(
-                "activity_log skipped: workflow_lifecycle_id and workflow_run_id required "
+                "activity_log skipped: workflow_lifecycle_id is required "
                 "(tenant_id=%r)",
                 write.tenant_id,
             )
             return None
-        if not self._clean(write.tenant_id):
-            logger.warning("activity_log skipped: tenant_id is required")
-            return None
-        return wl, wr, self._clean(write.tenant_id) or ""
+
+        if wr:
+            return wl, wr, tenant_id
+
+        if portal_lifecycle_scoped:
+            return wl, None, tenant_id
+
+        logger.warning(
+            "activity_log skipped: invalid workflow scope "
+            "(tenant_id=%r lifecycle_id=%r run_id=%r)",
+            write.tenant_id,
+            write.workflow_lifecycle_id,
+            write.workflow_run_id,
+        )
+        return None
 
     def _to_command(
         self,
@@ -85,8 +107,12 @@ class ActivityLogService:
         *,
         activity_type: ActivityType,
         update_lifecycle: bool | None = None,
+        portal_lifecycle_scoped: bool = False,
     ) -> LifecycleTransitionCommand | None:
-        scope = self._validate_scope(write)
+        scope = self._validate_scope(
+            write,
+            portal_lifecycle_scoped=portal_lifecycle_scoped,
+        )
         if scope is None:
             return None
         wl, wr, tenant_id = scope
@@ -122,7 +148,7 @@ class ActivityLogService:
         step: ActivityLogStep,
         *,
         wl: str,
-        wr: str,
+        wr: str | None,
         tenant_id: str,
     ) -> LifecycleTransitionCommand:
         if step.update_lifecycle is None:
@@ -202,8 +228,15 @@ class ActivityLogService:
 
     def record_action(self, write: ActivityLogWrite) -> str | None:
         """One ``action`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
+        wl = self._uuid_or_none(
+            write.workflow_lifecycle_id, field_name="workflow_lifecycle_id"
+        )
+        wr = self._uuid_or_none(write.workflow_run_id, field_name="workflow_run_id")
         command = self._to_command(
-            write, activity_type=ActivityType.ACTION, update_lifecycle=False
+            write,
+            activity_type=ActivityType.ACTION,
+            update_lifecycle=False,
+            portal_lifecycle_scoped=wr is None,
         )
         return self._apply_command(command)
 
@@ -241,12 +274,16 @@ class ActivityLogService:
                 activity_log_ids=[], lifecycle_updated=False
             )
 
+        run_id = self._uuid_or_none(
+            sequence.workflow_run_id, field_name="workflow_run_id"
+        )
         scope = self._validate_scope(
             ActivityLogWrite(
                 tenant_id=sequence.tenant_id,
                 workflow_lifecycle_id=sequence.workflow_lifecycle_id,
                 workflow_run_id=sequence.workflow_run_id,
-            )
+            ),
+            portal_lifecycle_scoped=run_id is None,
         )
         if scope is None:
             return None
