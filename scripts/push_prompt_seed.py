@@ -21,11 +21,13 @@ from app.core.config import settings  # noqa: E402
 from app.domain.prompt_hub_refs import (  # noqa: E402
     CARRIER_ACK_CLASSIFY_PROMPT,
     POD_PAGE_EXTRACTION_PROMPT,
+    POD_VS_RATECON_SEMANTIC_MATCH_PROMPT,
     POD_VS_RATECON_SUMMARY_PROMPT,
     RATECON_PAGE_EXTRACTION_PROMPT,
     hub_prompt_id,
 )
 from app.domain.pod_vs_ratecon_prompt_templates import (  # noqa: E402
+    build_pod_vs_ratecon_semantic_match_seed_prompt,
     build_pod_vs_ratecon_summary_seed_prompt,
 )
 from app.domain.vision_prompt_templates import (  # noqa: E402
@@ -114,6 +116,7 @@ def main() -> None:
             "pod",
             "ratecon",
             "pod-vs-ratecon",
+            "pod-vs-ratecon-semantic",
             "all",
         ],
         default="all",
@@ -132,6 +135,13 @@ def main() -> None:
     if args.prompt in ("pod-vs-ratecon", "all"):
         targets.append(
             (POD_VS_RATECON_SUMMARY_PROMPT, build_pod_vs_ratecon_summary_seed_prompt())
+        )
+    if args.prompt in ("pod-vs-ratecon-semantic", "all"):
+        targets.append(
+            (
+                POD_VS_RATECON_SEMANTIC_MATCH_PROMPT,
+                build_pod_vs_ratecon_semantic_match_seed_prompt(),
+            )
         )
 
     for prompt_name, template in targets:

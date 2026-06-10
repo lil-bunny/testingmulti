@@ -150,3 +150,30 @@ def resolve_pod_vs_ratecon_summary_prompts(
             pod_analysis,
         ),
     )
+
+
+def resolve_pod_vs_ratecon_semantic_match_prompts(
+    tenant_settings: dict[str, Any] | None,
+    field_type: str,
+    pod_value: str,
+    ratecon_value: str,
+    *,
+    prompt_service: PromptService | None = None,
+) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    from app.domain.pod_vs_ratecon_prompt_templates import (
+        render_inline_pod_vs_ratecon_semantic_match_prompts,
+        semantic_match_prompt_variables,
+    )
+    from app.domain.prompt_step_keys import POD_VS_RATECON_SEMANTIC_MATCH
+
+    service = prompt_service or PromptService()
+    return service.render_vision_step(
+        tenant_settings,
+        POD_VS_RATECON_SEMANTIC_MATCH,
+        semantic_match_prompt_variables(field_type, pod_value, ratecon_value),
+        inline_fallback=render_inline_pod_vs_ratecon_semantic_match_prompts(
+            field_type,
+            pod_value,
+            ratecon_value,
+        ),
+    )

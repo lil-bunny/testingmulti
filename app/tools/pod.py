@@ -516,7 +516,11 @@ def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
         }
 
     try:
-        cross = validate_pod_against_ratecon(pod_data, ratecon_data)
+        cross = validate_pod_against_ratecon(
+            pod_data,
+            ratecon_data,
+            tenant_settings=data.get("tenant_settings"),
+        )
         summary_result = generate_validation_summary(
             cross,
             pod_data,

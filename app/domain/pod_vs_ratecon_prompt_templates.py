@@ -81,3 +81,52 @@ def build_pod_vs_ratecon_summary_seed_prompt() -> ChatPromptTemplate:
             ("human", POD_VS_RATECON_SUMMARY_USER),
         ]
     )
+
+
+POD_VS_RATECON_SEMANTIC_MATCH_SYSTEM = (
+    "You are a logistics data auditor. Your task is to determine if a value from a "
+    "Proof of Delivery (POD) matches the corresponding value on a Rate Confirmation "
+    "(Rate Con), even if the names are different.\n\n"
+    "Consider corporate relationships (e.g., a parent company on the Rate Con and a "
+    "specific store brand on the POD), common abbreviations, and other real-world "
+    "variations.\n\n"
+    'Answer ONLY with a single JSON object with the keys "match" (boolean) and '
+    '"reason" (a brief explanation).'
+)
+
+POD_VS_RATECON_SEMANTIC_MATCH_USER = """Field being compared: '{field_type}'
+Rate Confirmation Value: "{ratecon_value}"
+Proof of Delivery Value: "{pod_value}"
+
+Do these represent a valid match for auditing purposes?"""
+
+
+def semantic_match_prompt_variables(
+    field_type: str,
+    pod_value: str,
+    ratecon_value: str,
+) -> dict[str, str]:
+    return {
+        "field_type": field_type,
+        "pod_value": pod_value,
+        "ratecon_value": ratecon_value,
+    }
+
+
+def render_inline_pod_vs_ratecon_semantic_match_prompts(
+    field_type: str,
+    pod_value: str,
+    ratecon_value: str,
+) -> tuple[str, str]:
+    variables = semantic_match_prompt_variables(field_type, pod_value, ratecon_value)
+    user = POD_VS_RATECON_SEMANTIC_MATCH_USER.format(**variables)
+    return POD_VS_RATECON_SEMANTIC_MATCH_SYSTEM, user
+
+
+def build_pod_vs_ratecon_semantic_match_seed_prompt() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", POD_VS_RATECON_SEMANTIC_MATCH_SYSTEM),
+            ("human", POD_VS_RATECON_SEMANTIC_MATCH_USER),
+        ]
+    )

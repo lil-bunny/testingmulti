@@ -44,7 +44,8 @@
   "prompts": {
     "pod_lifecycle.page_extraction": "pod-page-extraction:staging",
     "ratecon.page_extraction": "ratecon-page-extraction:staging",
-    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging"
+    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
+    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
   },
   "mikey_account_id": "umo3hTOoQ4KXxkZ1uKnIPg",
   "email_webhook_name": "t3ra"

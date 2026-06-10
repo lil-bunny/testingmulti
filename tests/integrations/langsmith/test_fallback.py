@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.domain.prompt_step_keys import (
     LOAD_TENDERING_CARRIER_ACK,
     POD_PAGE_EXTRACTION,
+    POD_VS_RATECON_SEMANTIC_MATCH,
     POD_VS_RATECON_SUMMARY,
     RATECON_PAGE_EXTRACTION,
 )
@@ -49,6 +50,10 @@ def test_t3ra_fixture_prompt_refs_match_fallback_hub_ids() -> None:
     assert hub_id_from_tenant_prompt_ref(prompts[POD_PAGE_EXTRACTION]) == "pod-page-extraction"
     assert hub_id_from_tenant_prompt_ref(prompts[RATECON_PAGE_EXTRACTION]) == "ratecon-page-extraction"
     assert hub_id_from_tenant_prompt_ref(prompts[POD_VS_RATECON_SUMMARY]) == "pod-vs-ratecon-summary"
+    assert (
+        hub_id_from_tenant_prompt_ref(prompts[POD_VS_RATECON_SEMANTIC_MATCH])
+        == "pod-vs-ratecon-semantic-match"
+    )
 
 
 def test_load_pod_vs_ratecon_summary_fallback_renders_variables() -> None:
@@ -66,6 +71,22 @@ def test_load_pod_vs_ratecon_summary_fallback_renders_variables() -> None:
     assert "logistics validation expert" in rendered.system.lower()
     assert "overall_status" in rendered.user
     assert "signed" in rendered.user
+
+
+def test_load_pod_vs_ratecon_semantic_match_fallback_renders_variables() -> None:
+    template = load_fallback_prompt("pod-vs-ratecon-semantic-match")
+    rendered = render_system_user(
+        template,
+        {
+            "field_type": "pickup_address",
+            "pod_value": "RIPON, CA 95366",
+            "ratecon_value": "2151 River Plaza Dr, Sacramento, CA, 95833",
+        },
+    )
+    assert "logistics data auditor" in rendered.system.lower()
+    assert "pickup_address" in rendered.user
+    assert "RIPON" in rendered.user
+    assert "Sacramento" in rendered.user
 
 
 def test_load_pod_page_fallback_renders_broker_context() -> None:

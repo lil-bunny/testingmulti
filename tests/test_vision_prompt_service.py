@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from app.domain.prompt_step_keys import (
     POD_PAGE_EXTRACTION,
+    POD_VS_RATECON_SEMANTIC_MATCH,
     POD_VS_RATECON_SUMMARY,
     RATECON_PAGE_EXTRACTION,
 )
@@ -14,6 +15,7 @@ from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.prompt_service import (
     PromptService,
     resolve_pod_vision_prompts,
+    resolve_pod_vs_ratecon_semantic_match_prompts,
     resolve_pod_vs_ratecon_summary_prompts,
     resolve_ratecon_vision_prompts,
 )
@@ -100,6 +102,7 @@ def test_t3ra_fixture_has_pod_and_ratecon_prompt_refs() -> None:
     assert prompts[POD_PAGE_EXTRACTION] == "pod-page-extraction:staging"
     assert prompts[RATECON_PAGE_EXTRACTION] == "ratecon-page-extraction:staging"
     assert prompts[POD_VS_RATECON_SUMMARY] == "pod-vs-ratecon-summary:staging"
+    assert prompts[POD_VS_RATECON_SEMANTIC_MATCH] == "pod-vs-ratecon-semantic-match:staging"
 
 
 def test_resolve_pod_vs_ratecon_summary_includes_validation_json() -> None:
@@ -126,3 +129,30 @@ def test_resolve_pod_vs_ratecon_summary_includes_validation_json() -> None:
     assert "overall_status" in variables["cross_validation_json"]
     assert variables["signature_present"] == "True"
     assert variables["delivery_confirmation_reasoning"] == "signed"
+
+
+def test_resolve_pod_vs_ratecon_semantic_match_includes_field_values() -> None:
+    client = MagicMock()
+    client.load_and_render.return_value = (
+        RenderedPrompt(system="sys", user="usr"),
+        PromptLoadMetadata(
+            source="hub",
+            tenant_prompt_ref="pod-vs-ratecon-semantic-match:staging",
+        ),
+    )
+    prompt_service = PromptService(prompt_client=client)
+    resolve_pod_vs_ratecon_semantic_match_prompts(
+        {
+            "prompts": {
+                POD_VS_RATECON_SEMANTIC_MATCH: "pod-vs-ratecon-semantic-match:staging",
+            }
+        },
+        "pickup_address",
+        "RIPON, CA 95366",
+        "2151 River Plaza Dr, Sacramento, CA, 95833",
+        prompt_service=prompt_service,
+    )
+    _ref, variables = client.load_and_render.call_args[0]
+    assert variables["field_type"] == "pickup_address"
+    assert variables["pod_value"] == "RIPON, CA 95366"
+    assert variables["ratecon_value"] == "2151 River Plaza Dr, Sacramento, CA, 95833"
