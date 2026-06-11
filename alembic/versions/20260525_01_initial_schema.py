@@ -1,15 +1,12 @@
 """FreightX initial schema (greenfield bootstrap, DDL only).
 
-Revision ID: 0001_freightx_initial
+Revision ID: 20260611_01
 Revises:
-Create Date: 2026-05-23
+Create Date: 2026-06-11
 
 Single revision for a new database: FreightX application tables only.
-Excludes LangGraph checkpoint tables and legacy tables
+Excludes LangGraph checkpoint tables and legacy portal tables
 (documents1, turvo_user_oauth, users, user_roles).
-Schema aligned with MCP at incremental head ``20260523_02`` (deduplicated FKs).
-
-Upgrade DDL is idempotent (IF NOT EXISTS) for tables and indexes; enum types use plain CREATE TYPE.
 """
 
 from typing import Sequence, Union
@@ -53,7 +50,13 @@ def upgrade() -> None:
             'accepted',
             'rejected',
             'do_nothing',
-            'escalated'
+            'escalated',
+            'reminder_3_sent',
+            'pod_started',
+            'ratecon_started',
+            'document_uploaded',
+            'document_processed',
+            'uploaded_to_tms'
         )
         """
     )
@@ -80,7 +83,8 @@ def upgrade() -> None:
             'tender_created',
             'carrier_email_received',
             'ack_received',
-            'escalation_due'
+            'escalation_due',
+            'manual_pod_upload'
         )
         """
     )
@@ -104,7 +108,6 @@ def upgrade() -> None:
     )
     op.execute(
         """
-     
         CREATE TYPE communication_channel AS ENUM (
             'email', 'slack', 'teams'
         )
@@ -130,10 +133,15 @@ def upgrade() -> None:
         )
         """
     )
+    op.execute(
+        """
+        CREATE TYPE weight_unit AS ENUM ('kg', 'lbs')
+        """
+    )
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS tenants (
+        CREATE TABLE tenants (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             name VARCHAR(255),
             slug TEXT NOT NULL,
@@ -147,11 +155,12 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS locations (
+        CREATE TABLE locations (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             city TEXT,
-            state TEXT,
             state_code TEXT,
+            postal_code TEXT,
+            country TEXT NOT NULL DEFAULT 'US',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -160,17 +169,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS organizations (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            name TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS pack_codes (
+        CREATE TABLE pack_codes (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
@@ -192,7 +191,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS data_imports (
+        CREATE TABLE data_imports (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL REFERENCES tenants(id),
             data_type data_import_data_type NOT NULL,
@@ -207,47 +206,15 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS documents (
-            id TEXT PRIMARY KEY,
-            type document_type NOT NULL,
-            shipment_id TEXT NOT NULL,
-            object_key TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document_analysis (
-            id TEXT PRIMARY KEY,
-            shipment_id TEXT NOT NULL,
-            analysis_type document_analysis_type NOT NULL,
-            status TEXT,
-            confidence_score DOUBLE PRECISION,
-            llm_model JSONB,
-            attachments_used JSONB,
-            findings JSONB,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            CONSTRAINT document_analysis_shipment_id_analysis_type_key
-                UNIQUE (shipment_id, analysis_type)
-        )
-        """
-    )
-
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS shipments (
+        CREATE TABLE shipments (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
             shipment_number TEXT NOT NULL,
-            shipper_organization_id UUID
-                REFERENCES organizations(id),
             pickup_location_id UUID REFERENCES locations(id),
             delivery_location_id UUID REFERENCES locations(id),
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            delivery_address JSONB,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT shipments_tenant_shipment_number_unique
@@ -258,7 +225,44 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS tenders (
+        CREATE TABLE documents (
+            id UUID PRIMARY KEY,
+            type document_type NOT NULL,
+            shipment_id UUID,
+            storage_key TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT fk_documents_shipment_id
+                FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE SET NULL,
+            CONSTRAINT uq_documents_storage_key UNIQUE (storage_key)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE document_analysis (
+            id UUID PRIMARY KEY,
+            shipment_id UUID,
+            analysis_type document_analysis_type NOT NULL,
+            confidence_score DOUBLE PRECISION,
+            llm_model JSONB,
+            results JSONB,
+            document_id UUID,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT fk_document_analysis_shipment_id
+                FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE SET NULL,
+            CONSTRAINT fk_document_analysis_document_id
+                FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE SET NULL,
+            CONSTRAINT document_analysis_shipment_id_analysis_type_key
+                UNIQUE (shipment_id, analysis_type)
+        )
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TABLE tenders (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
@@ -281,7 +285,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS tender_products (
+        CREATE TABLE tender_products (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
@@ -291,6 +295,7 @@ def upgrade() -> None:
             product_name TEXT NOT NULL,
             order_quantity NUMERIC NOT NULL,
             price_per_unit NUMERIC,
+            weight_unit weight_unit NOT NULL,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -300,7 +305,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS workflow_lifecycles (
+        CREATE TABLE workflow_lifecycles (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
@@ -309,8 +314,6 @@ def upgrade() -> None:
             tender_id UUID REFERENCES tenders(id) ON DELETE SET NULL,
             status lifecycle_status,
             sub_status lifecycle_sub_status,
-            load_id TEXT,
-            email_thread_id TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -319,7 +322,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS workflow_runs (
+        CREATE TABLE workflow_runs (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
@@ -334,38 +337,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS activity_logs (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            tenant_id UUID NOT NULL
-                REFERENCES tenants(id) ON DELETE CASCADE,
-            workflow_lifecycle_id UUID NOT NULL
-                REFERENCES workflow_lifecycles(id) ON DELETE CASCADE,
-            workflow_run_id UUID NOT NULL
-                REFERENCES workflow_runs(id) ON DELETE CASCADE,
-            activity_type activity_log_type NOT NULL,
-            description TEXT,
-            from_status lifecycle_status NOT NULL,
-            to_status lifecycle_status NOT NULL,
-            from_sub_status lifecycle_sub_status NOT NULL,
-            to_sub_status lifecycle_sub_status NOT NULL,
-            actor_type actor_type NOT NULL,
-            CONSTRAINT activity_logs_action_snapshot_chk CHECK (
-                activity_type <> 'action'
-                OR (
-                    from_status = to_status
-                    AND from_sub_status = to_sub_status
-                )
-            ),
-            actor_id UUID NOT NULL,
-            metadata JSONB DEFAULT '{}'::jsonb,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-    )
-
-    op.execute(
-        """
-        CREATE TABLE IF NOT EXISTS communications (
+        CREATE TABLE communications (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id UUID NOT NULL
                 REFERENCES tenants(id) ON DELETE CASCADE,
@@ -384,122 +356,159 @@ def upgrade() -> None:
     )
 
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_pack_codes_tenant_id "
-        "ON pack_codes (tenant_id)"
+        """
+        CREATE TABLE activity_logs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id UUID NOT NULL
+                REFERENCES tenants(id) ON DELETE CASCADE,
+            workflow_lifecycle_id UUID NOT NULL
+                REFERENCES workflow_lifecycles(id) ON DELETE CASCADE,
+            workflow_run_id UUID
+                REFERENCES workflow_runs(id) ON DELETE CASCADE,
+            activity_type activity_log_type NOT NULL,
+            description TEXT,
+            from_status lifecycle_status NOT NULL,
+            to_status lifecycle_status NOT NULL,
+            from_sub_status lifecycle_sub_status NOT NULL,
+            to_sub_status lifecycle_sub_status NOT NULL,
+            actor_type actor_type NOT NULL,
+            actor_id UUID NOT NULL,
+            metadata JSONB DEFAULT '{}'::jsonb,
+            communication_id UUID
+                REFERENCES communications(id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT activity_logs_action_snapshot_chk CHECK (
+                activity_type <> 'action'
+                OR (
+                    from_status = to_status
+                    AND from_sub_status = to_sub_status
+                )
+            )
+        )
+        """
+    )
+
+    op.execute(
+        "CREATE INDEX idx_pack_codes_tenant_id ON pack_codes (tenant_id)"
     )
     op.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_documents_object_key "
-        "ON documents (object_key)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_document_analysis_shipment_id "
+        "CREATE INDEX idx_document_analysis_shipment_id "
         "ON document_analysis (shipment_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_document_analysis_analysis_type "
+        "CREATE INDEX idx_document_analysis_analysis_type "
         "ON document_analysis (analysis_type)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_shipments_tenant_id "
-        "ON shipments (tenant_id)"
+        """
+        CREATE INDEX idx_document_analysis_document_id
+        ON document_analysis (document_id)
+        WHERE document_id IS NOT NULL
+        """
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tenders_tenant_id ON tenders (tenant_id)"
+        """
+        CREATE INDEX idx_documents_shipment_id_type
+        ON documents (shipment_id, type)
+        WHERE shipment_id IS NOT NULL
+        """
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tender_products_tenant_id "
+        "CREATE INDEX idx_shipments_tenant_id ON shipments (tenant_id)"
+    )
+    op.execute(
+        """
+        CREATE UNIQUE INDEX locations_city_state_postal_country_key
+        ON locations (city, state_code, postal_code, country)
+        WHERE city IS NOT NULL AND state_code IS NOT NULL
+        """
+    )
+    op.execute("CREATE INDEX idx_tenders_tenant_id ON tenders (tenant_id)")
+    op.execute(
+        "CREATE INDEX idx_tender_products_tenant_id "
         "ON tender_products (tenant_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tender_products_tender_id "
+        "CREATE INDEX idx_tender_products_tender_id "
         "ON tender_products (tender_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tender_products_pack_code_id "
+        "CREATE INDEX idx_tender_products_pack_code_id "
         "ON tender_products (pack_code_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_tenant_id "
+        "CREATE INDEX idx_workflow_lifecycles_tenant_id "
         "ON workflow_lifecycles (tenant_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_shipment_id "
+        "CREATE INDEX idx_workflow_lifecycles_shipment_id "
         "ON workflow_lifecycles (shipment_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_tender_id "
+        "CREATE INDEX idx_workflow_lifecycles_tender_id "
         "ON workflow_lifecycles (tender_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_load_id "
-        "ON workflow_lifecycles (load_id)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_lifecycles_email_thread_id "
-        "ON workflow_lifecycles (email_thread_id)"
-    )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_runs_lifecycle_id "
+        "CREATE INDEX idx_workflow_runs_lifecycle_id "
         "ON workflow_runs (workflow_lifecycle_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_at "
+        "CREATE INDEX idx_workflow_runs_created_at "
         "ON workflow_runs (created_at DESC)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_activity_logs_lifecycle_id "
+        "CREATE INDEX idx_activity_logs_lifecycle_id "
         "ON activity_logs (workflow_lifecycle_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_activity_logs_run_id "
+        "CREATE INDEX idx_activity_logs_run_id "
         "ON activity_logs (workflow_run_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_communications_tenant_id "
+        "CREATE INDEX idx_communications_tenant_id "
         "ON communications (tenant_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_communications_thread_id "
+        "CREATE INDEX idx_communications_thread_id "
         "ON communications (thread_id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_communications_workflow_run_id "
+        "CREATE INDEX idx_communications_workflow_run_id "
         "ON communications (workflow_run_id) "
         "WHERE workflow_run_id IS NOT NULL"
     )
     op.execute(
         """
-        DELETE FROM communications a
-        USING communications b
-        WHERE a.tenant_id = b.tenant_id
-          AND a.external_id = b.external_id
-          AND a.external_id IS NOT NULL
-          AND a.created_at > b.created_at
+        CREATE INDEX idx_communications_tenant_thread_run
+        ON communications (tenant_id, thread_id)
+        WHERE workflow_run_id IS NOT NULL
         """
     )
     op.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_communications_tenant_external_id "
-        "ON communications (tenant_id, external_id) "
-        "WHERE external_id IS NOT NULL"
+        """
+        CREATE UNIQUE INDEX uq_communications_tenant_external_id
+        ON communications (tenant_id, external_id)
+        WHERE external_id IS NOT NULL
+        """
     )
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS communications CASCADE")
     op.execute("DROP TABLE IF EXISTS activity_logs CASCADE")
+    op.execute("DROP TABLE IF EXISTS communications CASCADE")
     op.execute("DROP TABLE IF EXISTS workflow_runs CASCADE")
     op.execute("DROP TABLE IF EXISTS workflow_lifecycles CASCADE")
     op.execute("DROP TABLE IF EXISTS tender_products CASCADE")
     op.execute("DROP TABLE IF EXISTS tenders CASCADE")
-    op.execute("DROP TABLE IF EXISTS shipments CASCADE")
     op.execute("DROP TABLE IF EXISTS document_analysis CASCADE")
     op.execute("DROP TABLE IF EXISTS documents CASCADE")
+    op.execute("DROP TABLE IF EXISTS shipments CASCADE")
     op.execute("DROP TABLE IF EXISTS data_imports CASCADE")
     op.execute("DROP TABLE IF EXISTS pack_codes CASCADE")
-    op.execute("DROP TABLE IF EXISTS organizations CASCADE")
     op.execute("DROP TABLE IF EXISTS locations CASCADE")
     op.execute("DROP TABLE IF EXISTS tenants CASCADE")
 
+    op.execute("DROP TYPE IF EXISTS weight_unit")
     op.execute("DROP TYPE IF EXISTS communication_direction")
     op.execute("DROP TYPE IF EXISTS communication_channel")
     op.execute("DROP TYPE IF EXISTS data_import_data_type")
