@@ -1,0 +1,64 @@
+name: Deploy backend to Amazon ECS Production
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: freightx-agents-backend
+  ECS_CLUSTER: freightx-prod-cluster
+  UVICORN_SERVICE: prod-freightx-agents-uvicorn-service-qkd892e1
+  CELERY_SERVICE: prod-freightx-agents-celery-service-he3euvxv
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+    
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: latest
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+    # --------------------------------------------------------- 
+    # DEPLOY UVICORN ENVIRONMENT 
+    # --------------------------------------------------------- 
+    - name: Force ECS to deploy new image to uvicorn Service 
+      run: | 
+        aws ecs update-service \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --service ${{ env.UVICORN_SERVICE }} \
+          --force-new-deployment
+    
+    # --------------------------------------------------------- 
+    # DEPLOY CELERY ENVIRONMENT 
+    # --------------------------------------------------------- 
+
+    - name: Force ECS to deploy new image to CELERY Service
+      run: |
+        aws ecs update-service \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --service ${{ env.CELERY_SERVICE }} \
+          --force-new-deployment
