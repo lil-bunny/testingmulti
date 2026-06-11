@@ -52,13 +52,14 @@ class BusinessError(_CatalogError):
 
     CATEGORY = ErrorCategory.BUSINESS
 
-    MISSING_TENANT_ID = ("missing_tenant_id", "Tenant id is required")
-    MISSING_TENDER_ID = ("missing_tender_id", "Tender id is required")
+    MISSING_TENANT_ID = ("missing_tenant_id", "Tenant id is missing")
+    MISSING_TENDER_ID = ("missing_tender_id", "Tender id is missing")
     TENDER_NOT_FOUND = ("tender_not_found", "Tender not found")
-    MISSING_PRODUCT_LINES = ("missing_product_lines", "Tender has no product lines")
+    MISSING_PRODUCT_LINES = ("missing_product_lines", "No Tender Products Founds")
     MISSING_PACK_CODE = ("missing_pack_code", "Product pack code is required")
-    MISSING_QTY_PER_UNIT = ("missing_qty_per_unit", "Product qty_per_unit is required")
-    MISSING_TOTAL_QTY = ("missing_total_qty", "Product total_qty is required")
+    MISSING_QTY_PER_UNIT = ("missing_qty_per_unit", "PackCode Qty Per Unit is missing")
+    MISSING_TOTAL_QTY = ("missing_total_qty", "PackCode Total Quantity is missing")
+    MISSING_PALLET_DIMS = ("missing_pallet_dims", "PackCode Pallet Dimension is missing")
     MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required")
 
 
@@ -67,8 +68,8 @@ class IntegrationError(_CatalogError):
 
     CATEGORY = ErrorCategory.INTEGRATION
 
-    VENDOR_API_TIMEOUT = ("vendor_api_timeout", "Vendor API request timed out")
-    VENDOR_API_ERROR = ("vendor_api_error", "Vendor API request failed")
+    VENDOR_API_TIMEOUT = ("vendor_api_timeout", "API request timed out")
+    VENDOR_API_ERROR = ("vendor_api_error", "API request failed")
     EMAIL_SEND_FAILED = ("email_send_failed", "Failed to send email")
 
 
@@ -77,13 +78,13 @@ class SystemError(_CatalogError):
 
     CATEGORY = ErrorCategory.SYSTEM
 
-    MISSING_TENANT_SETTINGS_PALLET_WEIGHT_LBS = (
-        "missing_tenant_settings_pallet_weight_lbs",
-        "Tenant setting pallet_weight_lbs is required",
+    MISSING_TENANT_SETTINGS_PALLET_PROFILES = (
+        "missing_tenant_settings_pallet_profiles",
+        "Tenant setting pallet_profiles is required",
     )
-    MISSING_TENANT_SETTINGS_PALLET_THRESHOLD = (
-        "missing_tenant_settings_pallet_threshold",
-        "Tenant setting pallet_threshold is required",
+    UNKNOWN_PACK_CODE_PALLET_TYPE = (
+        "unknown_pack_code_pallet_type",
+        "pack_codes.pallet_type is missing or not configured in tenant pallet_profiles",
     )
     MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS = (
         "missing_tenant_settings_gelita_pickup_address",

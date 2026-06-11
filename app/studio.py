@@ -1,5 +1,6 @@
 import os
 
+from app.models.tenants import TenantSlug
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
 from app.services.workflow_service import ROUTER_REGISTRY
@@ -8,7 +9,7 @@ from app.workflows.graph.builder import build_graph
 
 
 def _build_studio_graph(*, workflow_name: str):
-    tenant_slug = os.getenv("STUDIO_TENANT_SLUG", "t3ra")
+    tenant_slug = os.getenv("STUDIO_TENANT_SLUG", TenantSlug.T3RA)
 
     workflow_repo = WorkflowRepository()
     tenant_repo = TenantRepository()

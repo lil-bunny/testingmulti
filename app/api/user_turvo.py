@@ -1,4 +1,4 @@
-"""Per-user Turvo Public API OAuth: authenticate and status (no raw tokens in responses)."""
+"""Per-tenant Turvo Public API OAuth: authenticate and status (no raw tokens in responses)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import (
-    get_app_user_id,
+    get_tenant_slug,
     get_turvo_oauth_service,
     require_turvo_public_api_config,
 )
 from app.core.logger import get_logger
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError
-from app.repositories.turvo_oauth_repository import TurvoOAuthRepository
 from app.services.turvo_oauth_service import TurvoOAuthService
 from pydantic import BaseModel, Field
 
@@ -38,10 +37,6 @@ class TurvoStatusResponse(BaseModel):
     linked: bool
 
 
-def get_turvo_status_repo() -> TurvoOAuthRepository:
-    return TurvoOAuthRepository()
-
-
 @router.post(
     "/authenticate",
     response_model=TurvoAuthenticateResponse,
@@ -50,12 +45,12 @@ def get_turvo_status_repo() -> TurvoOAuthRepository:
 )
 async def turvo_authenticate(
     body: TurvoAuthenticateBody,
-    app_user_id: str = Depends(get_app_user_id),
+    tenant_slug: str = Depends(get_tenant_slug),
     service: TurvoOAuthService = Depends(get_turvo_oauth_service),
 ) -> TurvoAuthenticateResponse:
     try:
-        out = await service.authenticate_user(
-            app_user_id=app_user_id,
+        out = await service.authenticate_tenant(
+            tenant_slug=tenant_slug,
             turvo_username=body.client_id,
             turvo_password=body.client_secret,
         )
@@ -81,14 +76,14 @@ async def turvo_authenticate(
 @router.get(
     "/status",
     response_model=TurvoStatusResponse,
-    summary="Whether this app user has Turvo credentials stored (no secrets)",
+    summary="Whether this tenant has Turvo credentials stored (no secrets)",
 )
 async def turvo_status(
-    app_user_id: str = Depends(get_app_user_id),
-    repo: TurvoOAuthRepository = Depends(get_turvo_status_repo),
+    tenant_slug: str = Depends(get_tenant_slug),
+    service: TurvoOAuthService = Depends(get_turvo_oauth_service),
 ) -> TurvoStatusResponse:
     try:
-        linked = repo.has_user(app_user_id)
+        linked = service.has_oauth(tenant_slug)
     except Exception as e:
         logger.exception("Failed to read Turvo status")
         raise HTTPException(status_code=500, detail="Internal error") from e

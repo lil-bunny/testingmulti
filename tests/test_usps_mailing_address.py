@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from app.domain.delivery_address import (
     delivery_address_from_location_row,
     format_usps_mailing_address,
 )
 from app.domain.load_tendering_settings import action_settings
-
-_FIXTURE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "gelita_tenant_settings.json"
+from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 
 def test_format_gelita_pickup_from_tenant_settings() -> None:
-    tenant_settings = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
+    tenant_settings = load_tenant_settings_dev("gelita")
     pickup = action_settings(
         {"tenant_settings": tenant_settings},
         "tender_calculate",
@@ -23,8 +19,8 @@ def test_format_gelita_pickup_from_tenant_settings() -> None:
     out = format_usps_mailing_address(pickup)
     assert out == (
         "GELITA USA\n"
-        "2445 PORT NEAL INDUSTRIAL RD\n"
-        "SERGEANT BLUFF IA 51054"
+        "5905 N. Ridge Rd\n"
+        "HARWOOD HEIGHTS IL 60706"
     )
 
 

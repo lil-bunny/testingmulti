@@ -9,14 +9,19 @@ from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.workflow_error_alert_enqueue_service import (
+    enqueue_workflow_error_alert_from_state,
+)
 
 logger = get_logger(__name__)
 
 
 def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
     """
-    Global sink for workflow errors.
-    Updates the lifecycle to FAILED and terminates the graph.
+    Global sink for catalog workflow errors.
+
+    Persists lifecycle pending_review with error metadata, then enqueues async
+    operational alerts when the transition succeeds.
     """
     workflow_error = state.data.get("error")
     if not isinstance(workflow_error, dict):
@@ -56,5 +61,7 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
                 run_id,
                 error_code,
             )
+        else:
+            enqueue_workflow_error_alert_from_state(state)
 
     return state

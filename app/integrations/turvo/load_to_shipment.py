@@ -36,23 +36,24 @@ def shipment_id_from_list_response(list_body: dict[str, Any], load_id: str) -> s
 
 
 async def load_id_to_shipment_id_async(
-    app_user_id: str,
+    tenant_slug: str,
     load_id: str,
     *,
     client: Optional[TurvoApiClient] = None,
 ) -> str | None:
     """Resolve load/custom id to Turvo shipment id (``id`` field from shipments list)."""
+    slug = (tenant_slug or "").strip()
     lid = str(load_id).strip() if load_id is not None else ""
+    if not slug:
+        raise ValueError("tenant_slug is required")
     if not lid:
         raise ValueError("load_id is required")
-    if not app_user_id or not str(app_user_id).strip():
-        raise ValueError("app_user_id is required")
 
     api = client or TurvoApiClient()
     list_body = await api.request(
-        app_user_id=app_user_id,
-        method="GET",
-        path="/shipments/list",
+        slug,
+        "GET",
+        "/shipments/list",
         params={"customId[eq]": lid},
     )
     return shipment_id_from_list_response(list_body, lid)

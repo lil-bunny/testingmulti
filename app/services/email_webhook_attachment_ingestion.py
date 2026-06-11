@@ -15,15 +15,15 @@ from app.core.logger import get_logger
 from app.domain.delivery_locations_import import (
     DELIVERY_LOCATIONS_FILE_NAME,
     unipile_delivery_locations_attachment,
-    unipile_first_load_tender_xlsx_attachment,
 )
+from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
+from app.domain.ratecon_import import is_pdf_attachment
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
 from app.services.data_imports_service import DataImportsService
 from app.services.unipile_service import UnipileException
-from app.services.workflow_classifier_service import (
+from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
-    email_first_attachment,
     extract_email_attachment_metadata,
 )
 from app.tools.email import get_email_attachments
@@ -98,6 +98,9 @@ def infer_email_attachment_ingest_kind(
 
     if ext == "xlsx" or name.endswith(".xlsx") or "spreadsheetml" in mt:
         return "excel"
+
+    if is_pdf_attachment(attachment, name or ""):
+        return "pdf"
 
     return None
 
@@ -203,10 +206,8 @@ async def process_email_webhook_attachment_import_for_attachment(
         )
         return None
 
-    if (
-        skip_fetch_if_existing
-        and data_import_data_type == DataImportDataType.LOAD_TENDER
-    ):
+    dedupe_types = (DataImportDataType.LOAD_TENDER,)
+    if skip_fetch_if_existing and data_import_data_type in dedupe_types:
         existing = DataImportsService().find_by_email_attachment_source(
             tenant_id=tid,
             email_id=fetch_ctx["email_id"],
@@ -261,8 +262,7 @@ async def process_email_webhook_attachment_import(
     """
     If the payload has an ingestible attachment, fetch bytes and persist import rows.
 
-    When ``attachment`` is omitted, uses the first load-tender xlsx (skips
-    ``delivery_location.xlsx``).
+    When ``attachment`` is omitted, uses the first ``customers_orders_*.xlsx`` attachment.
     """
     tid = data_import_tenant_id.strip()
     if not tid:
@@ -273,9 +273,7 @@ async def process_email_webhook_attachment_import(
         if data_import_data_type == DataImportDataType.DELIVERY_LOCATION:
             chosen = unipile_delivery_locations_attachment(payload)
         else:
-            chosen = unipile_first_load_tender_xlsx_attachment(payload)
-            if chosen is None:
-                chosen = email_first_attachment(payload)
+            chosen = email_load_tender_xlsx_attachment(payload)
 
     if chosen is None:
         return None

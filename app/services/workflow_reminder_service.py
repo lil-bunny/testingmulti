@@ -172,10 +172,9 @@ def enrich_step_payload(
                 subject = (data.get("subject") or "").strip() or subject
             payload["subject"] = subject
 
-    if reminders.default_body is not None:
-        payload["body"] = (str(payload.get("body") or data.get("body") or "").strip()) or (
-            reminders.default_body
-        )
+    email_body = reminders.resolve_email_body()
+    if email_body is not None:
+        payload["body"] = (str(payload.get("body") or data.get("body") or "").strip()) or email_body
 
     return payload
 

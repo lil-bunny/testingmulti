@@ -10,7 +10,20 @@ from app.domain.activity_log_constants import (
     SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE,
     TENDER_CREATED_ACTION_TEMPLATE,
     TENDER_SENT_TO_VENDOR_ACTION,
+    RATECON_RECEIVED_ACTION,
+    RATECON_DOCUMENT_UPLOADED_ACTION,
+    RATECON_DOCUMENT_UPLOAD_FAILED_ACTION,
+    RATECON_DOCUMENT_PROCESSED_ACTION,
+    RATECON_DOCUMENT_PROCESSING_FAILED_ACTION,
+    RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE,
+    POD_STARTED_ACTION,
+    POD_ESCALATION_SENT_ACTION,
+    POD_UPLOADED_TO_TMS_ACTION,
+    POD_UPLOAD_TO_TMS_FAILED_ACTION,
+    POD_ALREADY_ON_TMS_ACTION,
+    POD_REVIEW_ACKNOWLEDGED_ACTION,
 )
+from app.domain.error_catalog import error_description
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 
@@ -98,3 +111,65 @@ def format_reminder_sent_action(*, step: int) -> str:
 
 def format_escalation_sent_action() -> str:
     return ESCALATION_SENT_ACTION
+
+
+def format_workflow_error_alert_sent_action(*, error_code: str) -> str:
+    """Human-readable action text for one successful error alert delivery."""
+    catalog_text = error_description(error_code)
+    if catalog_text:
+        return catalog_text
+    return (error_code or "unknown").replace("_", " ").strip().title()
+
+
+def format_ratecon_received_action() -> str:
+    return RATECON_RECEIVED_ACTION
+
+
+def format_ratecon_document_uploaded_action() -> str:
+    return RATECON_DOCUMENT_UPLOADED_ACTION
+
+
+def format_ratecon_document_upload_failed_action() -> str:
+    return RATECON_DOCUMENT_UPLOAD_FAILED_ACTION
+
+
+def format_ratecon_document_processed_action() -> str:
+    return RATECON_DOCUMENT_PROCESSED_ACTION
+
+
+def format_ratecon_document_processing_failed_action() -> str:
+    return RATECON_DOCUMENT_PROCESSING_FAILED_ACTION
+
+
+def format_ratecon_document_processed_with_llm_action(
+    *,
+    confidence: float | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    return RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE.format(
+        confidence_suffix=conf,
+    )
+
+
+def format_pod_started_action() -> str:
+    return POD_STARTED_ACTION
+
+
+def format_pod_escalation_sent_action() -> str:
+    return POD_ESCALATION_SENT_ACTION
+
+
+def format_pod_uploaded_to_tms_action() -> str:
+    return POD_UPLOADED_TO_TMS_ACTION
+
+
+def format_pod_upload_to_tms_failed_action() -> str:
+    return POD_UPLOAD_TO_TMS_FAILED_ACTION
+
+
+def format_pod_already_on_tms_action() -> str:
+    return POD_ALREADY_ON_TMS_ACTION
+
+
+def format_pod_review_acknowledged_action() -> str:
+    return POD_REVIEW_ACKNOWLEDGED_ACTION

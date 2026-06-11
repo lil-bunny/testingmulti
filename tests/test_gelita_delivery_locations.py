@@ -99,7 +99,7 @@ def test_gelita_email_with_dl_and_tender_enqueues_both(
         "has_attachments": True,
         "attachments": [
             {"id": "1", "extension": "xlsx", "name": "delivery_location.xlsx"},
-            {"id": "2", "extension": "xlsx", "name": "Customer_Orders.xlsx"},
+            {"id": "2", "extension": "xlsx", "name": "customers_orders_ship_schedule.xlsx"},
         ],
     }
     svc = GelitaInboundEmailService()
@@ -134,6 +134,7 @@ def test_gelita_wide_column_mapping_materializes_address_fields() -> None:
     row = row_with_cells(
         C="41000100",
         E="CARRIER CLAIMS",
+        J="MERICAL",
         L="1420 STEUBEN STREET",
         N="51105",
         Q="SIOUX CITY",
@@ -141,6 +142,7 @@ def test_gelita_wide_column_mapping_materializes_address_fields() -> None:
     )
     out = GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS.materialize_from_column_letters(row)
     assert out["delviery"] == "41000100"
+    assert out["Customer Name"] == "MERICAL"
     assert out["City"] == "SIOUX CITY"
     assert out["Zip Code"] == "51105"
 
@@ -174,8 +176,8 @@ def test_load_delivery_location_rows_from_stored_import(
     )
 
     with patch(
-        "app.services.delivery_locations_data_import.DataImportsRepository",
-        return_value=repo,
+        "app.services.delivery_locations_data_import.run_with_repos",
+        side_effect=lambda fn: fn(MagicMock(data_imports=repo)),
     ):
         loaded = load_delivery_location_rows_from_data_import(_TENANT_UUID)
 
@@ -204,6 +206,7 @@ def test_ingest_attaches_delivery_address_from_wide_column_mapping(
     wide_row = row_with_cells(
         C="41000100",
         E="CARRIER CLAIMS ABF FREIGHT",
+        J="MERICAL",
         L="1420 STEUBEN STREET",
         N="51105",
         Q="SIOUX CITY",
@@ -226,7 +229,8 @@ def test_ingest_attaches_delivery_address_from_wide_column_mapping(
         {
             "order_number": "N-wide",
             "order_position": 1,
-            "customer_match": "C",
+            "weight_unit": "KG",
+            "customer_match": "KDMATCH_IGNORED",
             "product_name": "P",
             "order_quantity": 2,
             "delivery_address_code": "41000100",
@@ -239,5 +243,7 @@ def test_ingest_attaches_delivery_address_from_wide_column_mapping(
     )
     assert ids == [tender_uuid]
     batch = repo.insert_batch.call_args[0][0]
+    assert batch[0]["customer_name"] == "MERICAL"
+    assert batch[0]["metadata"]["customer_name_source"] == "delivery_location"
     assert batch[0]["delivery_address"]["city"] == "SIOUX CITY"
     assert batch[0]["delivery_address"]["name"] == "CARRIER CLAIMS ABF FREIGHT"

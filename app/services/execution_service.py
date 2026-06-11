@@ -1,6 +1,8 @@
 import uuid
 import asyncio
+
 from app.domain.state import WorkflowState
+from app.services.communications.service import CommunicationsService
 from app.services.workflow_runs_service import WorkflowRunsService
 
 from langsmith import traceable
@@ -10,6 +12,7 @@ class ExecutionService:
 
     def __init__(self):
         self.runs_service = WorkflowRunsService()
+        self._communications = CommunicationsService()
 
     @traceable(run_type="chain", name="workflow_execute")
     async def execute(
@@ -40,6 +43,13 @@ class ExecutionService:
             event_type=payload.get("event_type"),
             workflow_lifecycle_id=workflow_lifecycle_id,
         )
+
+        communication_id = payload.get("communication_id")
+        if communication_id:
+            self._communications.link_inbound_to_workflow_run(
+                communication_id=str(communication_id),
+                workflow_run_id=execution_id,
+            )
 
         config = {"configurable": {"thread_id": workflow_lifecycle_id}}
         result = await asyncio.to_thread(graph.invoke, state, config)

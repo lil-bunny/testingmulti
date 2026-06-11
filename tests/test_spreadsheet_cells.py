@@ -28,9 +28,10 @@ def test_projected_row_order_number_without_decimal_suffix() -> None:
     row = {
         "order_number": 93795.0,
         "customer_match": "Acme",
+        "weight_unit": "KG",
         "po_number": 4500123456.0,
     }
-    out = projected_row_to_tender_insert(row)
+    out = projected_row_to_tender_insert(row, customer_name="Acme")
     assert out is not None
     assert out["order_number"] == "93795"
     assert out["metadata"] == {"po_number": "4500123456"}

@@ -62,7 +62,31 @@ Keep a **one-way** flow. No cycles.
 - Migrations + indexes for columns you filter on; validate JSON at write boundaries.
 - **SQLAlchemy 2.0:** Use **ORM-mapped models** and repository-scoped **sessions** for **new** persistence and for any repository you **substantially change**. Do not add new ad-hoc `psycopg` usage in services, nodes, or tools.
 - **Legacy:** Existing raw SQL / `psycopg` in repositories may remain until that code path is migrated; when you touch it, **move to SQLAlchemy** rather than extending raw SQL.
-- **Exceptions:** Tuned or complex queries may use **SQLAlchemy Core** or limited raw SQL **only inside** `app/repositories/` (same module as the rest of that persistence)—not scattered across the app.
+- **Exceptions:** Tuned or complex queries may use **SQLAlchemy Core** (`text()`) or limited raw SQL **only inside** `app/repositories/` (same module as the rest of that persistence)—not scattered across the app.
+
+### Repository SQL composition
+
+Readable composed SQL in repositories — borrow freightx-api’s **join-as-fragment** style; do not copy portal list/count/CTE patterns wholesale.
+
+**Build queries this way**
+- Compose a final SQL string from **file-local fragments** and, when needed, per-method **optional-filter predicate lists** (`where_parts`), then `session.execute(text(sql), params)`.
+- **Named binds only for runtime values:** `:param_name` in SQL; actual values in a separate `params` dict. Never interpolate tenant IDs, search strings, config-driven table names, or user input into the SQL string.
+
+**Safe f-string slots** (the only values embedded in SQL text)
+- File-local **SQL fragment** constants (reusable `str` slices: `JOIN` blocks, `SELECT` expressions).
+- The owning repository’s **`self.TABLE_NAME`** (neither a module-level `_TABLE` alias nor in any shared config.py).
+- `TABLE_NAME`: Tool-module only when no repository exists yet
+- Other static SQL snippets as module-level constants. Table names are not configured in `app/core/config.py`.
+
+**Fragments (hybrid rule)**
+- Extract a JOIN, expression, or predicate block into a top-of-file constant only when **two or more methods in the same repository file** need it. One-off queries stay inline.
+- **File-local only:** if another repository needs the same shape, duplicate the string at the top of that file — no shared `sql/` package or cross-repo fragment imports.
+
+**Optional filters (`where_parts`)**
+- Use only when a method has **two or more optional filters:** build a per-method list of predicate strings, join with ` AND ` inside `WHERE`, values only via `params`. Fixed predicates stay inline in the SQL string.
+
+**Where SQL lives**
+- SQL text for queries lives in **repository modules only** — not `app/domain/`, services, nodes, or tools. Do not add domain-layer functions that return SQL snippets.
 
 ## Data contracts
 

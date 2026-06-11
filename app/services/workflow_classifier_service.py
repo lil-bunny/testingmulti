@@ -1,25 +1,22 @@
-import re
-from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logger import get_logger
+from app.domain.ratecon_import import (
+    attachment_display_filename,
+    load_id_from_ratecon_attachment_name,
+    unipile_ratecon_pdf_attachment,
+)
+from app.domain.unipile_email import (
+    build_unipile_attachment_fetch_context,
+    extract_email_attachment_metadata,
+)
+from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
 from app.repositories.tenants_db_repository import find_tenant_id_by_settings_email_webhook_name
+
 logger = get_logger(__name__)
 
 
 _RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
-_CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET = "carrier_rate_confirmation"
-
-def _get_attachment_display_filename(attachment: Any) -> str:
-    """Resolve Unipile 
-     display name (``name`` / ``filename`` / ``file_name``)."""
-    if not isinstance(attachment, dict):
-        return ""
-    for key in ("name", "filename", "file_name"):
-        value = attachment.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return ""
 
 
 def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[str]:
@@ -30,7 +27,7 @@ def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[st
     attachments = payload.get("attachments")
     if isinstance(attachments, list):
         for attachment in attachments:
-            display = _get_attachment_display_filename(attachment)
+            display = attachment_display_filename(attachment)
             if display:
                 return display
     for key in ("file_name", "filename"):
@@ -38,13 +35,6 @@ def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[st
         if raw is not None and str(raw).strip():
             return str(raw).strip()
     return None
-
-
-def _is_pdf_attachment(attachment: dict, filename: str) -> bool:
-    mime = str(attachment.get("mime") or attachment.get("content_type") or "").lower()
-    if mime == "application/pdf":
-        return True
-    return filename.lower().endswith(".pdf")
 
 
 def _get_attachment_uri(attachment: dict) -> Optional[str]:
@@ -67,46 +57,6 @@ def _get_attachment_uri(attachment: dict) -> Optional[str]:
     return None
 
 
-def build_unipile_attachment_fetch_context(
-    payload: dict[str, Any], attachment: dict[str, Any]
-) -> dict[str, str]:
-    """IDs needed for Unipile ``get_email_attachment`` / download APIs (webhook has no file URL)."""
-    fetch_context: dict[str, str] = {}
-    email_id = payload.get("email_id")
-    if email_id is not None and str(email_id).strip():
-        fetch_context["email_id"] = str(email_id).strip()
-    account_id = payload.get("account_id")
-    if account_id is not None and str(account_id).strip():
-        fetch_context["account_id"] = str(account_id).strip()
-    attachment_id = attachment.get("id")
-    if attachment_id is not None and str(attachment_id).strip():
-        fetch_context["attachment_id"] = str(attachment_id).strip()
-    return fetch_context
-
-
-def extract_email_attachment_metadata(attachment: dict[str, Any]) -> dict[str, Any]:
-    """Subset of Unipile attachment object (``id``, ``name``, ``mime``, ``extension``, ``size``)."""
-    if not isinstance(attachment, dict):
-        return {}
-    metadata: dict[str, Any] = {}
-    for key in ("id", "name", "mime", "extension", "size"):
-        if key not in attachment:
-            continue
-        value = attachment.get(key)
-        if value is None:
-            continue
-        if key == "size":
-            try:
-                metadata[key] = int(value)
-            except (TypeError, ValueError):
-                metadata[key] = value
-        else:
-            text_value = str(value).strip()
-            if text_value:
-                metadata[key] = text_value
-    return metadata
-
-
 def _extract_load_id_from_attachment_name(filename: str) -> Optional[str]:
     """Take last contiguous digit run from basename stem (tweak if filenames gain extra trailing digits)."""
     stem = Path(filename).stem
@@ -126,9 +76,6 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
     Root-level ``thread_id`` is echoed for workflow correlation when present.
     """
     subject = str(payload.get("subject") or "").strip()
-    attachments = payload.get("attachments")
-    if not isinstance(attachments, list):
-        attachments = []
 
     raw_thread = payload.get("thread_id")
     thread_id = str(raw_thread).strip() or None if raw_thread else None
@@ -146,26 +93,12 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
         "ratecon_unipile_attachment_fetch": None,
     }
 
-    matching_attachment: Optional[dict] = None
-    matching_attachment_name: Optional[str] = None
-    for attachment in attachments:
-        if not isinstance(attachment, dict):
-            continue
-        attachment_name = _get_attachment_display_filename(attachment)
-        if not attachment_name:
-            continue
-        if _CARRIER_RATE_CONFIRMATION_FILENAME_SNIPPET not in attachment_name.lower():
-            continue
-        if not _is_pdf_attachment(attachment, attachment_name):
-            continue
-        matching_attachment = attachment
-        matching_attachment_name = attachment_name
-        break
-
-    if not matching_attachment_name or matching_attachment is None:
+    matching_attachment = unipile_ratecon_pdf_attachment(payload)
+    if matching_attachment is None:
         return empty_result
 
-    load_id = _extract_load_id_from_attachment_name(matching_attachment_name)
+    matching_attachment_name = attachment_display_filename(matching_attachment)
+    load_id = load_id_from_ratecon_attachment_name(matching_attachment_name)
     if not load_id:
         return empty_result
 
@@ -239,7 +172,7 @@ def _is_load_tendering_unipile(payload: dict[str, Any]) -> bool:
         return False
     if not isinstance(payload.get("attachments"), list):
         return False
-    return unipile_first_attachment_by_extension(payload, "xlsx") is not None
+    return email_load_tender_xlsx_attachment(payload) is not None
 
 
 class WorkflowClassifierService:

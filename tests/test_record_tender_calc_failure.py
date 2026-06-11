@@ -15,9 +15,11 @@ RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 TENDER_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 
+@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
 @patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
 def test_record_workflow_failure_node_applies_transition(
     mock_transition_cls: MagicMock,
+    mock_enqueue: MagicMock,
 ) -> None:
     from app.workflows.nodes.error_handler import record_workflow_failure_node
 
@@ -30,6 +32,7 @@ def test_record_workflow_failure_node_applies_transition(
         execution_id=RUN_UUID,
         data={
             "workflow_lifecycle_id": LIFECYCLE_UUID,
+            "workflow_name": "load_tendering",
             "tender_id": TENDER_UUID,
             "pack_code": "9999",
             "error": workflow_error_payload(
@@ -54,3 +57,36 @@ def test_record_workflow_failure_node_applies_transition(
     )
     assert kwargs["metadata"]["tender_id"] == TENDER_UUID
     assert kwargs["metadata"]["pack_code"] == "9999"
+    mock_enqueue.assert_called_once_with(state)
+
+
+@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
+@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
+def test_record_workflow_failure_node_skips_enqueue_on_transition_error(
+    mock_transition_cls: MagicMock,
+    mock_enqueue: MagicMock,
+) -> None:
+    from app.workflows.nodes.error_handler import record_workflow_failure_node
+
+    mock_svc = MagicMock()
+    mock_svc.apply_from_state.side_effect = RuntimeError("db down")
+    mock_transition_cls.return_value = mock_svc
+
+    state = WorkflowState(
+        tenant_id=TENANT_UUID,
+        tenant_slug="gelita",
+        execution_id=RUN_UUID,
+        data={
+            "workflow_lifecycle_id": LIFECYCLE_UUID,
+            "workflow_name": "load_tendering",
+            "error": workflow_error_payload(
+                code=BusinessError.MISSING_PACK_CODE.value,
+                message=BusinessError.MISSING_PACK_CODE.description,
+                category=BusinessError.CATEGORY,
+            ),
+        },
+    )
+
+    record_workflow_failure_node(state)
+
+    mock_enqueue.assert_not_called()

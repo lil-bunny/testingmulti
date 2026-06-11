@@ -1,0 +1,133 @@
+{
+  "id": "aadc75f4-3f79-45d7-84c3-aa778e",
+  "name": "Gelita",
+  "slug": "gelita",
+  "settings": {
+    "load_tendering": {
+      "ftl": {
+        "escalate_tender": {
+          "escalation_cc": ["gelita-qa@freightx.ai"],
+          "escalation_bcc": [],
+          "escalation_email_body": "<!DOCTYPE html>\n<html>\n<head><",
+          "escalation_notify_email": [
+            "kansalayush28+fx@gmail.com"
+          ],
+          "escalation_email_subject": "(FTL) Tender escalation (order"
+        },
+        "send_tender_email": {
+          "vendor_cc": [
+            "gelita-qa@freightx.ai"
+          ],
+          "vendor_bcc": [],
+          "vendor_email": [
+            "kansalayush28+fx@gmail.com"
+          ],
+          "email_template_html": "<!DOCTYPE html>\n<html>\n<head><"
+        },
+        "send_tender_reminder": {
+          "reminder_body": "Following up on the request"
+        }
+      },
+      "ltl": {
+        "escalate_tender": {
+          "escalation_cc": ["gelita-qa@freightx.ai"],
+          "escalation_bcc": [],
+          "escalation_email_body": "<!DOCTYPE html>\n<html>\n<head><",
+          "escalation_notify_email": [
+            "kansalayush28+fx@gmail.com"
+          ],
+          "escalation_email_subject": "(LTL) Tender escalation (order"
+        },
+        "send_tender_email": {
+          "vendor_cc": [
+            "gelita-qa@freightx.ai"
+          ],
+          "vendor_bcc": [],
+          "vendor_email": [
+            "kansalayush28+fx@gmail.com"
+          ],
+          "email_template_html": "<!DOCTYPE html>\n<html>\n<head><"
+        },
+        "send_tender_reminder": {
+          "reminder_body": "Following up on the request"
+        }
+      },
+      "reminders": {
+        "variants": {
+          "ftl": [
+            {
+              "step": 1,
+              "event_type": "reminder_due",
+              "delay_hours": 0.016
+            },
+            {
+              "event_type": "escalation_due",
+              "delay_hours": 0.033
+            }
+          ],
+          "ltl": [
+            {
+              "step": 1,
+              "event_type": "reminder_due",
+              "delay_hours": 0.016
+            },
+            {
+              "step": 2,
+              "event_type": "reminder_due",
+              "delay_hours": 0.05
+            },
+            {
+              "event_type": "escalation_due",
+              "delay_hours": 0.06
+            }
+          ]
+        },
+        "variant_selector": "load_type",
+        "skip_sub_statuses": [
+          "accepted",
+          "rejected"
+        ],
+        "expire_grace_hours": 2,
+        "schedule_on_event_type": "carrier_email_received"
+      },
+      "tender_calculate": {
+        "pallet_profiles": {
+          "wood_4way": {
+            "weight_lbs": 50,
+            "threshold": 8,
+            "match": ["4-way wood", "2-way wood"]
+          },
+          "european": {
+            "weight_lbs": 56,
+            "threshold": 8,
+            "match": ["European Pallet", "European pallet"]
+          },
+          "plastic_4way": {
+            "weight_lbs": 66,
+            "threshold": 8,
+            "match": ["4-way plastic", "4 way plastic"]
+          }
+        },
+        "gelita_pickup_address": {
+          "city": "Sergeant Bluff",
+          "name": "GELITA USA",
+          "state": "IA",
+          "country": "United States",
+          "address1": "2445 Port Neal Industrial Road",
+          "postal_code": "51054"
+      }
+      }
+    },
+    "prompts": {
+      "load_tendering.carrier_ack": "carrier-ack-classify:staging"
+    },
+    "enabledProcesses": [
+      "load_tendering"
+    ],
+    "email_webhook_name": "gelita",
+    "ana_at_gelita_account_id": "oizK1OAzTyqJJJ6VySWEDw",
+    "ana_gelita_at_freightx_ai_account_id": "oizK1OAzTyqJJJ6VySWEDw"
+  },
+  "created_at": "2026-05-18 11:43:23.058181+00",
+  "updated_at": "2026-05-18 11:43:23.058181+00"
+}

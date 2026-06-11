@@ -27,7 +27,7 @@ def format_doc_lines(docs: list[dict[str, Any]], *, max_rows: int = 8) -> list[s
     out = [f"  documents: count={len(docs)}"]
     for i, d in enumerate(docs[:max_rows]):
         out.append(
-            f"    [{i}] id={d.get('id')} type={d.get('type')} object_key={d.get('object_key')}"
+            f"    [{i}] id={d.get('id')} type={d.get('type')} storage_key={d.get('storage_key')}"
         )
     if len(docs) > max_rows:
         out.append(f"    ... ({len(docs) - max_rows} more rows)")
@@ -38,7 +38,7 @@ def format_analysis_lines(rows: list[dict[str, Any]], *, max_rows: int = 8) -> l
     out = [f"  document_analysis: count={len(rows)}"]
     for i, r in enumerate(rows[:max_rows]):
         out.append(
-            f"    [{i}] id={r.get('id')} type={r.get('analysis_type')} status={r.get('status')!r}"
+            f"    [{i}] id={r.get('id')} type={r.get('analysis_type')}"
         )
     if len(rows) > max_rows:
         out.append(f"    ... ({len(rows) - max_rows} more rows)")

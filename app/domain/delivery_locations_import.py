@@ -45,23 +45,3 @@ def unipile_delivery_locations_attachment(
         if is_delivery_locations_attachment(_attachment_display_name(attachment)):
             return attachment
     return None
-
-
-def unipile_first_load_tender_xlsx_attachment(
-    payload: dict[str, Any],
-) -> dict[str, Any] | None:
-    """First xlsx attachment that is not the delivery-locations workbook."""
-    attachments = payload.get("attachments")
-    if not isinstance(attachments, list):
-        return None
-    for attachment in attachments:
-        if not isinstance(attachment, dict):
-            continue
-        if _normalize_attachment_extension(attachment.get("extension")) != "xlsx":
-            continue
-        if attachment.get("id") is None or not str(attachment.get("id")).strip():
-            continue
-        if is_delivery_locations_attachment(_attachment_display_name(attachment)):
-            continue
-        return attachment
-    return None

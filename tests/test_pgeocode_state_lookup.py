@@ -24,10 +24,12 @@ class _FakeNomi:
         *,
         state_code: object | None = None,
         place: str = "X",
+        location_rows: list[dict[str, object]] | None = None,
     ) -> None:
         self._value = value
         self._state_code = state_code
         self._place = place
+        self._location_rows = location_rows or []
 
     def query_postal_code(self, postal: str) -> pd.Series:
         data: dict[str, object] = {
@@ -37,6 +39,9 @@ class _FakeNomi:
         if self._state_code is not None:
             data["state_code"] = self._state_code
         return pd.Series(data)
+
+    def query_location(self, city: str) -> pd.DataFrame:
+        return pd.DataFrame(self._location_rows)
 
 
 def _patch_nomi(monkeypatch: pytest.MonkeyPatch, nomi: Any) -> None:
@@ -128,3 +133,44 @@ def test_lookup_state_returns_none_when_nominatim_init_fails(
 ) -> None:
     _patch_nomi(monkeypatch, None)
     assert sl.lookup_state("U.S.A.", "76172") is None
+
+
+def test_lookup_postal_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    nomi = _FakeNomi(
+        None,
+        location_rows=[
+            {
+                "state_code": "CA",
+                "state_name": "California",
+                "postal_code": "90210",
+            },
+            {
+                "state_code": "NV",
+                "state_name": "Nevada",
+                "postal_code": "89502",
+            },
+        ],
+    )
+    _patch_nomi(monkeypatch, nomi)
+    assert sl.lookup_postal("U.S.A.", "RENO", "NV") == "89502"
+
+
+def test_lookup_postal_no_state_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    nomi = _FakeNomi(
+        None,
+        location_rows=[
+            {"state_code": "CA", "state_name": "California", "postal_code": "90210"},
+        ],
+    )
+    _patch_nomi(monkeypatch, nomi)
+    assert sl.lookup_postal("U.S.A.", "RENO", "NV") is None
+
+
+def test_lookup_postal_missing_city_or_state() -> None:
+    assert sl.lookup_postal("U.S.A.", None, "NV") is None
+    assert sl.lookup_postal("U.S.A.", "RENO", "") is None
+
+
+def test_lookup_postal_empty_query_location(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_nomi(monkeypatch, _FakeNomi(None, location_rows=[]))
+    assert sl.lookup_postal("U.S.A.", "RENO", "NV") is None

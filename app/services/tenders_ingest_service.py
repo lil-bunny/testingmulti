@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.core.service_db import run_with_repos
 from app.core.logger import get_logger
-from app.domain.delivery_address import resolve_delivery_address
+from app.domain.delivery_address import (
+    CUSTOMER_NAME_SOURCE_UNKNOWN,
+    resolve_customer_name,
+    resolve_delivery_address,
+)
 from app.domain.load_tendering_tender_rows import (
     dedupe_projected_rows_by_order_and_position,
     projected_row_to_tender_insert,
@@ -29,10 +34,10 @@ class TendersIngestService:
         delivery_locations: Optional[DeliveryLocationsService] = None,
         pack_codes_repository: Optional[PackCodesRepository] = None,
     ) -> None:
-        self._repository = repository or TendersRepository()
-        self._tender_products = tender_products_repository or TenderProductsRepository()
+        self._repository = repository
+        self._tender_products = tender_products_repository
         self._delivery_locations = delivery_locations or DeliveryLocationsService()
-        self._pack_codes = pack_codes_repository or PackCodesRepository()
+        self._pack_codes = pack_codes_repository
 
     def persist_from_projected_rows(
         self,
@@ -54,7 +59,15 @@ class TendersIngestService:
             return []
 
         locations_index = self._delivery_locations.index_for_ingest_run()
-        pack_code_index = self._pack_codes.active_pack_code_id_index(tenant_id=tid)
+
+        def _pack_index(repos: Any) -> dict[str, str]:
+            repo = self._pack_codes or repos.pack_codes
+            return repo.active_pack_code_id_index(tenant_id=tid)
+
+        if self._pack_codes is not None:
+            pack_code_index = self._pack_codes.active_pack_code_id_index(tenant_id=tid)
+        else:
+            pack_code_index = run_with_repos(_pack_index)
 
         out: list[str | None] = [None] * len(projected_rows)
         kept = dedupe_projected_rows_by_order_and_position(projected_rows)
@@ -63,8 +76,23 @@ class TendersIngestService:
         skipped_invalid = 0
 
         for row_index, row in kept:
+            resolved_customer_name, customer_name_source = resolve_customer_name(
+                row.get("delivery_address_code"),
+                locations_index,
+            )
+            if customer_name_source == CUSTOMER_NAME_SOURCE_UNKNOWN:
+                logger.warning(
+                    "tenders ingest: customer_name unresolved from delivery locations "
+                    "column J; using placeholder order_number=%r delivery_code=%r "
+                    "data_import_id=%s",
+                    row.get("order_number"),
+                    row.get("delivery_address_code"),
+                    did,
+                )
             header = projected_row_to_tender_insert(
                 row,
+                customer_name=resolved_customer_name,
+                customer_name_source=customer_name_source,
                 active_pack_code_index=pack_code_index,
             )
             product = projected_row_to_tender_product_insert(
@@ -132,67 +160,78 @@ class TendersIngestService:
         if not insert_batch:
             return out
 
-        insert_results = self._repository.insert_batch(insert_batch)
-        if len(insert_results) != len(insert_batch):
-            logger.error(
-                "tenders ingest: id count mismatch inserted=%s batch=%s data_import_id=%s",
-                len(insert_results),
-                len(insert_batch),
-                did,
-            )
-            return out
-
-        order_to_tender_id: dict[str, str] = {}
-        order_created: dict[str, bool] = {}
-        skipped_existing = 0
-        for header, result in zip(insert_batch, insert_results, strict=True):
-            order_number = str(header["order_number"])
-            order_to_tender_id[order_number] = result.tender_id
-            order_created[order_number] = result.created
-            if not result.created:
-                skipped_existing += 1
-
-        if skipped_existing:
-            logger.info(
-                "tenders ingest: %s order(s) already in tenders; skipping workflow enqueue "
-                "data_import_id=%s",
-                skipped_existing,
-                did,
-            )
-
-        existing_by_tender: dict[str, set[tuple]] = {}
-        product_batch: list[dict[str, Any]] = []
-        for _row_index, header, product in row_slots:
-            order_number = str(header["order_number"])
-            tender_id = order_to_tender_id.get(order_number)
-            if not tender_id:
-                continue
-            if tender_id not in existing_by_tender:
-                existing_by_tender[tender_id] = self._tender_products.existing_line_keys(
-                    tender_id=tender_id
+        def _persist(
+            tenders_repo: TendersRepository,
+            products_repo: TenderProductsRepository,
+        ) -> list[str | None]:
+            insert_results = tenders_repo.insert_batch(insert_batch)
+            if len(insert_results) != len(insert_batch):
+                logger.error(
+                    "tenders ingest: id count mismatch inserted=%s batch=%s data_import_id=%s",
+                    len(insert_results),
+                    len(insert_batch),
+                    did,
                 )
-            line_key = tender_product_line_key(product)
-            if line_key in existing_by_tender[tender_id]:
-                continue
-            existing_by_tender[tender_id].add(line_key)
-            product_batch.append(
-                {
-                    "tenant_id": tid,
-                    "tender_id": tender_id,
-                    "pack_code_id": product.get("pack_code_id"),
-                    "product_name": product["product_name"],
-                    "order_quantity": product["order_quantity"],
-                    "price_per_unit": product.get("price_per_unit"),
-                    "metadata": product.get("metadata") or {},
-                }
-            )
+                return out
 
-        if product_batch:
-            self._tender_products.insert_batch(product_batch)
+            order_to_tender_id: dict[str, str] = {}
+            order_created: dict[str, bool] = {}
+            skipped_existing = 0
+            for header, result in zip(insert_batch, insert_results, strict=True):
+                order_number = str(header["order_number"])
+                order_to_tender_id[order_number] = result.tender_id
+                order_created[order_number] = result.created
+                if not result.created:
+                    skipped_existing += 1
 
-        for row_index, header, _product in row_slots:
-            order_number = str(header.get("order_number") or "").strip()
-            if order_number and order_created.get(order_number):
-                out[row_index] = order_to_tender_id.get(order_number)
+            if skipped_existing:
+                logger.info(
+                    "tenders ingest: %s order(s) already in tenders; skipping workflow enqueue "
+                    "data_import_id=%s",
+                    skipped_existing,
+                    did,
+                )
 
-        return out
+            existing_by_tender: dict[str, set[tuple]] = {}
+            product_batch: list[dict[str, Any]] = []
+            for _row_index, header, product in row_slots:
+                order_number = str(header["order_number"])
+                tender_id = order_to_tender_id.get(order_number)
+                if not tender_id:
+                    continue
+                if tender_id not in existing_by_tender:
+                    existing_by_tender[tender_id] = products_repo.existing_line_keys(
+                        tender_id=tender_id
+                    )
+                line_key = tender_product_line_key(product)
+                if line_key in existing_by_tender[tender_id]:
+                    continue
+                existing_by_tender[tender_id].add(line_key)
+                product_batch.append(
+                    {
+                        "tenant_id": tid,
+                        "tender_id": tender_id,
+                        "pack_code_id": product.get("pack_code_id"),
+                        "product_name": product["product_name"],
+                        "order_quantity": product["order_quantity"],
+                        "price_per_unit": product.get("price_per_unit"),
+                        "weight_unit": product.get("weight_unit"),
+                        "metadata": product.get("metadata") or {},
+                    }
+                )
+
+            if product_batch:
+                products_repo.insert_batch(product_batch)
+
+            result_out = list(out)
+            for row_index, header, _product in row_slots:
+                order_number = str(header.get("order_number") or "").strip()
+                if order_number and order_created.get(order_number):
+                    result_out[row_index] = order_to_tender_id.get(order_number)
+            return result_out
+
+        if self._repository is not None and self._tender_products is not None:
+            return _persist(self._repository, self._tender_products)
+        return run_with_repos(
+            lambda repos: _persist(repos.tenders, repos.tender_products)
+        )

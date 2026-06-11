@@ -48,8 +48,9 @@ def test_log_tender_activity_success_uses_record_sequence(
     assert sequence.steps[1].description is None
     assert sequence.steps[1].to_status is None
     assert sequence.steps[1].to_sub_status == StatusSubType.TENDER_SENT_TO_TENANT
-    assert sequence.steps[0].metadata["communication_id"] == COMM_UUID
-    assert "communication_id" not in sequence.steps[1].metadata
+    assert sequence.steps[0].communication_id == COMM_UUID
+    assert "communication_id" not in sequence.steps[0].metadata
+    assert sequence.steps[1].communication_id is None
 
 
 @patch("app.workflows.nodes.log_tender_activity.ActivityLogService")

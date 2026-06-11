@@ -13,11 +13,12 @@ class WorkflowRunEventType(StrEnum):
     ``email_received``, ``tender_created``, ``carrier_email_received``, ``ack_received``,
     ``reminder_due``, ``escalation_due``.
 
-    POD / Turvo: ``route_completed``, ``email_received``, ``reminder_due``.
+    POD / Turvo: ``route_completed``, ``email_received``, ``manual_pod_upload``, ``reminder_due``.
     """
 
     ROUTE_COMPLETED = "route_completed"
     EMAIL_RECEIVED = "email_received"
+    MANUAL_POD_UPLOAD = "manual_pod_upload"
     REMINDER_DUE = "reminder_due"
     TENDER_CREATED = "tender_created"
     CARRIER_EMAIL_RECEIVED = "carrier_email_received"

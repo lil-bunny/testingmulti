@@ -4,7 +4,10 @@ from app.core.logger import get_logger
 from app.models.document import DocumentType
 from app.tools.documents import insert_document
 from app.tools.ratecon import upload_ratecon_email_attachments_to_s3
-from app.workflows.shipment_resolver import resolve_shipment_id
+from app.workflows.shipment_resolver import (
+    resolve_shipment_id,
+    resolve_shipments_row_id_for_db,
+)
 
 logger = get_logger(__name__)
 
@@ -62,10 +65,22 @@ def upload_ratecon_attachments(state):
             }
             continue
         aid = item.get("attachment_id")
+        shipments_row_id = resolve_shipments_row_id_for_db(state.data)
+        if not shipments_row_id:
+            item["document_persist"] = {
+                "stored": False,
+                "skipped": True,
+                "reason": "missing_shipments_row_id",
+            }
+            logger.warning(
+                "[ratecon] skip document persist: missing shipments_row_id shipment_id=%s",
+                shipment_id,
+            )
+            continue
         persist = insert_document(
             DocumentType.RATECON,
-            str(shipment_id),
-            str(item["object_key"]),
+            storage_key=str(item["object_key"]),
+            shipments_row_id=shipments_row_id,
             email_id=eid_s,
             attachment_id=str(aid) if aid is not None else None,
         )

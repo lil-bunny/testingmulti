@@ -170,7 +170,7 @@ def escalate_tender(state):
         ) or "unipile_send_failed"
         return state
 
-    comm_id = stash_communication_id(state, result if isinstance(result, dict) else None)
+    communication_id = stash_communication_id(state, result if isinstance(result, dict) else None)
 
     skip = _lifecycle_skip(
         state,
@@ -197,8 +197,6 @@ def escalate_tender(state):
         **email_meta,
     }
     action_meta = dict(transition_meta)
-    if comm_id:
-        action_meta["communication_id"] = comm_id
 
     if not run_id:
         logger.warning("escalate_tender success path skipped lifecycle update: missing execution_id lifecycle_id=%s", wl_id)
@@ -232,6 +230,7 @@ def escalate_tender(state):
                     activity_type=ActivityType.ACTION,
                     description=format_escalation_sent_action(),
                     metadata=dict(action_meta),
+                    communication_id=communication_id,
                 ),
                 transition_step,
             ),

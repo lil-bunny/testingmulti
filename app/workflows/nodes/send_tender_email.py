@@ -54,11 +54,19 @@ def send_tender_email(state):
         logger.error("send_tender_email: %s", msg)
         raise SendTenderEmailError(msg)
 
+    subject_template = email_cfg.email_subject.strip()
+    if not subject_template:
+        msg = (
+            f"missing email_subject for load_type={load_type or 'unknown'}"
+        )
+        logger.error("send_tender_email: %s", msg)
+        raise SendTenderEmailError(msg)
+
     recipients = email_cfg.recipients()
     if ftl:
-        built = build_ftl_tender_email_from_tender(tender, template)
+        built = build_ftl_tender_email_from_tender(tender, template, subject_template)
     else:
-        built = build_ltl_tender_email_from_tender(tender, template)
+        built = build_ltl_tender_email_from_tender(tender, template, subject_template)
 
     run_id = str(state.execution_id or "").strip() or None
     result = send_email(

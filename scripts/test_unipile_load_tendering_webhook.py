@@ -66,7 +66,7 @@ SAMPLE_LOAD_TENDERING_PAYLOAD = {
                 "AABBmaor414BTr2urgO19M5UBwCW4yb7HMvuT5hmNZT5eF0pAAAAAAEMAACW4yb7HMvuT5hmNZT5eF0pAABNEJb9AAAB"
                 "EgAQANKM9dXEy3NDurxvEY6_aaE="
             ),
-            "name": "Customer orders (1).xlsx",
+            "name": "customers_orders_sample.xlsx",
             "extension": "xlsx",
             "size": 15531,
             "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

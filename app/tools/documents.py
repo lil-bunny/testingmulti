@@ -1,10 +1,7 @@
 """Postgres persistence for `documents` (POD / ratecon artifacts).
 
-Mirrors the service-layer pattern: optional runtime
-``CREATE TABLE IF NOT EXISTS`` for dev, configurable table name via settings.
-
 S3 alignment: ``S3Bucket.upload_file`` returns ``object_key``; this module stores
-keys on each row for idempotent upserts by ``object_key``.
+keys on each row as ``storage_key``.
 """
 
 from __future__ import annotations
@@ -13,190 +10,188 @@ import logging
 import uuid
 from typing import Any, Optional
 
-import psycopg
-
-from app.core.config import settings
+from app.core.db import db_scope, db_transaction
 from app.models.document import DocumentType
 from app.services.s3bucket_service import normalize_object_key
+from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
 
 logger = logging.getLogger(__name__)
 
-_PG_READY = False
 
-_DOC_TYPE_SQL_IN = ", ".join(f"'{m.value}'" for m in DocumentType)
-
-
-def _try_pg_connection():
-    return psycopg.connect(settings.DATABASE_URL)
-
-
-def _table_name() -> str:
-    return settings.DOCUMENTS_TABLE
-
-
-def _ensure_pg_table() -> None:
-    global _PG_READY
-    if _PG_READY:
-        return
-    t = _table_name()
-    conn = _try_pg_connection()
+def _uuid_or_none(value: str | None) -> str | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {t} (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL
-                        CHECK (type IN ({_DOC_TYPE_SQL_IN})),
-                    shipment_id TEXT NOT NULL,
-                    object_key TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-            cur.execute(
-                f"CREATE INDEX IF NOT EXISTS idx_{t}_shipment_id ON {t}(shipment_id)"
-            )
-            cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{t}_type ON {t}(type)")
-            cur.execute(
-                f"CREATE UNIQUE INDEX IF NOT EXISTS uq_{t}_object_key ON {t}(object_key)"
-            )
-        conn.commit()
-        _PG_READY = True
-        logger.info("documents: ensured table %s exists", t)
-    finally:
-        conn.close()
+        return str(uuid.UUID(raw))
+    except (ValueError, AttributeError, TypeError):
+        return None
 
 
 def insert_document(
     doc_type: DocumentType,
-    shipment_id: str,
-    object_key: str,
+    storage_key: str,
     *,
+    shipments_row_id: str | None = None,
     email_id: Optional[str] = None,
     attachment_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Upsert one ``documents`` row by ``object_key``.
+    """Upsert one ``documents`` row by ``storage_key``.
 
-    Returns ``{stored, id?, type?, shipment_id?, object_key?, created_at?, error?}``.
+    Returns ``{stored, id?, type?, shipment_id?, storage_key?, created_at?, error?}``.
 
-    ``object_key`` is the S3 object key (e.g. ``freightx/{BUCKET_POD_ATTACHMENTS_FOLDER}/...``), stored in the ``object_key`` column.
+    ``storage_key`` is the S3 object key (e.g. ``freightx/pod_attachments/...``).
+    ``shipments_row_id`` is ``shipments.id`` (nullable FK); omit or pass ``None`` when unknown.
     """
 
-    if not shipment_id or not object_key:
+    if not storage_key:
         logger.warning(
-            "insert_document: skip persist (type=%s shipment_id=%r object_key_set=%s)",
+            "insert_document: skip persist (type=%s shipments_row_id=%r storage_key_set=%s)",
             doc_type.value,
-            shipment_id,
-            bool(object_key),
+            shipments_row_id,
+            bool(storage_key),
         )
-        return {"stored": False, "id": None, "error": "missing_shipment_id_or_object_key"}
+        return {"stored": False, "id": None, "error": "missing_storage_key"}
 
     try:
-        key = normalize_object_key(object_key)
+        key = normalize_object_key(storage_key)
     except ValueError as exc:
         return {"stored": False, "id": None, "error": str(exc)}
     if not key:
-        return {"stored": False, "id": None, "error": "empty_object_key"}
+        return {"stored": False, "id": None, "error": "empty_storage_key"}
 
-    _ensure_pg_table()
     doc_id = str(uuid.uuid4())
-    t = _table_name()
-    conn = _try_pg_connection()
+    row_shipment_id = _uuid_or_none(shipments_row_id)
+    if shipments_row_id and not row_shipment_id:
+        logger.warning(
+            "insert_document: ignoring non-uuid shipments_row_id=%r (type=%s)",
+            shipments_row_id,
+            doc_type.value,
+        )
+
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                INSERT INTO {t} (id, type, shipment_id, object_key)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (object_key) DO UPDATE
-                SET
-                    type = documents.type,
-                    shipment_id = documents.shipment_id
-                RETURNING id, type, shipment_id, object_key, created_at
-                """,
-                (doc_id, doc_type.value, shipment_id, key),
-            )
-            row = cur.fetchone()
-        conn.commit()
+        with db_scope() as repos:
+            with db_transaction(repos.session):
+                row = repos.documents.upsert_by_storage_key(
+                    id=doc_id,
+                    doc_type=doc_type.value,
+                    shipment_id=row_shipment_id,
+                    storage_key=key,
+                )
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
+        # #region agent log
+        try:
+            import json
+            import time
+
+            with open("debug-181b1a.log", "a", encoding="utf-8") as fh:
+                fh.write(
+                    json.dumps(
+                        {
+                            "sessionId": "181b1a",
+                            "hypothesisId": "H1-verify",
+                            "location": "documents.py:insert_document",
+                            "message": "document row stored",
+                            "data": {
+                                "stored": True,
+                                "id": str(row["id"]),
+                                "type": str(row["type"]),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        },
+                        default=str,
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
+        # #endregion
         logger.info(
-            "insert_document: stored id=%s type=%s shipment_id=%s object_key=%s",
-            row[0],
-            row[1],
-            row[2],
-            row[3],
+            "insert_document: stored id=%s type=%s shipment_id=%s storage_key=%s",
+            row["id"],
+            row["type"],
+            row["shipment_id"],
+            row["storage_key"],
         )
         return {
             "stored": True,
-            "id": row[0],
-            "type": str(row[1]),
-            "shipment_id": row[2],
-            "object_key": row[3],
-            "created_at": row[4],
+            "id": str(row["id"]),
+            "type": str(row["type"]),
+            "shipment_id": row["shipment_id"],
+            "storage_key": row["storage_key"],
+            "created_at": row["created_at"],
         }
     except Exception as exc:
         logger.exception(
-            "insert_document: failed type=%s shipment_id=%s",
+            "insert_document: failed type=%s shipments_row_id=%s",
             doc_type.value,
-            shipment_id,
+            row_shipment_id,
         )
         return {"stored": False, "id": None, "error": str(exc)}
-    finally:
-        conn.close()
 
 
-def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
+def resolve_merged_pod_object_key(data: dict) -> tuple[str | None, dict[str, Any]]:
+    """Resolve merged POD S3 key from workflow state; fallback to latest ``pod_merged_final`` row."""
+    refs = data.get("pod_object_keys") or []
+    if isinstance(refs, list):
+        for u in refs:
+            if u and str(u).strip():
+                return str(u).strip(), {"source": "state"}
+    merged = data.get("pod_merged_pdf_object_key")
+    if merged and str(merged).strip():
+        return str(merged).strip(), {"source": "state"}
+    shipments_row_id = resolve_shipments_row_id_for_db(data)
+    if shipments_row_id:
+        doc = read_document(shipments_row_id, DocumentType.POD_MERGED_FINAL)
+        if doc.get("error"):
+            return None, {"source": "documents", "error": doc["error"]}
+        if doc.get("found") and doc.get("storage_key"):
+            return doc["storage_key"], {"source": "documents", "document_id": doc.get("id")}
+    return None, {}
+
+
+def read_document(shipments_row_id: str | None, doc_type: DocumentType) -> dict[str, Any]:
     """
-    Load the latest ``documents`` row for ``shipment_id`` and ``doc_type``.
+    Load the latest ``documents`` row for ``shipments_row_id`` and ``doc_type``.
 
-    The ``object_key`` column stores the S3 object key.
-
-    Rate confirmation artifacts use basename ``ratecon_{shipmentId}.pdf`` (sanitized).
-
-    Returns ``{found, id, object_key, shipment_id, type, created_at, error}``.
+    Returns ``{found, id, storage_key, shipment_id, type, created_at, error}``.
     """
 
-    sid = (shipment_id or "").strip()
+    sid = _uuid_or_none(shipments_row_id)
+    if shipments_row_id and not sid:
+        logger.warning(
+            "read_document: ignoring non-uuid shipments_row_id=%r type=%s",
+            shipments_row_id,
+            doc_type.value,
+        )
     if not sid:
         return {
             "found": False,
             "id": None,
-            "object_key": None,
-            "shipment_id": shipment_id,
+            "storage_key": None,
+            "shipment_id": shipments_row_id,
             "type": doc_type.value,
             "created_at": None,
-            "error": "missing_shipment_id",
+            "error": "missing_shipments_row_id",
         }
 
-    _ensure_pg_table()
-    t = _table_name()
-    conn = _try_pg_connection()
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT id, object_key, type, shipment_id, created_at
-                FROM {t}
-                WHERE shipment_id = %s AND type = %s
-                  AND object_key IS NOT NULL AND BTRIM(object_key) <> ''
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (sid, doc_type.value),
+        with db_scope() as repos:
+            row = repos.documents.find_latest_by_shipment_and_type(
+                shipment_id=sid,
+                doc_type=doc_type.value,
             )
-            row = cur.fetchone()
         if not row:
             logger.info(
-                "read_document: no row for shipment_id=%s type=%s",
+                "read_document: no row for shipments_row_id=%s type=%s",
                 sid,
                 doc_type.value,
             )
             return {
                 "found": False,
                 "id": None,
-                "object_key": None,
+                "storage_key": None,
                 "shipment_id": sid,
                 "type": doc_type.value,
                 "created_at": None,
@@ -204,28 +199,25 @@ def read_document(shipment_id: str, doc_type: DocumentType) -> dict[str, Any]:
             }
         return {
             "found": True,
-            "id": row[0],
-            "object_key": row[1],
-            "type": str(row[2]),
-            "shipment_id": row[3],
-            "created_at": row[4],
+            "id": str(row["id"]),
+            "storage_key": row["storage_key"],
+            "type": str(row["type"]),
+            "shipment_id": row["shipment_id"],
+            "created_at": row["created_at"],
             "error": None,
         }
     except Exception as exc:
         logger.exception(
-            "read_document: query failed shipment_id=%s type=%s",
+            "read_document: query failed shipments_row_id=%s type=%s",
             sid,
             doc_type.value,
         )
         return {
             "found": False,
             "id": None,
-            "object_key": None,
+            "storage_key": None,
             "shipment_id": sid,
             "type": doc_type.value,
             "created_at": None,
             "error": str(exc),
         }
-    finally:
-        conn.close()
-

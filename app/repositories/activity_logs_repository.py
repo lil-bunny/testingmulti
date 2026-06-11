@@ -4,132 +4,70 @@ from __future__ import annotations
 
 from typing import Any
 
-import psycopg
-from psycopg.types.json import Json
+from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.db import execute_scalar, jsonb_param
 
 
 class ActivityLogsRepository:
     TABLE_NAME = "activity_logs"
 
-    def insert_with_connection(
-        self,
-        conn: psycopg.Connection,
-        row: dict[str, Any],
-    ) -> str:
-        """Insert within an open transaction (caller commits via unit of work)."""
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                INSERT INTO {self.TABLE_NAME} (
-                    tenant_id,
-                    workflow_lifecycle_id,
-                    workflow_run_id,
-                    activity_type,
-                    description,
-                    from_status,
-                    to_status,
-                    from_sub_status,
-                    to_sub_status,
-                    actor_type,
-                    actor_id,
-                    metadata
-                )
-                VALUES (
-                    %s::uuid,
-                    %s::uuid,
-                    %s::uuid,
-                    %s::activity_log_type,
-                    %s,
-                    %s::lifecycle_status,
-                    %s::lifecycle_status,
-                    %s::lifecycle_sub_status,
-                    %s::lifecycle_sub_status,
-                    %s,
-                    %s::uuid,
-                    %s
-                )
-                RETURNING id::text
-                """,
-                (
-                    row["tenant_id"],
-                    row.get("workflow_lifecycle_id"),
-                    row.get("workflow_run_id"),
-                    row["activity_type"],
-                    row.get("description"),
-                    row.get("from_status"),
-                    row.get("to_status"),
-                    row.get("from_sub_status"),
-                    row.get("to_sub_status"),
-                    row.get("actor_type"),
-                    row.get("actor_id"),
-                    Json(row.get("metadata") or {}),
-                ),
-            )
-            out = cur.fetchone()
-        if not out or not out[0]:
-            raise RuntimeError("activity_logs insert returned no id")
-        return str(out[0])
+    def __init__(self, session: Session) -> None:
+        self._session = session
 
     def insert(self, row: dict[str, Any]) -> str:
         """Insert one activity row; return ``activity_logs.id``."""
-
-        conn = psycopg.connect(settings.DATABASE_URL)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    INSERT INTO {self.TABLE_NAME} (
-                        tenant_id,
-                        workflow_lifecycle_id,
-                        workflow_run_id,
-                        activity_type,
-                        description,
-                        from_status,
-                        to_status,
-                        from_sub_status,
-                        to_sub_status,
-                        actor_type,
-                        actor_id,
-                        metadata
-                    )
-                    VALUES (
-                        %s::uuid,
-                        %s::uuid,
-                        %s::uuid,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s,
-                        %s::uuid,
-                        %s
-                    )
-                    RETURNING id::text
-                    """,
-                    (
-                        row["tenant_id"],
-                        row.get("workflow_lifecycle_id"),
-                        row.get("workflow_run_id"),
-                        row["activity_type"],
-                        row.get("description"),
-                        row.get("from_status"),
-                        row.get("to_status"),
-                        row.get("from_sub_status"),
-                        row.get("to_sub_status"),
-                        row.get("actor_type"),
-                        row.get("actor_id"),
-                        Json(row.get("metadata") or {}),
-                    ),
-                )
-                out = cur.fetchone()
-            conn.commit()
-        finally:
-            conn.close()
-
-        if not out or not out[0]:
+        row_id = execute_scalar(
+            self._session,
+            f"""
+            INSERT INTO {self.TABLE_NAME} (
+                tenant_id,
+                workflow_lifecycle_id,
+                workflow_run_id,
+                activity_type,
+                description,
+                from_status,
+                to_status,
+                from_sub_status,
+                to_sub_status,
+                actor_type,
+                actor_id,
+                metadata,
+                communication_id
+            )
+            VALUES (
+                CAST(:tenant_id AS uuid),
+                CAST(:workflow_lifecycle_id AS uuid),
+                CAST(:workflow_run_id AS uuid),
+                CAST(:activity_type AS activity_log_type),
+                :description,
+                CAST(:from_status AS lifecycle_status),
+                CAST(:to_status AS lifecycle_status),
+                CAST(:from_sub_status AS lifecycle_sub_status),
+                CAST(:to_sub_status AS lifecycle_sub_status),
+                :actor_type,
+                CAST(:actor_id AS uuid),
+                CAST(:metadata AS jsonb),
+                CAST(:communication_id AS uuid)
+            )
+            RETURNING id::text
+            """,
+            {
+                "tenant_id": row["tenant_id"],
+                "workflow_lifecycle_id": row.get("workflow_lifecycle_id"),
+                "workflow_run_id": row.get("workflow_run_id"),
+                "activity_type": row["activity_type"],
+                "description": row.get("description"),
+                "from_status": row.get("from_status"),
+                "to_status": row.get("to_status"),
+                "from_sub_status": row.get("from_sub_status"),
+                "to_sub_status": row.get("to_sub_status"),
+                "actor_type": row.get("actor_type"),
+                "actor_id": row.get("actor_id"),
+                "metadata": jsonb_param(row.get("metadata") or {}),
+                "communication_id": row.get("communication_id"),
+            },
+        )
+        if not row_id:
             raise RuntimeError("activity_logs insert returned no id")
-        return str(out[0])
+        return str(row_id)

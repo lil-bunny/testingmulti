@@ -3,10 +3,16 @@ import logging
 from app.core.config import settings
 from app.models.document import DocumentType
 from app.tools.documents import insert_document
-from app.tools.pod import ratecon_analysis as get_ratecon_analysis, classify_attachments as get_normalized_attachments, pod_analysis as get_pod_analysis, pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis
+from app.tools.pod import (
+    classify_attachments as get_normalized_attachments,
+    load_ratecon_analysis as load_ratecon_analysis_tool,
+    pod_analysis as get_pod_analysis,
+    pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
+    ratecon_analysis as get_ratecon_analysis,
+)
 from app.models.document_analysis import DocumentAnalysisType
 from app.tools.document_analysis import upsert_document_analysis, upsert_ratecon_extraction
-from app.workflows.shipment_resolver import resolve_shipment_id
+from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +40,11 @@ def classify_attachments(state):
     get_normalized_attachments(state)
 
     merged_key = state.data.get("pod_merged_pdf_object_key")
-    shipment_id = resolve_shipment_id(state.data) or None
-    # 2. Insert merged POD into documents table
-    if merged_key and shipment_id:
+    if merged_key:
         persist = insert_document(
             DocumentType.POD_MERGED_FINAL,
-            shipment_id,
-            merged_key,
+            storage_key=merged_key,
+            shipments_row_id=resolve_shipments_row_id_for_db(state.data),
             email_id=state.data.get("email_id"),
             attachment_id=_first_source_attachment_id(state),
         )
@@ -50,9 +54,30 @@ def classify_attachments(state):
             persist.get("stored"),
             persist.get("id"),
         )
-    elif merged_key and not shipment_id:
+    return state
+
+
+def load_ratecon_analysis(state):
+    """Load cached ratecon extraction from ``document_analysis`` (ratecon workflow)."""
+    out = load_ratecon_analysis_tool(state.data)
+    state.data["ratecon_analysis_results"] = out
+    analysis_id = out.get("document_analysis_id")
+    if out.get("success") and not out.get("skipped") and analysis_id:
+        state.data["document_analysis_ratecon"] = {
+            "stored": True,
+            "id": analysis_id,
+            "source": "cache",
+        }
+        logger.info(
+            "load_ratecon_analysis: cache hit shipment_id=%s id=%s",
+            out.get("shipment_id"),
+            analysis_id,
+        )
+    else:
         logger.warning(
-            "classify_attachments: merged PDF object key present but no shipment_id; skipping documents row"
+            "load_ratecon_analysis: cache miss shipment_id=%s reason=%s",
+            out.get("shipment_id"),
+            out.get("reason") or out.get("error"),
         )
     return state
 
@@ -60,19 +85,19 @@ def classify_attachments(state):
 def ratecon_analysis(state):
     out = get_ratecon_analysis(state.data)
     state.data["ratecon_analysis_results"] = out
+    shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (
         out.get("success")
         and not out.get("skipped")
         and out.get("findings")
-        and out.get("shipment_id")
+        and shipments_row_id
     ):
         persist = upsert_ratecon_extraction(
-            out["shipment_id"],
-            status="completed",
-            findings=out["findings"],
+            shipments_row_id,
+            results=out["findings"],
             confidence_score=out.get("confidence_score"),
             llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
-            attachments_used=out.get("attachments_used"),
+            document_id=out.get("document_id"),
         )
         state.data["document_analysis_ratecon"] = persist
         logger.info(
@@ -86,20 +111,20 @@ def ratecon_analysis(state):
 def pod_analysis(state):
     out = get_pod_analysis(state.data)
     state.data["pod_analysis_results"] = out
+    shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (
         out.get("success")
         and not out.get("skipped")
         and out.get("findings")
-        and out.get("shipment_id")
+        and shipments_row_id
     ):
         persist = upsert_document_analysis(
-            out["shipment_id"],
+            shipments_row_id,
             DocumentAnalysisType.POD_EXTRACTION,
-            status="completed",
-            findings=out["findings"],
+            results=out["findings"],
             confidence_score=out.get("confidence_score"),
             llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
-            attachments_used=out.get("attachments_used"),
+            document_id=out.get("document_id"),
         )
         state.data["document_analysis_pod"] = persist
         logger.info(
@@ -113,20 +138,20 @@ def pod_analysis(state):
 def pod_vs_ratecon_analysis(state):
     out = get_pod_vs_ratecon_analysis(state.data)
     state.data["pod_vs_ratecon_analysis_results"] = out
+    shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (
         out.get("success")
         and not out.get("skipped")
         and out.get("findings")
-        and out.get("shipment_id")
+        and shipments_row_id
     ):
         persist = upsert_document_analysis(
-            out["shipment_id"],
+            shipments_row_id,
             DocumentAnalysisType.POD_VS_RATECON_COMPARISON,
-            status="completed",
-            findings=out["findings"],
+            results=out["findings"],
             confidence_score=out.get("confidence_score"),
             llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
-            attachments_used=out.get("attachments_used"),
+            document_id=out.get("document_id"),
         )
         state.data["document_analysis_pod_vs_ratecon"] = persist
         logger.info(

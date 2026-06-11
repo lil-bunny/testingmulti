@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Final
 
 LOAD_TENDERING_ROW_PROJECTION: Final[dict[str, tuple[str, ...]]] = {
+    # Not used for tenders.customer_name (see delivery_location.xlsx column J).
     "customer_match": ("Customer Match", "KDMATCH"),
     "product_name": ("Product name", "Product Name", "TEXT1"),
     "order_quantity": ("Order quantity", "Order Quantity", "MEBEST"),
@@ -35,4 +36,5 @@ LOAD_TENDERING_ROW_PROJECTION: Final[dict[str, tuple[str, ...]]] = {
     "delivery_address_code": ("LIEFAN", "Liefan"),
     "po_number": ("BESTTXT",),
     "price_per_unit": ("VKPREIS",),
+    "weight_unit": ("ME", "Unit of measure", "unit of measure"),
 }

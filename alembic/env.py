@@ -15,13 +15,11 @@ if config.config_file_name is not None:
 # This project currently uses explicit SQL migrations.
 target_metadata = None
 
-# Use application DB URL from settings/.env.
-# SQLAlchemy needs explicit psycopg v3 driver, and Alembic config parser treats
-# "%" as interpolation markers, so escape them.
-sqlalchemy_url = settings.DATABASE_URL.replace(
-    "postgresql://", "postgresql+psycopg://", 1
+# Alembic config parser treats "%" as interpolation markers, so escape them.
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.sqlalchemy_database_url.replace("%", "%%"),
 )
-config.set_main_option("sqlalchemy.url", sqlalchemy_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

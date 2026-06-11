@@ -62,7 +62,7 @@ def test_ingest_attaches_delivery_address_from_projected_code(
         {
             "order_number": "N1",
             "order_position": 1,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "P",
             "order_quantity": 2,
             "delivery_address_code": "41000100",
@@ -105,7 +105,7 @@ def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_n
         {
             "order_number": "N3",
             "order_position": 1,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "P",
             "order_quantity": 1,
             "delivery_address_code": "41000100",
@@ -138,7 +138,7 @@ def test_ingest_delivery_address_null_when_index_unavailable() -> None:
         {
             "order_number": "N2",
             "order_position": 1,
-            "customer_match": "C",
+            "weight_unit": "KG",
             "product_name": "P",
             "order_quantity": 1,
             "delivery_address_code": "41000100",

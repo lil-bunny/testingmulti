@@ -6,6 +6,8 @@ import re
 from html import unescape
 from typing import Any
 
+from app.domain.unipile_email import attachments_metadata_from_payload
+
 _QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)
 _BLOCKQUOTE_RE = re.compile(r"<blockquote\b", re.IGNORECASE)
 _ON_WROTE_RE = re.compile(r"\bOn .+ wrote:\s*", re.IGNORECASE | re.DOTALL)
@@ -129,6 +131,7 @@ def inbound_metadata_from_payload(
     *,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    attachments = attachments_metadata_from_payload(payload)
     meta: dict[str, Any] = {
         "subject": str(payload.get("subject") or ""),
         "from": _from_attendee_email(payload),
@@ -138,6 +141,7 @@ def inbound_metadata_from_payload(
         "event": payload.get("event"),
         "webhook_name": payload.get("webhook_name"),
         "account_id": payload.get("account_id"),
+        "attachments": attachments,
     }
     if extra:
         meta.update(extra)
@@ -224,19 +228,22 @@ def outbound_row_from_send(
     account_id: str | None = None,
     extra_metadata: dict[str, Any] | None = None,
     workflow_run_id: str | None = None,
+    channel: str = "email",
 ) -> dict[str, Any] | None:
     if not send_result.get("success"):
         return None
     external_id = str(
         send_result.get("message_id") or send_result.get("tracking_id") or ""
     ).strip()
+    if not external_id and extra_metadata:
+        external_id = str(extra_metadata.get("idempotency_key") or "").strip()
     if not external_id:
         return None
     tid = str(thread_id or send_result.get("thread_id") or "").strip() or None
     content = resolve_email_content(body_html=body)
     row: dict[str, Any] = {
         "tenant_id": tenant_id,
-        "channel": "email",
+        "channel": channel,
         "direction": "outbound",
         "external_id": external_id,
         "thread_id": tid,

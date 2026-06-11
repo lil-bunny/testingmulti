@@ -20,7 +20,8 @@ ngrok or Turvo callback latency — step 2 drives the handler directly.
 shipment, same as production). HTTP returns ``{"execution_id": ...}``; the test waits 5 minutes (countdown)
 then asserts ``workflow_runs`` for that ``execution_id``.
 
-When ``result.data.pod_request_blocked`` is true, asserts at least one ``workflow_runs`` row exists for
+When the webhook or workflow returns a duplicate skip (``skipped: duplicate_route_completed`` or
+``result.data.skipped_duplicate_route_completed``), asserts at least one ``workflow_runs`` row exists for
 the webhook **shipment_id** and tenant (same axes as dedupe-by-shipment in ``WorkflowRunsService``; skips
 ``reminder_due`` polling).
 
@@ -173,22 +174,19 @@ def _shipment_id_from_listen_ack(ack: Any | None) -> str | None:
     return s if s else None
 
 
-def _pod_request_blocked_from_listen_ack(ack: Any | None) -> bool:
-    """True when ack ``result.data.pod_request_blocked`` indicates POD path is blocked."""
+def _skipped_duplicate_route_completed_from_listen_ack(ack: Any | None) -> bool:
+    """True when duplicate route_completed was skipped before graph execution."""
     if not isinstance(ack, dict):
         return False
+    if ack.get("skipped") == "duplicate_route_completed":
+        return True
     result = ack.get("result")
     if not isinstance(result, dict):
         return False
     data = result.get("data")
     if not isinstance(data, dict):
         return False
-    v = data.get("pod_request_blocked")
-    if v is True:
-        return True
-    if isinstance(v, str) and v.strip().lower() in ("1", "true", "yes"):
-        return True
-    return False
+    return bool(data.get("skipped_duplicate_route_completed"))
 
 
 def _turvo_documents_pod_found_in_listen_ack(ack: Any | None) -> bool:
@@ -276,13 +274,9 @@ def _resolve_workflow_lifecycle_id_for_reminder_poll(ack: Any | None) -> str:
 
 def _pod_reminder_max_delay_hours() -> float:
     """Max step delay from t3ra ``tenant_settings.pod_lifecycle.reminders`` fixture."""
-    import json
-    from pathlib import Path
+    from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
-    fixture = (
-        Path(__file__).resolve().parents[3] / "scripts" / "t3ra_tenant_settings.json"
-    )
-    raw = json.loads(fixture.read_text(encoding="utf-8"))
+    raw = load_tenant_settings_dev("t3ra")
     steps = raw["pod_lifecycle"]["reminders"]["steps"]
     return max(float(s["delay_hours"]) for s in steps)
 
@@ -401,15 +395,17 @@ def _default_workflow_tenant_id() -> str:
     return "t3ra"
 
 
-def _resolve_e2e_app_user_id() -> str | None:
+def _resolve_e2e_tenant_slug() -> str | None:
     for key in (
+        "TURVO_WEBHOOK_E2E_TENANT_SLUG",
         "TURVO_WEBHOOK_E2E_APP_USER_ID",
+        "TURVO_LIVE_TENANT_SLUG",
         "TURVO_LIVE_APP_USER_ID",
     ):
         v = os.environ.get(key, "").strip()
         if v:
             return v
-    return (settings.TURVO_DEFAULT_APP_USER_ID or "").strip() or None
+    return (settings.TURVO_DEFAULT_TENANT_SLUG or "").strip() or None
 
 
 def _merge_optional_env_headers(headers: dict[str, str]) -> None:
@@ -447,21 +443,21 @@ async def put_sandbox_shipment_route_complete_status() -> httpx.Response:
     if manual_bearer:
         headers = _oauth_bearer_headers(manual_bearer)
     else:
-        app_user_id = _resolve_e2e_app_user_id()
-        if not app_user_id:
+        tenant_slug = _resolve_e2e_tenant_slug()
+        if not tenant_slug:
             pytest.skip(
-                "Set TURVO_WEBHOOK_E2E_APP_USER_ID (or TURVO_DEFAULT_APP_USER_ID in .env) "
+                "Set TURVO_WEBHOOK_E2E_TENANT_SLUG (or TURVO_DEFAULT_TENANT_SLUG in .env) "
                 "for Turvo OAuth token lookup."
             )
         oauth = TurvoOAuthService()
         try:
-            tokens = await oauth.get_user_tokens(app_user_id)
+            tokens = await oauth.get_tenant_tokens(tenant_slug)
         except RuntimeError as e:
             pytest.skip(f"Turvo OAuth not configured or DB unreachable: {e}")
 
         if not tokens or not (tokens.get("access_token") or "").strip():
             pytest.skip(
-                f"No OAuth access_token for app user {app_user_id!r}; link Turvo in DB "
+                f"No OAuth access_token for tenant {tenant_slug!r}; link Turvo in DB "
                 "or pass TURVO_WEBHOOK_TRIGGER_BEARER for a one-off run."
             )
         headers = _oauth_bearer_headers(tokens["access_token"].strip())
@@ -610,15 +606,17 @@ def test_pod_lifecycle_route_complete_turvo_webhook(
                 + "\n"
             )
 
-        if _pod_request_blocked_from_listen_ack(ack):
+        if _skipped_duplicate_route_completed_from_listen_ack(ack):
             sid_blocked = _shipment_id_from_listen_ack(ack)
+            if not sid_blocked and isinstance(ack, dict):
+                sid_blocked = str(ack.get("shipment_id") or "").strip() or None
             assert sid_blocked, (
-                "[listen_turvo full stack] pod_request_blocked=true but shipment_id missing from ack.result.data "
+                "[listen_turvo full stack] duplicate skip but shipment_id missing from ack "
                 f"(result={(ack.get('result') or {})!r})."
             )
             ship_row = fetch_latest_workflow_run_for_tenant_shipment(tenant, sid_blocked)
             assert ship_row is not None, (
-                "[listen_turvo full stack] pod_request_blocked=true — dedupe expects this shipment to already have "
+                "[listen_turvo full stack] duplicate route_completed — dedupe expects this shipment to already have "
                 f"a workflow_runs anchor; none found for tenant_id={tenant!r} shipment_id={sid_blocked!r} "
                 "(see WorkflowRunsService.is_workflow_initial_path_blocked shipment branch)."
             )
@@ -629,7 +627,7 @@ def test_pod_lifecycle_route_complete_turvo_webhook(
                 f"got {ship_row['tenant_id']!r}, expected {tenant!r}. Row={ship_row!r}"
             )
             print(
-                "\n[listen_turvo full stack] pod_request_blocked=true — workflow_runs row for shipment "
+                "\n[listen_turvo full stack] duplicate route_completed skipped — workflow_runs row for shipment "
                 f"(no reminder_due poll):\n{ship_row!r}\n"
             )
         elif _reminder_poll_enabled_after_listen() and not _pod_considered_present_from_listen_ack(

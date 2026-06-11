@@ -25,9 +25,10 @@ class ReminderVariantSteps(BaseModel):
 
 class WorkflowRemindersConfig(BaseModel):
     """
-    ``tenant_settings.<workflow_subkey>.reminders`` — schedule only (not email copy).
+    ``tenant_settings.<workflow_subkey>.reminders`` — schedule + optional email copy.
 
     Use flat ``steps`` or ``variants`` + ``variant_selector`` (e.g. load_type → ltl/ftl).
+    Email HTML: prefer ``email_template_html``; ``default_body`` is legacy fallback.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -38,9 +39,17 @@ class WorkflowRemindersConfig(BaseModel):
     variant_selector: Literal["load_type"] | None = None
     schedule_on_event_type: str | None = None
     skip_sub_statuses: list[str] = Field(default_factory=list)
+    email_template_html: str | None = None
     default_body: str | None = None
     subject_templates: dict[str, str] | None = None
     payload_keys: list[str] | None = None
+
+    def resolve_email_body(self) -> str | None:
+        """HTML/plain body for reminder emails; ``email_template_html`` wins over ``default_body``."""
+        for raw in (self.email_template_html, self.default_body):
+            if raw is not None and str(raw).strip():
+                return str(raw).strip()
+        return None
 
     @model_validator(mode="before")
     @classmethod

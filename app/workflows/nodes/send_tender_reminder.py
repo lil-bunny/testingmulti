@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import action_settings, resolve_load_type
+from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.communication_metadata import stash_communication_id
@@ -18,8 +20,8 @@ logger = get_logger(__name__)
 
 def send_tender_reminder(state):
     """
-    In-thread reminder on the carrier conversation: use ``email_thread_id`` persisted on the
-    workflow lifecycle row only, then reply via Unipile.
+    In-thread reminder on the carrier conversation: resolve thread via comms + runs
+    (``carrier_email_received`` anchor), then reply via Unipile.
     """
     workflow_lifecycle_id_str = str(state.data.get("workflow_lifecycle_id") or "").strip()
     if not workflow_lifecycle_id_str:
@@ -44,11 +46,16 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    lifecycle_email_thread_id = str(lifecycle_row.get("email_thread_id") or "").strip()
+    communications_service = CommunicationsService()
+    lifecycle_email_thread_id = communications_service.resolve_thread_for_lifecycle(
+        tenant_id=state.tenant_id or "",
+        workflow_lifecycle_id=workflow_lifecycle_id_str,
+        anchor_event_type=WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    )
 
     if not lifecycle_email_thread_id:
         logger.warning(
-            "send_tender_reminder lifecycle has no email_thread_id lifecycle_id=%s",
+            "send_tender_reminder no carrier thread via comms lifecycle_id=%s",
             workflow_lifecycle_id_str,
         )
         state.data["tender_reminder_error"] = "missing_email_thread_id"

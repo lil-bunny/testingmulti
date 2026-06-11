@@ -2,23 +2,41 @@
 
 from __future__ import annotations
 
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from app.domain.delivery_address import format_usps_mailing_address
+from app.models.weight_unit import WeightUnit
 from app.domain.load_tendering_settings import (
-    action_settings,
+    gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
 )
 from app.domain.load_tendering_state import get_tender, ingest_pack_code, set_tender
+from app.domain.error_catalog import BusinessError, SystemError
+from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
-from app.workflows.nodes.tender_calc_failure import record_tender_calc_failure
+from app.workflows.utils.decorators import safe_node
+
+_PALLET_ROUND_TOLERANCE = Decimal("0.05")
+_KG_TO_LBS = Decimal("2.2046")
 
 
-def _fail(state, error_code: str):
-    state.data["tender_calc_error"] = error_code
-    record_tender_calc_failure(state, error_code=error_code)
-    return state
+def _product_weight_lbs(order_quantity: Decimal, weight_unit: WeightUnit) -> Decimal:
+    if weight_unit is WeightUnit.LBS:
+        return order_quantity
+    return order_quantity * _KG_TO_LBS
+
+
+def _round_pallet_count(pallets_raw: Decimal) -> int:
+    """
+    QA pallet rounding: if fractional part is <= 0.05, round down; else round up.
+
+    Examples: 3.04 -> 3, 3.05 -> 3, 3.06 -> 4.
+    """
+    floor_val = int(pallets_raw.to_integral_value(rounding=ROUND_FLOOR))
+    if pallets_raw - Decimal(floor_val) <= _PALLET_ROUND_TOLERANCE:
+        return floor_val
+    return floor_val + 1
 
 
 def gelita_calculate_params(
@@ -28,6 +46,7 @@ def gelita_calculate_params(
     total_qty,
     pallet_weight_lb,
     unit_price,
+    weight_unit: WeightUnit | str | None = None,
 ):
     """
     Per-product Gelita formulas.
@@ -43,11 +62,15 @@ def gelita_calculate_params(
     pieces_raw = order_quantity / qty_per_unit
     pieces_int = int(pieces_raw.to_integral_value(rounding=ROUND_CEILING))
     pallets_raw = order_quantity / total_qty
-    pallets_int = int(pallets_raw.to_integral_value(rounding=ROUND_CEILING))
+    pallets_int = _round_pallet_count(pallets_raw)
     # pallets_dec = Decimal(pallets_int)
 
-    gross_weight_dec = (order_quantity * Decimal("2.2")) + (
+    unit = WeightUnit.parse(weight_unit) or WeightUnit.KG
+    gross_weight_raw = _product_weight_lbs(order_quantity, unit) + (
         Decimal(str(pallet_weight_lb)) * pallets_int
+    )
+    gross_weight_dec = Decimal(
+        int(gross_weight_raw.to_integral_value(rounding=ROUND_CEILING))
     )
 
     product_value: Decimal | None = None
@@ -62,6 +85,7 @@ def gelita_calculate_params(
     return pieces_int, pallets_int, gross_weight_dec, product_value
 
 
+@safe_node
 def calculate_tender_params(state):
     """
     Load tenant + tender, apply Gelita formulas per product line, persist order ``load_type``.
@@ -72,22 +96,14 @@ def calculate_tender_params(state):
     tender_id = str(state.data.get("tender_id") or "").strip()
 
     if not tenant_id:
-        return _fail(state, "missing_tenant_id")
+        raise WorkflowException(BusinessError.MISSING_TENANT_ID)
     if not tender_id:
-        return _fail(state, "missing_tender_id")
+        raise WorkflowException(BusinessError.MISSING_TENDER_ID)
 
-    cfg = action_settings(state, "tender_calculate")
-    try:
-        pallet_weight_lb = float(cfg["pallet_weight_lbs"])
-    except (KeyError, TypeError, ValueError):
-        return _fail(state, "missing_tenant_settings_pallet_weight_lbs")
-    try:
-        pallet_threshold = int(cfg["pallet_threshold"])
-    except (KeyError, TypeError, ValueError):
-        return _fail(state, "missing_tenant_settings_pallet_threshold")
-    pickup_address = cfg.get("gelita_pickup_address")
-    if not isinstance(pickup_address, dict):
-        return _fail(state, "missing_tenant_settings_gelita_pickup_address")
+    calc_settings = gelita_tender_calculate_settings(state)
+    if calc_settings is None:
+        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES)
+    pickup_address = calc_settings.gelita_pickup_address.model_dump()
 
     tender_service = TenderService()
     bundle = tender_service.read_order(
@@ -95,12 +111,12 @@ def calculate_tender_params(state):
         tender_id=tender_id,
     )
     if not bundle:
-        return _fail(state, "tender_not_found")
+        raise WorkflowException(BusinessError.TENDER_NOT_FOUND)
 
     tender = bundle["tender"]
     products = bundle["products"]
     if not products:
-        return _fail(state, "missing_product_lines")
+        raise WorkflowException(BusinessError.MISSING_PRODUCT_LINES)
 
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
@@ -115,26 +131,44 @@ def calculate_tender_params(state):
                 existing = get_tender(state.data) or {}
                 existing["pack_code"] = excel_pack
                 set_tender(state.data, existing)
-            return _fail(state, "missing_pack_code")
+            raise WorkflowException(BusinessError.MISSING_PACK_CODE)
 
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
         total_qty = product.get("total_qty")
 
         if qty_per_unit is None or qty_per_unit == 0:
-            return _fail(state, "missing_qty_per_unit")
+            raise WorkflowException(BusinessError.MISSING_QTY_PER_UNIT)
         if total_qty is None or total_qty == 0:
-            return _fail(state, "missing_total_qty")
+            raise WorkflowException(BusinessError.MISSING_TOTAL_QTY)
+
+        pallet_dims = product.get("pallet_dims")
+        if pallet_dims is None or not str(pallet_dims).strip():
+            raise WorkflowException(BusinessError.MISSING_PALLET_DIMS)
+
+        try:
+            profile_key, pallet_profile = calc_settings.resolve_pallet_type(
+                product.get("pallet_type")
+            )
+        except ValueError:
+            raise WorkflowException(SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE)
 
         pieces_int, pallets_int, gross_weight_dec, product_value = gelita_calculate_params(
             order_quantity=order_quantity,
             qty_per_unit=qty_per_unit,
             total_qty=total_qty,
-            pallet_weight_lb=pallet_weight_lb,
+            pallet_weight_lb=pallet_profile.weight_lbs,
             unit_price=product.get("price_per_unit"),
+            weight_unit=product.get("weight_unit"),
         )
 
-        products_calc.append({"pallets_count": pallets_int})
+        products_calc.append(
+            {
+                "pallets_count": pallets_int,
+                "pallet_profile": profile_key,
+                "pallet_threshold": pallet_profile.threshold,
+            }
+        )
         total_pieces += pieces_int
         total_pallets += pallets_int
         total_gross += gross_weight_dec
@@ -145,17 +179,14 @@ def calculate_tender_params(state):
             **product,
             "pieces_count": str(pieces_int),
             "pallets_count": str(pallets_int),
-            "gross_weight_lbs": f"{gross_weight_dec:,.2f}",
+            "gross_weight_lbs": f"{int(gross_weight_dec):,}",
             "qty_per_unit": str(qty_per_unit_dec),
             "total_qty": str(total_qty_dec),
             "product_value": product_value,
         }
         enriched_products.append(enriched)
 
-    load_type = load_type_from_pallet_totals(
-        products_calc,
-        pallet_threshold=pallet_threshold,
-    )
+    load_type = load_type_from_pallet_totals(products_calc)
 
     tender_service.update_load_type(
         tenant_id=tenant_id,
@@ -169,7 +200,7 @@ def calculate_tender_params(state):
         prior = get_tender(state.data) or {}
         customer_po = str(prior.get("customer_po") or prior.get("po_number") or "").strip()
     if not customer_po:
-        raise ValueError("missing customer PO number")
+        raise WorkflowException(BusinessError.MISSING_CUSTOMER_PO)
 
     ship_date = tender.get("shipping_date")
     ship_date_str = ship_date.isoformat() if hasattr(ship_date, "isoformat") else str(ship_date or "")
@@ -211,14 +242,10 @@ def calculate_tender_params(state):
             "customer_po": customer_po,
             "ship_date": ship_date_str,
             "delivery_date": delivery_date_str,
-            # "order_value": order_value,
             "pickup_address": pickup_formatted,
             "delivery_address": delivery_formatted,
-            # "pieces_count": f"{total_pieces:.2f}",
-            # "pallets_count": str(total_pallets),
-            # "gross_weight_lbs": f"{total_gross:,.2f}",
-            # "pallet_weight_lb": pallet_weight_lb,
-            "pallet_threshold": pallet_threshold,
+            "pallets_count": str(total_pallets),
+            "gross_weight_lbs": f"{int(total_gross):,}",
             "load_type": load_type.lower(),
             "tender_products": enriched_products,
         },

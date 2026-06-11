@@ -8,7 +8,7 @@ How an inbound **mail** webhook (currently **Unipile**) becomes **stored tenders
 |------------|--------|
 | **HTTP auth** | `Authorization: Bearer <UNIPILE_WEBHOOK_SECRET>`. |
 | **Tenant routing** | A row in **`tenants`** whose JSON **`settings.email_webhook_name`** equals **`payload.webhook_name`** exactly. If no row matches, the API responds with `{"message": "invalid webhook"}` **before** Gelita ingress. |
-| **Gelita xlsx path** | **`POST /api/webhook/email`** with **`.xlsx`** attachment → immediate **`accepted`** + Celery **`run_email_webhook`** (handler **`load_tendering.tender_created`**). |
+| **Gelita xlsx path** | **`POST /api/webhook/email`** with a **`.xlsx`** attachment whose basename starts with **`customers_orders_`** (case-insensitive) → immediate **`accepted`** + Celery **`run_email_webhook`** (handler **`load_tendering.tender_created`**). Separate attachment **`delivery_location.xlsx`** is handled by the delivery-locations import path. |
 | **Ingest path (worker)** | Unipile bytes fetched with **`email_id`**, **`account_id`**, **`attachment_id`**; attachment-level retries (3s / 6s / 12s, up to 4 tries). On persistent **`UnipileException`**, Celery **`run_email_webhook`** autoretries the full ingest up to **3** times with **~60s** between attempts (`retry_jitter` applies). |
 | **LangGraph tenant (`run_workflow_async`)** | **`tenants.slug`** must equal a top-level key in **`app/configs/tenant_configs.py`** (e.g. `"gelita"`). |
 | **Per spreadsheet row** | After persist, worker enqueues one **`run_workflow_async`** per new **`tender_id`**. Webhook response does **not** include **`execution_ids`** (use logs/DB/Celery). |

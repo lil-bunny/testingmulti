@@ -21,7 +21,7 @@ def _load_tender_payload() -> dict:
         "attachments": [
             {
                 "id": "att-1",
-                "name": "loads.xlsx",
+                "name": "customers_orders_loads.xlsx",
                 "extension": "xlsx",
                 "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             },

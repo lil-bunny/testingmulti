@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import EmailRecipients, coerce_email_list
+from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
 
 # Reusable list fields: required TO accepts str | list; optional CC/BCC default empty.
 RequiredEmailList = list[str]
@@ -33,6 +35,7 @@ class GelitaSendTenderEmailSettings(BaseModel):
     vendor_email: RequiredEmailList = Field(min_length=1)
     vendor_cc: OptionalEmailList = Field(default_factory=list)
     vendor_bcc: OptionalEmailList = Field(default_factory=list)
+    email_subject: str
     email_template_html: str
 
     @field_validator("vendor_email", mode="before")
@@ -100,12 +103,38 @@ class GelitaLoadTypeBranch(BaseModel):
     escalate_tender: GelitaEscalateTenderSettings
 
 
+def normalize_pallet_type_label(value: str | None) -> str:
+    """Case/whitespace/hyphen insensitive label for ``pack_codes.pallet_type`` lookup."""
+    collapsed = " ".join(str(value or "").strip().lower().split())
+    return collapsed.replace("-", " ")
+
+
+class GelitaPalletProfile(BaseModel):
+    """One Gelita pallet family: gross-weight tare and FTL/LTL pallet-count threshold."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    weight_lbs: float
+    threshold: int
+    match: list[str] = Field(min_length=1)
+
+
 class GelitaTenderCalculateSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    pallet_threshold: int
-    pallet_weight_lbs: float
+    pallet_profiles: dict[str, GelitaPalletProfile]
     gelita_pickup_address: GelitaPickupAddress
+
+    def resolve_pallet_type(self, pallet_type: str | None) -> tuple[str, GelitaPalletProfile]:
+        """Map ``pack_codes.pallet_type`` to a configured profile key."""
+        norm = normalize_pallet_type_label(pallet_type)
+        if not norm:
+            raise ValueError("pack_codes.pallet_type is empty")
+        for key, profile in self.pallet_profiles.items():
+            for label in profile.match:
+                if normalize_pallet_type_label(label) == norm:
+                    return key, profile
+        raise ValueError(f"unknown pack_codes.pallet_type: {pallet_type!r}")
 
 
 class GelitaLoadTenderingSettings(BaseModel):
@@ -115,6 +144,7 @@ class GelitaLoadTenderingSettings(BaseModel):
     ltl: GelitaLoadTypeBranch
     ftl: GelitaLoadTypeBranch
     tender_calculate: GelitaTenderCalculateSettings
+    workflow_error_alerts: WorkflowErrorAlertSettings | None = None
 
 
 class GelitaTenantSettings(BaseModel):
@@ -130,7 +160,18 @@ class GelitaTenantSettings(BaseModel):
     email_webhook_name: str
     ana_at_gelita_account_id: str
     ana_gelita_at_freightx_ai_account_id: str
+    prompts: dict[str, str]
     load_tendering: GelitaLoadTenderingSettings
+    workflow_error_alerts: WorkflowErrorAlertSettings | None = None
+
+    @model_validator(mode="after")
+    def _require_carrier_ack_prompt(self) -> GelitaTenantSettings:
+        ref = (self.prompts.get(LOAD_TENDERING_CARRIER_ACK) or "").strip()
+        if not ref:
+            raise ValueError(
+                f"prompts must include non-empty {LOAD_TENDERING_CARRIER_ACK!r}"
+            )
+        return self
 
     def branch_for_load_type(self, load_type: str | None) -> GelitaLoadTypeBranch:
         bucket: Literal["ltl", "ftl"] = (

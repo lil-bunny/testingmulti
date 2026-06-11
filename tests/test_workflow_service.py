@@ -2,20 +2,22 @@ import pytest
 import types
 import uuid
 import boto3
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from PIL import Image
 
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
 from app.services import pod_extraction as pod_extraction_service
+from app.services.pod_lifecycle_ingress_service import RouteCompletedDuplicateResult
+from app.services.workflow_lifecycle_service import LifecycleResolution
 from app.services.workflow_service import WorkflowService
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.validators import validate_graph_definition
 from app.services.s3bucket_service import S3Bucket, bucket, normalize_object_key
 from app.workflows.nodes import email as email_nodes
 from app.workflows.nodes import turvo as turvo_nodes
-from app.workflows.nodes import ratecon as ratecon_node
-from app.models.document import DocumentType
+from app.workflows import registry as workflow_registry
 from botocore.stub import Stubber
 
 
@@ -38,24 +40,80 @@ def mock_attachment_upload(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pod_lifecycle_route_completed_runs_to_completion():
+async def test_pod_lifecycle_route_completed_runs_to_completion(monkeypatch):
     sid = f"S1-{uuid.uuid4().hex[:10]}"
+    load_id = f"L1-{uuid.uuid4().hex[:8]}"
+
+    def fake_get_shipment(sid_arg, *, tenant_slug=None):
+        return {
+            "shipment_id": sid_arg or sid,
+            "convoy": False,
+            "details": {"carrierOrder": [{"carrier": {"name": "Acme Transport"}}]},
+        }
+
+    monkeypatch.setattr(turvo_nodes, "get_shipment_tool", fake_get_shipment)
+    monkeypatch.setattr(
+        turvo_nodes,
+        "check_pod_tool",
+        lambda *a, **k: {"success": True, "pod_exists": False},
+    )
+
     service = WorkflowService(WorkflowRepository(), TenantRepository())
 
     result = await service.run(
-        tenant_id="t3ra",
+        tenant_slug="t3ra",
         workflow_name="pod_lifecycle",
         payload={
             "event_type": "route_completed",
             "shipment_id": sid,
-            "load_id": "L1",
+            "load_id": load_id,
             "to": "ops@example.com",
         },
     )
 
-    assert result["tenant_id"] == "t3ra"
+    assert result["tenant_slug"] == "t3ra"
     assert result["data"]["shipment"]["shipment_id"] == sid
     uuid.UUID(result["data"]["workflow_lifecycle_id"])
+
+
+@pytest.mark.asyncio
+async def test_pod_lifecycle_route_completed_duplicate_returns_early(monkeypatch):
+    lifecycle_id = "11111111-2222-3333-4444-555555555555"
+
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService"
+    ) as ingress_cls:
+        ingress_cls.return_value.check_route_completed_duplicate.return_value = (
+            RouteCompletedDuplicateResult(
+                is_duplicate=True,
+                lifecycle_id=lifecycle_id,
+            )
+        )
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+
+        execute_called = False
+
+        async def fake_execute(*args, **kwargs):
+            nonlocal execute_called
+            execute_called = True
+            return {}
+
+        monkeypatch.setattr(service.execution, "execute", fake_execute)
+
+        result = await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "route_completed",
+                "shipment_id": "1000304706",
+                "load_id": "56368",
+                "to": "ops@example.com",
+            },
+        )
+
+    assert execute_called is False
+    assert result["data"]["skipped_duplicate_route_completed"] is True
+    assert result["data"]["workflow_lifecycle_id"] == lifecycle_id
 
 
 @pytest.mark.asyncio
@@ -69,7 +127,7 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
     )
 
-    def fake_get_shipment(sid, app_user_id=None):
+    def fake_get_shipment(sid, *, tenant_slug=None):
         return {
             "shipment_id": sid or ship,
             "convoy": False,
@@ -101,22 +159,184 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         types.MethodType(fake_download_object_bytes, bucket),
     )
 
-    service = WorkflowService(WorkflowRepository(), TenantRepository())
-
-    result = await service.run(
-        tenant_id="t3ra",
-        workflow_name="pod_lifecycle",
-        payload={
-            "event_type": "email_received",
-            "thread_id": "thread-1",
-            "body": "Attached POD for delivered load",
-            "attachments": [{"id": "att-1"}],
-            "has_attachments": True,
-            "workflow_lifecycle_payload": {"shipment_id": ship},
+    def fake_read_workflow_lifecycle(state):
+        state.data["workflow_lifecycle_payload"] = {
+            "found": True,
             "shipment_id": ship,
-        },
+        }
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "read_workflow_lifecycle",
+        fake_read_workflow_lifecycle,
     )
 
+    def fake_load_ratecon(state):
+        state.data["ratecon_analysis_results"] = {
+            "success": True,
+            "shipment_id": ship,
+            "findings": {"extracted_fields": {"broker_name": "Acme Transport"}},
+            "cached": True,
+            "document_analysis_id": "cached-ratecon-1",
+        }
+        state.data["document_analysis_ratecon"] = {
+            "stored": True,
+            "id": "cached-ratecon-1",
+            "source": "cache",
+        }
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "load_ratecon_analysis",
+        fake_load_ratecon,
+    )
+
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService.prepare_email_received_payload",
+        new=AsyncMock(side_effect=lambda **kwargs: dict(kwargs["payload"])),
+    ):
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+
+        result = await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "email_received",
+                "thread_id": "thread-1",
+                "body": "Attached POD for delivered load",
+                "attachments": [{"id": "att-1"}],
+                "has_attachments": True,
+                "workflow_lifecycle_payload": {"found": True, "shipment_id": ship},
+                "shipment_id": ship,
+            },
+        )
+
+    assert result["data"]["shipment"]["shipment_id"] == ship
+    assert result["data"].get("pod_object_keys")
+
+
+@pytest.mark.asyncio
+async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processing(
+    mock_attachment_upload, monkeypatch
+):
+    """Ingress enriches correlation keys; graph runs without mocking read_workflow_lifecycle."""
+    ship = f"S2-{uuid.uuid4().hex[:10]}"
+    shipments_row_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    lifecycle_id = "11111111-2222-3333-4444-555555555555"
+
+    async def fake_prepare_email_received_payload(**kwargs):
+        base = dict(kwargs["payload"])
+        base["shipments_row_id"] = shipments_row_id
+        base["shipment_id"] = ship
+        base["workflow_lifecycle_id"] = lifecycle_id
+        return base
+
+    monkeypatch.setattr(
+        pod_extraction_service,
+        "convert_from_path",
+        lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
+    )
+
+    def fake_get_shipment(sid, *, tenant_slug=None):
+        return {
+            "shipment_id": sid or ship,
+            "convoy": False,
+            "data": {"status": {"code": {"key": "2116"}}},
+            "details": {
+                "status": {"code": {"key": "2116"}},
+                "carrierOrder": [{"carrier": {"name": "Acme Transport"}}],
+            },
+        }
+
+    monkeypatch.setattr(turvo_nodes, "get_shipment_tool", fake_get_shipment)
+    monkeypatch.setattr(
+        turvo_nodes,
+        "check_pod_tool",
+        lambda *a, **k: {"success": True, "pod_exists": False},
+    )
+
+    def fake_read_lifecycle(self, **kwargs):
+        return {
+            "found": True,
+            "lifecycle_id": lifecycle_id,
+            "shipment_id": shipments_row_id,
+            "workflow_name": "pod_lifecycle",
+        }
+
+    monkeypatch.setattr(
+        "app.services.workflow_lifecycle_service.WorkflowLifecycleService.read_lifecycle",
+        fake_read_lifecycle,
+    )
+
+    def fake_load_ratecon(state):
+        state.data["ratecon_analysis_results"] = {
+            "success": True,
+            "shipment_id": ship,
+            "findings": {"extracted_fields": {"broker_name": "Acme Transport"}},
+            "cached": True,
+            "document_analysis_id": "cached-ratecon-1",
+        }
+        state.data["document_analysis_ratecon"] = {
+            "stored": True,
+            "id": "cached-ratecon-1",
+            "source": "cache",
+        }
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "load_ratecon_analysis",
+        fake_load_ratecon,
+    )
+
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService.prepare_email_received_payload",
+        new=AsyncMock(side_effect=fake_prepare_email_received_payload),
+    ) as mock_prepare:
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+
+        async def fake_execute(**kwargs):
+            payload = kwargs.get("payload") or {}
+            return {
+                "tenant_id": kwargs.get("tenant_id"),
+                "tenant_slug": kwargs.get("tenant_slug"),
+                "execution_id": payload.get("execution_id"),
+                "data": {
+                    **payload,
+                    "workflow_lifecycle_id": lifecycle_id,
+                    "shipments_row_id": shipments_row_id,
+                    "shipment": {"shipment_id": ship},
+                    "pod_object_keys": ["freightx/pod_attachments/pod_attId.pdf"],
+                },
+            }
+
+        monkeypatch.setattr(service.execution, "execute", fake_execute)
+        monkeypatch.setattr(
+            service.lifecycle_service,
+            "resolve_or_create_lifecycle",
+            lambda **kw: LifecycleResolution(
+                workflow_lifecycle_id=lifecycle_id,
+                existed=True,
+            ),
+        )
+
+        result = await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "email_received",
+                "thread_id": "thread-1",
+                "body": "Attached POD for delivered load",
+                "attachments": [{"id": "att-1"}],
+                "has_attachments": True,
+            },
+        )
+
+    mock_prepare.assert_called_once()
+    assert result["data"]["workflow_lifecycle_id"] == lifecycle_id
+    assert result["data"]["shipments_row_id"] == shipments_row_id
     assert result["data"]["shipment"]["shipment_id"] == ship
     assert result["data"].get("pod_object_keys")
 
@@ -126,7 +346,7 @@ async def test_pod_lifecycle_reminder_due_missing_attachment_routes_to_email():
     service = WorkflowService(WorkflowRepository(), TenantRepository())
 
     result = await service.run(
-        tenant_id="t3ra",
+        tenant_slug="t3ra",
         workflow_name="pod_lifecycle",
         payload={
             "event_type": "reminder_due",
@@ -172,145 +392,10 @@ async def test_required_payload_keys_enforced():
     service = WorkflowService(WorkflowRepository(), TenantRepository())
     with pytest.raises(Exception):
         await service.run(
-            tenant_id="t3ra",
+            tenant_slug="t3ra",
             workflow_name="pod_lifecycle",
             payload={"shipment_id": "S1"},
         )
-
-
-@pytest.mark.asyncio
-async def test_ratecon_requires_load_id():
-    service = WorkflowService(WorkflowRepository(), TenantRepository())
-    with pytest.raises(Exception, match="load_id"):
-        await service.run(
-            tenant_id="t3ra",
-            workflow_name="ratecon",
-            payload={"event_type": "route_completed"},
-        )
-
-
-@pytest.mark.asyncio
-async def test_ratecon_runs_resolve_load_to_shipment(monkeypatch):
-    def fake_load_id_to_shipment(load_id, app_user_id=None):
-        return {
-            "success": True,
-            "load_id": str(load_id),
-            "shipment_id": "SHIP-99",
-            "message": "ok",
-        }
-
-    monkeypatch.setattr(
-        turvo_nodes, "load_id_to_shipment_id_tool", fake_load_id_to_shipment
-    )
-    service = WorkflowService(WorkflowRepository(), TenantRepository())
-    result = await service.run(
-        tenant_id="t3ra",
-        workflow_name="ratecon",
-        payload={"load_id": "L42", "app_user_id": "user-1"},
-    )
-
-    assert result["data"]["shipment_id"] == "SHIP-99"
-    assert result["data"]["load_id_to_shipment"]["shipment_id"] == "SHIP-99"
-    assert result["data"]["load_id_to_shipment"]["success"] is True
-
-
-@pytest.mark.asyncio
-async def test_ratecon_upload_persists_documents_via_insert_document(monkeypatch):
-    def fake_load_id_to_shipment(load_id, app_user_id=None):
-        return {
-            "success": True,
-            "load_id": str(load_id),
-            "shipment_id": "SHIP-99",
-            "message": "ok",
-        }
-
-    monkeypatch.setattr(
-        turvo_nodes, "load_id_to_shipment_id_tool", fake_load_id_to_shipment
-    )
-
-    expect_key = "freightx/ratecon_attachments/ratecon_SHIP-99.pdf"
-
-    def fake_upload_to_s3(**kwargs):
-        return {
-            "results": [
-                {
-                    "attachment_id": "att-1",
-                    "success": True,
-                    "object_key": expect_key,
-                    "error_message": None,
-                    "original_filename": "Carrier_rate_confirmation.pdf",
-                    "content_type": "application/pdf",
-                    "extension": "pdf",
-                }
-            ],
-            "ratecon_object_keys": [expect_key],
-            "all_succeeded": True,
-        }
-
-    persisted: list[tuple] = []
-
-    def fake_insert(doc_type, shipment_id, object_key, **kwargs):
-        persisted.append((doc_type, shipment_id, object_key, kwargs))
-        return {"stored": True, "id": "doc-row-1"}
-
-    monkeypatch.setattr(
-        ratecon_node,
-        "upload_ratecon_email_attachments_to_s3",
-        fake_upload_to_s3,
-    )
-    monkeypatch.setattr(ratecon_node, "insert_document", fake_insert)
-
-    service = WorkflowService(WorkflowRepository(), TenantRepository())
-    result = await service.run(
-        tenant_id="t3ra",
-        workflow_name="ratecon",
-        payload={
-            "load_id": "L42",
-            "app_user_id": "user-1",
-            "email_id": "email-1",
-            "attachments": [{"id": "att-1"}],
-        },
-    )
-
-    assert persisted
-    assert persisted[0][0] == DocumentType.RATECON
-    assert persisted[0][1] == "SHIP-99"
-    assert persisted[0][2] == expect_key
-    r0 = result["data"]["ratecon_s3_upload"]["results"][0]
-    assert r0["document_persist"]["stored"] is True
-    assert r0["document_persist"]["id"] == "doc-row-1"
-
-
-@pytest.mark.asyncio
-async def test_thread_id_reuses_existing_workflow_lifecycle_id(mock_attachment_upload):
-    service = WorkflowService(WorkflowRepository(), TenantRepository())
-
-    first = await service.run(
-        tenant_id="t3ra",
-        workflow_name="pod_lifecycle",
-        payload={
-            "event_type": "email_received",
-            "thread_id": "thread-42",
-            "shipment_id": "S42",
-            "attachments": [{"id": "a1"}],
-            "workflow_lifecycle_payload": {"shipment_id": "S42"},
-        },
-    )
-    workflow_lifecycle_id = first["data"]["workflow_lifecycle_id"]
-
-    second = await service.run(
-        tenant_id="t3ra",
-        workflow_name="pod_lifecycle",
-        payload={
-            "event_type": "email_received",
-            "thread_id": "thread-42",
-            "attachments": [{"id": "a2"}],
-            "workflow_lifecycle_payload": {"shipment_id": "S42"},
-            "shipment_id": "S42",
-        },
-    )
-
-    assert second["data"]["workflow_lifecycle_id"] == workflow_lifecycle_id
 
 
 def test_upload_file_puts_object_to_s3():

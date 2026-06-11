@@ -20,3 +20,17 @@ def test_cell_at_column_index() -> None:
     assert cell_at_column_index(row, 1) == "b"
     assert cell_at_column_index(row, 99) is None
     assert cell_at_column_index(row, -1) is None
+
+
+def test_cell_at_column_index_jsonb_reordered_keys() -> None:
+    """jsonb sorts keys lexicographically; explicit index lookup must still read C and J."""
+    row: dict[str, Any] = {
+        "0": 200,
+        "1": 44225600,
+        "10": None,
+        "11": "233 E. BRISTOL LANE",
+        "2": 44225600,
+        "9": "MERICAL",
+    }
+    assert cell_at_column_index(row, 2) == 44225600
+    assert cell_at_column_index(row, 9) == "MERICAL"

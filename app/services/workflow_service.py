@@ -1,6 +1,8 @@
 from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
+from app.services.ratecon_ingress_service import RateconIngressService
+from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
@@ -13,10 +15,11 @@ from app.workflows.graph.routers import (
     shipment_router,
     pod_exists_router,
     pod_missing_dispatch_router,
-    pod_request_triggered_router,
+    ratecon_cache_router,
     read_workflow_lifecycle_router,
 )
 from typing import Optional
+import uuid
 
 from langsmith import traceable
 
@@ -26,7 +29,7 @@ ROUTER_REGISTRY = {
     "pod_missing_dispatch": pod_missing_dispatch_router,
     "shipment_router": shipment_router,
     "event_type": event_type_router,
-    "pod_request_triggered_router": pod_request_triggered_router,
+    "ratecon_cache_router": ratecon_cache_router,
     "read_workflow_lifecycle_router": read_workflow_lifecycle_router,
     "load_type_router": load_type_router,
     "tender_status_router": tender_status_router,
@@ -42,6 +45,28 @@ class WorkflowService:
         self.execution = ExecutionService()
         self.lifecycle_service = WorkflowLifecycleService()
         self.tenants_service = TenantsService()
+        self._ratecon_ingress = RateconIngressService()
+        self._pod_lifecycle_ingress = PodLifecycleIngressService()
+
+    @staticmethod
+    def _skipped_route_completed_result(
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict,
+        lifecycle_id: str | None,
+    ) -> dict:
+        execution_id = str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+        data = dict(payload)
+        data["skipped_duplicate_route_completed"] = True
+        if lifecycle_id:
+            data["workflow_lifecycle_id"] = lifecycle_id
+        return {
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant_slug,
+            "execution_id": execution_id,
+            "data": data,
+        }
 
     async def run(
         self,
@@ -62,6 +87,39 @@ class WorkflowService:
             tenant_row.get("settings") or {},
         )
 
+        if workflow_name == "ratecon":
+            payload = await self._ratecon_ingress.prepare_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+
+        if (
+            workflow_name == "pod_lifecycle"
+            and payload.get("event_type") == "email_received"
+        ):
+            payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+
+        if (
+            workflow_name == "pod_lifecycle"
+            and payload.get("event_type") == "route_completed"
+        ):
+            duplicate = self._pod_lifecycle_ingress.check_route_completed_duplicate(
+                tenant_id=tenant_id,
+                payload=payload,
+            )
+            if duplicate.is_duplicate:
+                return self._skipped_route_completed_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    lifecycle_id=duplicate.lifecycle_id,
+                )
+
         lifecycle = self.lifecycle_service.resolve_or_create_lifecycle(
             tenant_id=tenant_id,
             workflow_name=workflow_name,
@@ -70,6 +128,14 @@ class WorkflowService:
         workflow_lifecycle_id = lifecycle.workflow_lifecycle_id
         payload["workflow_lifecycle_id"] = workflow_lifecycle_id
         payload["workflow_name"] = workflow_name
+
+        shipments_row_id = self.lifecycle_service.ensure_lifecycle_shipment_linked(
+            lifecycle_id=workflow_lifecycle_id,
+            tenant_id=tenant_id,
+            payload=payload,
+        )
+        if shipments_row_id:
+            payload["shipments_row_id"] = shipments_row_id
 
         event_type = payload.get("event_type")
         traced = traceable(
@@ -83,12 +149,14 @@ class WorkflowService:
             payload=payload,
             langsmith_extra={
                 "metadata": {
+                    "thread_id": workflow_lifecycle_id,
                     "workflow_lifecycle_id": workflow_lifecycle_id,
                     "tenant_id": tenant_id,
                     "tenant_slug": tenant_slug,
                     "event_type": event_type,
                     "shipment_id": payload.get("shipment_id"),
-                    "load_id": payload.get("load_id"),
+                    "tender_id": payload.get("tender_id"),
+                    "order_number": payload.get("order_number"),
                     "email_thread_id": payload.get("email_thread_id") or payload.get("thread_id"),
                 }
             },

@@ -4,217 +4,82 @@ from __future__ import annotations
 
 from typing import Any
 
-import psycopg
+from app.core.db import db_scope
 
-from app.core.config import settings
-from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-
-def _conn():
-    return psycopg.connect(settings.DATABASE_URL)
+from tests.db.e2e import communications_correlation_snapshots as comms_snapshots
+from tests.db.e2e import document_analysis_reads, documents_reads
+from tests.db.e2e import workflow_lifecycle_snapshots as wl_snapshots
+from tests.db.e2e import workflow_runs_reads
 
 
 def fetch_documents_for_shipment(*, shipment_id: str) -> list[dict[str, Any]]:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, type::text AS type, shipment_id, object_key, created_at
-                FROM documents
-                WHERE shipment_id = %s
-                ORDER BY created_at ASC
-                """,
-                (shipment_id,),
-            )
-            rows = cur.fetchall()
-            cols = ["id", "type", "shipment_id", "object_key", "created_at"]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    """``shipment_id`` is ``shipments.id`` (UUID), matching ``workflow_lifecycles.shipment_id``."""
+    with db_scope() as repos:
+        return documents_reads.list_by_shipment(
+            repos.session, shipments_row_id=shipment_id
+        )
 
 
 def fetch_document_analysis_for_shipment(*, shipment_id: str) -> list[dict[str, Any]]:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, shipment_id, analysis_type::text AS analysis_type,
-                       status, findings, attachments_used, created_at
-                FROM document_analysis
-                WHERE shipment_id = %s
-                ORDER BY created_at ASC
-                """,
-                (shipment_id,),
-            )
-            rows = cur.fetchall()
-            cols = [
-                "id",
-                "shipment_id",
-                "analysis_type",
-                "status",
-                "findings",
-                "attachments_used",
-                "created_at",
-            ]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    """``shipment_id`` is ``shipments.id`` (UUID)."""
+    with db_scope() as repos:
+        return document_analysis_reads.list_by_shipment(
+            repos.session, shipments_row_id=shipment_id
+        )
 
 
 def fetch_lifecycle_by_id(*, lifecycle_id: str) -> dict[str, Any] | None:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE id = %s
-                """,
-                (lifecycle_id,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return dict(zip(cols, row, strict=True))
-    finally:
-        conn.close()
+    with db_scope() as repos:
+        return wl_snapshots.read_by_id(repos.session, lifecycle_id=lifecycle_id)
 
 
 def fetch_ratecon_lifecycle_for_thread(*, tenant_id: str, thread_id: str) -> dict[str, Any] | None:
-    """Latest ``ratecon`` lifecycle row for this Unipile ``thread_id`` (``email_thread_id``)."""
-    tid = (tenant_id or "").strip()
-    th = (thread_id or "").strip()
-    if not tid or not th:
-        return None
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE tenant_id = %s
-                  AND workflow_name = 'ratecon'
-                  AND email_thread_id = %s
-                ORDER BY updated_at DESC
-                LIMIT 1
-                """,
-                (tid, th),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return dict(zip(cols, row, strict=True))
-    finally:
-        conn.close()
+    """Latest ``ratecon`` lifecycle for this thread via ``communications`` → ``workflow_runs``."""
+    with db_scope() as repos:
+        return wl_snapshots.find_latest_ratecon_by_thread(
+            repos.session,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+        )
 
 
 def fetch_lifecycles_for_email_thread(*, tenant_id: str, thread_id: str) -> list[dict[str, Any]]:
-    """All ``workflow_lifecycles`` rows for this Unipile ``thread_id`` (``email_thread_id``), any workflow."""
-    tid = (tenant_id or "").strip()
-    th = (thread_id or "").strip()
-    if not tid or not th:
-        return []
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE tenant_id = %s AND email_thread_id = %s
-                ORDER BY updated_at DESC
-                """,
-                (tid, th),
-            )
-            rows = cur.fetchall()
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    """Lifecycles linked to this Unipile ``thread_id`` via ``communications`` → ``workflow_runs``."""
+    with db_scope() as repos:
+        return wl_snapshots.list_by_email_thread(
+            repos.session,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+        )
+
+
+def fetch_load_tendering_lifecycle_for_thread(
+    *, tenant_id: str, thread_id: str
+) -> dict[str, Any] | None:
+    """``load_tendering`` lifecycle resolved via comms ``workflow_run_id`` (Gelita correlation)."""
+    with db_scope() as repos:
+        return comms_snapshots.find_load_tendering_lifecycle_by_thread(
+            repos.session,
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+        )
 
 
 def fetch_lifecycles_for_tenant_shipment(*, tenant_id: str, shipment_id: str) -> list[dict[str, Any]]:
     """All ``workflow_lifecycles`` rows for this tenant and Turvo ``shipment_id`` (text match)."""
-    tid = (tenant_id or "").strip()
-    sid = str(shipment_id or "").strip()
-    if not tid or not sid:
-        return []
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, tenant_id, workflow_name, shipment_id, email_thread_id, updated_at
-                FROM workflow_lifecycles
-                WHERE tenant_id = %s AND shipment_id = %s
-                ORDER BY updated_at DESC
-                """,
-                (tid, sid),
-            )
-            rows = cur.fetchall()
-            cols = [
-                "id",
-                "tenant_id",
-                "workflow_name",
-                "shipment_id",
-                "email_thread_id",
-                "updated_at",
-            ]
-            return [dict(zip(cols, r, strict=True)) for r in rows]
-    finally:
-        conn.close()
+    with db_scope() as repos:
+        return wl_snapshots.list_by_tenant_shipment(
+            repos.session,
+            tenant_id=tenant_id,
+            shipment_id=shipment_id,
+        )
 
 
 def count_workflow_runs_for_shipment(*, tenant_id: str, shipment_id: str) -> int:
     """Count workflow_runs executions whose lifecycle ties this tenant UUID and shipment_id."""
-
-    tid_raw = (tenant_id or "").strip()
-    sid = (shipment_id or "").strip()
-    if not tid_raw or not sid:
-        return 0
-    tid = resolve_graph_tenant_to_uuid(tid_raw)
-    if not tid:
-        return 0
-
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT COUNT(*)::bigint
-                FROM workflow_runs wr
-                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
-                WHERE wr.tenant_id = %s::uuid AND wl.shipment_id = %s
-                """,
-                (tid, sid),
-            )
-            row = cur.fetchone()
-            return int(row[0]) if row and row[0] is not None else 0
-    finally:
-        conn.close()
+    with db_scope() as repos:
+        return workflow_runs_reads.count_by_tenant_shipment(
+            repos.session,
+            tenant_id=tenant_id,
+            shipment_id=shipment_id,
+        )

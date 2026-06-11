@@ -6,11 +6,9 @@ import uuid
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.delivery_locations_import import (
-    unipile_delivery_locations_attachment,
-    unipile_first_load_tender_xlsx_attachment,
-)
-from app.services.workflow_classifier_service import build_unipile_attachment_fetch_context
+from app.domain.delivery_locations_import import unipile_delivery_locations_attachment
+from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
+from app.domain.unipile_email import build_unipile_attachment_fetch_context
 from app.tasks.email import run_email_webhook
 from app.tasks.email_handlers import (
     HANDLER_DELIVERY_LOCATIONS_IMPORT,
@@ -99,7 +97,7 @@ def enqueue_load_tendering_tender_created_ingest(
 
     Returns ``(task_id, status)`` where status is ``queued`` or ``already_queued``.
     """
-    attachment = unipile_first_load_tender_xlsx_attachment(payload)
+    attachment = email_load_tender_xlsx_attachment(payload)
     if attachment is None:
         raise ValueError("payload has no load-tender xlsx attachment")
 

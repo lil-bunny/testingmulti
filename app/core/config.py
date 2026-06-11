@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote_plus
 import os
 
+from app.models.tenants import TenantSlug
+
 
 class Settings(BaseSettings):
     APP_NAME: str = "Freight AI Platform"
@@ -15,6 +17,7 @@ class Settings(BaseSettings):
     LOGFIRE_SERVICE_NAME: Optional[str] = "freightx-local"
     OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
+    LANGSMITH_PROMPT_OWNER: Optional[str] = None
     LANGSMITH_PROJECT: Optional[str] = None
     LANGSMITH_ENDPOINT: Optional[str] = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = True
@@ -25,7 +28,6 @@ class Settings(BaseSettings):
 
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
-    TENANTS_TABLE: str = "tenants"
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int
@@ -44,10 +46,11 @@ class Settings(BaseSettings):
     # Unipile (required for POD reminder replies in thread)
     UNIPILE_API_KEY: str
     UNIPILE_BASE_URL: str = "https://api16.unipile.com:14674"
-    UNIPILE_ACCOUNT_ID: str
+    # Legacy fallback; prefer tenants.settings.mikey_account_id for T3RA POD mail
+    UNIPILE_ACCOUNT_ID: Optional[str] = None
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
-    STUDIO_TENANT_SLUG: str = "t3ra"
+    STUDIO_TENANT_SLUG: str = TenantSlug.T3RA
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
 
     # Turvo
@@ -61,9 +64,22 @@ class Settings(BaseSettings):
     TURVO_TENANT_REF: Optional[str] = None
     # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
     TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
-    # Optional fallback app user id used by workflow tools when the workflow state does not carry one (e.g. Turvo webhook-triggered runs).
-    # Turvo tokens + password: in tenants.settings (JSON); row match uses settings.app_user_id = X-App-User-Id
-    TURVO_DEFAULT_APP_USER_ID: Optional[str] = "deb-test"
+    # Optional fallback tenant slug for Turvo link/status API and local scripts when header is omitted.
+    # Turvo tokens + password: in tenants.settings (JSON); row match uses tenants.slug.
+    TURVO_DEFAULT_TENANT_SLUG: Optional[str] = Field(
+        default=TenantSlug.T3RA,
+        validation_alias=AliasChoices(
+            "TURVO_DEFAULT_TENANT_SLUG",
+            "TURVO_DEFAULT_APP_USER_ID",
+        ),
+    )
+    # Turvo POST /documents payload limit (sandbox returns 413 above 10 MB).
+    TURVO_POD_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024
+    TURVO_POD_UPLOAD_TIMEOUT_S: float = 180.0
+    TURVO_POD_UPLOAD_MAX_ATTEMPTS: int = 3
+    TURVO_POD_OPTIMIZE_DPI: int = 150
+    TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
+    TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 2000
 
     # Unipile
     UNIPILE_API_KEY: str
@@ -83,13 +99,34 @@ class Settings(BaseSettings):
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
 
+    # freightx-api (portal auth delegation)
+    FREIGHTX_API_BASE_URL: str = "http://localhost:8001"
+    FREIGHTX_API_TIMEOUT_S: float = 10.0
+
+    CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+#   for langgraph checkpointer
     @property
     def DATABASE_URL(self) -> str:
         encoded_password = quote_plus(self.DATABASE_PASSWORD)
         return (
             f"postgresql://{self.DATABASE_USER}:{encoded_password}"
+            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+        )
+
+    # for SQLAlchemy engine URL (psycopg v3 driver)
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ALLOW_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        """SQLAlchemy engine URL (psycopg v3 driver)."""
+        encoded_password = quote_plus(self.DATABASE_PASSWORD)
+        return (
+            f"postgresql+psycopg://{self.DATABASE_USER}:{encoded_password}"
             f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
         )
 

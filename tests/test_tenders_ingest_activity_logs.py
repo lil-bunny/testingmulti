@@ -17,7 +17,7 @@ def _projected_row() -> dict:
     return {
         "order_number": "ORD-1",
         "order_position": 5,
-        "customer_match": "Acme Corp",
+        "weight_unit": "KG",
         "product_name": "Widget",
         "order_quantity": Decimal("100"),
     }

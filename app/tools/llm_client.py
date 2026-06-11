@@ -1,8 +1,12 @@
 import base64
 import json
+from typing import Any
+
 import httpx
+from langsmith import traceable
 
 from app.core.config import settings
+from app.integrations.langsmith.types import PromptTraceMetadata
 
 
 class LLMClientError(Exception):
@@ -20,12 +24,12 @@ def _extract_json(content: str) -> dict:
     return json.loads(text)
 
 
-def chat_json(
+def _chat_json_impl(
     system_prompt: str,
     user_prompt: str,
     *,
-    temperature: float = 0.2,
-    timeout_s: float = 60.0,
+    temperature: float,
+    timeout_s: float,
 ) -> dict:
     base_url = settings.LLM_BASE_URL
     model = settings.LLM_MODEL
@@ -41,7 +45,6 @@ def chat_json(
         ],
         "temperature": temperature,
     }
-    print("\n\n\npayload", payload["messages"],"\n\n\n")
     endpoint = f"{base_url.rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -59,6 +62,28 @@ def chat_json(
         raise LLMClientError("Failed LLM chat_json call") from exc
 
 
+def chat_json(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    temperature: float = 0.2,
+    timeout_s: float = 60.0,
+    prompt_trace: PromptTraceMetadata | None = None,
+) -> dict:
+    """OpenAI-compatible chat completion; optional prompt trace metadata on LangSmith span."""
+    traced = traceable(run_type="llm", name="chat_json")(_chat_json_impl)
+    langsmith_extra: dict[str, Any] | None = None
+    if prompt_trace is not None:
+        langsmith_extra = {"metadata": prompt_trace.to_langsmith_metadata()}
+    return traced(
+        system_prompt,
+        user_prompt,
+        temperature=temperature,
+        timeout_s=timeout_s,
+        langsmith_extra=langsmith_extra,
+    )
+
+
 def chat_vision_json(
     system_prompt: str,
     user_prompt: str,
@@ -67,6 +92,7 @@ def chat_vision_json(
     timeout_s: float = 120.0,
     temperature: float = 0.2,
     max_tokens: int | None = None,
+    prompt_trace: PromptTraceMetadata | None = None,
 ) -> dict:
     """OpenAI-compatible vision call (single JPEG) using the same LLM_* settings as ``chat_json``."""
     base_url = settings.LLM_BASE_URL
@@ -100,12 +126,32 @@ def chat_vision_json(
         "Content-Type": "application/json",
     }
 
+    traced = traceable(run_type="llm", name="chat_vision_json")(_chat_vision_json_impl)
+
     try:
-        with httpx.Client(timeout=timeout_s) as client:
-            response = client.post(endpoint, headers=headers, json=payload)
-            response.raise_for_status()
-            body = response.json()
-        content = body["choices"][0]["message"]["content"]
-        return _extract_json(content)
+        langsmith_extra: dict[str, Any] | None = None
+        if prompt_trace is not None:
+            langsmith_extra = {"metadata": prompt_trace.to_langsmith_metadata()}
+        return traced(
+            endpoint,
+            headers,
+            payload,
+            timeout_s,
+            langsmith_extra=langsmith_extra,
+        )
     except (httpx.HTTPError, KeyError, json.JSONDecodeError, ValueError) as exc:
         raise LLMClientError("Failed LLM chat_vision_json call") from exc
+
+
+def _chat_vision_json_impl(
+    endpoint: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout_s: float,
+) -> dict:
+    with httpx.Client(timeout=timeout_s) as client:
+        response = client.post(endpoint, headers=headers, json=payload)
+        response.raise_for_status()
+        body = response.json()
+    content = body["choices"][0]["message"]["content"]
+    return _extract_json(content)

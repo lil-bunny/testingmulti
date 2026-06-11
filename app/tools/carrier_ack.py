@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.integrations.langsmith.types import PromptTraceMetadata
 from app.models.status import StatusSubType
 from app.services.communications._mapper import normalize_email_body_for_llm
 from app.tools.llm_client import LLMClientError, chat_json
@@ -39,6 +40,8 @@ def classify_carrier_acknowledgment(
     reply_text: str,
     *,
     system_prompt: str,
+    user_prompt: str | None = None,
+    prompt_trace: PromptTraceMetadata | None = None,
 ) -> dict[str, Any]:
     """
     LLM gate for carrier ack replies.
@@ -46,6 +49,8 @@ def classify_carrier_acknowledgment(
     Returns ``decision`` (``accepted`` | ``rejected`` | ``do_nothing``), ``confidence``, ``reason``.
     """
     text = (reply_text or "").strip()
+    user_content = (user_prompt if user_prompt is not None else reply_text) or ""
+    user_content = user_content.strip()
     prompt = (system_prompt or "").strip()
     if not text:
         return {
@@ -57,14 +62,15 @@ def classify_carrier_acknowledgment(
         return {
             "decision": StatusSubType.DO_NOTHING.value,
             "confidence": 0.0,
-            "reason": "missing carrier_ack_system_prompt",
+            "reason": "missing_tenant_prompt_configuration",
         }
 
     try:
         raw = chat_json(
             prompt,
-            text,
+            user_content,
             temperature=0.1,
+            prompt_trace=prompt_trace,
         )
     except LLMClientError as exc:
         logger.warning("carrier ack LLM failed: %s", exc)
