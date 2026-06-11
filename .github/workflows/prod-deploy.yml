@@ -3,7 +3,7 @@ name: Deploy backend to Amazon ECS Production
 on:
   push:
     branches:
-      - master
+      - staging
 
 env:
   AWS_REGION: us-east-2
@@ -33,14 +33,24 @@ jobs:
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
     
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
     - name: Build, tag, and push image to Amazon ECR
       id: build-image
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: latest
       run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker buildx build \
+          --platform linux/arm64 \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          --push .
 
     # --------------------------------------------------------- 
     # DEPLOY UVICORN ENVIRONMENT 
