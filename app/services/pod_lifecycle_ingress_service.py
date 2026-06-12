@@ -11,7 +11,6 @@ from app.domain.ratecon_import import (
     is_pdf_attachment,
     load_id_from_ratecon_attachment_name,
 )
-from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.services.shipments_service import ShipmentsService
@@ -261,32 +260,27 @@ class PodLifecycleIngressService:
 
         load_id = self._load_id_from_attachments(payload)
         if load_id:
-            try:
-                turvo_shipment_id = await load_id_to_shipment_id_async(
-                    tenant_slug, load_id
-                )
-            except Exception as exc:
-                raise Exception(
-                    f"pod_lifecycle email_received: Turvo load resolve failed: {exc}"
-                ) from exc
-
-            if not turvo_shipment_id:
-                raise Exception(
-                    "pod_lifecycle email_received: Turvo load resolve failed: "
-                    f"no shipment for load_id={load_id!r}"
-                )
-
-            turvo_shipment_id = str(turvo_shipment_id).strip()
-            persist = self._shipments.upsert_from_turvo(
+            persist = await self._shipments.upsert_from_load_id(
                 tenant_id=tid,
-                turvo_shipment_id=turvo_shipment_id,
+                tenant_slug=tenant_slug,
                 load_id=load_id,
             )
             if not persist.get("success") or not persist.get("shipments_row_id"):
                 message = persist.get("message") or "shipments_upsert_failed"
+                if message == "turvo_load_resolve_failed":
+                    raise Exception(
+                        f"pod_lifecycle email_received: Turvo load resolve failed: {message}"
+                    )
+                if message == "turvo_shipment_not_found":
+                    raise Exception(
+                        "pod_lifecycle email_received: Turvo load resolve failed: "
+                        f"no shipment for load_id={load_id!r}"
+                    )
                 raise Exception(
                     f"pod_lifecycle email_received: shipment upsert failed: {message}"
                 )
+
+            turvo_shipment_id = str(persist.get("shipment_number") or "").strip()
 
             shipments_row_id = str(persist["shipments_row_id"])
             pod_lc_id = self._pod_lifecycle_id_for_shipment(

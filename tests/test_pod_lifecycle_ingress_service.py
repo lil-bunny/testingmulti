@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -218,16 +218,15 @@ async def test_prepare_email_received_payload_attachment_load_id_fallback() -> N
     comms = MagicMock()
     comms.find_shipment_context_for_thread.return_value = []
     shipments = MagicMock()
-    shipments.upsert_from_turvo.return_value = {
-        "success": True,
-        "shipments_row_id": _SHIPMENTS_ROW_UUID,
-    }
+    shipments.upsert_from_load_id = AsyncMock(
+        return_value={
+            "success": True,
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        }
+    )
     lifecycle = MagicMock()
     lifecycle.check_lifecycle_exists.return_value = {"exists": False}
-
-    async def fake_turvo(_slug: str, load_id: str) -> str:
-        assert load_id == "30389"
-        return _TURVO_SHIPMENT
 
     svc = PodLifecycleIngressService(
         communications_service=comms,
@@ -235,11 +234,7 @@ async def test_prepare_email_received_payload_attachment_load_id_fallback() -> N
         lifecycle_service=lifecycle,
     )
 
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            "app.services.pod_lifecycle_ingress_service.load_id_to_shipment_id_async",
-            fake_turvo,
-        )
+    with pytest.MonkeyPatch.context():
         out = await svc.prepare_email_received_payload(
             tenant_id=_TENANT_UUID,
             tenant_slug="t3ra",
@@ -257,7 +252,7 @@ async def test_prepare_email_received_payload_attachment_load_id_fallback() -> N
 
     assert out["shipments_row_id"] == _SHIPMENTS_ROW_UUID
     assert out["shipment_id"] == _TURVO_SHIPMENT
-    shipments.upsert_from_turvo.assert_called_once()
+    shipments.upsert_from_load_id.assert_awaited_once()
 
 
 @pytest.mark.asyncio
