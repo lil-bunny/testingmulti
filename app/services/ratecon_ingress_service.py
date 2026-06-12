@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
 from app.services.shipments_service import ShipmentsService
 
 
@@ -39,31 +38,23 @@ class RateconIngressService:
                 "Missing required payload keys for 'ratecon': ['load_id']"
             )
 
-        try:
-            turvo_shipment_id = await load_id_to_shipment_id_async(
-                tenant_slug, load_id
-            )
-        except Exception as exc:
-            raise Exception(
-                f"ratecon: Turvo load resolve failed: {exc}"
-            ) from exc
-
-        if not turvo_shipment_id:
-            raise Exception(
-                "ratecon: Turvo load resolve failed: "
-                "No shipment found for load_id or could not extract shipment_id"
-            )
-
-        turvo_shipment_id = str(turvo_shipment_id).strip()
-        persist = self._shipments.upsert_from_turvo(
+        persist = await self._shipments.upsert_from_load_id(
             tenant_id=tenant_id,
-            turvo_shipment_id=turvo_shipment_id,
+            tenant_slug=tenant_slug,
             load_id=load_id,
         )
         if not persist.get("success") or not persist.get("shipments_row_id"):
             message = persist.get("message") or "shipments_upsert_failed"
+            if message == "turvo_load_resolve_failed":
+                raise Exception(f"ratecon: Turvo load resolve failed: {message}")
+            if message == "turvo_shipment_not_found":
+                raise Exception(
+                    "ratecon: Turvo load resolve failed: "
+                    "No shipment found for load_id or could not extract shipment_id"
+                )
             raise Exception(f"ratecon: shipment upsert failed: {message}")
 
+        turvo_shipment_id = str(persist.get("shipment_number") or "").strip()
         out = dict(payload)
         out["shipment_id"] = turvo_shipment_id
         out["shipments_row_id"] = str(persist["shipments_row_id"])

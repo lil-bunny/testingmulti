@@ -51,24 +51,17 @@ def ratecon_lifecycle_stubs(monkeypatch):
 def ratecon_ingress_mocks(monkeypatch):
     """Pre-graph Turvo resolve + shipment upsert (RateconIngressService)."""
 
-    async def fake_load_id_to_shipment_async(load_id, tenant_slug, **kwargs):
-        return "SHIP-99"
-
-    def fake_upsert_from_turvo(self, **kwargs):
+    async def fake_upsert_from_load_id(self, **kwargs):
         return {
             "success": True,
             "shipments_row_id": _RATECON_ROW_UUID,
             "created": True,
-            "shipment_number": kwargs.get("turvo_shipment_id"),
+            "shipment_number": "SHIP-99",
         }
 
     monkeypatch.setattr(
-        "app.services.ratecon_ingress_service.load_id_to_shipment_id_async",
-        fake_load_id_to_shipment_async,
-    )
-    monkeypatch.setattr(
-        "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_turvo",
-        fake_upsert_from_turvo,
+        "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_load_id",
+        fake_upsert_from_load_id,
     )
 
 
@@ -97,6 +90,11 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> tuple[list[dict], list[tuple]]:
     monkeypatch.setattr(
         turvo_nodes.ShipmentsService,
         "upsert_from_turvo",
+        fake_upsert_from_turvo,
+    )
+    monkeypatch.setattr(
+        turvo_nodes.ShipmentsService,
+        "enrich_display_fields_from_turvo_payload",
         fake_upsert_from_turvo,
     )
 

@@ -215,6 +215,9 @@ def upgrade() -> None:
             delivery_location_id UUID REFERENCES locations(id),
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             delivery_address JSONB,
+            delivery_date DATE,
+            carrier_name TEXT,
+            customer_name TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT shipments_tenant_shipment_number_unique

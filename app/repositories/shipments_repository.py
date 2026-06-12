@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
+
+_SELECT_SHIPMENT_COLUMNS = """
+    id::text,
+    shipment_number,
+    metadata,
+    delivery_address,
+    delivery_date,
+    carrier_name,
+    customer_name
+"""
 
 
 @dataclass(frozen=True)
@@ -49,11 +60,23 @@ class ShipmentsRepository:
             if not delivery_address:
                 delivery_address = None
 
+        delivery_date_raw = row[4]
+        delivery_date: date | None
+        if delivery_date_raw is None:
+            delivery_date = None
+        elif hasattr(delivery_date_raw, "isoformat"):
+            delivery_date = delivery_date_raw
+        else:
+            delivery_date = None
+
         return {
             "id": str(row[0]),
             "shipment_number": row[1] or "",
             "metadata": parse_json(row[2]),
             "delivery_address": delivery_address,
+            "delivery_date": delivery_date,
+            "carrier_name": row[5] or None,
+            "customer_name": row[6] or None,
         }
 
     def upsert_by_tenant_and_shipment_number_tx(
@@ -62,6 +85,9 @@ class ShipmentsRepository:
         tenant_id: str,
         shipment_number: str,
         metadata: dict[str, Any],
+        delivery_date: date | None = None,
+        carrier_name: str | None = None,
+        customer_name: str | None = None,
     ) -> ShipmentUpsertResult:
         tid = self._clean(tenant_id)
         number = self._clean(shipment_number)
@@ -74,16 +100,34 @@ class ShipmentsRepository:
                 INSERT INTO {self.TABLE_NAME} (
                     tenant_id,
                     shipment_number,
-                    metadata
+                    metadata,
+                    delivery_date,
+                    carrier_name,
+                    customer_name
                 ) VALUES (
                     CAST(:tenant_id AS uuid),
                     :shipment_number,
-                    CAST(:metadata AS jsonb)
+                    CAST(:metadata AS jsonb),
+                    :delivery_date,
+                    :carrier_name,
+                    :customer_name
                 )
                 ON CONFLICT (tenant_id, shipment_number)
                 DO UPDATE SET
                     updated_at = NOW(),
-                    metadata = {self.TABLE_NAME}.metadata || EXCLUDED.metadata
+                    metadata = {self.TABLE_NAME}.metadata || EXCLUDED.metadata,
+                    delivery_date = COALESCE(
+                        EXCLUDED.delivery_date,
+                        {self.TABLE_NAME}.delivery_date
+                    ),
+                    carrier_name = COALESCE(
+                        EXCLUDED.carrier_name,
+                        {self.TABLE_NAME}.carrier_name
+                    ),
+                    customer_name = COALESCE(
+                        EXCLUDED.customer_name,
+                        {self.TABLE_NAME}.customer_name
+                    )
                 RETURNING id::text, (xmax = 0) AS created
                 """
             ),
@@ -91,6 +135,9 @@ class ShipmentsRepository:
                 "tenant_id": tid,
                 "shipment_number": number,
                 "metadata": jsonb_param(metadata),
+                "delivery_date": delivery_date,
+                "carrier_name": self._clean(carrier_name),
+                "customer_name": self._clean(customer_name),
             },
         ).first()
         if not row or not row[0]:
@@ -114,7 +161,7 @@ class ShipmentsRepository:
         row = self._session.execute(
             text(
                 f"""
-                SELECT id::text, shipment_number, metadata, delivery_address
+                SELECT {_SELECT_SHIPMENT_COLUMNS}
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_SHIPMENT}
                 LIMIT 1
@@ -141,7 +188,7 @@ class ShipmentsRepository:
         row = self._session.execute(
             text(
                 f"""
-                SELECT id::text, shipment_number, metadata, delivery_address
+                SELECT {_SELECT_SHIPMENT_COLUMNS}
                 FROM {self.TABLE_NAME}
                 WHERE id = CAST(:shipment_id AS uuid)
                   AND tenant_id = CAST(:tenant_id AS uuid)

@@ -6,8 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from datetime import date
+
+from app.domain.shipment_display import ShipmentDisplayFields
 from app.repositories.shipments_repository import ShipmentUpsertResult
 from app.services.shipments_service import ShipmentsService
+from tests.test_turvo_shipment_display_fields import SHIPMENT_1000324895_FIXTURE
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _SHIPMENTS_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -48,7 +52,6 @@ def test_upsert_from_turvo_metadata_includes_load_id():
     assert call_kw["tenant_id"] == _TENANT_UUID
     assert call_kw["shipment_number"] == "1000304706"
     assert call_kw["metadata"]["load_id"] == "L42"
-    assert call_kw["metadata"]["source"] == "ratecon"
     assert call_kw["metadata"]["extra"] == "x"
 
 
@@ -124,6 +127,53 @@ def test_get_by_id_delegates_to_repo():
         tenant_id=_TENANT_UUID,
         shipment_id=_SHIPMENTS_ROW_UUID,
     )
+
+
+def test_upsert_from_turvo_maps_turvo_payload_to_display_columns():
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.return_value = ShipmentUpsertResult(
+        shipment_id=_SHIPMENTS_ROW_UUID,
+        created=True,
+    )
+    svc = ShipmentsService(shipments_repository=repo)
+
+    out = svc.upsert_from_turvo(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="1000324895",
+        load_id="30389",
+        turvo_payload=SHIPMENT_1000324895_FIXTURE,
+    )
+
+    assert out["success"] is True
+    call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
+    assert call_kw["customer_name"] == "DIAMOND PET FOODS"
+    assert call_kw["carrier_name"] == "Turvo Test Carrier"
+    assert call_kw["delivery_date"] == date(2026, 4, 1)
+
+
+def test_upsert_from_turvo_accepts_explicit_display_fields():
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.return_value = ShipmentUpsertResult(
+        shipment_id=_SHIPMENTS_ROW_UUID,
+        created=False,
+    )
+    svc = ShipmentsService(shipments_repository=repo)
+
+    svc.upsert_from_turvo(
+        tenant_id=_TENANT_UUID,
+        turvo_shipment_id="1",
+        load_id="L1",
+        display_fields=ShipmentDisplayFields(
+            carrier_name="Carrier A",
+            customer_name="Customer B",
+            delivery_date=date(2026, 1, 2),
+        ),
+    )
+
+    call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
+    assert call_kw["carrier_name"] == "Carrier A"
+    assert call_kw["customer_name"] == "Customer B"
+    assert call_kw["delivery_date"] == date(2026, 1, 2)
 
 
 def test_get_by_id_returns_none_for_invalid_uuid():

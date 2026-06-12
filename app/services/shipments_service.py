@@ -7,6 +7,12 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
+from app.domain.shipment_display import ShipmentDisplayFields
+from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
+from app.integrations.turvo.shipments import (
+    get_shipment as get_turvo_shipment_async,
+    shipment_display_fields_from_payload,
+)
 from app.repositories.shipments_repository import (
     ShipmentsRepository,
     ShipmentUpsertResult,
@@ -58,6 +64,44 @@ class ShipmentsService:
         base.update(merged)
         return base
 
+    @staticmethod
+    def _resolve_display_fields(
+        *,
+        turvo_payload: dict[str, Any] | None,
+        display_fields: ShipmentDisplayFields | None,
+    ) -> ShipmentDisplayFields | None:
+        if display_fields is not None:
+            return display_fields
+        if isinstance(turvo_payload, dict):
+            return shipment_display_fields_from_payload(turvo_payload)
+        return None
+
+    def _upsert_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_number: str,
+        metadata: dict[str, Any],
+        display_fields: ShipmentDisplayFields | None,
+    ) -> ShipmentUpsertResult:
+        kwargs: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "shipment_number": shipment_number,
+            "metadata": metadata,
+        }
+        if display_fields is not None:
+            kwargs["delivery_date"] = display_fields.delivery_date
+            kwargs["carrier_name"] = display_fields.carrier_name
+            kwargs["customer_name"] = display_fields.customer_name
+
+        if self._shipments is not None:
+            return self._shipments.upsert_by_tenant_and_shipment_number_tx(**kwargs)
+        return run_with_repos(
+            lambda repos: self._repo(repos).upsert_by_tenant_and_shipment_number_tx(
+                **kwargs
+            )
+        )
+
     def upsert_from_turvo(
         self,
         *,
@@ -65,12 +109,15 @@ class ShipmentsService:
         turvo_shipment_id: str,
         load_id: str,
         metadata: dict[str, Any] | None = None,
+        turvo_payload: dict[str, Any] | None = None,
+        display_fields: ShipmentDisplayFields | None = None,
     ) -> dict[str, Any]:
         """
         Insert or update a shipment row after Turvo id resolution (ratecon path).
 
         ``shipment_number`` stores the Turvo shipment id. ``metadata`` always includes
-        ``load_id``.
+        ``load_id``. When ``turvo_payload`` or ``display_fields`` is supplied, also
+        persists ``delivery_date``, ``carrier_name``, and ``customer_name``.
         """
         tid = self._uuid_or_none(tenant_id)
         if not tid:
@@ -85,22 +132,18 @@ class ShipmentsService:
             return {"success": False, "message": "missing_load_id"}
 
         payload = self._build_metadata(load_id=load, extra=metadata)
+        fields = self._resolve_display_fields(
+            turvo_payload=turvo_payload,
+            display_fields=display_fields,
+        )
 
         try:
-            if self._shipments is not None:
-                result = self._shipments.upsert_by_tenant_and_shipment_number_tx(
-                    tenant_id=tid,
-                    shipment_number=number,
-                    metadata=payload,
-                )
-            else:
-                result = run_with_repos(
-                    lambda repos: self._repo(repos).upsert_by_tenant_and_shipment_number_tx(
-                        tenant_id=tid,
-                        shipment_number=number,
-                        metadata=payload,
-                    )
-                )
+            result = self._upsert_tx(
+                tenant_id=tid,
+                shipment_number=number,
+                metadata=payload,
+                display_fields=fields,
+            )
         except Exception:
             logger.exception(
                 "shipments upsert failed tenant_id=%s shipment_number=%s load_id=%s",
@@ -116,6 +159,69 @@ class ShipmentsService:
             "created": result.created,
             "shipment_number": number,
         }
+
+    async def upsert_from_load_id(
+        self,
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        load_id: str,
+    ) -> dict[str, Any]:
+        """Resolve Turvo load, fetch shipment details, upsert ``shipments`` row."""
+        load = self._clean(load_id)
+        if not load:
+            return {"success": False, "message": "missing_load_id"}
+
+        slug = self._clean(tenant_slug)
+        if not slug:
+            return {"success": False, "message": "missing_tenant_slug"}
+
+        try:
+            turvo_shipment_id = await load_id_to_shipment_id_async(slug, load)
+        except Exception:
+            logger.exception(
+                "Turvo load resolve failed tenant_slug=%s load_id=%s",
+                slug,
+                load,
+            )
+            return {"success": False, "message": "turvo_load_resolve_failed"}
+
+        if not turvo_shipment_id:
+            return {"success": False, "message": "turvo_shipment_not_found"}
+
+        number = str(turvo_shipment_id).strip()
+        try:
+            turvo_payload = await get_turvo_shipment_async(slug, number)
+        except Exception:
+            logger.exception(
+                "Turvo get_shipment failed tenant_slug=%s shipment_number=%s",
+                slug,
+                number,
+            )
+            turvo_payload = None
+
+        return self.upsert_from_turvo(
+            tenant_id=tenant_id,
+            turvo_shipment_id=number,
+            load_id=load,
+            turvo_payload=turvo_payload if isinstance(turvo_payload, dict) else None,
+        )
+
+    def enrich_display_fields_from_turvo_payload(
+        self,
+        *,
+        tenant_id: str,
+        turvo_shipment_id: str,
+        load_id: str,
+        turvo_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update display columns using an already-fetched Turvo shipment payload."""
+        return self.upsert_from_turvo(
+            tenant_id=tenant_id,
+            turvo_shipment_id=turvo_shipment_id,
+            load_id=load_id,
+            turvo_payload=turvo_payload,
+        )
 
     def get_by_shipment_number(
         self,
