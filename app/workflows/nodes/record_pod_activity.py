@@ -6,14 +6,22 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
+    format_pod_document_processing_failed_action,
+    format_pod_document_upload_failed_action,
+    format_pod_document_uploaded_action,
     format_pod_escalation_sent_action,
+    format_pod_extraction_processed_action,
     format_pod_started_action,
+    format_pod_vs_ratecon_validated_action,
+    format_pod_vs_ratecon_validation_failed_action,
+    format_pod_vs_ratecon_validation_skipped_action,
     format_reminder_sent_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
-from app.models.activity_type import ActivityType
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_service import parse_reminders_for_workflow
@@ -49,6 +57,217 @@ def _communication_id(state) -> str | None:
         return None
     cid = str(raw).strip()
     return cid or None
+
+
+def _resolve_actor(state) -> tuple[ActorType, str | None]:
+    event_type = str(state.data.get("event_type") or "").strip()
+    if event_type != WorkflowRunEventType.MANUAL_POD_UPLOAD.value:
+        return ActorType.SYSTEM, None
+    user_id = str(state.data.get("uploaded_by_user_id") or "").strip()
+    if user_id:
+        return ActorType.USER, user_id
+    return ActorType.SYSTEM, None
+
+
+_UPLOAD_DONE_SUB_STATUSES = frozenset(
+    {
+        StatusSubType.DOCUMENT_UPLOADED,
+        StatusSubType.DOCUMENT_PROCESSED,
+    }
+)
+
+_PROCESSED_DONE_SUB_STATUSES = frozenset(
+    {
+        StatusSubType.DOCUMENT_PROCESSED,
+    }
+)
+
+
+def _upload_success_from_state(state) -> bool:
+    data = state.data
+    merged_persist = data.get("documents_pod_merged")
+    if isinstance(merged_persist, dict) and merged_persist.get("stored") is True:
+        return True
+
+    normalization = data.get("attachment_normalization")
+    if isinstance(normalization, dict):
+        merged_key = data.get("pod_merged_pdf_object_key")
+        if normalization.get("success") and merged_key and str(merged_key).strip():
+            return True
+
+    manual_doc_id = str(data.get("manual_pod_document_id") or "").strip()
+    pod_keys = data.get("pod_object_keys") or []
+    if manual_doc_id and pod_keys:
+        return True
+
+    return False
+
+
+def _upload_success_metadata(state) -> dict[str, Any]:
+    meta = _pod_metadata(state)
+    keys: list[str] = []
+    doc_ids: list[str] = []
+
+    merged_persist = state.data.get("documents_pod_merged")
+    if isinstance(merged_persist, dict):
+        doc_id = merged_persist.get("id")
+        if doc_id is not None and str(doc_id).strip():
+            doc_ids.append(str(doc_id).strip())
+
+    merged_key = state.data.get("pod_merged_pdf_object_key")
+    if merged_key is not None and str(merged_key).strip():
+        keys.append(str(merged_key).strip())
+
+    for item in state.data.get("get_email_attachments_results") or []:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("object_key")
+        if key is not None and str(key).strip():
+            keys.append(str(key).strip())
+        doc_id = item.get("document_id")
+        if doc_id is not None and str(doc_id).strip():
+            doc_ids.append(str(doc_id).strip())
+
+    manual_doc_id = str(state.data.get("manual_pod_document_id") or "").strip()
+    if manual_doc_id and manual_doc_id not in doc_ids:
+        doc_ids.append(manual_doc_id)
+
+    if keys:
+        meta["object_key"] = keys[-1]
+        meta["object_keys"] = keys
+    if doc_ids:
+        meta["document_id"] = doc_ids[-1]
+        meta["document_ids"] = doc_ids
+    return meta
+
+
+def _upload_failure_metadata(state) -> dict[str, Any]:
+    meta: dict[str, Any] = _pod_metadata(state)
+    normalization = state.data.get("attachment_normalization")
+    if isinstance(normalization, dict):
+        meta["attachment_normalization"] = normalization
+        reason = normalization.get("error") or normalization.get("reason")
+        if reason is not None and str(reason).strip():
+            meta["reason"] = str(reason).strip()
+            return meta
+    meta["reason"] = "pod_s3_upload_not_succeeded"
+    return meta
+
+
+def _analysis_success(state) -> bool:
+    persist = state.data.get("document_analysis_pod")
+    return isinstance(persist, dict) and persist.get("stored") is True
+
+
+def _validation_stored(state) -> bool:
+    persist = state.data.get("document_analysis_pod_vs_ratecon")
+    return isinstance(persist, dict) and persist.get("stored") is True
+
+
+def _validation_skipped(state) -> bool:
+    results = state.data.get("pod_vs_ratecon_analysis_results")
+    return isinstance(results, dict) and results.get("skipped") is True
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extraction_action_metadata(state) -> dict[str, Any]:
+    meta: dict[str, Any] = {"source": "pod_analysis"}
+    meta.update(_pod_metadata(state))
+
+    pod_persist = state.data.get("document_analysis_pod")
+    if isinstance(pod_persist, dict):
+        analysis_id = pod_persist.get("id")
+        if analysis_id is not None and str(analysis_id).strip():
+            meta["document_analysis_id"] = str(analysis_id).strip()
+
+    pod_results = state.data.get("pod_analysis_results")
+    if isinstance(pod_results, dict):
+        extraction_conf = _float_or_none(pod_results.get("confidence_score"))
+        if extraction_conf is not None:
+            meta["extraction_confidence"] = extraction_conf
+            meta["confidence_score"] = extraction_conf
+        pod_status = pod_results.get("pod_status")
+        if pod_status is not None and str(pod_status).strip():
+            meta["pod_status"] = str(pod_status).strip()
+
+    return meta
+
+
+def _vs_ratecon_action_metadata(state) -> dict[str, Any]:
+    meta: dict[str, Any] = {"source": "pod_vs_ratecon"}
+    meta.update(_pod_metadata(state))
+
+    vs_persist = state.data.get("document_analysis_pod_vs_ratecon")
+    if isinstance(vs_persist, dict):
+        vs_id = vs_persist.get("id")
+        if vs_id is not None and str(vs_id).strip():
+            meta["validation_document_analysis_id"] = str(vs_id).strip()
+
+    vs_results = state.data.get("pod_vs_ratecon_analysis_results")
+    if isinstance(vs_results, dict):
+        if vs_results.get("skipped"):
+            meta["validation_skipped"] = True
+            reason = vs_results.get("reason")
+            if reason is not None and str(reason).strip():
+                meta["validation_skip_reason"] = str(reason).strip()
+        else:
+            validation_conf = _float_or_none(vs_results.get("confidence_score"))
+            if validation_conf is not None:
+                meta["validation_confidence"] = validation_conf
+                meta["confidence_score"] = validation_conf
+            overall = vs_results.get("overall_status") or vs_results.get("pod_status")
+            if overall is not None and str(overall).strip():
+                meta["overall_status"] = str(overall).strip()
+            summary = vs_results.get("validation_summary")
+            if summary is not None and str(summary).strip():
+                meta["validation_summary"] = str(summary).strip()[:500]
+            error = vs_results.get("error")
+            if error is not None and str(error).strip():
+                meta["error"] = str(error).strip()
+            reason = vs_results.get("reason")
+            if reason is not None and str(reason).strip():
+                meta["reason"] = str(reason).strip()
+
+    return meta
+
+
+def _finalize_success_metadata(state) -> dict[str, Any]:
+    return _pod_metadata(state)
+
+
+def _processed_failure_metadata(state) -> dict[str, Any]:
+    meta: dict[str, Any] = _pod_metadata(state)
+    results = state.data.get("pod_analysis_results")
+    if isinstance(results, dict):
+        meta["pod_analysis_results"] = results
+        reason = results.get("reason") or results.get("error")
+        if reason is not None and str(reason).strip():
+            meta["reason"] = str(reason).strip()
+            return meta
+    persist = state.data.get("document_analysis_pod")
+    if isinstance(persist, dict):
+        meta["document_analysis_pod"] = persist
+    meta["reason"] = "pod_analysis_not_stored"
+    return meta
+
+
+def _sub_status_already_at_or_past(
+    row: dict[str, Any] | None,
+    *,
+    done: frozenset[StatusSubType],
+) -> bool:
+    if not row:
+        return False
+    sub = sub_status_type_from_db(row.get("sub_status"))
+    if sub is None:
+        return False
+    return sub in done
 
 
 def _sub_status_for_reminder_step(step: int) -> StatusSubType | None:
@@ -316,4 +535,334 @@ def record_pod_escalation_activity(state):
         )
     )
     state.data["pod_escalation_sub_status"] = StatusSubType.ESCALATED.value
+    return state
+
+
+def record_pod_upload_activity(state):
+    """
+    Log POD S3 upload outcome after ``classify_attachments``.
+
+    Success: action + sub_status ``document_uploaded``.
+    Failure: action + ``failed`` status.
+    """
+    scope = _scope_ids(state)
+    if scope is None:
+        logger.warning(
+            "record_pod_upload_activity skipped missing ids "
+            "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
+            bool(state.data.get("workflow_lifecycle_id")),
+            bool(state.tenant_id or state.data.get("tenant_id")),
+            bool(state.execution_id),
+        )
+        return state
+
+    wl_id, tenant_id, run_id = scope
+    lifecycle_service = WorkflowLifecycleService()
+    row = lifecycle_service.read_lifecycle_row_by_id(wl_id)
+    if _sub_status_already_at_or_past(row, done=_UPLOAD_DONE_SUB_STATUSES):
+        logger.info(
+            "record_pod_upload_activity skipping already uploaded lifecycle_id=%s",
+            wl_id,
+        )
+        return state
+
+    actor_type, actor_id = _resolve_actor(state)
+    activity_log_service = ActivityLogService()
+    from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
+    if from_sub is None:
+        from_sub = StatusSubType.NONE
+
+    if _upload_success_from_state(state):
+        meta = _upload_success_metadata(state)
+        activity_log_service.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_pod_document_uploaded_action(),
+                        metadata=meta,
+                    ),
+                    ActivityLogStep(
+                        activity_type=ActivityType.SUB_STATUS_CHANGE,
+                        to_sub_status=StatusSubType.DOCUMENT_UPLOADED,
+                        from_sub_status=from_sub,
+                        metadata=meta,
+                    ),
+                ),
+            )
+        )
+        return state
+
+    fail_meta = _upload_failure_metadata(state)
+    from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
+    if from_status is None or from_status == StatusType.NONE:
+        from_status = StatusType.PROCESSING
+    activity_log_service.record_sequence(
+        ActivityLogSequence(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_pod_document_upload_failed_action(),
+                    metadata=fail_meta,
+                ),
+                ActivityLogStep(
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    to_status=StatusType.FAILED,
+                    from_status=from_status,
+                    metadata=fail_meta,
+                ),
+            ),
+        )
+    )
+    return state
+
+
+def record_pod_extraction_activity(state):
+    """
+    Log POD LLM extraction outcome after ``pod_analysis``.
+
+    ACTION only — no lifecycle sub_status change.
+    """
+    scope = _scope_ids(state)
+    if scope is None:
+        logger.warning(
+            "record_pod_extraction_activity skipped missing ids "
+            "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
+            bool(state.data.get("workflow_lifecycle_id")),
+            bool(state.tenant_id or state.data.get("tenant_id")),
+            bool(state.execution_id),
+        )
+        return state
+
+    if not _upload_success_from_state(state):
+        return state
+
+    if not _analysis_success(state):
+        return state
+
+    wl_id, tenant_id, run_id = scope
+    lifecycle_service = WorkflowLifecycleService()
+    row = lifecycle_service.read_lifecycle_row_by_id(wl_id)
+    if _sub_status_already_at_or_past(row, done=_PROCESSED_DONE_SUB_STATUSES):
+        logger.info(
+            "record_pod_extraction_activity skipping already processed lifecycle_id=%s",
+            wl_id,
+        )
+        return state
+
+    pod_results = state.data.get("pod_analysis_results") or {}
+    if not isinstance(pod_results, dict):
+        pod_results = {}
+    confidence = _float_or_none(pod_results.get("confidence_score"))
+    meta = _extraction_action_metadata(state)
+    actor_type, actor_id = _resolve_actor(state)
+    comm_id = _communication_id(state)
+
+    ActivityLogService().record_sequence(
+        ActivityLogSequence(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_pod_extraction_processed_action(
+                        confidence=confidence,
+                    ),
+                    metadata=meta,
+                    communication_id=comm_id,
+                ),
+            ),
+        )
+    )
+    return state
+
+
+def _vs_ratecon_action_description(state) -> str:
+    if _validation_stored(state):
+        vs_results = state.data.get("pod_vs_ratecon_analysis_results") or {}
+        if not isinstance(vs_results, dict):
+            vs_results = {}
+        status = (
+            vs_results.get("overall_status")
+            or vs_results.get("pod_status")
+            or "UNKNOWN"
+        )
+        confidence = _float_or_none(vs_results.get("confidence_score"))
+        return format_pod_vs_ratecon_validated_action(
+            confidence=confidence,
+            status=str(status),
+        )
+
+    if _validation_skipped(state):
+        vs_results = state.data.get("pod_vs_ratecon_analysis_results") or {}
+        if not isinstance(vs_results, dict):
+            vs_results = {}
+        reason = str(vs_results.get("reason") or "unknown").strip() or "unknown"
+        return format_pod_vs_ratecon_validation_skipped_action(reason=reason)
+
+    return format_pod_vs_ratecon_validation_failed_action()
+
+
+def record_pod_vs_ratecon_activity(state):
+    """
+    Log POD vs ratecon validation outcome after ``pod_vs_ratecon_analysis``.
+
+    ACTION only — no lifecycle sub_status change.
+    """
+    scope = _scope_ids(state)
+    if scope is None:
+        logger.warning(
+            "record_pod_vs_ratecon_activity skipped missing ids "
+            "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
+            bool(state.data.get("workflow_lifecycle_id")),
+            bool(state.tenant_id or state.data.get("tenant_id")),
+            bool(state.execution_id),
+        )
+        return state
+
+    if not _upload_success_from_state(state):
+        return state
+
+    if not _analysis_success(state):
+        return state
+
+    wl_id, tenant_id, run_id = scope
+    lifecycle_service = WorkflowLifecycleService()
+    row = lifecycle_service.read_lifecycle_row_by_id(wl_id)
+    if _sub_status_already_at_or_past(row, done=_PROCESSED_DONE_SUB_STATUSES):
+        logger.info(
+            "record_pod_vs_ratecon_activity skipping already processed lifecycle_id=%s",
+            wl_id,
+        )
+        return state
+
+    vs_results = state.data.get("pod_vs_ratecon_analysis_results")
+    if not isinstance(vs_results, dict):
+        logger.info(
+            "record_pod_vs_ratecon_activity skipping missing results lifecycle_id=%s",
+            wl_id,
+        )
+        return state
+
+    meta = _vs_ratecon_action_metadata(state)
+    actor_type, actor_id = _resolve_actor(state)
+    comm_id = _communication_id(state)
+
+    ActivityLogService().record_sequence(
+        ActivityLogSequence(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=_vs_ratecon_action_description(state),
+                    metadata=meta,
+                    communication_id=comm_id,
+                ),
+            ),
+        )
+    )
+    return state
+
+
+def record_pod_processed_activity(state):
+    """
+    Finalize POD processing: sub_status ``document_processed`` when extraction succeeded.
+
+    Failure: action + ``failed`` status when extraction did not persist.
+    Skips when S3 upload would have failed.
+    """
+    scope = _scope_ids(state)
+    if scope is None:
+        logger.warning(
+            "record_pod_processed_activity skipped missing ids "
+            "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
+            bool(state.data.get("workflow_lifecycle_id")),
+            bool(state.tenant_id or state.data.get("tenant_id")),
+            bool(state.execution_id),
+        )
+        return state
+
+    if not _upload_success_from_state(state):
+        return state
+
+    wl_id, tenant_id, run_id = scope
+    lifecycle_service = WorkflowLifecycleService()
+    row = lifecycle_service.read_lifecycle_row_by_id(wl_id)
+    if _sub_status_already_at_or_past(row, done=_PROCESSED_DONE_SUB_STATUSES):
+        logger.info(
+            "record_pod_processed_activity skipping already processed lifecycle_id=%s",
+            wl_id,
+        )
+        return state
+
+    actor_type, actor_id = _resolve_actor(state)
+    activity_log_service = ActivityLogService()
+    from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
+    if from_sub is None:
+        from_sub = StatusSubType.NONE
+
+    if _analysis_success(state):
+        meta = _finalize_success_metadata(state)
+        activity_log_service.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                actor_type=actor_type,
+                actor_id=actor_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.SUB_STATUS_CHANGE,
+                        to_sub_status=StatusSubType.DOCUMENT_PROCESSED,
+                        from_sub_status=from_sub,
+                        metadata=meta,
+                    ),
+                ),
+            )
+        )
+        return state
+
+    fail_meta = _processed_failure_metadata(state)
+    from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
+    if from_status is None or from_status == StatusType.NONE:
+        from_status = StatusType.PROCESSING
+    activity_log_service.record_sequence(
+        ActivityLogSequence(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            steps=(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_pod_document_processing_failed_action(),
+                    metadata=fail_meta,
+                ),
+                ActivityLogStep(
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    to_status=StatusType.FAILED,
+                    from_status=from_status,
+                    metadata=fail_meta,
+                ),
+            ),
+        )
+    )
     return state

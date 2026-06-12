@@ -18,6 +18,14 @@ from app.domain.activity_log_constants import (
     RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE,
     POD_STARTED_ACTION,
     POD_ESCALATION_SENT_ACTION,
+    POD_DOCUMENT_UPLOADED_ACTION,
+    POD_DOCUMENT_UPLOAD_FAILED_ACTION,
+    POD_DOCUMENT_PROCESSED_ACTION,
+    POD_DOCUMENT_PROCESSING_FAILED_ACTION,
+    POD_EXTRACTION_PROCESSED_TEMPLATE,
+    POD_VS_RATECON_VALIDATED_TEMPLATE,
+    POD_VS_RATECON_VALIDATION_SKIPPED_TEMPLATE,
+    POD_VS_RATECON_VALIDATION_FAILED_ACTION,
     POD_UPLOADED_TO_TMS_ACTION,
     POD_UPLOAD_TO_TMS_FAILED_ACTION,
     POD_ALREADY_ON_TMS_ACTION,
@@ -157,6 +165,52 @@ def format_pod_started_action() -> str:
 
 def format_pod_escalation_sent_action() -> str:
     return POD_ESCALATION_SENT_ACTION
+
+
+def format_pod_document_uploaded_action() -> str:
+    return POD_DOCUMENT_UPLOADED_ACTION
+
+
+def format_pod_document_upload_failed_action() -> str:
+    return POD_DOCUMENT_UPLOAD_FAILED_ACTION
+
+
+def format_pod_document_processed_action() -> str:
+    return POD_DOCUMENT_PROCESSED_ACTION
+
+
+def format_pod_document_processing_failed_action() -> str:
+    return POD_DOCUMENT_PROCESSING_FAILED_ACTION
+
+
+def format_pod_extraction_processed_action(
+    *,
+    confidence: float | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    return POD_EXTRACTION_PROCESSED_TEMPLATE.format(confidence_suffix=conf)
+
+
+def format_pod_vs_ratecon_validated_action(
+    *,
+    confidence: float | None = None,
+    status: str | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    status_label = (status or "UNKNOWN").strip().upper() or "UNKNOWN"
+    return POD_VS_RATECON_VALIDATED_TEMPLATE.format(
+        confidence_suffix=conf,
+        status=status_label,
+    )
+
+
+def format_pod_vs_ratecon_validation_skipped_action(*, reason: str) -> str:
+    reason_label = (reason or "unknown").strip() or "unknown"
+    return POD_VS_RATECON_VALIDATION_SKIPPED_TEMPLATE.format(reason=reason_label)
+
+
+def format_pod_vs_ratecon_validation_failed_action() -> str:
+    return POD_VS_RATECON_VALIDATION_FAILED_ACTION
 
 
 def format_pod_uploaded_to_tms_action() -> str:

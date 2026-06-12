@@ -107,6 +107,14 @@ def tender_status_router(state):
     return "missing"
 
 
+def manual_tms_upload_router(state):
+    """Manual portal path: continue processing after TMS upload succeeded or was skipped."""
+    outcome = str(state.data.get("pod_tms_upload_outcome") or "").strip()
+    if outcome in ("uploaded", "skipped"):
+        return "continue"
+    return "stop"
+
+
 def carrier_ack_router(state):
     """Route ack_received LLM decision to graph branch keys."""
     decision = str(
