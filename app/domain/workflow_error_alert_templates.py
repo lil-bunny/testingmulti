@@ -50,6 +50,13 @@ def build_workflow_error_alert_template_context(
                 tender.get("delivery_address_code") or ""
             ).strip()
 
+    delivery_location_code_block = ""
+    if delivery_address_code:
+        delivery_location_code_block = (
+            "<p><strong>Delivery Location Code:</strong> "
+            f"{delivery_address_code}</p>"
+        )
+
     return {
         "customer_po": customer_po,
         "po_number": customer_po,
@@ -58,6 +65,7 @@ def build_workflow_error_alert_template_context(
         "error_code": error_code,
         "error_category": error_category,
         "delivery_address_code": delivery_address_code,
+        "delivery_location_code_block": delivery_location_code_block,
         "workflow_lifecycle_id": workflow_lifecycle_id,
         "workflow_run_id": workflow_run_id,
     }

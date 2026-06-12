@@ -102,10 +102,33 @@ def test_send_workflow_error_alert_missing_delivery_address(
             message=BusinessError.MISSING_DELIVERY_ADDRESS.description,
             category=BusinessError.CATEGORY,
         ),
-        tenant_settings=_payload().tenant_settings,
+        tenant_settings={
+            **_payload().tenant_settings,
+            "load_tendering": {
+                **_payload().tenant_settings["load_tendering"],
+                "workflow_error_alerts": {
+                    "enabled": True,
+                    "channels": [
+                        {
+                            "channel": "email",
+                            "to": ["ops@example.com"],
+                            "cc": [],
+                            "bcc": [],
+                            "subject": "Exception PO {customer_po}",
+                            "body_template": (
+                                "<p>{failure_reason}</p>"
+                                "{delivery_location_code_block}"
+                                "<p>{order_number}</p>"
+                            ),
+                        }
+                    ],
+                },
+            },
+        },
         delivery_address_code="41000100",
         workflow_data={
             "tender": {"order_number": "ORD-9", "customer_po": "PO-9"},
+            "delivery_address_code": "41000100",
         },
     )
 
@@ -119,6 +142,8 @@ def test_send_workflow_error_alert_missing_delivery_address(
     kwargs = mock_send_email.call_args.kwargs
     assert kwargs["subject"] == "Exception PO PO-9"
     assert BusinessError.MISSING_DELIVERY_ADDRESS.description in kwargs["body"]
+    assert "Delivery Location Code" in kwargs["body"]
+    assert "41000100" in kwargs["body"]
     assert "ORD-9" in kwargs["body"]
     metadata = kwargs["communication_metadata"]
     assert metadata["error_code"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
