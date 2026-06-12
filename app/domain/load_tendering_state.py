@@ -61,6 +61,9 @@ def tender_from_ingest_row(tender_row: dict[str, Any], *, order_number: str) -> 
         "customer_name": customer_name,
         "po_number": str(tender_row.get("po_number") or "").strip(),
         "pack_code": str(tender_row.get("pack_code") or "").strip(),
+        "delivery_address_code": str(
+            tender_row.get("delivery_address_code") or ""
+        ).strip(),
         "tender_products": [],
     }
 
@@ -101,4 +104,16 @@ def ingest_pack_code(data: dict[str, Any]) -> str:
     row = data.get("tender_row")
     if isinstance(row, dict):
         return str(row.get("pack_code") or "").strip()
+    return ""
+
+
+def ingest_delivery_address_code(data: dict[str, Any]) -> str:
+    tender = get_tender(data)
+    if tender:
+        code = str(tender.get("delivery_address_code") or "").strip()
+        if code:
+            return code
+    row = data.get("tender_row")
+    if isinstance(row, dict):
+        return str(row.get("delivery_address_code") or "").strip()
     return ""

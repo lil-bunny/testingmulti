@@ -90,3 +90,44 @@ def test_record_workflow_failure_node_skips_enqueue_on_transition_error(
     record_workflow_failure_node(state)
 
     mock_enqueue.assert_not_called()
+
+
+@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
+@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
+def test_record_workflow_failure_node_missing_delivery_address(
+    mock_transition_cls: MagicMock,
+    mock_enqueue: MagicMock,
+) -> None:
+    from app.workflows.nodes.error_handler import record_workflow_failure_node
+
+    mock_svc = MagicMock()
+    mock_transition_cls.return_value = mock_svc
+
+    state = WorkflowState(
+        tenant_id=TENANT_UUID,
+        tenant_slug="gelita",
+        execution_id=RUN_UUID,
+        data={
+            "workflow_lifecycle_id": LIFECYCLE_UUID,
+            "workflow_name": "load_tendering",
+            "tender_id": TENDER_UUID,
+            "delivery_address_code": "41000100",
+            "error": workflow_error_payload(
+                code=BusinessError.MISSING_DELIVERY_ADDRESS.value,
+                message=BusinessError.MISSING_DELIVERY_ADDRESS.description,
+                category=BusinessError.CATEGORY,
+            ),
+        },
+    )
+
+    record_workflow_failure_node(state)
+
+    mock_svc.apply_from_state.assert_called_once()
+    kwargs = mock_svc.apply_from_state.call_args.kwargs
+    assert kwargs["metadata"]["error"] == BusinessError.MISSING_DELIVERY_ADDRESS
+    assert (
+        kwargs["metadata"]["error_description"]
+        == BusinessError.MISSING_DELIVERY_ADDRESS.description
+    )
+    assert kwargs["metadata"]["delivery_address_code"] == "41000100"
+    mock_enqueue.assert_called_once_with(state)

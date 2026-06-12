@@ -57,6 +57,10 @@ class BusinessError(_CatalogError):
     TENDER_NOT_FOUND = ("tender_not_found", "Tender not found")
     MISSING_PRODUCT_LINES = ("missing_product_lines", "No Tender Products Founds")
     MISSING_PACK_CODE = ("missing_pack_code", "Product pack code is required")
+    MISSING_DELIVERY_ADDRESS = (
+        "missing_delivery_address",
+        "Delivery address could not be resolved from delivery location code",
+    )
     MISSING_QTY_PER_UNIT = ("missing_qty_per_unit", "PackCode Qty Per Unit is missing")
     MISSING_TOTAL_QTY = ("missing_total_qty", "PackCode Total Quantity is missing")
     MISSING_PALLET_DIMS = ("missing_pallet_dims", "PackCode Pallet Dimension is missing")

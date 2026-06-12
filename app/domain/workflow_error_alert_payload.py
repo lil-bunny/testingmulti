@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.load_tendering_state import get_tender
+
 
 class WorkflowErrorAlertPayload(BaseModel):
     """Serializable context for one workflow error alert delivery attempt."""
@@ -20,6 +22,7 @@ class WorkflowErrorAlertPayload(BaseModel):
     tenant_settings: dict[str, Any] = Field(default_factory=dict)
     tender_id: str | None = None
     pack_code: str | None = None
+    delivery_address_code: str | None = None
     workflow_data: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
@@ -44,6 +47,13 @@ class WorkflowErrorAlertPayload(BaseModel):
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):
             tenant_settings = {}
+        tender = get_tender(data)
+        pack_code = str(data.get("pack_code") or "").strip()
+        if not pack_code and tender:
+            pack_code = str(tender.get("pack_code") or "").strip()
+        delivery_address_code = str(data.get("delivery_address_code") or "").strip()
+        if not delivery_address_code and tender:
+            delivery_address_code = str(tender.get("delivery_address_code") or "").strip()
         return cls(
             tenant_id=tenant_id,
             workflow_name=wf_name,
@@ -52,6 +62,7 @@ class WorkflowErrorAlertPayload(BaseModel):
             error=error,
             tenant_settings=tenant_settings,
             tender_id=str(data.get("tender_id") or "").strip() or None,
-            pack_code=str(data.get("pack_code") or "").strip() or None,
+            pack_code=pack_code or None,
+            delivery_address_code=delivery_address_code or None,
             workflow_data=dict(data),
         )

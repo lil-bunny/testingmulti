@@ -42,6 +42,14 @@ def build_workflow_error_alert_template_context(
     error_code = str(error.get("code") or "").strip()
     error_category = str(error.get("category") or "").strip()
 
+    delivery_address_code = str(data.get("delivery_address_code") or "").strip()
+    if not delivery_address_code:
+        tender = get_tender(data)
+        if tender:
+            delivery_address_code = str(
+                tender.get("delivery_address_code") or ""
+            ).strip()
+
     return {
         "customer_po": customer_po,
         "po_number": customer_po,
@@ -49,6 +57,7 @@ def build_workflow_error_alert_template_context(
         "failure_reason": failure_reason,
         "error_code": error_code,
         "error_category": error_category,
+        "delivery_address_code": delivery_address_code,
         "workflow_lifecycle_id": workflow_lifecycle_id,
         "workflow_run_id": workflow_run_id,
     }

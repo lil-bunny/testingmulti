@@ -45,6 +45,8 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             metadata["tender_id"] = state.data["tender_id"]
         if state.data.get("pack_code"):
             metadata["pack_code"] = state.data["pack_code"]
+        if state.data.get("delivery_address_code"):
+            metadata["delivery_address_code"] = state.data["delivery_address_code"]
 
         try:
             lifecycle_transition_service.apply_from_state(
