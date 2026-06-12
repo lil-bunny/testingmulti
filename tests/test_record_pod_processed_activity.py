@@ -16,8 +16,8 @@ def _base_state(*, data: dict | None = None) -> WorkflowState:
         "workflow_lifecycle_id": LIFECYCLE_UUID,
         "shipment_id": "1000324895",
         "shipments_row_id": "ship-row-1",
-        "documents_pod_merged": {"stored": True, "id": "doc-merged-1"},
-        "pod_merged_pdf_object_key": "freightx/pod_attachments/pod_1000324895.pdf",
+        "documents_pod": {"stored": True, "id": "doc-merged-1"},
+        "pod_merged_pdf_object_key": "pod_attachments/pod_1000324895.pdf",
     }
     if data:
         payload.update(data)
@@ -117,13 +117,13 @@ def test_record_pod_processed_activity_skips_when_upload_failed(
 
     state = _base_state(
         data={
-            "documents_pod_merged": None,
+            "documents_pod": None,
             "pod_merged_pdf_object_key": None,
             "attachment_normalization": {"success": False},
             "document_analysis_pod": {"stored": True, "id": "analysis-1"},
         }
     )
-    state.data.pop("documents_pod_merged", None)
+    state.data.pop("documents_pod", None)
     state.data.pop("pod_merged_pdf_object_key", None)
 
     record_pod_processed_activity(state)

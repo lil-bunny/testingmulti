@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 from app.tools import turvo as turvo_tool
 
 _MIN_PDF = b"%PDF-1.4\n1 0 obj\n"
-_OBJECT_KEY = "freightx/pod/merged.pdf"
+_OBJECT_KEY = "pod_attachments/merged.pdf"
 
 
 def _real_s3_download(key: str) -> dict:

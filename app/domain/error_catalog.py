@@ -61,6 +61,11 @@ class BusinessError(_CatalogError):
     MISSING_TOTAL_QTY = ("missing_total_qty", "PackCode Total Quantity is missing")
     MISSING_PALLET_DIMS = ("missing_pallet_dims", "PackCode Pallet Dimension is missing")
     MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required")
+    MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required")
+    MISSING_DELIVERY_ADDRESS = (
+        "missing_delivery_address",
+        "Delivery address is required",
+    )
 
 
 class IntegrationError(_CatalogError):

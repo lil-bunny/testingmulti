@@ -39,7 +39,7 @@ SAMPLE_LOAD_TENDERING_PAYLOAD = {
     "to_attendees": [
         {
             "display_name": "Debdut Bhaduri",
-            "identifier": "deb@freightx.ai",
+            "identifier": "ana.gelita.test@freightx.ai",
             "identifier_type": "EMAIL_ADDRESS",
         }
     ],

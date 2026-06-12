@@ -16,7 +16,7 @@ def list_by_shipment(session: Session, *, shipments_row_id: str) -> list[dict[st
     return fetchall_dicts(
         session,
         f"""
-        SELECT id, type::text AS type, shipment_id, storage_key, created_at
+        SELECT id, type::text AS type, shipment_id, storage_key, metadata, created_at
         FROM {_TABLE}
         WHERE shipment_id = :shipments_row_id
         ORDER BY created_at ASC

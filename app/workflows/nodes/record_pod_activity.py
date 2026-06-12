@@ -83,10 +83,15 @@ _PROCESSED_DONE_SUB_STATUSES = frozenset(
 )
 
 
+def _pod_document_persist(state) -> dict[str, Any] | None:
+    persist = state.data.get("documents_pod")
+    return persist if isinstance(persist, dict) else None
+
+
 def _upload_success_from_state(state) -> bool:
     data = state.data
-    merged_persist = data.get("documents_pod_merged")
-    if isinstance(merged_persist, dict) and merged_persist.get("stored") is True:
+    pod_persist = _pod_document_persist(state)
+    if isinstance(pod_persist, dict) and pod_persist.get("stored") is True:
         return True
 
     normalization = data.get("attachment_normalization")
@@ -95,9 +100,9 @@ def _upload_success_from_state(state) -> bool:
         if normalization.get("success") and merged_key and str(merged_key).strip():
             return True
 
-    manual_doc_id = str(data.get("manual_pod_document_id") or "").strip()
+    event_type = str(data.get("event_type") or "").strip()
     pod_keys = data.get("pod_object_keys") or []
-    if manual_doc_id and pod_keys:
+    if event_type == WorkflowRunEventType.MANUAL_POD_UPLOAD.value and pod_keys:
         return True
 
     return False
@@ -105,39 +110,31 @@ def _upload_success_from_state(state) -> bool:
 
 def _upload_success_metadata(state) -> dict[str, Any]:
     meta = _pod_metadata(state)
-    keys: list[str] = []
-    doc_ids: list[str] = []
-
-    merged_persist = state.data.get("documents_pod_merged")
-    if isinstance(merged_persist, dict):
-        doc_id = merged_persist.get("id")
-        if doc_id is not None and str(doc_id).strip():
-            doc_ids.append(str(doc_id).strip())
+    pod_persist = _pod_document_persist(state)
 
     merged_key = state.data.get("pod_merged_pdf_object_key")
     if merged_key is not None and str(merged_key).strip():
-        keys.append(str(merged_key).strip())
+        meta["object_key"] = str(merged_key).strip()
 
-    for item in state.data.get("get_email_attachments_results") or []:
-        if not isinstance(item, dict):
-            continue
-        key = item.get("object_key")
-        if key is not None and str(key).strip():
-            keys.append(str(key).strip())
-        doc_id = item.get("document_id")
+    source_keys: list[str] = []
+    if isinstance(pod_persist, dict):
+        doc_id = pod_persist.get("id")
         if doc_id is not None and str(doc_id).strip():
-            doc_ids.append(str(doc_id).strip())
+            meta["document_id"] = str(doc_id).strip()
+        persist_meta = pod_persist.get("metadata")
+        if isinstance(persist_meta, dict):
+            raw_keys = persist_meta.get("source_object_keys")
+            if isinstance(raw_keys, list):
+                source_keys = [str(k).strip() for k in raw_keys if k and str(k).strip()]
 
-    manual_doc_id = str(state.data.get("manual_pod_document_id") or "").strip()
-    if manual_doc_id and manual_doc_id not in doc_ids:
-        doc_ids.append(manual_doc_id)
+    if not source_keys:
+        for raw in state.data.get("pod_source_object_keys") or []:
+            if raw and str(raw).strip():
+                source_keys.append(str(raw).strip())
 
-    if keys:
-        meta["object_key"] = keys[-1]
-        meta["object_keys"] = keys
-    if doc_ids:
-        meta["document_id"] = doc_ids[-1]
-        meta["document_ids"] = doc_ids
+    if source_keys:
+        meta["source_object_keys"] = source_keys
+
     return meta
 
 

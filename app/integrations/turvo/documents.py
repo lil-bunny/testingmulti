@@ -103,7 +103,6 @@ async def check_pod_by_shipment_id(
         raise ValueError("tenant_slug is required")
 
     sid = str(shipment_id)
-    logger.info("Checking POD via Turvo GET /v1/documents/list shipment_id=%s", sid)
 
     payload = await list_documents_for_shipment(
         slug,
@@ -136,26 +135,17 @@ async def check_pod_by_shipment_id(
     pod_exists = len(pod_docs) > 0
 
     if pod_exists:
-        logger.info(
-            "POD documents found (documents/list) shipment_id=%s pod_count=%s total_docs=%s",
-            sid,
-            len(pod_docs),
-            len(documents_data),
-        )
+        logger.info("POD document found for shipment_id=%s", sid)
         return _pod_check_result(
             success=True,
             shipment_id=sid,
             pod_exists=True,
             pod_documents=pod_docs,
             all_documents_count=len(documents_data),
-            message=f"POD found ({len(pod_docs)} document(s))",
+            message="POD document found for shipment",
         )
 
-    logger.info(
-        "No POD documents found (documents/list) shipment_id=%s total_docs=%s",
-        sid,
-        len(documents_data),
-    )
+    logger.info("No POD document found for shipment_id=%s", sid)
     return _pod_check_result(
         success=True,
         shipment_id=sid,

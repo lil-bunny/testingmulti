@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from app.core.db import db_scope, db_transaction
 from app.models.document import DocumentType
@@ -28,20 +28,31 @@ def _uuid_or_none(value: str | None) -> str | None:
         return None
 
 
+def _row_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "stored": True,
+        "id": str(row["id"]),
+        "type": str(row["type"]),
+        "shipment_id": row["shipment_id"],
+        "storage_key": row["storage_key"],
+        "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+        "created_at": row["created_at"],
+    }
+
+
 def insert_document(
     doc_type: DocumentType,
     storage_key: str,
     *,
     shipments_row_id: str | None = None,
-    email_id: Optional[str] = None,
-    attachment_id: Optional[str] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Upsert one ``documents`` row by ``storage_key``.
+    """Upsert one ``documents`` row.
 
-    Returns ``{stored, id?, type?, shipment_id?, storage_key?, created_at?, error?}``.
+    ``pod`` rows upsert by ``(shipment_id, type)`` (one per shipment).
+    ``ratecon`` rows upsert by ``storage_key``.
 
-    ``storage_key`` is the S3 object key (e.g. ``freightx/pod_attachments/...``).
-    ``shipments_row_id`` is ``shipments.id`` (nullable FK); omit or pass ``None`` when unknown.
+    Returns ``{stored, id?, type?, shipment_id?, storage_key?, metadata?, created_at?, error?}``.
     """
 
     if not storage_key:
@@ -69,25 +80,29 @@ def insert_document(
             doc_type.value,
         )
 
+    if doc_type == DocumentType.POD and not row_shipment_id:
+        return {"stored": False, "id": None, "error": "missing_shipments_row_id_for_pod"}
+
     try:
         with db_scope() as repos:
             with db_transaction(repos.session):
-                row = repos.documents.upsert_by_storage_key(
-                    id=doc_id,
-                    doc_type=doc_type.value,
-                    shipment_id=row_shipment_id,
-                    storage_key=key,
-                )
+                if doc_type == DocumentType.POD:
+                    row = repos.documents.upsert_pod_by_shipment(
+                        id=doc_id,
+                        shipment_id=row_shipment_id,
+                        storage_key=key,
+                        metadata=metadata,
+                    )
+                else:
+                    row = repos.documents.upsert_by_storage_key(
+                        id=doc_id,
+                        doc_type=doc_type.value,
+                        shipment_id=row_shipment_id,
+                        storage_key=key,
+                    )
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
-        return {
-            "stored": True,
-            "id": str(row["id"]),
-            "type": str(row["type"]),
-            "shipment_id": row["shipment_id"],
-            "storage_key": row["storage_key"],
-            "created_at": row["created_at"],
-        }
+        return _row_payload(row)
     except Exception as exc:
         logger.exception(
             "insert_document: failed type=%s shipments_row_id=%s",
@@ -97,8 +112,8 @@ def insert_document(
         return {"stored": False, "id": None, "error": str(exc)}
 
 
-def resolve_merged_pod_object_key(data: dict) -> tuple[str | None, dict[str, Any]]:
-    """Resolve merged POD S3 key from workflow state; fallback to latest ``pod_merged_final`` row."""
+def resolve_pod_object_key(data: dict) -> tuple[str | None, dict[str, Any]]:
+    """Resolve POD S3 key from workflow state; fallback to ``documents`` row ``type=pod``."""
     refs = data.get("pod_object_keys") or []
     if isinstance(refs, list):
         for u in refs:
@@ -109,7 +124,7 @@ def resolve_merged_pod_object_key(data: dict) -> tuple[str | None, dict[str, Any
         return str(merged).strip(), {"source": "state"}
     shipments_row_id = resolve_shipments_row_id_for_db(data)
     if shipments_row_id:
-        doc = read_document(shipments_row_id, DocumentType.POD_MERGED_FINAL)
+        doc = read_document(shipments_row_id, DocumentType.POD)
         if doc.get("error"):
             return None, {"source": "documents", "error": doc["error"]}
         if doc.get("found") and doc.get("storage_key"):
@@ -117,11 +132,15 @@ def resolve_merged_pod_object_key(data: dict) -> tuple[str | None, dict[str, Any
     return None, {}
 
 
+def resolve_merged_pod_object_key(data: dict) -> tuple[str | None, dict[str, Any]]:
+    return resolve_pod_object_key(data)
+
+
 def read_document(shipments_row_id: str | None, doc_type: DocumentType) -> dict[str, Any]:
     """
     Load the latest ``documents`` row for ``shipments_row_id`` and ``doc_type``.
 
-    Returns ``{found, id, storage_key, shipment_id, type, created_at, error}``.
+    Returns ``{found, id, storage_key, shipment_id, type, metadata, created_at, error}``.
     """
 
     sid = _uuid_or_none(shipments_row_id)
@@ -138,6 +157,7 @@ def read_document(shipments_row_id: str | None, doc_type: DocumentType) -> dict[
             "storage_key": None,
             "shipment_id": shipments_row_id,
             "type": doc_type.value,
+            "metadata": None,
             "created_at": None,
             "error": "missing_shipments_row_id",
         }
@@ -160,15 +180,18 @@ def read_document(shipments_row_id: str | None, doc_type: DocumentType) -> dict[
                 "storage_key": None,
                 "shipment_id": sid,
                 "type": doc_type.value,
+                "metadata": None,
                 "created_at": None,
                 "error": None,
             }
+        meta = row.get("metadata")
         return {
             "found": True,
             "id": str(row["id"]),
             "storage_key": row["storage_key"],
             "type": str(row["type"]),
             "shipment_id": row["shipment_id"],
+            "metadata": meta if isinstance(meta, dict) else {},
             "created_at": row["created_at"],
             "error": None,
         }
@@ -184,6 +207,7 @@ def read_document(shipments_row_id: str | None, doc_type: DocumentType) -> dict[
             "storage_key": None,
             "shipment_id": sid,
             "type": doc_type.value,
+            "metadata": None,
             "created_at": None,
             "error": str(exc),
         }

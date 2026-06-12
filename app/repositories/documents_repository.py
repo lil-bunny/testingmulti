@@ -6,11 +6,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.db import fetchone_dict
+from app.core.db import fetchone_dict, jsonb_param
 
 _NONEMPTY_STORAGE_KEY = """
     AND storage_key IS NOT NULL AND BTRIM(storage_key) <> ''
 """
+
+_METADATA_JSON_KEY = frozenset({"metadata"})
 
 
 class DocumentsRepository:
@@ -35,7 +37,7 @@ class DocumentsRepository:
             SET
                 type = EXCLUDED.type,
                 shipment_id = EXCLUDED.shipment_id
-            RETURNING id, type, shipment_id, storage_key, created_at
+            RETURNING id, type, shipment_id, storage_key, metadata, created_at
             """
         params = {
             "id": id,
@@ -43,7 +45,46 @@ class DocumentsRepository:
             "shipment_id": shipment_id,
             "storage_key": storage_key,
         }
-        return fetchone_dict(self._session, sql, params)
+        return fetchone_dict(
+            self._session, sql, params, json_keys=_METADATA_JSON_KEY
+        )
+
+    def upsert_pod_by_shipment(
+        self,
+        *,
+        id: str,
+        shipment_id: str,
+        storage_key: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Insert or update the single ``pod`` row for ``shipment_id``."""
+        sql = f"""
+            INSERT INTO {self.TABLE_NAME} (
+                id, type, shipment_id, storage_key, metadata
+            )
+            VALUES (
+                CAST(:id AS uuid),
+                'pod',
+                CAST(:shipment_id AS uuid),
+                :storage_key,
+                CAST(:metadata AS jsonb)
+            )
+            ON CONFLICT (shipment_id)
+            WHERE (type = 'pod'::document_type AND shipment_id IS NOT NULL)
+            DO UPDATE SET
+                storage_key = EXCLUDED.storage_key,
+                metadata = EXCLUDED.metadata
+            RETURNING id, type, shipment_id, storage_key, metadata, created_at
+            """
+        params = {
+            "id": id,
+            "shipment_id": shipment_id,
+            "storage_key": storage_key,
+            "metadata": jsonb_param(metadata or {}),
+        }
+        return fetchone_dict(
+            self._session, sql, params, json_keys=_METADATA_JSON_KEY
+        )
 
     def find_latest_by_shipment_and_type(
         self,
@@ -55,7 +96,7 @@ class DocumentsRepository:
         return fetchone_dict(
             self._session,
             f"""
-            SELECT id, storage_key, type, shipment_id, created_at
+            SELECT id, storage_key, type, shipment_id, metadata, created_at
             FROM {self.TABLE_NAME}
             WHERE shipment_id = :shipment_id AND type = :type
               {_NONEMPTY_STORAGE_KEY}
@@ -63,4 +104,5 @@ class DocumentsRepository:
             LIMIT 1
             """,
             {"shipment_id": shipment_id, "type": doc_type},
+            json_keys=_METADATA_JSON_KEY,
         )

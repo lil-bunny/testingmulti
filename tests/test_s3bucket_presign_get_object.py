@@ -30,19 +30,19 @@ class _FakeS3Client:
 def test_presign_get_object_success():
     fake = _FakeS3Client()
     b = S3Bucket(s3_client=fake, bucket_name="my-bucket")
-    out = b.presign_get_object("freightx/ratecon_attachments/ratecon_1000315335.pdf", expires_in=600)
+    out = b.presign_get_object("ratecon_attachments/ratecon_1000315335.pdf", expires_in=600)
 
     assert out["success"] is True
     assert out["error_message"] is None
-    assert out["object_key"] == "freightx/ratecon_attachments/ratecon_1000315335.pdf"
+    assert out["object_key"] == "ratecon_attachments/ratecon_1000315335.pdf"
     assert out["url"] == (
-        "https://example-bucket.test/presigned?key=freightx/ratecon_attachments/ratecon_1000315335.pdf"
+        "https://example-bucket.test/presigned?key=ratecon_attachments/ratecon_1000315335.pdf"
     )
     assert len(fake.calls) == 1
     assert fake.calls[0]["ClientMethod"] == "get_object"
     assert fake.calls[0]["Params"] == {
         "Bucket": "my-bucket",
-        "Key": "freightx/ratecon_attachments/ratecon_1000315335.pdf",
+        "Key": "ratecon_attachments/ratecon_1000315335.pdf",
     }
     assert fake.calls[0]["ExpiresIn"] == 600
 
@@ -72,7 +72,7 @@ def test_presign_get_object_without_s3_client():
     fake = _FakeS3Client()
     b = S3Bucket(s3_client=fake, bucket_name="my-bucket")
     b.s3_client = None
-    out = b.presign_get_object("freightx/a.pdf")
+    out = b.presign_get_object("pod_attachments/a.pdf")
     assert out["success"] is False
     assert "missing" in (out.get("error_message") or "").lower()
 
@@ -81,6 +81,6 @@ def test_presign_get_object_without_bucket_name():
     fake = _FakeS3Client()
     b = S3Bucket(s3_client=fake, bucket_name="my-bucket")
     b.bucket_name = None
-    out = b.presign_get_object("freightx/a.pdf")
+    out = b.presign_get_object("pod_attachments/a.pdf")
     assert out["success"] is False
     assert "missing" in (out.get("error_message") or "").lower()

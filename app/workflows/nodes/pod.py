@@ -17,42 +17,45 @@ from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
 logger = logging.getLogger(__name__)
 
 
-def _first_source_attachment_id(state) -> str | None:
+def _collect_source_object_keys(state) -> list[str]:
+    keys: list[str] = []
+    for raw in state.data.get("pod_source_object_keys") or []:
+        if raw and str(raw).strip():
+            keys.append(str(raw).strip())
+    if keys:
+        return keys
+
     for item in state.data.get("get_email_attachments_results") or []:
-        aid = item.get("attachment_id")
-        if aid and item.get("success"):
-            return aid
-    attachments = state.data.get("attachments") or []
-    if attachments:
-        return attachments[0].get("id")
-    return None
+        if not isinstance(item, dict) or not item.get("success"):
+            continue
+        key = item.get("object_key")
+        if key and str(key).strip():
+            keys.append(str(key).strip())
+    return keys
 
 
 def classify_attachments(state):
-    """
-    Normalize POD attachment inputs after get_email_attachments.
+    """Normalize POD attachments and persist one merged ``documents`` row."""
 
-    Ensures state.data['pod_object_keys'] lists S3 object keys for uploaded attachments
-    and aligns has_attachments for downstream process_pod.
-    """
+    state.data["pod_source_object_keys"] = list(state.data.get("pod_object_keys") or [])
 
-    # 1. Processes ``pod_object_keys`` (and optional HTTP(S) refs) and returns ``pod_merged_pdf_object_key`` plus metadata
     get_normalized_attachments(state)
 
     merged_key = state.data.get("pod_merged_pdf_object_key")
     if merged_key:
+        source_keys = _collect_source_object_keys(state)
         persist = insert_document(
-            DocumentType.POD_MERGED_FINAL,
+            DocumentType.POD,
             storage_key=merged_key,
             shipments_row_id=resolve_shipments_row_id_for_db(state.data),
-            email_id=state.data.get("email_id"),
-            attachment_id=_first_source_attachment_id(state),
+            metadata={"source_object_keys": source_keys},
         )
-        state.data["documents_pod_merged"] = persist
+        state.data["documents_pod"] = persist
         logger.info(
-            "classify_attachments: documents pod_merged stored=%s id=%s",
+            "classify_attachments: documents pod stored=%s id=%s source_keys=%s",
             persist.get("stored"),
             persist.get("id"),
+            len(source_keys),
         )
     return state
 

@@ -108,7 +108,7 @@ def test_upload_pod_accepted_queues_workflow(client, monkeypatch):
             execution_id="exec-1",
             workflow_lifecycle_id="wl-1",
             shipment_id=_SHIPMENTS_ROW_UUID,
-            object_key="freightx/pod/x.pdf",
+            object_key="pod_attachments/x.pdf",
             document_id="doc-1",
             celery_task_id="task-1",
         ),
