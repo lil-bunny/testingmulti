@@ -9,8 +9,14 @@ Shipment-scoped POD checks use ``GET /v1/documents/list`` — see
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any, Optional
 
+from app.domain.shipment_display import ShipmentDisplayFields
+from app.domain.shipment_route_locations import (
+    active_route_stops,
+    last_active_route_stop,
+)
 from app.domain.spreadsheet_cells import clean_cell_value
 from app.integrations.pgeocode.state_lookup import lookup_state
 from app.integrations.turvo.documents import check_pod_by_shipment_id
@@ -137,6 +143,98 @@ def delivery_address_from_global_route_stop(stop: dict[str, Any]) -> dict[str, A
         "postal_code": postal,
         "country": country or "US",
     }
+
+
+def _first_non_deleted_entity_name(
+    orders: Any,
+    entity_key: str,
+) -> str | None:
+    if not isinstance(orders, list):
+        return None
+    for order in orders:
+        if not isinstance(order, dict) or order.get("deleted"):
+            continue
+        entity = order.get(entity_key)
+        if not isinstance(entity, dict):
+            continue
+        name = str(entity.get("name") or "").strip()
+        if name:
+            return name
+    return None
+
+
+def _date_from_stop_appointment(stop: dict[str, Any]) -> date | None:
+    appt = stop.get("appointment")
+    if not isinstance(appt, dict):
+        return None
+    for key in ("date", "start"):
+        raw = appt.get(key)
+        if raw is None or not str(raw).strip():
+            continue
+        text = str(raw).strip()
+        try:
+            if "T" in text:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            continue
+    return None
+
+
+def _delivery_date_from_customer_order_routes(details: dict[str, Any]) -> date | None:
+    orders = details.get("customerOrder")
+    if not isinstance(orders, list):
+        return None
+    for order in orders:
+        if not isinstance(order, dict) or order.get("deleted"):
+            continue
+        route = order.get("route")
+        if not isinstance(route, list):
+            continue
+        active = [s for s in route if isinstance(s, dict) and not s.get("deleted")]
+        if not active:
+            continue
+        parsed = _date_from_stop_appointment(active[-1])
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def shipment_display_fields_from_payload(payload: dict[str, Any]) -> ShipmentDisplayFields:
+    """Map Turvo GET ``/shipments/{id}`` JSON to display columns for ``shipments``."""
+    if not isinstance(payload, dict):
+        return ShipmentDisplayFields()
+
+    details = payload.get("details")
+    if not isinstance(details, dict):
+        details = {}
+
+    customer_name = _first_non_deleted_entity_name(
+        details.get("customerOrder"),
+        "customer",
+    )
+    carrier_name = _first_non_deleted_entity_name(
+        details.get("carrierOrder"),
+        "carrier",
+    )
+
+    delivery_date: date | None = None
+    route_stops = active_route_stops(global_route_stops_from_payload(payload))
+    if route_stops:
+        try:
+            delivery_date = _date_from_stop_appointment(
+                last_active_route_stop(route_stops)
+            )
+        except ValueError:
+            delivery_date = None
+    if delivery_date is None:
+        delivery_date = _delivery_date_from_customer_order_routes(details)
+
+    return ShipmentDisplayFields(
+        carrier_name=carrier_name,
+        customer_name=customer_name,
+        delivery_date=delivery_date,
+    )
 
 
 async def get_shipment(

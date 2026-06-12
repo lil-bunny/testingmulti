@@ -58,6 +58,24 @@ def get_shipment(state):
         else bool(shipment.get("convoy", False))
     )
 
+    shipments_row_id = state.data.get("shipments_row_id")
+    load_id = state.data.get("load_id")
+    shipment_id = state.data.get("shipment_id") or resolve_shipment_id(state.data)
+    if (
+        shipments_row_id
+        and isinstance(shipment, dict)
+        and load_id is not None
+        and str(load_id).strip()
+        and shipment_id
+    ):
+        enrich = ShipmentsService().enrich_display_fields_from_turvo_payload(
+            tenant_id=state.data.get("tenant_id"),
+            turvo_shipment_id=str(shipment_id),
+            load_id=str(load_id).strip(),
+            turvo_payload=shipment,
+        )
+        state.data["shipment_display_enrich"] = enrich
+
     return state
 
 
@@ -73,10 +91,12 @@ def resolve_load_to_shipment(state):
         state.data["shipment_id"] = result["shipment_id"]
         load_id_str = str(load_id).strip() if load_id is not None else ""
         if load_id_str:
+            turvo_payload = state.data.get("shipment")
             persist = ShipmentsService().upsert_from_turvo(
                 tenant_id=state.data.get("tenant_id"),
                 turvo_shipment_id=str(result["shipment_id"]),
                 load_id=load_id_str,
+                turvo_payload=turvo_payload if isinstance(turvo_payload, dict) else None,
             )
             state.data["shipment_persist"] = persist
             if persist.get("success") and persist.get("shipments_row_id"):

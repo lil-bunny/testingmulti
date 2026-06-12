@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from datetime import date
 
 import psycopg
 import pytest
@@ -39,6 +40,16 @@ def _db_available() -> bool:
                     FROM information_schema.columns
                     WHERE table_name = 'shipments'
                       AND column_name = 'delivery_address'
+                    """
+                )
+                if cur.fetchone() is None:
+                    return False
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'shipments'
+                      AND column_name = 'delivery_date'
                     """
                 )
                 return cur.fetchone() is not None
@@ -120,6 +131,39 @@ def test_update_location_ids_persists_delivery_address(repo: ShipmentsRepository
     assert row is not None
     assert row["delivery_address"]["city"] == "RENO"
     assert row["delivery_address"]["address1"] == "123 Main St"
+
+
+@pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or shipments migration missing")
+def test_upsert_display_fields_coalesce_on_conflict(repo: ShipmentsRepository) -> None:
+    number = f"test-{uuid.uuid4().hex[:12]}"
+    first = repo.upsert_by_tenant_and_shipment_number_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_number=number,
+        metadata={"load_id": "LOAD-A"},
+        carrier_name="Carrier A",
+        customer_name="Customer A",
+        delivery_date=date(2026, 4, 1),
+    )
+    assert first.created is True
+
+    second = repo.upsert_by_tenant_and_shipment_number_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_number=number,
+        metadata={"load_id": "LOAD-B"},
+        carrier_name=None,
+        customer_name="Customer B",
+        delivery_date=None,
+    )
+    assert second.created is False
+
+    row = repo.get_by_tenant_and_shipment_number_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_number=number,
+    )
+    assert row is not None
+    assert row["carrier_name"] == "Carrier A"
+    assert row["customer_name"] == "Customer B"
+    assert row["delivery_date"] == date(2026, 4, 1)
 
 
 def _any_two_location_ids() -> tuple[str, str] | None:
