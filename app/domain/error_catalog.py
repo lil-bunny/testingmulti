@@ -65,6 +65,27 @@ class BusinessError(_CatalogError):
     MISSING_TOTAL_QTY = ("missing_total_qty", "PackCode Total Quantity is missing")
     MISSING_PALLET_DIMS = ("missing_pallet_dims", "PackCode Pallet Dimension is missing")
     MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required")
+    # POD lifecycle
+    POD_ATTACHMENT_UPLOAD_FAILED = (
+        "pod_attachment_upload_failed",
+        "POD attachment normalization did not produce a merged PDF",
+    )
+    POD_EXTRACTION_EMPTY = (
+        "pod_extraction_empty",
+        "POD LLM extraction returned no usable data",
+    )
+    POD_VS_RATECON_VALIDATION_FAILED = (
+        "pod_vs_ratecon_validation_failed",
+        "POD vs ratecon validation failed",
+    )
+    MISSING_POD_DATA = (
+        "missing_pod_data",
+        "POD extracted data is missing for comparison",
+    )
+    MISSING_RATECON_DATA = (
+        "missing_ratecon_data",
+        "Ratecon extracted data is missing for comparison",
+    )
 
 
 class IntegrationError(_CatalogError):
@@ -75,6 +96,15 @@ class IntegrationError(_CatalogError):
     VENDOR_API_TIMEOUT = ("vendor_api_timeout", "API request timed out")
     VENDOR_API_ERROR = ("vendor_api_error", "API request failed")
     EMAIL_SEND_FAILED = ("email_send_failed", "Failed to send email")
+    # POD lifecycle
+    POD_S3_DOWNLOAD_FAILED = (
+        "pod_s3_download_failed",
+        "S3 download failed during POD or ratecon PDF fetch",
+    )
+    TMS_POD_UPLOAD_FAILED = (
+        "tms_pod_upload_failed",
+        "Turvo POD upload failed",
+    )
 
 
 class SystemError(_CatalogError):
@@ -97,6 +127,11 @@ class SystemError(_CatalogError):
     UNEXPECTED_NODE_FAILURE = (
         "unexpected_node_failure",
         "An unexpected error occurred while running the workflow node",
+    )
+    # POD lifecycle
+    MISSING_SHIPMENT_ID = (
+        "missing_shipment_id",
+        "Shipment ID could not be resolved",
     )
 
 
