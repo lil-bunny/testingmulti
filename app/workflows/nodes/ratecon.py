@@ -22,7 +22,6 @@ def upload_ratecon_attachments(state):
     if not attachments:
         out = {"skipped": True, "reason": "no_attachments"}
         state.data["ratecon_s3_upload"] = out
-        logger.info("[ratecon] S3 upload %s", out)
         return state
 
     email_id = state.data.get("email_id")
@@ -33,7 +32,6 @@ def upload_ratecon_attachments(state):
             "attachment_count": len(attachments),
         }
         state.data["ratecon_s3_upload"] = out
-        logger.info("[ratecon] S3 upload %s", out)
         return state
 
     shipment_id = resolve_shipment_id(state.data)
@@ -90,5 +88,4 @@ def upload_ratecon_attachments(state):
             "error": persist.get("error"),
         }
     state.data["ratecon_s3_upload"] = result
-    logger.info("[ratecon] S3 upload finished: %s", result)
     return state

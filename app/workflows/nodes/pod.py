@@ -100,11 +100,6 @@ def ratecon_analysis(state):
             document_id=out.get("document_id"),
         )
         state.data["document_analysis_ratecon"] = persist
-        logger.info(
-            "ratecon_analysis: document_analysis stored=%s id=%s",
-            persist.get("stored"),
-            persist.get("id"),
-        )
     return state
 
 

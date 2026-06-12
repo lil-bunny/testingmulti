@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -13,28 +11,6 @@ from app.core.db import fetchone_dict
 _NONEMPTY_STORAGE_KEY = """
     AND storage_key IS NOT NULL AND BTRIM(storage_key) <> ''
 """
-
-# #region agent log
-_DEBUG_LOG_PATH = "debug-181b1a.log"
-
-
-def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    try:
-        payload = {
-            "sessionId": "181b1a",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, default=str) + "\n")
-    except OSError:
-        pass
-
-
-# #endregion
 
 
 class DocumentsRepository:
@@ -67,18 +43,6 @@ class DocumentsRepository:
             "shipment_id": shipment_id,
             "storage_key": storage_key,
         }
-        # #region agent log
-        _debug_log(
-            "H1",
-            "documents_repository.py:upsert_by_storage_key",
-            "documents upsert SQL prepared",
-            {
-                "uses_postgres_shorthand_cast": "::uuid" in sql,
-                "uses_cast_as_uuid": "CAST(:id AS uuid)" in sql,
-                "param_keys": sorted(params.keys()),
-            },
-        )
-        # #endregion
         return fetchone_dict(self._session, sql, params)
 
     def find_latest_by_shipment_and_type(
