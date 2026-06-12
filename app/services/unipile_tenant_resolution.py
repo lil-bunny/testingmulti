@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.configs.tenant_configs import TENANT_CONFIGS
+from app.core.config import settings
+from app.domain.unipile_email import resolve_unipile_webhook_base_name
 from app.repositories.tenants_db_repository import get_slug_for_tenant_uuid
 from app.services.data_import_tenant_resolution import resolve_email_data_import_tenant_id
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
@@ -30,7 +32,10 @@ def resolve_unipile_tenant(*, payload: dict[str, Any]) -> UnipileTenantContext |
     if not tenant_uuid:
         return None
 
-    webhook_name = str(payload.get("webhook_name") or "").strip()
+    webhook_name = resolve_unipile_webhook_base_name(
+        str(payload.get("webhook_name") or ""),
+        settings.ENV,
+    ) or ""
     slug = (get_slug_for_tenant_uuid(tenant_uuid) or "").strip()
     valid = frozenset(TENANT_CONFIGS.keys())
 

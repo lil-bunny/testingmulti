@@ -46,7 +46,8 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     summary="Unipile email webhook events handler",
     description=(
         "Receives email webhook events after Bearer auth. "
-        "`webhook_name` must match `tenants.settings.email_webhook_name`. "
+        "`webhook_name` must be `{tenants.settings.email_webhook_name}_{ENV}` where "
+        "`ENV` matches this deployment (`settings.ENV`). "
         "L1 routes by tenant slug; L2 classifies domain `event_type` per tenant."
     ),
 )

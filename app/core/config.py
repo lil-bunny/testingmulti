@@ -54,14 +54,9 @@ class Settings(BaseSettings):
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
 
     # Turvo
-    TURVO_APP_URL: str = "https://app.turvo.com"
-    TURVO_PUBLICAPI_URL:str = "https://publicapi.turvo.com"
-    TURVO_PUBLICAPI_CLIENT_ID: str = "publicapi"
-    TURVO_PUBLICAPI_CLIENT_SECRET: str = "secret"
-    TURVO_USERNAME: str
-    TURVO_PASSWORD: str
-    TURVO_X_API_KEY: str
-    TURVO_TENANT_REF: Optional[str] = None
+    TURVO_APP_URL: Optional[str] = "https://app.turvo.com"
+    TURVO_PUBLICAPI_URL:Optional[str] = "https://publicapi.turvo.com"
+    TURVO_X_API_KEY:Optional[str] = None
     # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
     TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
     # Optional fallback tenant slug for Turvo link/status API and local scripts when header is omitted.
@@ -87,9 +82,9 @@ class Settings(BaseSettings):
     OAUTH_REDIRECT_URI: str
 
     # S3-compatible Bucket (AWS S3)
-    BUCKET_ENDPOINT: str
-    BUCKET_ID: str
-    BUCKET_KEY: str
+    BUCKET_ENDPOINT: Optional[str] = None
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
     BUCKET_NAME: str
     BUCKET_REGION: str = "us-west-2"
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600 # Presigned GetObject TTL (seconds)

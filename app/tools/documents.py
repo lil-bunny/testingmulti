@@ -80,40 +80,6 @@ def insert_document(
                 )
         if not row:
             return {"stored": False, "id": None, "error": "insert_returned_no_row"}
-        # #region agent log
-        try:
-            import json
-            import time
-
-            with open("debug-181b1a.log", "a", encoding="utf-8") as fh:
-                fh.write(
-                    json.dumps(
-                        {
-                            "sessionId": "181b1a",
-                            "hypothesisId": "H1-verify",
-                            "location": "documents.py:insert_document",
-                            "message": "document row stored",
-                            "data": {
-                                "stored": True,
-                                "id": str(row["id"]),
-                                "type": str(row["type"]),
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        },
-                        default=str,
-                    )
-                    + "\n"
-                )
-        except OSError:
-            pass
-        # #endregion
-        logger.info(
-            "insert_document: stored id=%s type=%s shipment_id=%s storage_key=%s",
-            row["id"],
-            row["type"],
-            row["shipment_id"],
-            row["storage_key"],
-        )
         return {
             "stored": True,
             "id": str(row["id"]),
