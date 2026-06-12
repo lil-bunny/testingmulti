@@ -87,9 +87,9 @@ class Settings(BaseSettings):
     OAUTH_REDIRECT_URI: str
 
     # S3-compatible Bucket (AWS S3)
-    BUCKET_ENDPOINT: str
-    BUCKET_ID: str
-    BUCKET_KEY: str
+    BUCKET_ENDPOINT: Optional[str] = None
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
     BUCKET_NAME: str
     BUCKET_REGION: str = "us-west-2"
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600 # Presigned GetObject TTL (seconds)
