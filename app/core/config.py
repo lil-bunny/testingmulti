@@ -54,14 +54,9 @@ class Settings(BaseSettings):
     TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
 
     # Turvo
-    TURVO_APP_URL: str = "https://app.turvo.com"
-    TURVO_PUBLICAPI_URL:str = "https://publicapi.turvo.com"
-    TURVO_PUBLICAPI_CLIENT_ID: str = "publicapi"
-    TURVO_PUBLICAPI_CLIENT_SECRET: str = "secret"
-    TURVO_USERNAME: str
-    TURVO_PASSWORD: str
-    TURVO_X_API_KEY: str
-    TURVO_TENANT_REF: Optional[str] = None
+    TURVO_APP_URL: Optional[str] = "https://app.turvo.com"
+    TURVO_PUBLICAPI_URL:Optional[str] = "https://publicapi.turvo.com"
+    TURVO_X_API_KEY:Optional[str] = None
     # Fernet key (urlsafe base64) for encrypting per-user Turvo password at rest; strongly recommended in production
     TURVO_OAUTH_ENCRYPTION_KEY: Optional[str] = None
     # Optional fallback tenant slug for Turvo link/status API and local scripts when header is omitted.

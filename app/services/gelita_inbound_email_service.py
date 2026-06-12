@@ -93,7 +93,7 @@ class GelitaInboundEmailService:
     ) -> JSONResponse:
         graph_slug = resolve_workflow_graph_tenant_id(
             data_import_tenant_id=tenant.tenant_uuid,
-            webhook_name=str(payload.get("webhook_name") or ""),
+            webhook_name=tenant.tenant_slug,
         )
         communication_id = self._communications.record_or_resolve_inbound(
             tenant.tenant_uuid,

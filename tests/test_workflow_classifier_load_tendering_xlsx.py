@@ -12,6 +12,7 @@ from app.services.workflow_classifier_service import (
 )
 
 _LOAD_TENDER_WEBHOOK = "load_tender_test_hook"
+_DEPLOY_ENV = "dev"
 
 
 def sample_payload(*, attach_ext: tuple[str, ...] | None = ("pdf", "xlsx")) -> dict:
@@ -31,7 +32,7 @@ def sample_payload(*, attach_ext: tuple[str, ...] | None = ("pdf", "xlsx")) -> d
             }
         )
     return {
-        "webhook_name": _LOAD_TENDER_WEBHOOK,
+        "webhook_name": f"{_LOAD_TENDER_WEBHOOK}_{_DEPLOY_ENV}",
         "account_id": "any-unipile-account",
         "has_attachments": True,
         "attachments": attachments,
@@ -43,6 +44,7 @@ def mapped_load_tender_webhook(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_lookup(name: str) -> str | None:
         return "db-tenant-uuid" if name == _LOAD_TENDER_WEBHOOK else None
 
+    monkeypatch.setattr("app.services.workflow_classifier_service.settings.ENV", _DEPLOY_ENV)
     monkeypatch.setattr(
         "app.services.workflow_classifier_service.find_tenant_id_by_settings_email_webhook_name",
         fake_lookup,
@@ -59,7 +61,7 @@ def test_email_first_attachment_returns_first_dict_with_id() -> None:
 
 def test_email_first_attachment_skips_attachments_without_id() -> None:
     p = {
-        "webhook_name": _LOAD_TENDER_WEBHOOK,
+        "webhook_name": f"{_LOAD_TENDER_WEBHOOK}_{_DEPLOY_ENV}",
         "attachments": [
             {"name": "a.pdf", "extension": "pdf"},
             {"id": "ok", "name": "b.xlsx", "extension": "xlsx"},
@@ -101,6 +103,7 @@ def test_is_load_tendering_false_when_only_non_prefixed_xlsx(
 
 
 def test_is_load_tendering_false_when_webhook_not_in_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.workflow_classifier_service.settings.ENV", _DEPLOY_ENV)
     monkeypatch.setattr(
         "app.services.workflow_classifier_service.find_tenant_id_by_settings_email_webhook_name",
         lambda _: None,
