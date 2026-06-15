@@ -89,7 +89,7 @@ def test_record_workflow_failure_includes_shipment_from_nested_shipment_dict(
     mock_svc_cls: MagicMock,
     mock_enqueue: MagicMock,
 ) -> None:
-    """shipment_id_from_data resolves from state['shipment']['shipment_id'] too."""
+    """resolve_shipment_id resolves from state['shipment']['shipment_id'] too."""
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
 

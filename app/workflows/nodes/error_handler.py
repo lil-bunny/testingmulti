@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle_state import load_id_from_data, shipment_id_from_data
 from app.domain.state import WorkflowState
+from app.workflows.shipment_resolver import resolve_shipment_id
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -48,10 +48,10 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             metadata["pack_code"] = state.data["pack_code"]
         if state.data.get("delivery_address_code"):
             metadata["delivery_address_code"] = state.data["delivery_address_code"]
-        shipment_id = shipment_id_from_data(state.data)
+        shipment_id = resolve_shipment_id(state.data)
         if shipment_id:
             metadata["shipment_id"] = shipment_id
-        load_id = load_id_from_data(state.data)
+        load_id = str(state.data.get("load_id") or "").strip()
         if load_id:
             metadata["load_id"] = load_id
 

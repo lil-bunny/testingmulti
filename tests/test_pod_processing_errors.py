@@ -22,17 +22,20 @@ from app.workflows.nodes.pod import (
     pod_analysis,
     pod_vs_ratecon_analysis,
 )
+from app.workflows.nodes.error_handler import record_workflow_failure_node
 from app.workflows.nodes.turvo import upload_to_turvo
 
 
 TENANT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+LIFECYCLE_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+RUN_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 
 
 def _state(**data) -> WorkflowState:
     return WorkflowState(
         tenant_id=TENANT_ID,
         tenant_slug="t3ra",
-        execution_id="test-run-pod-errors",
+        execution_id=RUN_ID,
         data={"shipment_id": "SHP-001", "load_id": "LD-001", **data},
     )
 
@@ -292,3 +295,37 @@ def test_pod_analysis_unexpected_exception_sets_unexpected_node_failure(mock_too
 
     assert isinstance(result, dict)
     assert result["data"]["error"]["code"] == SystemError.UNEXPECTED_NODE_FAILURE.value
+
+
+# ---------------------------------------------------------------------------
+# POD failure → record_workflow_failure_node (node chain)
+# ---------------------------------------------------------------------------
+
+@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
+@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
+@patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_failure_flows_to_record_workflow_failure(
+    mock_tool: MagicMock,
+    mock_svc_cls: MagicMock,
+    mock_enqueue: MagicMock,
+) -> None:
+    mock_tool.return_value = {"success": False, "error": "extraction_empty"}
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+
+    state = _state(workflow_lifecycle_id=LIFECYCLE_ID)
+
+    pod_analysis(state)
+
+    assert state.data["error"]["code"] == BusinessError.POD_EXTRACTION_EMPTY.value
+    assert state.data["error"]["message"] == BusinessError.POD_EXTRACTION_EMPTY.description
+
+    record_workflow_failure_node(state)
+
+    mock_svc.apply_from_state.assert_called_once()
+    metadata = mock_svc.apply_from_state.call_args.kwargs["metadata"]
+    assert metadata["error"] == BusinessError.POD_EXTRACTION_EMPTY.value
+    assert metadata["shipment_id"] == "SHP-001"
+    assert metadata["load_id"] == "LD-001"
+    assert metadata["error_description"] == BusinessError.POD_EXTRACTION_EMPTY.description
+    mock_enqueue.assert_called_once()

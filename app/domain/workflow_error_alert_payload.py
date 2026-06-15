@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.load_tendering_state import get_tender
+from app.domain.load_tendering_state import ingest_delivery_address_code, ingest_pack_code
 
 
 class WorkflowErrorAlertPayload(BaseModel):
@@ -47,13 +47,8 @@ class WorkflowErrorAlertPayload(BaseModel):
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):
             tenant_settings = {}
-        tender = get_tender(data)
-        pack_code = str(data.get("pack_code") or "").strip()
-        if not pack_code and tender:
-            pack_code = str(tender.get("pack_code") or "").strip()
-        delivery_address_code = str(data.get("delivery_address_code") or "").strip()
-        if not delivery_address_code and tender:
-            delivery_address_code = str(tender.get("delivery_address_code") or "").strip()
+        pack_code = ingest_pack_code(data) or None
+        delivery_address_code = ingest_delivery_address_code(data) or None
         return cls(
             tenant_id=tenant_id,
             workflow_name=wf_name,

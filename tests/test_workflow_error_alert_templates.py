@@ -34,31 +34,6 @@ def test_build_template_context_uses_order_number_not_tender_id() -> None:
     assert context["delivery_location_code_block"] == ""
 
 
-def test_build_template_context_includes_missing_delivery_address_reason() -> None:
-    context = build_workflow_error_alert_template_context(
-        data={
-            "tender": {"order_number": "ORD-200", "customer_po": "PO-77"},
-            "delivery_address_code": "41000100",
-            "error": workflow_error_payload(
-                code=BusinessError.MISSING_DELIVERY_ADDRESS.value,
-                message=BusinessError.MISSING_DELIVERY_ADDRESS.description,
-                category=BusinessError.CATEGORY,
-            ),
-        },
-        error=workflow_error_payload(
-            code=BusinessError.MISSING_DELIVERY_ADDRESS.value,
-            message=BusinessError.MISSING_DELIVERY_ADDRESS.description,
-            category=BusinessError.CATEGORY,
-        ),
-        workflow_lifecycle_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-        workflow_run_id="cccccccc-cccc-cccc-cccc-cccccccccccc",
-    )
-    assert context["failure_reason"] == BusinessError.MISSING_DELIVERY_ADDRESS.description
-    assert context["delivery_address_code"] == "41000100"
-    assert "41000100" in context["delivery_location_code_block"]
-    assert "Delivery Location Code" in context["delivery_location_code_block"]
-
-
 def test_missing_placeholders_render_empty() -> None:
     context = build_workflow_error_alert_template_context(
         data={},

@@ -2,7 +2,6 @@ import logging
 
 from app.core.config import settings
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
-from app.domain.pod_lifecycle_state import raise_for_pod_tool_failure, shipment_id_from_data
 from app.exceptions import WorkflowException
 from app.models.document import DocumentType
 from app.models.document_analysis import DocumentAnalysisType
@@ -15,10 +14,16 @@ from app.tools.pod import (
     pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
     ratecon_analysis as get_ratecon_analysis,
 )
-from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
+from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
 from app.workflows.utils.decorators import safe_node
 
 logger = logging.getLogger(__name__)
+
+_POD_SHIPMENT_S3_ERRORS = {
+    "missing_shipment_id": SystemError.MISSING_SHIPMENT_ID,
+    "missing_shipments_row_id": SystemError.MISSING_SHIPMENT_ID,
+    "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
+}
 
 
 def _collect_source_object_keys(state) -> list[str]:
@@ -40,14 +45,13 @@ def _collect_source_object_keys(state) -> list[str]:
 
 @safe_node
 def classify_attachments(state):
-    """Normalize POD attachments and persist one merged ``documents`` row."""
-
-    Ensures state.data['pod_object_keys'] lists S3 object keys for uploaded attachments
-    and aligns has_attachments for downstream process_pod.
-    Raises WorkflowException(POD_ATTACHMENT_UPLOAD_FAILED) when normalization fails.
     """
+    Normalize POD attachments and persist one merged ``documents`` row.
 
-    # Processes ``pod_object_keys`` (and optional HTTP(S) refs) and returns ``pod_merged_pdf_object_key`` plus metadata
+    Ensures ``state.data['pod_object_keys']`` lists S3 object keys for uploaded
+    attachments and aligns ``has_attachments`` for downstream processing.
+    Raises ``WorkflowException(POD_ATTACHMENT_UPLOAD_FAILED)`` when normalization fails.
+    """
     state.data["pod_source_object_keys"] = list(state.data.get("pod_object_keys") or [])
 
     get_normalized_attachments(state)
@@ -84,20 +88,19 @@ def load_ratecon_analysis(state):
     ``ratecon_cache_router`` can route to ``end`` as usual.
     Hard failures (missing shipment id, S3 error) raise WorkflowException.
     """
-    # Enrich shipment_id on state before any potential raise so error_handler can log it
     if not state.data.get("shipment_id"):
-        resolved = shipment_id_from_data(state.data)
+        resolved = resolve_shipment_id(state.data)
         if resolved:
             state.data["shipment_id"] = resolved
 
     out = load_ratecon_analysis_tool(state.data)
     state.data["ratecon_analysis_results"] = out
 
-    raise_for_pod_tool_failure(out, {
-        "missing_shipment_id": SystemError.MISSING_SHIPMENT_ID,
-        "missing_shipments_row_id": SystemError.MISSING_SHIPMENT_ID,
-        "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
-    })
+    if not out.get("skipped") and not out.get("success"):
+        key = str(out.get("error") or "").strip()
+        raise WorkflowException(
+            _POD_SHIPMENT_S3_ERRORS.get(key, SystemError.UNEXPECTED_NODE_FAILURE)
+        )
 
     analysis_id = out.get("document_analysis_id")
     if out.get("success") and not out.get("skipped") and analysis_id:
@@ -120,6 +123,7 @@ def load_ratecon_analysis(state):
     return state
 
 
+@safe_node
 def ratecon_analysis(state):
     out = get_ratecon_analysis(state.data)
     state.data["ratecon_analysis_results"] = out
@@ -146,13 +150,14 @@ def pod_analysis(state):
     out = get_pod_analysis(state.data)
     state.data["pod_analysis_results"] = out
 
-    raise_for_pod_tool_failure(out, {
-        "missing_shipment_id": SystemError.MISSING_SHIPMENT_ID,
-        "missing_shipments_row_id": SystemError.MISSING_SHIPMENT_ID,
-        "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
-        "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
-        "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
-    })
+    if not out.get("skipped") and not out.get("success"):
+        key = str(out.get("error") or "").strip()
+        error_map = {
+            **_POD_SHIPMENT_S3_ERRORS,
+            "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
+            "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
+        }
+        raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (
@@ -183,10 +188,13 @@ def pod_vs_ratecon_analysis(state):
     out = get_pod_vs_ratecon_analysis(state.data)
     state.data["pod_vs_ratecon_analysis_results"] = out
 
-    raise_for_pod_tool_failure(out, {
-        "missing_pod_data": BusinessError.MISSING_POD_DATA,
-        "missing_ratecon_data": BusinessError.MISSING_RATECON_DATA,
-    })
+    if not out.get("skipped") and not out.get("success"):
+        key = str(out.get("error") or "").strip()
+        error_map = {
+            "missing_pod_data": BusinessError.MISSING_POD_DATA,
+            "missing_ratecon_data": BusinessError.MISSING_RATECON_DATA,
+        }
+        raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (

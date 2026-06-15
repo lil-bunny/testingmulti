@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.load_tendering_state import get_tender, order_number_from_data
+from app.domain.load_tendering_state import (
+    get_tender,
+    ingest_delivery_address_code,
+    order_number_from_data,
+)
 
 
 def customer_po_from_data(data: dict[str, Any]) -> str:
@@ -42,13 +46,7 @@ def build_workflow_error_alert_template_context(
     error_code = str(error.get("code") or "").strip()
     error_category = str(error.get("category") or "").strip()
 
-    delivery_address_code = str(data.get("delivery_address_code") or "").strip()
-    if not delivery_address_code:
-        tender = get_tender(data)
-        if tender:
-            delivery_address_code = str(
-                tender.get("delivery_address_code") or ""
-            ).strip()
+    delivery_address_code = ingest_delivery_address_code(data)
 
     delivery_location_code_block = ""
     if delivery_address_code:
