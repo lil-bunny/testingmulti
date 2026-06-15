@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # Unipile
     UNIPILE_API_KEY: str
     UNIPILE_DSN: str
-    OAUTH_REDIRECT_URI: str
+    OAUTH_REDIRECT_URI: Optional[str] = None
 
     # S3-compatible Bucket (AWS S3)
     BUCKET_ENDPOINT: Optional[str] = None
