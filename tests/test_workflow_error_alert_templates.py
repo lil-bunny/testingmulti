@@ -31,6 +31,7 @@ def test_build_template_context_uses_order_number_not_tender_id() -> None:
     assert context["order_number"] == "ORD-100"
     assert context["customer_po"] == "PO-55"
     assert context["failure_reason"] == BusinessError.MISSING_PACK_CODE.description
+    assert context["delivery_location_code_block"] == ""
 
 
 def test_missing_placeholders_render_empty() -> None:

@@ -57,15 +57,28 @@ class BusinessError(_CatalogError):
     TENDER_NOT_FOUND = ("tender_not_found", "Tender not found")
     MISSING_PRODUCT_LINES = ("missing_product_lines", "No Tender Products Founds")
     MISSING_PACK_CODE = ("missing_pack_code", "Product pack code is required")
+    MISSING_DELIVERY_ADDRESS = (
+        "missing_delivery_address",
+        "Delivery address could not be resolved from delivery location code",
+    )
     MISSING_QTY_PER_UNIT = ("missing_qty_per_unit", "PackCode Qty Per Unit is missing")
     MISSING_TOTAL_QTY = ("missing_total_qty", "PackCode Total Quantity is missing")
     MISSING_PALLET_DIMS = ("missing_pallet_dims", "PackCode Pallet Dimension is missing")
     MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required")
-    MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required")
-    MISSING_DELIVERY_ADDRESS = (
-        "missing_delivery_address",
-        "Delivery address is required",
+    # POD lifecycle
+    POD_ATTACHMENT_UPLOAD_FAILED = (
+        "pod_attachment_upload_failed",
+        "POD attachment normalization did not produce a merged PDF",
     )
+    POD_EXTRACTION_EMPTY = (
+        "pod_extraction_empty",
+        "POD LLM extraction returned no usable data",
+    )
+    RATECON_EXTRACTION_EMPTY = (
+        "ratecon_extraction_empty",
+        "Ratecon LLM extraction returned no usable data",
+    )
+    MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required")
 
 
 class IntegrationError(_CatalogError):
@@ -76,6 +89,15 @@ class IntegrationError(_CatalogError):
     VENDOR_API_TIMEOUT = ("vendor_api_timeout", "API request timed out")
     VENDOR_API_ERROR = ("vendor_api_error", "API request failed")
     EMAIL_SEND_FAILED = ("email_send_failed", "Failed to send email")
+    # POD lifecycle
+    POD_S3_DOWNLOAD_FAILED = (
+        "pod_s3_download_failed",
+        "S3 download failed during POD or ratecon PDF fetch",
+    )
+    TMS_POD_UPLOAD_FAILED = (
+        "tms_pod_upload_failed",
+        "Turvo POD upload failed",
+    )
 
 
 class SystemError(_CatalogError):
@@ -98,6 +120,11 @@ class SystemError(_CatalogError):
     UNEXPECTED_NODE_FAILURE = (
         "unexpected_node_failure",
         "An unexpected error occurred while running the workflow node",
+    )
+    # POD lifecycle
+    MISSING_SHIPMENT_ID = (
+        "missing_shipment_id",
+        "Shipment ID could not be resolved",
     )
 
 

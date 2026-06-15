@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.domain.ratecon_import import unipile_ratecon_pdf_attachment
 from app.services.workflow_classifier_service import (
+    WorkflowClassifierService,
     extract_ratecon_metadata_from_payload,
     has_rate_confirmation_subject,
 )
@@ -129,3 +130,17 @@ def test_has_rate_confirmation_subject() -> None:
     assert has_rate_confirmation_subject("Rate confirmation for shipment") is True
     assert has_rate_confirmation_subject("RATE CONFIRMATION for shipment") is True
     assert has_rate_confirmation_subject("Invoice attached") is False
+    assert has_rate_confirmation_subject("Rate confirmation TONU for shipment") is False
+    assert has_rate_confirmation_subject("TONU - Rate confirmation #12345") is False
+
+
+def test_extract_ratecon_metadata_rejects_tonu_subject() -> None:
+    payload = _sample_unipile_payload()
+    payload["subject"] = "Rate confirmation TONU for shipment: #59683"
+    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
+
+
+def test_classify_workflow_type_rejects_tonu_subject() -> None:
+    payload = _sample_unipile_payload()
+    payload["subject"] = "Rate confirmation TONU for shipment: #59683"
+    assert WorkflowClassifierService().classify_workflow_type(payload) is None

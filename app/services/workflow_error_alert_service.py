@@ -230,6 +230,8 @@ class WorkflowErrorAlertService:
             meta["tender_id"] = payload.tender_id
         if payload.pack_code:
             meta["pack_code"] = payload.pack_code
+        if payload.delivery_address_code:
+            meta["delivery_address_code"] = payload.delivery_address_code
         return meta
 
     def _record_alert_action(
@@ -251,6 +253,8 @@ class WorkflowErrorAlertService:
             metadata["tender_id"] = payload.tender_id
         if payload.pack_code:
             metadata["pack_code"] = payload.pack_code
+        if payload.delivery_address_code:
+            metadata["delivery_address_code"] = payload.delivery_address_code
 
         self._activity_log_service.record_action(
             ActivityLogWrite(

@@ -32,7 +32,7 @@ def resolve_shipment_id_for_fetch(data: dict[str, Any]) -> str | None:
     return None
 
 
-def resolve_shipment_id(data: dict[str, Any]) -> str:
+def resolve_shipment_id(data: dict[str, Any]) -> str | None:
     """
     Canonical Turvo shipment number for S3 object keys and external API calls.
     Prefer Turvo-backed ``state['shipment']['shipment_id']``.

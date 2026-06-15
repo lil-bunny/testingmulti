@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.error_catalog import IntegrationError
 from app.models.activity_type import ActorType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.pod_tms_upload_activity import (
@@ -78,7 +79,7 @@ def record_pod_tms_upload_activity(state):
     if isinstance(optimization, dict) and optimization:
         extra["optimization"] = optimization
     if outcome == "failed":
-        extra["error_code"] = "tms_upload_failed"
+        extra["error_code"] = IntegrationError.TMS_POD_UPLOAD_FAILED.value
         fail_message = str(turvo_result.get("message") or "").strip()
         if fail_message:
             extra["error_message"] = fail_message[:500]

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from app.domain.error_catalog import BusinessError
 from app.domain.state import WorkflowState
+from app.workflows.nodes.pod import ratecon_analysis
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -236,16 +238,20 @@ def test_record_ratecon_processed_activity_success(
     assert sequence.steps[1].from_sub_status == StatusSubType.DOCUMENT_UPLOADED
 
 
-@patch("app.workflows.nodes.record_ratecon_activity.ActivityLogService")
-def test_record_ratecon_processed_activity_analysis_failure(
+@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
+@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
+@patch("app.workflows.nodes.pod.get_ratecon_analysis")
+def test_ratecon_analysis_hard_failure_skips_processed_activity(
+    mock_tool: MagicMock,
     mock_svc_cls: MagicMock,
+    mock_enqueue: MagicMock,
 ) -> None:
-    from app.models.activity_type import ActivityType
-    from app.models.status import StatusType
+    """Hard analysis failures set state.error; activity FAILED path is not used."""
     from app.workflows.nodes.record_ratecon_activity import (
         record_ratecon_processed_activity,
     )
 
+    mock_tool.return_value = {"success": False, "error": "extraction_empty", "reason": "no_findings"}
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
 
@@ -260,19 +266,16 @@ def test_record_ratecon_processed_activity_analysis_failure(
                     }
                 ],
             },
-            "ratecon_analysis_results": {"success": False, "reason": "no_findings"},
         }
     )
 
+    ratecon_analysis(state)
+
+    assert state.data["error"]["code"] == BusinessError.RATECON_EXTRACTION_EMPTY.value
+
     record_ratecon_processed_activity(state)
 
-    mock_svc.record_sequence.assert_called_once()
-    sequence = mock_svc.record_sequence.call_args[0][0]
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[1].to_status == StatusType.FAILED
-    assert sequence.steps[1].to_sub_status is None
+    mock_svc.record_sequence.assert_not_called()
 
 
 @patch("app.workflows.nodes.record_ratecon_activity.ActivityLogService")

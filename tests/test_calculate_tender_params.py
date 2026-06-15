@@ -80,6 +80,17 @@ def _tenant_settings() -> dict:
     return load_tenant_settings_dev("gelita")
 
 
+def _sample_delivery_address() -> dict[str, str]:
+    return {
+        "name": "Test Customer",
+        "address1": "123 Main St",
+        "city": "SIOUX CITY",
+        "state": "IA",
+        "postal_code": "51105",
+        "country": "US",
+    }
+
+
 def _workflow_state(*, tender_id: str) -> WorkflowState:
     return WorkflowState(
         tenant_id=TENANT_ID,
@@ -100,7 +111,7 @@ def _ftl_bundle() -> dict:
             "shipping_date": SHIP_DATE,
             "delivery_date": SHIP_DATE,
             "metadata": {"po_number": FTL_CUSTOMER_PO},
-            "delivery_address": None,
+            "delivery_address": _sample_delivery_address(),
         },
         "products": [
             {
@@ -147,7 +158,7 @@ def _ltl_bundle() -> dict:
             "shipping_date": SHIP_DATE,
             "delivery_date": SHIP_DATE,
             "metadata": {"po_number": LTL_CUSTOMER_PO},
-            "delivery_address": None,
+            "delivery_address": _sample_delivery_address(),
         },
         "products": [
             _line("VERISOL® B (US)", "165"),
@@ -175,6 +186,32 @@ def test_calculate_tender_params_missing_tenant_id_returns_error_code() -> None:
     assert error["code"] == BusinessError.MISSING_TENANT_ID
     assert error["category"] == BusinessError.CATEGORY.value
     assert error["message"] == BusinessError.MISSING_TENANT_ID.description
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_missing_delivery_address_returns_error_code(
+    mock_svc_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["tender"]["delivery_address"] = None
+    mock_svc.read_order.return_value = bundle
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    state.data["tender"] = {
+        "order_number": FTL_ORDER_NUMBER,
+        "delivery_address_code": "41000100",
+    }
+    result = calculate_tender_params(state)
+
+    assert isinstance(result, dict)
+    error = result["data"]["error"]
+    assert error["code"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
+    assert error["category"] == BusinessError.CATEGORY.value
+    assert error["message"] == BusinessError.MISSING_DELIVERY_ADDRESS.description
+    assert result["data"]["delivery_address_code"] == "41000100"
+    mock_svc.update_load_type.assert_not_called()
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")

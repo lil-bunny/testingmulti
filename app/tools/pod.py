@@ -432,88 +432,15 @@ def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
     """
     Compare reconciled POD ``pod_data`` to ratecon ``extracted_fields`` using legacy rules,
     then LLM summary + confidence (same contracts as upstream analysis nodes).
-    """
-    sid = resolve_shipment_id(data)
-    if not sid:
-        return {"success": False, "error": "missing_shipment_id"}
 
+    ponytail: inputs assumed valid — graph error edges and ``ratecon_cache_router`` guarantee
+    upstream nodes succeeded before this tool runs; fix upstream, do not re-add guards here.
+    """
+    sid = resolve_shipment_id(data) or ""
     pod_res = data.get("pod_analysis_results") or {}
     rc_res = data.get("ratecon_analysis_results") or {}
-
-    if not pod_res.get("success"):
-        logger.info(
-            "pod_vs_ratecon_analysis: skip — pod_analysis not successful shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": True,
-            "skipped": True,
-            "reason": "pod_analysis_not_success",
-            "shipment_id": sid,
-        }
-    if pod_res.get("skipped"):
-        logger.info(
-            "pod_vs_ratecon_analysis: skip — pod_analysis skipped shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": True,
-            "skipped": True,
-            "reason": "no_pod_analysis",
-            "shipment_id": sid,
-        }
-
-    if not rc_res.get("success"):
-        logger.info(
-            "pod_vs_ratecon_analysis: skip — ratecon_analysis not successful shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": True,
-            "skipped": True,
-            "reason": "ratecon_analysis_not_success",
-            "shipment_id": sid,
-        }
-    if rc_res.get("skipped"):
-        logger.info(
-            "pod_vs_ratecon_analysis: skip — ratecon skipped shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": True,
-            "skipped": True,
-            "reason": "no_ratecon_analysis",
-            "shipment_id": sid,
-        }
-
-    pod_findings = pod_res.get("findings") or {}
-    pod_data = pod_findings.get("pod_data")
-    if not pod_data:
-        logger.warning(
-            "pod_vs_ratecon_analysis: missing pod_data in findings shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": False,
-            "error": "missing_pod_data",
-            "shipment_id": sid,
-        }
-
-    rc_findings = rc_res.get("findings") or {}
-    ratecon_data = rc_findings.get("extracted_fields")
-    if ratecon_data is None:
-        ratecon_data = {}
-
-    if not ratecon_data:
-        logger.warning(
-            "pod_vs_ratecon_analysis: missing ratecon extracted_fields shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": False,
-            "error": "missing_ratecon_data",
-            "shipment_id": sid,
-        }
+    pod_data = (pod_res.get("findings") or {}).get("pod_data")
+    ratecon_data = (rc_res.get("findings") or {}).get("extracted_fields") or {}
 
     try:
         cross = validate_pod_against_ratecon(
