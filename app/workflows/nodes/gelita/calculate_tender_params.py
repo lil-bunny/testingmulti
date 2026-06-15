@@ -11,7 +11,12 @@ from app.domain.load_tendering_settings import (
     gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
 )
-from app.domain.load_tendering_state import get_tender, ingest_pack_code, set_tender
+from app.domain.load_tendering_state import (
+    get_tender,
+    ingest_delivery_address_code,
+    ingest_pack_code,
+    set_tender,
+)
 from app.domain.error_catalog import BusinessError, SystemError
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
@@ -118,6 +123,15 @@ def calculate_tender_params(state):
     if not products:
         raise WorkflowException(BusinessError.MISSING_PRODUCT_LINES)
 
+    if tender.get("delivery_address") is None:
+        delivery_code = ingest_delivery_address_code(state.data)
+        if delivery_code:
+            existing = get_tender(state.data) or {}
+            existing["delivery_address_code"] = delivery_code
+            set_tender(state.data, existing)
+            state.data["delivery_address_code"] = delivery_code
+        raise WorkflowException(BusinessError.MISSING_DELIVERY_ADDRESS)
+
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
     total_pieces = Decimal(0)
@@ -131,6 +145,7 @@ def calculate_tender_params(state):
                 existing = get_tender(state.data) or {}
                 existing["pack_code"] = excel_pack
                 set_tender(state.data, existing)
+                state.data["pack_code"] = excel_pack
             raise WorkflowException(BusinessError.MISSING_PACK_CODE)
 
         order_quantity = product["order_quantity"]

@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 
 
 _RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
+_TONU_SUBJECT_SNIPPET = "tonu"
 
 
 def unipile_primary_attachment_file_name(payload: dict[str, Any]) -> Optional[str]:
@@ -95,6 +96,9 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
         "ratecon_unipile_attachment_fetch": None,
     }
 
+    if not has_rate_confirmation_subject(subject):
+        return empty_result
+
     matching_attachment = unipile_ratecon_pdf_attachment(payload)
     if matching_attachment is None:
         return empty_result
@@ -121,7 +125,10 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
     }
 
 def has_rate_confirmation_subject(subject: str) -> bool:
-    return _RATE_CONFIRMATION_SUBJECT_SNIPPET in (subject or "").lower()
+    normalized = (subject or "").lower()
+    if _TONU_SUBJECT_SNIPPET in normalized:
+        return False
+    return _RATE_CONFIRMATION_SUBJECT_SNIPPET in normalized
 
 
 def _normalize_attachment_extension(value: Any) -> str:
@@ -188,7 +195,7 @@ class WorkflowClassifierService:
     def classify_workflow_type(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         """
         Classify incoming email webhook into a workflow.
-            1. "rate confirmation" keyword in subject
+            1. "rate confirmation" keyword in subject (excluding TONU subjects)
             2. has_attachments is true
             3.1 new email : in_reply_to doesn't exist
                 trigger ratecon workflow

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.error_catalog import IntegrationError
 from app.domain.state import tenant_slug_from_payload, workflow_state_data
+from app.exceptions import WorkflowException
 from app.integrations.turvo.shipments import (
     delivery_address_from_global_route_stop,
     global_route_stops_from_payload,
@@ -15,6 +17,7 @@ from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_too
 from app.tools.turvo import update_shipment as update_shipment_tool
 from app.tools.turvo import upload_to_turvo as upload_to_turvo_tool
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipment_id_for_fetch
+from app.workflows.utils.decorators import safe_node
 
 
 def turvo_call_kwargs(state: Any) -> dict[str, str | None]:
@@ -141,9 +144,12 @@ def link_shipment_locations(state):
     return state
 
 
+@safe_node
 def upload_to_turvo(state):
     result = upload_to_turvo_tool(state.data)
     state.data["turvo_upload_result"] = result
+    if not result.get("success"):
+        raise WorkflowException(IntegrationError.TMS_POD_UPLOAD_FAILED)
     return state
 
 

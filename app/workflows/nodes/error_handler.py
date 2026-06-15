@@ -6,6 +6,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.state import WorkflowState
+from app.workflows.shipment_resolver import resolve_shipment_id
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -45,6 +46,14 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             metadata["tender_id"] = state.data["tender_id"]
         if state.data.get("pack_code"):
             metadata["pack_code"] = state.data["pack_code"]
+        if state.data.get("delivery_address_code"):
+            metadata["delivery_address_code"] = state.data["delivery_address_code"]
+        shipment_id = resolve_shipment_id(state.data)
+        if shipment_id:
+            metadata["shipment_id"] = shipment_id
+        load_id = str(state.data.get("load_id") or "").strip()
+        if load_id:
+            metadata["load_id"] = load_id
 
         try:
             lifecycle_transition_service.apply_from_state(

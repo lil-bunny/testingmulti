@@ -85,3 +85,39 @@ def test_manual_tms_upload_router_stop_on_failed():
 def test_manual_tms_upload_router_stop_when_outcome_missing():
     state = _state()
     assert manual_tms_upload_router(state) == "stop"
+
+
+# ---------------------------------------------------------------------------
+# Builder _wrap_router short-circuits when state.data["error"] is already set
+# ---------------------------------------------------------------------------
+
+from app.domain.error_catalog import has_workflow_error
+from app.workflows.graph.builder import ERROR_ROUTE, OK_ROUTE, check_workflow_error
+
+
+def test_ratecon_cache_router_bypassed_when_error_present():
+    """When error is set, builder routes to ERROR_ROUTE before ratecon_cache_router."""
+    state = _state(
+        error={"code": "pod_attachment_upload_failed", "category": "business", "message": "fail"},
+        ratecon_analysis_results={"success": True, "findings": {"extracted_fields": {"x": 1}}},
+    )
+    assert has_workflow_error(state.data)
+    assert check_workflow_error(state) == ERROR_ROUTE
+
+
+def test_manual_tms_upload_router_bypassed_when_error_present():
+    """When error is set, builder routes to ERROR_ROUTE before manual_tms_upload_router."""
+    state = _state(
+        error={"code": "tms_pod_upload_failed", "category": "integration", "message": "fail"},
+        pod_tms_upload_outcome="uploaded",
+    )
+    assert has_workflow_error(state.data)
+    assert check_workflow_error(state) == ERROR_ROUTE
+
+
+def test_ratecon_cache_router_runs_when_no_error():
+    state = _state(
+        ratecon_analysis_results={"success": True, "findings": {"extracted_fields": {"x": 1}}},
+    )
+    assert check_workflow_error(state) == OK_ROUTE
+    assert ratecon_cache_router(state) == "ready"
