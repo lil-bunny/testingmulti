@@ -256,7 +256,7 @@ def test_webhook_invalid_when_multiple_tenants_match(
             headers=webhook_headers,
         )
         assert r.status_code == 200, r.text
-        assert r.json() == {"message": "invalid webhook"}
+        assert r.json() == {"message": "invalid webhook: multiple tenants matched"}
         assert any(
             "multiple tenants match" in rec.message for rec in caplog.records
         ), caplog.text

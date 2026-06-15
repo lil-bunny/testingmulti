@@ -15,3 +15,8 @@ class WorkflowException(Exception):
             self.message = message or ErrorCategory.SYSTEM.value
 
         super().__init__(self.message)
+
+
+class TenantResolutionError(Exception):
+    """Raised when tenant resolution fails due to ambiguity or configuration issues."""
+    pass

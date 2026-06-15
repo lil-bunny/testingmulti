@@ -7,6 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.domain.unipile_email import extract_recipient_emails
+from app.exceptions import TenantResolutionError
 from app.repositories.tenants_db_repository import InboundRoutingTenantMatch
 
 logger = get_logger(__name__)
@@ -54,7 +55,7 @@ def resolve_inbound_routing_tenant_match(
             "email webhook data_import tenant: multiple tenants match recipients=%r",
             emails,
         )
-        return None
+        raise TenantResolutionError("multiple tenants matched")
 
     return db_match
 

@@ -83,11 +83,7 @@ class TenantsDbRepository:
             SELECT id::text AS id, NULLIF(trim(slug), '') AS slug
             FROM {self.TABLE_NAME}
             WHERE settings IS NOT NULL
-              AND EXISTS (
-                SELECT 1
-                FROM unnest(CAST(:emails_lower AS text[])) AS needle(email)
-                WHERE (settings->'inbound_routing_emails') @> to_jsonb(needle.email)
-              )
+              AND jsonb_exists_any(settings->'inbound_routing_emails', CAST(:emails_lower AS text[]))
             ORDER BY id
             LIMIT 3
             """,

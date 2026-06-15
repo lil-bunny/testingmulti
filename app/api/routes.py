@@ -13,7 +13,7 @@ from app.services.communications.service import CommunicationsService
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
 from app.services.shipments_service import ShipmentsService
 from app.services.t3ra_inbound_email_service import T3raInboundEmailService
-from app.domain.unipile_email import extract_recipient_emails
+from app.exceptions import TenantResolutionError
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -58,7 +58,11 @@ async def webhook_email(request: Request):
             raise HTTPException(status_code=401, detail="Unauthorized")
         payload = await request.json()
 
-        tenant = resolve_unipile_tenant(payload=payload)
+        try:
+            tenant = resolve_unipile_tenant(payload=payload)
+        except TenantResolutionError as e:
+            return {"message": f"invalid webhook: {str(e)}"}
+
         if tenant is None:
             return {"message": "invalid webhook"}
 
@@ -69,9 +73,8 @@ async def webhook_email(request: Request):
             return await T3raInboundEmailService().handle(payload=payload, tenant=tenant)
 
         logger.warning(
-            "unipile webhook: unsupported tenant_slug=%r recipients=%r",
+            "unipile webhook: unsupported tenant_slug=%r",
             tenant.tenant_slug,
-            extract_recipient_emails(payload),
         )
         return {"message": "invalid webhook"}
     except HTTPException:
