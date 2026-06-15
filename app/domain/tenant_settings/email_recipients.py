@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 
 def coerce_email_list(value: Any, *, required: bool) -> list[str]:
     """
     Accept a single address, a list of addresses, or empty/None.
 
-    Strips, lowercases for dedupe, drops blanks and strings without ``@``.
+    Strips, dedupes case-insensitively, drops blanks and strings without ``@``.
+    Returns addresses in original casing (except dedupe key is lowercase).
     """
     if value is None:
         items: list[str] = []
@@ -37,6 +38,26 @@ def coerce_email_list(value: Any, *, required: bool) -> list[str]:
     if required and not out:
         raise ValueError("at least one valid email address is required")
     return out
+
+
+def normalize_emails_for_matching(value: Any, *, required: bool) -> list[str]:
+    """
+    Canonical form for routing lookup and ``inbound_routing_emails`` storage:
+    strip, lowercase, dedupe, drop invalid; raise if ``required`` and empty.
+    """
+    return [addr.lower() for addr in coerce_email_list(value, required=required)]
+
+
+def normalize_inbound_routing_emails(value: Any) -> list[str]:
+    """Validate and normalize ``inbound_routing_emails`` (lowercase, strip, dedupe, min 1)."""
+    return normalize_emails_for_matching(value, required=True)
+
+
+InboundRoutingEmails = Annotated[
+    list[str],
+    BeforeValidator(normalize_inbound_routing_emails),
+    Field(min_length=1),
+]
 
 
 def unipile_recipients_from_addresses(addresses: list[str]) -> list[dict[str, str]]:

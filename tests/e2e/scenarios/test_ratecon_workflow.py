@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.main import app
 from app.models.document import DocumentType
 from app.services import workflow_runs_service
+from app.services.unipile_tenant_resolution import UnipileTenantContext
 from tests.e2e.fixtures.main import RATECON_WEBHOOK_PAYLOAD
 from tests.e2e.helpers.countdown_wait import wait_with_countdown
 from tests.e2e.helpers.db_snapshots import (
@@ -255,8 +256,11 @@ def test_ratecon_email_received_unipile_webhook(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(
-        "app.api.routes.resolve_email_data_import_tenant_id",
-        lambda **_kwargs: "aadc75f4-3f79-45d7-84c3-aa778e226e93",
+        "app.api.routes.resolve_unipile_tenant",
+        lambda **_kwargs: UnipileTenantContext(
+            tenant_uuid="aadc75f4-3f79-45d7-84c3-aa778e226e93",
+            tenant_slug="t3ra",
+        ),
     )
     # Keep real workflow service override disabled for this integration path.
     app.dependency_overrides.pop(get_workflow_service, None)

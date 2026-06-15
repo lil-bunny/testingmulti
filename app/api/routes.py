@@ -13,6 +13,7 @@ from app.services.communications.service import CommunicationsService
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
 from app.services.shipments_service import ShipmentsService
 from app.services.t3ra_inbound_email_service import T3raInboundEmailService
+from app.domain.unipile_email import extract_recipient_emails
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -46,9 +47,9 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     summary="Unipile email webhook events handler",
     description=(
         "Receives email webhook events after Bearer auth. "
-        "`webhook_name` must be `{tenants.settings.email_webhook_name}_{ENV}` where "
-        "`ENV` matches this deployment (`settings.ENV`). "
-        "L1 routes by tenant slug; L2 classifies domain `event_type` per tenant."
+        "L1 resolves tenant from recipient addresses (to/cc/bcc) against "
+        "`tenants.settings.inbound_routing_emails`. "
+        "L2 routes by tenant slug and classifies domain `event_type` per tenant."
     ),
 )
 async def webhook_email(request: Request):
@@ -60,17 +61,17 @@ async def webhook_email(request: Request):
         tenant = resolve_unipile_tenant(payload=payload)
         if tenant is None:
             return {"message": "invalid webhook"}
-        
-        # L1 routing by tenant slug using webhook_name
+
+        # L2: route by resolved tenant slug to tenant ingress handler
         if tenant.tenant_slug == TenantSlug.GELITA:
             return await GelitaInboundEmailService().handle(payload=payload, tenant=tenant)
         if tenant.tenant_slug == TenantSlug.T3RA:
             return await T3raInboundEmailService().handle(payload=payload, tenant=tenant)
 
         logger.warning(
-            "unipile webhook: unsupported tenant_slug=%r webhook_name=%r",
+            "unipile webhook: unsupported tenant_slug=%r recipients=%r",
             tenant.tenant_slug,
-            payload.get("webhook_name"),
+            extract_recipient_emails(payload),
         )
         return {"message": "invalid webhook"}
     except HTTPException:

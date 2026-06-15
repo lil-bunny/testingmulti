@@ -73,7 +73,7 @@ def _is_inbox_role(payload: dict[str, Any]) -> bool:
 
 class GelitaInboundEmailService:
     """
-    L2 routing for Gelita on a single ``webhook_name``:
+    L2 routing for Gelita after recipient-based L1 tenant resolution:
 
     1. ``ack_received`` — lifecycle on ``thread_id`` + ``in_reply_to``
     2. ``tender_created`` — ``.xlsx`` attachment → ingest → per-row enqueue
@@ -93,7 +93,7 @@ class GelitaInboundEmailService:
     ) -> JSONResponse:
         graph_slug = resolve_workflow_graph_tenant_id(
             data_import_tenant_id=tenant.tenant_uuid,
-            webhook_name=tenant.tenant_slug,
+            tenant_slug_hint=tenant.tenant_slug,
         )
         communication_id = self._communications.record_or_resolve_inbound(
             tenant.tenant_uuid,

@@ -3,9 +3,9 @@ POST /api/webhook/email with a sample Unipile payload shaped for Gelita load_ten
 
 Prerequisites (local server must match):
   - UNIPILE_WEBHOOK_SECRET — same as ``--token`` below
-  - ``tenants.settings.email_webhook_name`` must match the base of the payload's
-    ``webhook_name`` (this sample uses ``gelita_{ENV}``; ``ENV`` must match the API deployment).
-    Route auth is Bearer-only; tenant/import routing is DB-driven from that base name.
+  - ``tenants.settings.inbound_routing_emails`` must include a ``to``/``cc``/``bcc``
+    address from this payload (sample uses ``ana.gelita.test@freightx.ai``).
+    Route auth is Bearer-only; tenant routing is DB-driven from recipient emails.
 
 Run API:  uv run uvicorn app.main:app --reload --port 8001
 Run script:  uv run python scripts/test_unipile_load_tendering_webhook.py --base-url http://127.0.0.1:8001

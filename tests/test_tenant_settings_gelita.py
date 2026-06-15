@@ -22,7 +22,7 @@ def _raw_settings() -> dict:
 
 def test_fixture_validates_as_gelita_tenant_settings() -> None:
     model = GelitaTenantSettings.model_validate(_raw_settings())
-    assert model.email_webhook_name == "gelita"
+    assert "ana.gelita.test@freightx.ai" in model.inbound_routing_emails
     assert model.prompts[LOAD_TENDERING_CARRIER_ACK].startswith(
         "carrier-ack-classify"
     )
@@ -59,6 +59,20 @@ def test_gelita_action_settings_helpers() -> None:
     esc = gelita_escalate_tender_settings(data, load_type="LTL")
     assert esc is not None
     assert esc.recipients().to
+
+
+def test_missing_inbound_routing_emails_rejected() -> None:
+    raw = _raw_settings()
+    raw["inbound_routing_emails"] = []
+    with pytest.raises(ValidationError):
+        GelitaTenantSettings.model_validate(raw)
+
+
+def test_inbound_routing_emails_normalized_to_lowercase() -> None:
+    raw = _raw_settings()
+    raw["inbound_routing_emails"] = ["Ana.Gelita@Test.com"]
+    model = GelitaTenantSettings.model_validate(raw)
+    assert model.inbound_routing_emails == ["ana.gelita@test.com"]
 
 
 def test_invalid_vendor_email_rejected() -> None:

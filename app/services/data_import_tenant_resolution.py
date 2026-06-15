@@ -4,17 +4,59 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from app.core.config import settings
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
-from app.domain.unipile_email import resolve_unipile_webhook_base_name
+from app.domain.unipile_email import extract_recipient_emails
+from app.repositories.tenants_db_repository import InboundRoutingTenantMatch
 
 logger = get_logger(__name__)
 
 
 @runtime_checkable
 class _TenantsLookup(Protocol):
-    def find_tenant_id_by_email_webhook_name(self, webhook_name: str) -> str | None: ...
+    def find_by_inbound_routing_emails(
+        self, emails: list[str]
+    ) -> InboundRoutingTenantMatch: ...
+
+
+def resolve_inbound_routing_tenant_match(
+    *,
+    payload: dict[str, Any],
+    tenants_repo: _TenantsLookup | None = None,
+) -> InboundRoutingTenantMatch | None:
+    """
+    Match recipient emails (to/cc/bcc) against ``tenants.settings.inbound_routing_emails``.
+
+    Returns a single match or ``None`` when no recipients, no row, or multiple tenants match.
+    """
+    emails = extract_recipient_emails(payload)
+    if not emails:
+        logger.warning("email webhook data_import tenant: no recipient emails in payload")
+        return None
+
+    if tenants_repo is not None:
+        db_match = tenants_repo.find_by_inbound_routing_emails(emails)
+    else:
+        db_match = run_with_repos(
+            lambda repos: repos.tenants.find_by_inbound_routing_emails(emails)
+        )
+
+    if db_match.match_count == 0:
+        logger.warning(
+            "email webhook data_import tenant: no tenants row for inbound_routing_emails "
+            "recipients=%r",
+            emails,
+        )
+        return None
+
+    if db_match.match_count > 1:
+        logger.warning(
+            "email webhook data_import tenant: multiple tenants match recipients=%r",
+            emails,
+        )
+        return None
+
+    return db_match
 
 
 def resolve_email_data_import_tenant_id(
@@ -23,34 +65,11 @@ def resolve_email_data_import_tenant_id(
     tenants_repo: _TenantsLookup | None = None,
 ) -> str | None:
     """
-    Match ``payload["webhook_name"]`` (``{email_webhook_name}_{ENV}``) to
-    ``tenants.settings.email_webhook_name``.
+    Match recipient emails (to/cc/bcc) against ``tenants.settings.inbound_routing_emails``.
 
-    Returns ``None`` when missing, env mismatch, or no row — callers skip attachment/data_import
-    unless the workflow requires a mapping (e.g. load_tendering).
+    Returns ``None`` when no recipients, no row, or multiple distinct tenants match.
     """
-    webhook_name = str(payload.get("webhook_name") or "")
-    base_name = resolve_unipile_webhook_base_name(webhook_name, settings.ENV)
-    if not base_name:
-        if webhook_name.strip():
-            logger.warning(
-                "email webhook data_import tenant: invalid webhook_name=%r env=%r",
-                webhook_name.strip(),
-                settings.ENV,
-            )
+    match = resolve_inbound_routing_tenant_match(payload=payload, tenants_repo=tenants_repo)
+    if not match or not match.tenant_id:
         return None
-
-    if tenants_repo is not None:
-        tid = tenants_repo.find_tenant_id_by_email_webhook_name(base_name)
-    else:
-        tid = run_with_repos(
-            lambda repos: repos.tenants.find_tenant_id_by_email_webhook_name(base_name)
-        )
-    if tid:
-        return tid.strip()
-
-    logger.warning(
-        "email webhook data_import tenant: no tenants row for settings.email_webhook_name=%r",
-        base_name,
-    )
-    return None
+    return match.tenant_id.strip() or None

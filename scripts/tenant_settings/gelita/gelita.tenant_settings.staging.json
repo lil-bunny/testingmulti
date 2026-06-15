@@ -142,7 +142,9 @@
   "enabledProcesses": [
     "load_tendering"
   ],
-  "email_webhook_name": "gelita",
+  "inbound_routing_emails": [
+    ""
+  ],
   "ana_at_gelita_account_id": "oizK1OAzTyqJJJ6VySWEDw",
   "ana_gelita_at_freightx_ai_account_id": "oizK1OAzTyqJJJ6VySWEDw"
 }

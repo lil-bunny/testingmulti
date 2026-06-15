@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.tenant_settings.email_recipients import normalize_emails_for_matching
+
+_RECIPIENT_ATTENDEE_KEYS = ("to_attendees", "cc_attendees", "bcc_attendees")
+
 
 def build_unipile_attachment_fetch_context(
     payload: dict[str, Any], attachment: dict[str, Any]
@@ -45,27 +49,29 @@ def extract_email_attachment_metadata(attachment: dict[str, Any]) -> dict[str, A
     return metadata
 
 
-def parse_unipile_webhook_name(webhook_name: str) -> tuple[str, str] | None:
-    """Return ``(base_name, env_suffix)`` from ``{base}_{env}`` or ``None`` if malformed."""
-    raw = (webhook_name or "").strip()
-    if "_" not in raw:
-        return None
-    base, env = raw.rsplit("_", 1)
-    base, env = base.strip(), env.strip()
-    if not base or not env:
-        return None
-    return base, env
+def _attendee_identifiers(attendees: Any) -> list[str]:
+    if not isinstance(attendees, list):
+        return []
+    out: list[str] = []
+    for att in attendees:
+        if not isinstance(att, dict):
+            continue
+        ident = att.get("identifier")
+        if ident is not None and str(ident).strip():
+            out.append(str(ident))
+    return out
 
 
-def resolve_unipile_webhook_base_name(webhook_name: str, expected_env: str) -> str | None:
-    """Base ``email_webhook_name`` when suffix matches deployment ``ENV``, else ``None``."""
-    parsed = parse_unipile_webhook_name(webhook_name)
-    if not parsed:
-        return None
-    base, env = parsed
-    if env.lower() != (expected_env or "").strip().lower():
-        return None
-    return base
+def extract_recipient_emails(payload: dict[str, Any]) -> list[str]:
+    """
+    Union of ``to_attendees``, ``cc_attendees``, and ``bcc_attendees`` identifiers.
+
+    Normalized: strip, lowercase, dedupe; drops blanks and strings without ``@``.
+    """
+    raw: list[str] = []
+    for key in _RECIPIENT_ATTENDEE_KEYS:
+        raw.extend(_attendee_identifiers(payload.get(key)))
+    return normalize_emails_for_matching(raw, required=False)
 
 
 def attachments_metadata_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:

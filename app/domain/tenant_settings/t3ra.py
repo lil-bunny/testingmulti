@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.reminder_schedule import WorkflowRemindersConfig
+from app.domain.tenant_settings.email_recipients import InboundRoutingEmails
 from app.domain.tenant_settings.tms import TmsSettings
 
 
@@ -23,7 +24,7 @@ class T3raTenantSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    email_webhook_name: str
+    inbound_routing_emails: InboundRoutingEmails
     mikey_account_id: str
     tms: TmsSettings
     prompts: dict[str, str] = Field(default_factory=dict)

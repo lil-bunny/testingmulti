@@ -13,7 +13,7 @@ from app.domain.tenant_settings.tms import (
 
 def test_resolve_tms_settings_from_nested_block():
     cfg = {
-        "email_webhook_name": "t3ra",
+        "inbound_routing_emails": ["ops@t3ra.test"],
         "tms": {
             "provider": "turvo",
             "public_api_url": "https://sandbox.turvo.com",

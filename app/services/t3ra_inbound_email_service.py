@@ -17,6 +17,7 @@ from app.services.email_webhook_attachment_ingestion import (
 )
 from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
+from app.domain.unipile_email import extract_recipient_emails
 from app.services.workflow_classifier_service import WorkflowClassifierService
 from app.tasks.workflows import run_workflow_async
 
@@ -44,8 +45,8 @@ class T3raInboundEmailService:
         classification = WorkflowClassifierService().classify_workflow_type(payload)
         if not classification:
             logger.info(
-                "t3ra unipile: no workflow classified webhook_name=%r",
-                payload.get("webhook_name"),
+                "t3ra unipile: no workflow classified recipients=%r",
+                extract_recipient_emails(payload),
             )
             return JSONResponse(
                 status_code=status.HTTP_200_OK,

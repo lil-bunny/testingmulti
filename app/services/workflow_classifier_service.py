@@ -1,6 +1,5 @@
 from typing import Any, Optional
 
-from app.core.config import settings
 from app.core.logger import get_logger
 from app.domain.ratecon_import import (
     attachment_display_filename,
@@ -10,10 +9,7 @@ from app.domain.ratecon_import import (
 from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
     extract_email_attachment_metadata,
-    resolve_unipile_webhook_base_name,
 )
-from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
-from app.repositories.tenants_db_repository import find_tenant_id_by_settings_email_webhook_name
 
 logger = get_logger(__name__)
 
@@ -58,15 +54,6 @@ def _get_attachment_uri(attachment: dict) -> Optional[str]:
         if value is not None and str(value).strip():
             return str(value).strip()
     return None
-
-
-def _extract_load_id_from_attachment_name(filename: str) -> Optional[str]:
-    """Take last contiguous digit run from basename stem (tweak if filenames gain extra trailing digits)."""
-    stem = Path(filename).stem
-    runs = re.findall(r"\d+", stem)
-    if not runs:
-        return None
-    return runs[-1]
 
 
 def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -167,24 +154,6 @@ def unipile_first_attachment_by_extension(
     return None
 
 
-def _is_load_tendering_unipile(payload: dict[str, Any]) -> bool:
-    """
-    Load tendering when Unipile ``webhook_name`` maps to ``tenants.settings.email_webhook_name``
-    and the payload carries a qualifying .xlsx attachment.
-    """
-    webhook_name = str(payload.get("webhook_name") or "").strip()
-    if not webhook_name:
-        return False
-    base_name = resolve_unipile_webhook_base_name(webhook_name, settings.ENV)
-    if not base_name or not find_tenant_id_by_settings_email_webhook_name(base_name):
-        return False
-    if not payload.get("has_attachments"):
-        return False
-    if not isinstance(payload.get("attachments"), list):
-        return False
-    return email_load_tender_xlsx_attachment(payload) is not None
-
-
 class WorkflowClassifierService:
     def extract_ratecon_metadata_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         return extract_ratecon_metadata_from_payload(payload)
@@ -202,13 +171,6 @@ class WorkflowClassifierService:
             3.2 reply email : in_reply_to exists
                 trigger pod reply workflow
         """
-
-        if _is_load_tendering_unipile(payload):
-            logger.info(
-                "Load tendering workflow triggered webhook_name=%r",
-                payload.get("webhook_name"),
-            )
-            return {"workflow_name": "load_tendering"}
 
         subject = str(payload.get("subject") or "").strip()
         if not has_rate_confirmation_subject(subject):

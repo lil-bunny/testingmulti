@@ -30,7 +30,7 @@
         {
           "step": 3,
           "event_type": "reminder_due",
-          "delay_hours": 0.1
+          "delay_hours": 0.09666666666666667
         }
       ],
       "expire_grace_hours": 2,
@@ -39,7 +39,7 @@
   },
   "enabledProcesses": [
     "pod_lifecycle",
-    "load_tendering"
+    "pod_collection"
   ],
   "prompts": {
     "pod_lifecycle.page_extraction": "pod-page-extraction:staging",
@@ -47,6 +47,8 @@
     "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
     "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
   },
-  "mikey_account_id": "umo3hTOoQ4KXxkZ1uKnIPg",
-  "email_webhook_name": "t3ra"
+  "mikey_account_id": "W7Xyw8gLT2mvog37VsGHZQ",
+  "inbound_routing_emails": [
+    "deb@freightx.ai"
+  ]
 }

@@ -251,6 +251,7 @@ def load_id_to_shipment_id(
 
 def update_shipment(data: dict[str, Any]) -> None:
     """Placeholder for Turvo shipment update; replace with real endpoint when wired."""
+    return data
     logger.info("[SHIPMENT UPDATE] shipment_id=%s (update not wired)", data.get("shipment_id"))
 
 
