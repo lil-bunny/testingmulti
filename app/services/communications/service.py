@@ -238,39 +238,6 @@ class CommunicationsService:
             )
             return False
 
-    def resolve_thread_for_lifecycle(
-        self,
-        *,
-        tenant_id: str,
-        workflow_lifecycle_id: str,
-    ) -> str | None:
-        """Resolve email thread from communications linked to lifecycle inbound runs."""
-        tid = self._tenant_uuid_or_none(tenant_id)
-        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
-        if not tid or not lid:
-            return None
-        try:
-            if self._repository is not None:
-                thread = self._repository.find_inbound_thread_for_lifecycle(
-                    tenant_id=tid,
-                    workflow_lifecycle_id=lid,
-                )
-            else:
-                thread = run_with_repos(
-                    lambda repos: repos.communications.find_inbound_thread_for_lifecycle(
-                        tenant_id=tid,
-                        workflow_lifecycle_id=lid,
-                    )
-                )
-            if not thread:
-                return None
-            return str(thread).strip() or None
-        except Exception:
-            logger.exception(
-                "communications resolve_thread_for_lifecycle failed tenant_id=%s lifecycle_id=%s",
-                tid,
-                lid,
-            )
 
     def resolve_lifecycle_id_for_thread(
         self,

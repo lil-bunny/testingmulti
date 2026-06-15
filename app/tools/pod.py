@@ -19,7 +19,7 @@ from app.services.pod_vs_ratecon_validation import (
 from app.services.ratecon_extraction import extract_from_pdf_path as extract_ratecon_from_pdf_path
 from app.models.document import DocumentType
 from app.tools.document_analysis import read_ratecon_extraction
-from app.tools.documents import read_document, resolve_merged_pod_object_key
+from app.tools.documents import read_document, resolve_merged_pod_object_key, resolve_pod_object_key
 from app.workflows.shipment_resolver import (
     resolve_shipment_id,
     resolve_shipments_row_id_for_db,
@@ -317,7 +317,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_object_key": storage_ref,
         }
 
-    merged_doc = data.get("documents_pod_merged") or {}
+    merged_doc = data.get("documents_pod") or {}
     document_id: str | None = None
     if url_meta.get("source") == "state":
         document_id = merged_doc.get("id")

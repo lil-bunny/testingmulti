@@ -48,11 +48,16 @@ def test_record_pod_upload_activity_success_merged_doc(
 
     state = _base_state(
         data={
-            "documents_pod_merged": {
+            "documents_pod": {
                 "stored": True,
                 "id": "doc-merged-1",
+                "metadata": {
+                    "source_object_keys": [
+                        "pod_attachments/pod_1000324895.pdf"
+                    ],
+                },
             },
-            "pod_merged_pdf_object_key": "freightx/pod_attachments/pod_1000324895.pdf",
+            "pod_merged_pdf_object_key": "pod_attachments/pod_1000324895.pdf",
         }
     )
 
@@ -66,7 +71,7 @@ def test_record_pod_upload_activity_success_merged_doc(
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
     assert sequence.steps[1].to_sub_status == StatusSubType.DOCUMENT_UPLOADED
     assert sequence.steps[0].metadata["object_key"] == (
-        "freightx/pod_attachments/pod_1000324895.pdf"
+        "pod_attachments/pod_1000324895.pdf"
     )
 
 
@@ -86,8 +91,7 @@ def test_record_pod_upload_activity_manual_user_actor(
         data={
             "event_type": "manual_pod_upload",
             "uploaded_by_user_id": "user-42",
-            "manual_pod_document_id": "doc-manual-1",
-            "pod_object_keys": ["freightx/pod_attachments/pod_manual.pdf"],
+            "pod_object_keys": ["pod_attachments/pod_manual.pdf"],
         }
     )
 
@@ -142,7 +146,7 @@ def test_record_pod_upload_activity_skips_when_ids_missing(
         tenant_slug="t3ra",
         execution_id=RUN_UUID,
         data={
-            "documents_pod_merged": {"stored": True, "id": "doc-1"},
+            "documents_pod": {"stored": True, "id": "doc-1"},
         },
     )
     record_pod_upload_activity(state)
@@ -163,7 +167,7 @@ def test_record_pod_upload_activity_idempotent_skip(
 
     state = _base_state(
         data={
-            "documents_pod_merged": {"stored": True, "id": "doc-1"},
+            "documents_pod": {"stored": True, "id": "doc-1"},
         }
     )
 
@@ -190,8 +194,9 @@ def test_record_pod_upload_activity_runs_after_uploaded_to_tms(
     state = _base_state(
         data={
             "event_type": "manual_pod_upload",
-            "documents_pod_merged": {"stored": True, "id": "doc-merged-1"},
-            "pod_merged_pdf_object_key": "freightx/pod_attachments/pod_1000324895.pdf",
+            "documents_pod": {"stored": True, "id": "doc-merged-1"},
+            "pod_merged_pdf_object_key": "pod_attachments/pod_1000324895.pdf",
+            "pod_object_keys": ["pod_attachments/pod_staged.pdf"],
         }
     )
 

@@ -3,9 +3,9 @@ POST /api/webhook/email with a sample Unipile payload shaped for Gelita load_ten
 
 Prerequisites (local server must match):
   - UNIPILE_WEBHOOK_SECRET — same as ``--token`` below
-  - ``tenants.settings.email_webhook_name`` must equal the payload's ``webhook_name`` (this sample
-    uses ``gelita``; adjust payload or DB to match). Route auth is Bearer-only; tenant/import
-    routing is DB-driven from that name.
+  - ``tenants.settings.email_webhook_name`` must match the base of the payload's
+    ``webhook_name`` (this sample uses ``gelita_{ENV}``; ``ENV`` must match the API deployment).
+    Route auth is Bearer-only; tenant/import routing is DB-driven from that base name.
 
 Run API:  uv run uvicorn app.main:app --reload --port 8001
 Run script:  uv run python scripts/test_unipile_load_tendering_webhook.py --base-url http://127.0.0.1:8001
@@ -19,6 +19,8 @@ import sys
 
 import httpx
 
+from app.core.config import settings
+
 DEFAULT_BASE = "http://127.0.0.1:8001"
 WEBHOOK_PATH = "/api/webhook/email"
 DEFAULT_TOKEN = "123456"
@@ -27,7 +29,7 @@ SAMPLE_LOAD_TENDERING_PAYLOAD = {
     "event": "mail_received",
     "email_id": "lPFp14lSWJS0Geg_xmt_jA",
     "account_id": "W7Xyw8gLT2mvog37VsGHZQ",
-    "webhook_name": "gelita",
+    "webhook_name": f"gelita_{settings.ENV}",
     "date": "2026-05-14T11:31:25.000Z",
     "from_attendee": {
         "display_name": "Debdut Bhaduri",
@@ -37,7 +39,7 @@ SAMPLE_LOAD_TENDERING_PAYLOAD = {
     "to_attendees": [
         {
             "display_name": "Debdut Bhaduri",
-            "identifier": "deb@freightx.ai",
+            "identifier": "ana.gelita.test@freightx.ai",
             "identifier_type": "EMAIL_ADDRESS",
         }
     ],

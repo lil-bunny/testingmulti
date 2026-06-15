@@ -91,8 +91,7 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE TYPE document_type AS ENUM (
-            'pod_attachment',
-            'pod_merged_final',
+            'pod',
             'ratecon'
         )
         """
@@ -233,11 +232,19 @@ def upgrade() -> None:
             type document_type NOT NULL,
             shipment_id UUID,
             storage_key TEXT NOT NULL,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT fk_documents_shipment_id
                 FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE SET NULL,
             CONSTRAINT uq_documents_storage_key UNIQUE (storage_key)
         )
+        """
+    )
+    op.execute(
+        """
+        CREATE UNIQUE INDEX uq_documents_one_pod_per_shipment
+            ON documents (shipment_id)
+            WHERE type = 'pod'::document_type AND shipment_id IS NOT NULL
         """
     )
 

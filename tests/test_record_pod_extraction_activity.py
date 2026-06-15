@@ -17,8 +17,8 @@ def _base_state(*, data: dict | None = None) -> WorkflowState:
         "workflow_lifecycle_id": LIFECYCLE_UUID,
         "shipment_id": "1000324895",
         "shipments_row_id": "ship-row-1",
-        "documents_pod_merged": {"stored": True, "id": "doc-merged-1"},
-        "pod_merged_pdf_object_key": "freightx/pod_attachments/pod_1000324895.pdf",
+        "documents_pod": {"stored": True, "id": "doc-merged-1"},
+        "pod_merged_pdf_object_key": "pod_attachments/pod_1000324895.pdf",
     }
     if data:
         payload.update(data)

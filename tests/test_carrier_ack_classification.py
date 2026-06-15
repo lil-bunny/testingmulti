@@ -275,9 +275,10 @@ def test_classify_carrier_ack_records_llm_action_activity(
     )
     mock_activity_svc_cls.return_value = activity_log_service
 
-    state = _state(communication_id=COMM_UUID)
+    state = _state(communication_id=COMM_UUID, thread_id="thread-abc")
     out = classify_carrier_ack(state)
 
+    comm_svc.build_thread_llm_user_message.assert_called_once()
     activity_log_service.record_action.assert_called_once()
     write = activity_log_service.record_action.call_args[0][0]
     assert write.workflow_lifecycle_id == LIFECYCLE_UUID

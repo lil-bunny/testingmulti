@@ -150,7 +150,7 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> tuple[list[dict], list[tuple]]:
         fake_link_shipment_row,
     )
 
-    expect_key = "freightx/ratecon_attachments/ratecon_SHIP-99.pdf"
+    expect_key = "ratecon_attachments/ratecon_SHIP-99.pdf"
 
     def fake_upload_to_s3(**kwargs):
         return {
@@ -217,7 +217,7 @@ async def test_ratecon_workflow_happy_path_mocked(
 ):
     """Resolve load, link locations, upload ratecon PDF, persist document (all mocked)."""
     link_calls, persisted = _patch_ratecon_graph_mocks(monkeypatch)
-    expect_key = "freightx/ratecon_attachments/ratecon_SHIP-99.pdf"
+    expect_key = "ratecon_attachments/ratecon_SHIP-99.pdf"
 
     service = WorkflowService(WorkflowRepository(), TenantRepository())
     result = await service.run(

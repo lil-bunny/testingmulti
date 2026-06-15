@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.pod_lifecycle_guards import is_pod_processing_complete_sub_status
 from app.domain.ratecon_import import (
     attachment_display_filename,
     is_pdf_attachment,
     load_id_from_ratecon_attachment_name,
 )
+from app.domain.status_parsing import sub_status_type_from_db
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.services.shipments_service import ShipmentsService
@@ -359,3 +361,59 @@ class PodLifecycleIngressService:
             lifecycle_id=lifecycle_id,
             shipments_row_id=shipments_row_id,
         )
+
+    def _resolve_email_pod_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict[str, Any],
+    ) -> str | None:
+        """Read-only shipment/thread resolution for duplicate email gate (no upserts)."""
+        tid = self._clean(tenant_id)
+        if not tid:
+            return None
+
+        existing_row_id = self._resolve_shipments_row_id(tenant_id=tid, payload=payload)
+        if existing_row_id:
+            return self._pod_lifecycle_id_for_shipment(
+                tenant_id=tid,
+                shipments_row_id=existing_row_id,
+            )
+
+        thread_id = self._clean(payload.get("thread_id"))
+        if not thread_id:
+            return None
+
+        rows = self._communications.find_shipment_context_for_thread(
+            tenant_id=tid,
+            thread_id=thread_id,
+        )
+        picked = self._pick_thread_context(rows)
+        if not picked:
+            return None
+
+        shipments_row_id, _, pod_lc_id = picked
+        if pod_lc_id:
+            return pod_lc_id
+        return self._pod_lifecycle_id_for_shipment(
+            tenant_id=tid,
+            shipments_row_id=shipments_row_id,
+        )
+
+    def is_duplicate_email_pod_ingest(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict[str, Any],
+    ) -> bool:
+        """True when lifecycle sub_status is at or past ``document_processed``."""
+        lifecycle_id = self._resolve_email_pod_lifecycle_id(
+            tenant_id=tenant_id,
+            payload=payload,
+        )
+        if not lifecycle_id:
+            return False
+
+        row = self._lifecycle_service.read_lifecycle_row_by_id(lifecycle_id)
+        sub = sub_status_type_from_db(row.get("sub_status") if row else None)
+        return is_pod_processing_complete_sub_status(sub)

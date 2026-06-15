@@ -2,39 +2,17 @@
 
 from __future__ import annotations
 
-import json
-import time
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.db import fetchone_dict
+from app.core.db import fetchone_dict, jsonb_param
 
 _NONEMPTY_STORAGE_KEY = """
     AND storage_key IS NOT NULL AND BTRIM(storage_key) <> ''
 """
 
-# #region agent log
-_DEBUG_LOG_PATH = "debug-181b1a.log"
-
-
-def _debug_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
-    try:
-        payload = {
-            "sessionId": "181b1a",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, default=str) + "\n")
-    except OSError:
-        pass
-
-
-# #endregion
+_METADATA_JSON_KEY = frozenset({"metadata"})
 
 
 class DocumentsRepository:
@@ -59,7 +37,7 @@ class DocumentsRepository:
             SET
                 type = EXCLUDED.type,
                 shipment_id = EXCLUDED.shipment_id
-            RETURNING id, type, shipment_id, storage_key, created_at
+            RETURNING id, type, shipment_id, storage_key, metadata, created_at
             """
         params = {
             "id": id,
@@ -67,19 +45,46 @@ class DocumentsRepository:
             "shipment_id": shipment_id,
             "storage_key": storage_key,
         }
-        # #region agent log
-        _debug_log(
-            "H1",
-            "documents_repository.py:upsert_by_storage_key",
-            "documents upsert SQL prepared",
-            {
-                "uses_postgres_shorthand_cast": "::uuid" in sql,
-                "uses_cast_as_uuid": "CAST(:id AS uuid)" in sql,
-                "param_keys": sorted(params.keys()),
-            },
+        return fetchone_dict(
+            self._session, sql, params, json_keys=_METADATA_JSON_KEY
         )
-        # #endregion
-        return fetchone_dict(self._session, sql, params)
+
+    def upsert_pod_by_shipment(
+        self,
+        *,
+        id: str,
+        shipment_id: str,
+        storage_key: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Insert or update the single ``pod`` row for ``shipment_id``."""
+        sql = f"""
+            INSERT INTO {self.TABLE_NAME} (
+                id, type, shipment_id, storage_key, metadata
+            )
+            VALUES (
+                CAST(:id AS uuid),
+                'pod',
+                CAST(:shipment_id AS uuid),
+                :storage_key,
+                CAST(:metadata AS jsonb)
+            )
+            ON CONFLICT (shipment_id)
+            WHERE (type = 'pod'::document_type AND shipment_id IS NOT NULL)
+            DO UPDATE SET
+                storage_key = EXCLUDED.storage_key,
+                metadata = EXCLUDED.metadata
+            RETURNING id, type, shipment_id, storage_key, metadata, created_at
+            """
+        params = {
+            "id": id,
+            "shipment_id": shipment_id,
+            "storage_key": storage_key,
+            "metadata": jsonb_param(metadata or {}),
+        }
+        return fetchone_dict(
+            self._session, sql, params, json_keys=_METADATA_JSON_KEY
+        )
 
     def find_latest_by_shipment_and_type(
         self,
@@ -91,7 +96,7 @@ class DocumentsRepository:
         return fetchone_dict(
             self._session,
             f"""
-            SELECT id, storage_key, type, shipment_id, created_at
+            SELECT id, storage_key, type, shipment_id, metadata, created_at
             FROM {self.TABLE_NAME}
             WHERE shipment_id = :shipment_id AND type = :type
               {_NONEMPTY_STORAGE_KEY}
@@ -99,4 +104,5 @@ class DocumentsRepository:
             LIMIT 1
             """,
             {"shipment_id": shipment_id, "type": doc_type},
+            json_keys=_METADATA_JSON_KEY,
         )

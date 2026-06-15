@@ -48,21 +48,21 @@ _POD_DOCUMENT_ANALYSIS_TYPES = frozenset(
 )
 
 
-def _assert_no_pod_attachment_documents_before_e2e(
+def _assert_no_pod_documents_before_e2e(
     *, before_docs: list[dict], shipment_id: str
 ) -> None:
-    """Ratecon (or empty) is fine; existing POD attachments must be removed first."""
+    """Ratecon (or empty) is fine; existing POD rows must be removed first."""
     pod_rows = [
         d
         for d in before_docs
-        if str(d.get("type") or "").strip() == DocumentType.POD_ATTACHMENT.value
+        if str(d.get("type") or "").strip() == DocumentType.POD.value
     ]
     if not pod_rows:
         return
     keys = [d.get("storage_key") for d in pod_rows]
     ids = [d.get("id") for d in pod_rows]
     pytest.fail(
-        "E2E precondition failed: `documents` already contains `pod_attachment` row(s) for this "
+        "E2E precondition failed: `documents` already contains `pod` row(s) for this "
         f"shipment_id. Remove them first, then re-run.\n"
         f"  shipment_id={shipment_id!r}\n"
         f"  document ids={ids!r}\n"
@@ -172,7 +172,7 @@ def test_pod_lifecycle_email_received_unipile_webhook(
         tenant_id=tenant_id, shipment_id=shipment_id
     )
 
-    _assert_no_pod_attachment_documents_before_e2e(
+    _assert_no_pod_documents_before_e2e(
         before_docs=before_docs, shipment_id=shipment_id
     )
     _assert_no_pod_document_analysis_before_e2e(
@@ -257,7 +257,7 @@ def test_pod_lifecycle_email_received_unipile_webhook(
 
     for d in new_docs:
         assert d["shipment_id"] == shipment_id
-        assert "freightx/" in d["storage_key"] or "pod_attachments" in d["storage_key"], (
+        assert "pod_attachments" in d["storage_key"], (
             f"storage_key unexpected: {d['storage_key']}"
         )
 

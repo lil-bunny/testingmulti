@@ -27,7 +27,7 @@ def test_enqueue_stages_and_queues_workflow():
         workflow_lifecycle_id="wl-1",
     )
     staging.stage_pod_attachment.return_value = PodAttachmentStageResult(
-        object_key="freightx/pod/manual.pdf",
+        object_key="pod_attachments/manual.pdf",
         document_id="doc-1",
         attachment_id="manual-abc",
     )
@@ -42,13 +42,13 @@ def test_enqueue_stages_and_queues_workflow():
             shipment_id=_SHIPMENTS_ROW_UUID,
             pdf_bytes=_MIN_PDF,
             filename="pod.pdf",
-            uploaded_by="ops@example.com",
+            uploaded_by="ana.gelita.test@freightx.ai",
         )
 
     assert result.execution_id
     assert result.workflow_lifecycle_id == "wl-1"
     assert result.shipment_id == _SHIPMENTS_ROW_UUID
-    assert result.object_key == "freightx/pod/manual.pdf"
+    assert result.object_key == "pod_attachments/manual.pdf"
     assert result.celery_task_id == "celery-task-1"
 
     apply_async.assert_called_once()
@@ -57,8 +57,8 @@ def test_enqueue_stages_and_queues_workflow():
     assert payload["event_type"] == WorkflowRunEventType.MANUAL_POD_UPLOAD.value
     assert payload["shipment_id"] == "1000324895"
     assert payload["shipments_row_id"] == _SHIPMENTS_ROW_UUID
-    assert payload["pod_object_keys"] == ["freightx/pod/manual.pdf"]
-    assert payload["uploaded_by"] == "ops@example.com"
+    assert payload["pod_object_keys"] == ["pod_attachments/manual.pdf"]
+    assert payload["uploaded_by"] == "ana.gelita.test@freightx.ai"
     assert kwargs["workflow_name"] == "pod_lifecycle"
 
 

@@ -85,6 +85,10 @@ class BusinessError(_CatalogError):
     MISSING_RATECON_DATA = (
         "missing_ratecon_data",
         "Ratecon extracted data is missing for comparison",
+    MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required")
+    MISSING_DELIVERY_ADDRESS = (
+        "missing_delivery_address",
+        "Delivery address is required",
     )
 
 
