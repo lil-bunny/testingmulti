@@ -49,7 +49,7 @@ def test_record_workflow_failure_node_applies_transition(
     kwargs = mock_svc.apply_from_state.call_args.kwargs
     assert kwargs["to_status"] == StatusType.PENDING_REVIEW
     assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
-    assert kwargs["metadata"]["error"] == BusinessError.MISSING_PACK_CODE
+    assert kwargs["metadata"]["error"] == BusinessError.MISSING_PACK_CODE.value
     assert kwargs["metadata"]["error_category"] == BusinessError.CATEGORY.value
     assert (
         kwargs["metadata"]["error_description"]
@@ -124,7 +124,7 @@ def test_record_workflow_failure_node_missing_delivery_address(
 
     mock_svc.apply_from_state.assert_called_once()
     kwargs = mock_svc.apply_from_state.call_args.kwargs
-    assert kwargs["metadata"]["error"] == BusinessError.MISSING_DELIVERY_ADDRESS
+    assert kwargs["metadata"]["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
     assert (
         kwargs["metadata"]["error_description"]
         == BusinessError.MISSING_DELIVERY_ADDRESS.description

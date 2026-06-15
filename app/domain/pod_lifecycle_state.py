@@ -9,7 +9,7 @@ from app.exceptions import WorkflowException
 from app.workflows.shipment_resolver import resolve_shipment_id
 
 
-def shipment_id_from_data(data: dict[str, Any]) -> str:
+def shipment_id_from_data(data: dict[str, Any]) -> str | None:
     """
     Canonical Turvo shipment id from workflow state.
 
