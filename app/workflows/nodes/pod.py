@@ -19,11 +19,30 @@ from app.workflows.utils.decorators import safe_node
 
 logger = logging.getLogger(__name__)
 
-_POD_SHIPMENT_S3_ERRORS = {
+_PDF_FETCH_ERRORS = {
     "missing_shipment_id": SystemError.MISSING_SHIPMENT_ID,
     "missing_shipments_row_id": SystemError.MISSING_SHIPMENT_ID,
     "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
 }
+
+_POD_ANALYSIS_ERRORS = {
+    "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
+    "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
+    "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
+}
+
+_RATECON_ANALYSIS_ERRORS = {
+    **_PDF_FETCH_ERRORS,
+    "extraction_empty": BusinessError.RATECON_EXTRACTION_EMPTY,
+    "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
+}
+
+
+def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
+    if out.get("skipped") or out.get("success"):
+        return
+    key = str(out.get("error") or "").strip()
+    raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
 
 
 def _collect_source_object_keys(state) -> list[str]:
@@ -96,11 +115,7 @@ def load_ratecon_analysis(state):
     out = load_ratecon_analysis_tool(state.data)
     state.data["ratecon_analysis_results"] = out
 
-    if not out.get("skipped") and not out.get("success"):
-        key = str(out.get("error") or "").strip()
-        raise WorkflowException(
-            _POD_SHIPMENT_S3_ERRORS.get(key, SystemError.UNEXPECTED_NODE_FAILURE)
-        )
+    _raise_on_tool_failure(out, _PDF_FETCH_ERRORS)
 
     analysis_id = out.get("document_analysis_id")
     if out.get("success") and not out.get("skipped") and analysis_id:
@@ -127,6 +142,8 @@ def load_ratecon_analysis(state):
 def ratecon_analysis(state):
     out = get_ratecon_analysis(state.data)
     state.data["ratecon_analysis_results"] = out
+    _raise_on_tool_failure(out, _RATECON_ANALYSIS_ERRORS)
+
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (
         out.get("success")
@@ -150,14 +167,13 @@ def pod_analysis(state):
     out = get_pod_analysis(state.data)
     state.data["pod_analysis_results"] = out
 
-    if not out.get("skipped") and not out.get("success"):
-        key = str(out.get("error") or "").strip()
-        error_map = {
-            **_POD_SHIPMENT_S3_ERRORS,
-            "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
-            "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
-        }
-        raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
+    _raise_on_tool_failure(out, _POD_ANALYSIS_ERRORS)
+
+    if out.get("skipped"):
+        raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
+
+    if out.get("success") and not (out.get("findings") or {}).get("pod_data"):
+        raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (
@@ -189,12 +205,7 @@ def pod_vs_ratecon_analysis(state):
     state.data["pod_vs_ratecon_analysis_results"] = out
 
     if not out.get("skipped") and not out.get("success"):
-        key = str(out.get("error") or "").strip()
-        error_map = {
-            "missing_pod_data": BusinessError.MISSING_POD_DATA,
-            "missing_ratecon_data": BusinessError.MISSING_RATECON_DATA,
-        }
-        raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
+        raise WorkflowException(SystemError.UNEXPECTED_NODE_FAILURE)
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
     if (

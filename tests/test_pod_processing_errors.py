@@ -21,6 +21,7 @@ from app.workflows.nodes.pod import (
     load_ratecon_analysis,
     pod_analysis,
     pod_vs_ratecon_analysis,
+    ratecon_analysis,
 )
 from app.workflows.nodes.error_handler import record_workflow_failure_node
 from app.workflows.nodes.turvo import upload_to_turvo
@@ -165,17 +166,17 @@ def test_pod_analysis_s3_download_failed_sets_error(mock_tool):
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
-def test_pod_analysis_missing_shipment_id_sets_error(mock_tool):
+def test_pod_analysis_missing_shipment_id_sets_unexpected_failure(mock_tool):
     mock_tool.return_value = {"success": False, "error": "missing_shipment_id"}
     state = _state()
 
     result = pod_analysis(state)
 
-    _assert_error(result, SystemError.MISSING_SHIPMENT_ID)
+    _assert_error(result, SystemError.UNEXPECTED_NODE_FAILURE)
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
-def test_pod_analysis_skip_does_not_set_error(mock_tool):
+def test_pod_analysis_skipped_sets_pod_extraction_empty(mock_tool):
     mock_tool.return_value = {
         "success": True,
         "skipped": True,
@@ -183,9 +184,24 @@ def test_pod_analysis_skip_does_not_set_error(mock_tool):
     }
     state = _state()
 
-    pod_analysis(state)
+    result = pod_analysis(state)
 
-    assert "error" not in state.data
+    _assert_error(result, BusinessError.POD_EXTRACTION_EMPTY)
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_success_without_pod_data_sets_pod_extraction_empty(mock_tool):
+    mock_tool.return_value = {
+        "success": True,
+        "findings": {"pages": []},
+        "confidence_score": 0.9,
+        "document_id": "doc-1",
+    }
+    state = _state()
+
+    result = pod_analysis(state)
+
+    _assert_error(result, BusinessError.POD_EXTRACTION_EMPTY)
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
@@ -194,7 +210,7 @@ def test_pod_analysis_skip_does_not_set_error(mock_tool):
 def test_pod_analysis_success_does_not_set_error(mock_row, mock_upsert, mock_tool):
     mock_tool.return_value = {
         "success": True,
-        "findings": {"pages": []},
+        "findings": {"pod_data": {"delivery_confirmed": True}, "pages": []},
         "confidence_score": 0.9,
         "document_id": "doc-1",
     }
@@ -207,55 +223,55 @@ def test_pod_analysis_success_does_not_set_error(mock_row, mock_upsert, mock_too
 
 
 # ---------------------------------------------------------------------------
+# ratecon_analysis
+# ---------------------------------------------------------------------------
+
+@patch("app.workflows.nodes.pod.get_ratecon_analysis")
+def test_ratecon_analysis_extraction_empty_sets_error(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "extraction_empty"}
+    state = _state()
+
+    result = ratecon_analysis(state)
+
+    _assert_error(result, BusinessError.RATECON_EXTRACTION_EMPTY)
+
+
+@patch("app.workflows.nodes.pod.get_ratecon_analysis")
+def test_ratecon_analysis_s3_failure_sets_error(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "s3_download_failed"}
+    state = _state()
+
+    result = ratecon_analysis(state)
+
+    _assert_error(result, IntegrationError.POD_S3_DOWNLOAD_FAILED)
+
+
+@patch("app.workflows.nodes.pod.get_ratecon_analysis")
+def test_ratecon_analysis_skip_does_not_set_error(mock_tool):
+    mock_tool.return_value = {
+        "success": True,
+        "skipped": True,
+        "reason": "no_ratecon_document_in_db",
+    }
+    state = _state()
+
+    ratecon_analysis(state)
+
+    assert "error" not in state.data
+
+
+# ---------------------------------------------------------------------------
 # pod_vs_ratecon_analysis
 # ---------------------------------------------------------------------------
 
 @patch("app.workflows.nodes.pod.get_pod_vs_ratecon_analysis")
-def test_pod_vs_ratecon_missing_pod_data_sets_error(mock_tool):
-    mock_tool.return_value = {"success": False, "error": "missing_pod_data"}
+def test_pod_vs_ratecon_comparison_exception_sets_unexpected(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "cross validation failed"}
     state = _state()
 
     result = pod_vs_ratecon_analysis(state)
 
-    _assert_error(result, BusinessError.MISSING_POD_DATA)
-
-
-@patch("app.workflows.nodes.pod.get_pod_vs_ratecon_analysis")
-def test_pod_vs_ratecon_missing_ratecon_data_sets_error(mock_tool):
-    mock_tool.return_value = {"success": False, "error": "missing_ratecon_data"}
-    state = _state()
-
-    result = pod_vs_ratecon_analysis(state)
-
-    _assert_error(result, BusinessError.MISSING_RATECON_DATA)
-
-
-@patch("app.workflows.nodes.pod.get_pod_vs_ratecon_analysis")
-def test_pod_vs_ratecon_skip_pod_analysis_not_success_does_not_set_error(mock_tool):
-    mock_tool.return_value = {
-        "success": True,
-        "skipped": True,
-        "reason": "pod_analysis_not_success",
-    }
-    state = _state()
-
-    pod_vs_ratecon_analysis(state)
-
-    assert "error" not in state.data
-
-
-@patch("app.workflows.nodes.pod.get_pod_vs_ratecon_analysis")
-def test_pod_vs_ratecon_skip_no_ratecon_analysis_does_not_set_error(mock_tool):
-    mock_tool.return_value = {
-        "success": True,
-        "skipped": True,
-        "reason": "no_ratecon_analysis",
-    }
-    state = _state()
-
-    pod_vs_ratecon_analysis(state)
-
-    assert "error" not in state.data
+    _assert_error(result, SystemError.UNEXPECTED_NODE_FAILURE)
 
 
 # ---------------------------------------------------------------------------
@@ -328,4 +344,30 @@ def test_pod_analysis_failure_flows_to_record_workflow_failure(
     assert metadata["shipment_id"] == "SHP-001"
     assert metadata["load_id"] == "LD-001"
     assert metadata["error_description"] == BusinessError.POD_EXTRACTION_EMPTY.description
+    mock_enqueue.assert_called_once()
+
+
+@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
+@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
+@patch("app.workflows.nodes.pod.get_ratecon_analysis")
+def test_ratecon_analysis_failure_flows_to_record_workflow_failure(
+    mock_tool: MagicMock,
+    mock_svc_cls: MagicMock,
+    mock_enqueue: MagicMock,
+) -> None:
+    mock_tool.return_value = {"success": False, "error": "extraction_empty"}
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+
+    state = _state(workflow_lifecycle_id=LIFECYCLE_ID)
+
+    ratecon_analysis(state)
+
+    assert state.data["error"]["code"] == BusinessError.RATECON_EXTRACTION_EMPTY.value
+
+    record_workflow_failure_node(state)
+
+    mock_svc.apply_from_state.assert_called_once()
+    metadata = mock_svc.apply_from_state.call_args.kwargs["metadata"]
+    assert metadata["error"] == BusinessError.RATECON_EXTRACTION_EMPTY.value
     mock_enqueue.assert_called_once()

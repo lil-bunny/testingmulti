@@ -74,13 +74,9 @@ class BusinessError(_CatalogError):
         "pod_extraction_empty",
         "POD LLM extraction returned no usable data",
     )
-    MISSING_POD_DATA = (
-        "missing_pod_data",
-        "POD extracted data is missing for comparison",
-    )
-    MISSING_RATECON_DATA = (
-        "missing_ratecon_data",
-        "Ratecon extracted data is missing for comparison",
+    RATECON_EXTRACTION_EMPTY = (
+        "ratecon_extraction_empty",
+        "Ratecon LLM extraction returned no usable data",
     )
     MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required")
 

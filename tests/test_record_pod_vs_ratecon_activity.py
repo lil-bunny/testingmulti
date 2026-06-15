@@ -97,7 +97,7 @@ def test_record_pod_vs_ratecon_activity_validation_skipped(
             "pod_vs_ratecon_analysis_results": {
                 "success": True,
                 "skipped": True,
-                "reason": "ratecon_analysis_not_success",
+                "reason": "comparison_skipped",
             },
         }
     )
@@ -108,10 +108,10 @@ def test_record_pod_vs_ratecon_activity_validation_skipped(
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert (
         sequence.steps[0].description
-        == "POD vs ratecon validation skipped (ratecon_analysis_not_success)"
+        == "POD vs ratecon validation skipped (comparison_skipped)"
     )
     assert sequence.steps[0].metadata["validation_skipped"] is True
-    assert sequence.steps[0].metadata["validation_skip_reason"] == "ratecon_analysis_not_success"
+    assert sequence.steps[0].metadata["validation_skip_reason"] == "comparison_skipped"
 
 
 @patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
@@ -131,7 +131,7 @@ def test_record_pod_vs_ratecon_activity_validation_failed(
         data={
             "pod_vs_ratecon_analysis_results": {
                 "success": False,
-                "error": "missing_pod_data",
+                "error": "cross validation failed",
             },
         }
     )
@@ -141,7 +141,7 @@ def test_record_pod_vs_ratecon_activity_validation_failed(
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert sequence.steps[0].description == "POD vs ratecon validation failed"
-    assert sequence.steps[0].metadata["error"] == "missing_pod_data"
+    assert sequence.steps[0].metadata["error"] == "cross validation failed"
 
 
 @patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
