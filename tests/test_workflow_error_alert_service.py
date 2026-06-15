@@ -33,7 +33,7 @@ def _payload() -> WorkflowErrorAlertPayload:
                     "channels": [
                         {
                             "channel": "email",
-                            "to": ["ops@example.com"],
+                            "to": ["ana.gelita.test@freightx.ai"],
                             "cc": ["cc@example.com"],
                             "bcc": [],
                             "subject": "Exception PO {customer_po}",
@@ -67,7 +67,7 @@ def test_send_workflow_error_alert_email_channel(mock_send_email: MagicMock) -> 
 
     mock_send_email.assert_called_once()
     kwargs = mock_send_email.call_args.kwargs
-    assert kwargs["to"] == ["ops@example.com"]
+    assert kwargs["to"] == ["ana.gelita.test@freightx.ai"]
     assert kwargs["cc"] == ["cc@example.com"]
     assert kwargs["account_id"] == "acct-1"
     assert kwargs["subject"] == "Exception PO PO-9"

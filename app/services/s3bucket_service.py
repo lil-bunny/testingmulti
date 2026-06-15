@@ -21,8 +21,6 @@ def normalize_object_key(key: str) -> str:
 class S3Bucket:
     """S3-compatible bucket utility for file operations (AWS S3 or DO Spaces)."""
 
-    BUCKET_PREFIX = "freightx"
-
     def __init__(self, s3_client=None, bucket_name=None):
         self.s3_client = s3_client
         self.bucket_name = bucket_name
@@ -35,8 +33,8 @@ class S3Bucket:
 
             self.s3_client = boto3.client(
                 "s3",
-                aws_access_key_id=settings.BUCKET_ID,
-                aws_secret_access_key=settings.BUCKET_KEY,
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                 endpoint_url=endpoint_url,
                 region_name=getattr(settings, "BUCKET_REGION", "us-west-2"),
             )
@@ -68,7 +66,7 @@ class S3Bucket:
                     "error_message": error_msg,
                 }
 
-            object_key = f"{self.BUCKET_PREFIX}/{folder}/{filename}"
+            object_key = f"{folder}/{filename}"
 
             put_args: Dict[str, Any] = {
                 "Bucket": self.bucket_name,
@@ -235,7 +233,7 @@ def public_url_for_object_key(object_key: str) -> str:
     key = (object_key or "").strip().lstrip("/")
     if not key:
         return ""
-    if settings.BUCKET_ENDPOINT:
+    if settings.BUCKET_ENDPOINT is not None:
         return f"{str(settings.BUCKET_ENDPOINT).rstrip('/')}/{key}"
     bucket_name = getattr(settings, "BUCKET_NAME", None) or ""
     region = getattr(settings, "BUCKET_REGION", "us-west-2")

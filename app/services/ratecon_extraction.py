@@ -31,27 +31,6 @@ SYSTEM_PROMPT = RATECON_PAGE_SYSTEM
 USER_PROMPT = RATECON_PAGE_USER
 
 
-def _has_all_required_fields(extracted_data: dict[str, Any]) -> bool:
-    has_identifiers = (
-        extracted_data.get("shipment_identifiers")
-        and len(extracted_data.get("shipment_identifiers", [])) > 0
-    ) or extracted_data.get("primary_identifier")
-    required_fields = [
-        "carrier_name",
-        "pickup_location",
-        "delivery_location",
-        "pickup_date",
-        "delivery_date",
-    ]
-    missing: list[str] = []
-    if not has_identifiers:
-        missing.append("shipment_identifiers")
-    missing.extend(
-        f for f in required_fields if not extracted_data.get(f)
-    )
-    return len(missing) == 0
-
-
 def _merge_extracted_data(
     current_data: dict[str, Any], new_data: dict[str, Any]
 ) -> dict[str, Any]:
@@ -138,11 +117,6 @@ def extract_from_pdf_path(
                     }
                 )
                 final_data = _merge_extracted_data(final_data, extracted)
-                if _has_all_required_fields(final_data):
-                    logger.info(
-                        "ratecon_extraction: required fields satisfied mid-document page=%s",
-                        page_num,
-                    )
             except LLMClientError as exc:
                 page_results.append(
                     {
@@ -168,12 +142,6 @@ def extract_from_pdf_path(
         if not final_data.get("po_number") and final_data.get("primary_identifier"):
             final_data["po_number"] = final_data.get("primary_identifier")
 
-        logger.info(
-            "ratecon_extraction: pages=%s identifiers=%s model=%s",
-            len(images),
-            len(final_data.get("shipment_identifiers") or []),
-            model_label,
-        )
         return page_results, final_data
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

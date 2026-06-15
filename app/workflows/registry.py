@@ -40,8 +40,12 @@ from app.workflows.nodes.record_ratecon_activity import (
 )
 from app.workflows.nodes.record_pod_activity import (
     record_pod_escalation_activity,
+    record_pod_extraction_activity,
+    record_pod_processed_activity,
     record_pod_reminder_activity,
     record_pod_started_activity,
+    record_pod_upload_activity,
+    record_pod_vs_ratecon_activity,
 )
 from app.workflows.nodes.record_pod_tms_upload_activity import (
     record_pod_tms_upload_activity,
@@ -88,6 +92,10 @@ NODE_REGISTRY = {
     "record_pod_started_activity": record_pod_started_activity,
     "record_pod_reminder_activity": record_pod_reminder_activity,
     "record_pod_escalation_activity": record_pod_escalation_activity,
+    "record_pod_upload_activity": record_pod_upload_activity,
+    "record_pod_extraction_activity": record_pod_extraction_activity,
+    "record_pod_vs_ratecon_activity": record_pod_vs_ratecon_activity,
+    "record_pod_processed_activity": record_pod_processed_activity,
     "record_pod_tms_upload_activity": record_pod_tms_upload_activity,
     "read_tender_row": read_tender_row,
     "send_tender_reminder": send_tender_reminder,

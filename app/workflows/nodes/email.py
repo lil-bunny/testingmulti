@@ -9,11 +9,8 @@ from app.tools.email import detect_attachment_bytes_type
 from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
 from app.services.s3bucket_service import bucket
 from app.services.attachment_normalizer import pod_individual_attachment_filename
-from app.models.document import DocumentType
-from app.tools.documents import insert_document
 from app.workflows.shipment_resolver import (
     resolve_shipment_id,
-    resolve_shipments_row_id_for_db,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,29 +160,6 @@ def get_email_attachments(state):
                     attachment_id,
                     upload_error,
                 )
-            # DB
-            document_id = None
-            stored_in_db = False
-            doc_row_type = None
-            if upload_success and uploaded_key:
-                persist = insert_document(
-                    DocumentType.POD_ATTACHMENT,
-                    storage_key=uploaded_key,
-                    shipments_row_id=resolve_shipments_row_id_for_db(state.data),
-                    email_id=email_id,
-                    attachment_id=str(attachment_id)
-                    if attachment_id is not None
-                    else None,
-                )
-                stored_in_db = bool(persist.get("stored"))
-                document_id = persist.get("id") if stored_in_db else None
-                doc_row_type = persist.get("type") if stored_in_db else None
-                if not stored_in_db:
-                    logger.warning(
-                        "get_email_attachments: documents insert failed attachment_id=%s err=%s",
-                        attachment_id,
-                        persist.get("error"),
-                    )
 
             results.append({
                 "attachment_id": attachment_id,
@@ -195,9 +169,9 @@ def get_email_attachments(state):
                 "extension": extension,
                 "error_message": upload_error,
                 "original_filename": original_filename or None,
-                "document_id": document_id,
-                "stored_in_db": stored_in_db,
-                "type": doc_row_type,
+                "document_id": None,
+                "stored_in_db": False,
+                "type": None,
             })
         except Exception as e:
             error_msg = f"Error processing attachment {attachment_id}: {str(e)}"
@@ -231,5 +205,5 @@ def get_email_attachments(state):
             for item in failed_results
         ]
         raise RuntimeError(f"Attachment upload failed: {failure_details}")
- 
+
     return state

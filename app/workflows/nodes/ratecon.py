@@ -22,7 +22,6 @@ def upload_ratecon_attachments(state):
     if not attachments:
         out = {"skipped": True, "reason": "no_attachments"}
         state.data["ratecon_s3_upload"] = out
-        logger.info("[ratecon] S3 upload %s", out)
         return state
 
     email_id = state.data.get("email_id")
@@ -33,7 +32,6 @@ def upload_ratecon_attachments(state):
             "attachment_count": len(attachments),
         }
         state.data["ratecon_s3_upload"] = out
-        logger.info("[ratecon] S3 upload %s", out)
         return state
 
     shipment_id = resolve_shipment_id(state.data)
@@ -54,8 +52,6 @@ def upload_ratecon_attachments(state):
         attachments=list(attachments),
         shipment_id=str(shipment_id),
     )
-    eid = state.data.get("email_id")
-    eid_s = str(eid).strip() if eid is not None else None
     for item in result.get("results") or []:
         if not item.get("success") or not item.get("object_key"):
             item["document_persist"] = {
@@ -64,7 +60,6 @@ def upload_ratecon_attachments(state):
                 "reason": "no_successful_upload_or_object_key",
             }
             continue
-        aid = item.get("attachment_id")
         shipments_row_id = resolve_shipments_row_id_for_db(state.data)
         if not shipments_row_id:
             item["document_persist"] = {
@@ -81,8 +76,6 @@ def upload_ratecon_attachments(state):
             DocumentType.RATECON,
             storage_key=str(item["object_key"]),
             shipments_row_id=shipments_row_id,
-            email_id=eid_s,
-            attachment_id=str(aid) if aid is not None else None,
         )
         item["document_persist"] = {
             "stored": bool(persist.get("stored")),
@@ -90,5 +83,4 @@ def upload_ratecon_attachments(state):
             "error": persist.get("error"),
         }
     state.data["ratecon_s3_upload"] = result
-    logger.info("[ratecon] S3 upload finished: %s", result)
     return state

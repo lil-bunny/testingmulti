@@ -8,13 +8,11 @@ from typing import Any
 
 from app.core.config import settings
 from app.core.logger import get_logger
-from app.models.document import DocumentType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.attachment_normalizer import pod_individual_attachment_filename
 from app.services.s3bucket_service import S3Bucket
 from app.services.shipments_service import ShipmentsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tools.documents import insert_document
 
 logger = get_logger(__name__)
 
@@ -124,7 +122,7 @@ class PodTmsUploadService:
         shipments_row_id: str | None = None,
         filename: str | None = None,
     ) -> PodAttachmentStageResult:
-        """Upload PDF to S3 and persist a ``pod_attachment`` documents row."""
+        """Upload PDF to S3 for manual POD ingress (no ``documents`` row until merge)."""
         self.validate_pdf(pdf_bytes)
         ship_token = self._clean(shipment_id) or "unknown"
         attachment_id = f"manual-{uuid.uuid4().hex[:12]}"
@@ -145,22 +143,8 @@ class PodTmsUploadService:
                 upload_result.get("error_message") or "S3 upload failed"
             )
 
-        persist = insert_document(
-            DocumentType.POD_ATTACHMENT,
-            storage_key=str(object_key),
-            shipments_row_id=shipments_row_id,
-            attachment_id=attachment_id,
-        )
-        document_id = persist.get("id") if persist.get("stored") else None
-        if not persist.get("stored"):
-            logger.warning(
-                "stage_pod_attachment: documents insert failed shipments_row_id=%s err=%s",
-                shipments_row_id,
-                persist.get("error"),
-            )
-
         return PodAttachmentStageResult(
             object_key=str(object_key),
-            document_id=str(document_id) if document_id else None,
+            document_id=None,
             attachment_id=attachment_id,
         )

@@ -15,6 +15,7 @@ from app.services.communications.service import CommunicationsService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
+from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_classifier_service import WorkflowClassifierService
 from app.tasks.workflows import run_workflow_async
@@ -27,6 +28,7 @@ class T3raInboundEmailService:
 
     def __init__(self) -> None:
         self._communications = CommunicationsService()
+        self._pod_lifecycle_ingress = PodLifecycleIngressService()
 
     async def handle(
         self,
@@ -74,6 +76,20 @@ class T3raInboundEmailService:
             workflow_payload = {**payload, "event_type": "email_received"}
             if data_import_id:
                 workflow_payload["data_import_id"] = data_import_id
+
+            if self._pod_lifecycle_ingress.is_duplicate_email_pod_ingest(
+                tenant_id=tenant.tenant_uuid,
+                payload=workflow_payload,
+            ):
+                logger.info(
+                    "t3ra unipile: duplicate email POD skipped tenant=%s thread_id=%s",
+                    tenant.tenant_uuid,
+                    payload.get("thread_id"),
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={"message": "pod already processed"},
+                )
 
         if communication_id:
             workflow_payload["communication_id"] = communication_id

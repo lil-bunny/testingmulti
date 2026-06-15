@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+from app.core.config import settings
 from app.core.logger import get_logger
 from app.domain.ratecon_import import (
     attachment_display_filename,
@@ -9,6 +10,7 @@ from app.domain.ratecon_import import (
 from app.domain.unipile_email import (
     build_unipile_attachment_fetch_context,
     extract_email_attachment_metadata,
+    resolve_unipile_webhook_base_name,
 )
 from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
 from app.repositories.tenants_db_repository import find_tenant_id_by_settings_email_webhook_name
@@ -166,7 +168,8 @@ def _is_load_tendering_unipile(payload: dict[str, Any]) -> bool:
     webhook_name = str(payload.get("webhook_name") or "").strip()
     if not webhook_name:
         return False
-    if not find_tenant_id_by_settings_email_webhook_name(webhook_name):
+    base_name = resolve_unipile_webhook_base_name(webhook_name, settings.ENV)
+    if not base_name or not find_tenant_id_by_settings_email_webhook_name(base_name):
         return False
     if not payload.get("has_attachments"):
         return False

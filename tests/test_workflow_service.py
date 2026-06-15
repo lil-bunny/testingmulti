@@ -31,7 +31,7 @@ def mock_attachment_upload(monkeypatch):
         # Match ``S3Bucket.upload_file`` contract: all four keys, every time.
         return {
             "success": True,
-            "object_key": "freightx/pod_attachments/pod_attId.pdf",
+            "object_key": "pod_attachments/pod_attId.pdf",
             "error_message": None,
         }
 
@@ -67,7 +67,7 @@ async def test_pod_lifecycle_route_completed_runs_to_completion(monkeypatch):
             "event_type": "route_completed",
             "shipment_id": sid,
             "load_id": load_id,
-            "to": "ops@example.com",
+            "to": "ana.gelita.test@freightx.ai",
         },
     )
 
@@ -107,7 +107,7 @@ async def test_pod_lifecycle_route_completed_duplicate_returns_early(monkeypatch
                 "event_type": "route_completed",
                 "shipment_id": "1000304706",
                 "load_id": "56368",
-                "to": "ops@example.com",
+                "to": "ana.gelita.test@freightx.ai",
             },
         )
 
@@ -308,7 +308,7 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
                     "workflow_lifecycle_id": lifecycle_id,
                     "shipments_row_id": shipments_row_id,
                     "shipment": {"shipment_id": ship},
-                    "pod_object_keys": ["freightx/pod_attachments/pod_attId.pdf"],
+                    "pod_object_keys": ["pod_attachments/pod_attId.pdf"],
                 },
             }
 
@@ -351,7 +351,7 @@ async def test_pod_lifecycle_reminder_due_missing_attachment_routes_to_email():
         payload={
             "event_type": "reminder_due",
             "shipment_id": "S3",
-            "to": "ops@example.com",
+            "to": "ana.gelita.test@freightx.ai",
         },
     )
 
@@ -411,7 +411,7 @@ def test_upload_file_puts_object_to_s3():
         {},
         {
             "Bucket": "test-bucket",
-            "Key": "freightx/pod_attachments/pod_attId.pdf",
+            "Key": "pod_attachments/pod_attId.pdf",
             "Body": b"%PDF-1.4 mock pod file",
             "ContentType": "application/pdf",
         },
@@ -428,17 +428,17 @@ def test_upload_file_puts_object_to_s3():
             content_type="application/pdf",
         )
     assert result["success"] is True
-    assert result["object_key"] == "freightx/pod_attachments/pod_attId.pdf"
+    assert result["object_key"] == "pod_attachments/pod_attId.pdf"
     assert result["error_message"] is None
     stubber.assert_no_pending_responses()
 
 
 def test_normalize_object_key_strips_and_rejects_urls():
-    assert normalize_object_key("  freightx/pod_attachments/a.pdf ") == (
-        "freightx/pod_attachments/a.pdf"
+    assert normalize_object_key("  pod_attachments/a.pdf ") == (
+        "pod_attachments/a.pdf"
     )
-    assert normalize_object_key("/freightx/pod_attachments/a.pdf") == (
-        "freightx/pod_attachments/a.pdf"
+    assert normalize_object_key("/pod_attachments/a.pdf") == (
+        "pod_attachments/a.pdf"
     )
     with pytest.raises(ValueError, match="object key"):
         normalize_object_key("https://example.com/o.pdf")
@@ -455,11 +455,11 @@ def test_delete_file_accepts_bare_object_key():
     stubber.add_response(
         "delete_object",
         {},
-        {"Bucket": "test-bucket", "Key": "freightx/pod_attachments/x.pdf"},
+        {"Bucket": "test-bucket", "Key": "pod_attachments/x.pdf"},
     )
     bucket = S3Bucket(s3_client=fake_s3_client, bucket_name="test-bucket")
     with stubber:
-        result = bucket.delete_file("freightx/pod_attachments/x.pdf")
+        result = bucket.delete_file("pod_attachments/x.pdf")
     assert result["success"] is True
-    assert result["object_key"] == "freightx/pod_attachments/x.pdf"
+    assert result["object_key"] == "pod_attachments/x.pdf"
     stubber.assert_no_pending_responses()

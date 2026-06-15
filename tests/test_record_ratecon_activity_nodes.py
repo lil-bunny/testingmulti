@@ -114,7 +114,7 @@ def test_record_ratecon_upload_activity_success(
                 "results": [
                     {
                         "success": True,
-                        "object_key": "freightx/ratecon_attachments/ratecon_1000324895.pdf",
+                        "object_key": "ratecon_attachments/ratecon_1000324895.pdf",
                         "document_persist": {
                             "stored": True,
                             "id": "doc-1",

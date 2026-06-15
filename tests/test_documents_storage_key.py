@@ -17,7 +17,7 @@ _SHIPMENTS_ROW_ID = "e76d2aee-1234-5678-9abc-def012345678"
 def patch_documents_db(monkeypatch):
     fake_row = {
         "id": "id-1",
-        "storage_key": "freightx/ratecon_attachments/ratecon_SHIP-1.pdf",
+        "storage_key": "ratecon_attachments/ratecon_SHIP-1.pdf",
         "type": "ratecon",
         "shipment_id": _SHIPMENTS_ROW_ID,
         "created_at": None,
@@ -42,6 +42,6 @@ def test_read_document_returns_latest_row(patch_documents_db):
     out = doc_mod.read_document(_SHIPMENTS_ROW_ID, DocumentType.RATECON)
     assert out["found"] is True
     assert out["id"] == "id-1"
-    assert out["storage_key"] == "freightx/ratecon_attachments/ratecon_SHIP-1.pdf"
+    assert out["storage_key"] == "ratecon_attachments/ratecon_SHIP-1.pdf"
     assert out["shipment_id"] == _SHIPMENTS_ROW_ID
     assert out["type"] == "ratecon"

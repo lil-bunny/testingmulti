@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from app.workflows.graph.routers import (
     event_type_router,
+    manual_tms_upload_router,
     ratecon_cache_router,
     read_workflow_lifecycle_router,
     shipment_router,
@@ -64,3 +65,23 @@ def test_shipment_router_manual_invalid_status():
         shipment={"details": {"status": {"code": {"key": "9999"}}}},
     )
     assert shipment_router(state) == "invalid_shipment_status"
+
+
+def test_manual_tms_upload_router_continue_on_uploaded():
+    state = _state(pod_tms_upload_outcome="uploaded")
+    assert manual_tms_upload_router(state) == "continue"
+
+
+def test_manual_tms_upload_router_continue_on_skipped():
+    state = _state(pod_tms_upload_outcome="skipped")
+    assert manual_tms_upload_router(state) == "continue"
+
+
+def test_manual_tms_upload_router_stop_on_failed():
+    state = _state(pod_tms_upload_outcome="failed")
+    assert manual_tms_upload_router(state) == "stop"
+
+
+def test_manual_tms_upload_router_stop_when_outcome_missing():
+    state = _state()
+    assert manual_tms_upload_router(state) == "stop"

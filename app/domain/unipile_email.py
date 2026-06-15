@@ -45,6 +45,29 @@ def extract_email_attachment_metadata(attachment: dict[str, Any]) -> dict[str, A
     return metadata
 
 
+def parse_unipile_webhook_name(webhook_name: str) -> tuple[str, str] | None:
+    """Return ``(base_name, env_suffix)`` from ``{base}_{env}`` or ``None`` if malformed."""
+    raw = (webhook_name or "").strip()
+    if "_" not in raw:
+        return None
+    base, env = raw.rsplit("_", 1)
+    base, env = base.strip(), env.strip()
+    if not base or not env:
+        return None
+    return base, env
+
+
+def resolve_unipile_webhook_base_name(webhook_name: str, expected_env: str) -> str | None:
+    """Base ``email_webhook_name`` when suffix matches deployment ``ENV``, else ``None``."""
+    parsed = parse_unipile_webhook_name(webhook_name)
+    if not parsed:
+        return None
+    base, env = parsed
+    if env.lower() != (expected_env or "").strip().lower():
+        return None
+    return base
+
+
 def attachments_metadata_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Normalized attachment list for ``communications.metadata`` (entries require ``id``)."""
     raw = payload.get("attachments")

@@ -82,13 +82,13 @@ class Settings(BaseSettings):
 
     # S3-compatible Bucket (AWS S3)
     BUCKET_ENDPOINT: Optional[str] = None
-    BUCKET_ID: str
-    BUCKET_KEY: str
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
     BUCKET_NAME: str
     BUCKET_REGION: str = "us-west-2"
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600 # Presigned GetObject TTL (seconds)
     BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
-    BUCKET_POD_ATTACHMENTS_FOLDER: str = "pod_attachments" # also default folder for all uploads if not provided in args of S3 service
+    BUCKET_POD_ATTACHMENTS_FOLDER: str = "pod_attachments"
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str

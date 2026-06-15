@@ -1,4 +1,4 @@
-"""PodTmsUploadService staging and lifecycle resolution tests."""
+"""Unit tests for PodTmsUploadService."""
 
 from __future__ import annotations
 
@@ -25,23 +25,18 @@ def test_stage_pod_attachment_success():
     svc = PodTmsUploadService(
         s3_bucket=MagicMock(
             upload_file=MagicMock(
-                return_value={"success": True, "object_key": "freightx/pod/x.pdf"}
+                return_value={"success": True, "object_key": "pod_attachments/x.pdf"}
             )
         ),
     )
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            "app.services.pod_tms_upload_service.insert_document",
-            lambda *a, **k: {"stored": True, "id": "doc-1", "object_key": "freightx/pod/x.pdf"},
-        )
-        out = svc.stage_pod_attachment(
-            pdf_bytes=_MIN_PDF,
-            shipment_id="1000324895",
-            shipments_row_id="ship-uuid",
-        )
+    out = svc.stage_pod_attachment(
+        pdf_bytes=_MIN_PDF,
+        shipment_id="1000324895",
+        shipments_row_id="ship-uuid",
+    )
 
-    assert out.object_key == "freightx/pod/x.pdf"
-    assert out.document_id == "doc-1"
+    assert out.object_key == "pod_attachments/x.pdf"
+    assert out.document_id is None
     assert out.attachment_id.startswith("manual-")
 
 
