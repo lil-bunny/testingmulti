@@ -30,7 +30,7 @@
         {
           "step": 3,
           "event_type": "reminder_due",
-          "delay_hours": 0.1
+          "delay_hours": 0.09666666666666667
         }
       ],
       "expire_grace_hours": 2,
@@ -48,5 +48,7 @@
     "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
   },
   "mikey_account_id": "oizK1OAzTyqJJJ6VySWEDw",
-  "email_webhook_name": "t3ra"
+  "inbound_routing_emails": [
+    ""
+  ]
 }

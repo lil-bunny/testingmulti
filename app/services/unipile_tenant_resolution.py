@@ -6,16 +6,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.configs.tenant_configs import TENANT_CONFIGS
-from app.core.config import settings
-from app.domain.unipile_email import resolve_unipile_webhook_base_name
-from app.repositories.tenants_db_repository import get_slug_for_tenant_uuid
-from app.services.data_import_tenant_resolution import resolve_email_data_import_tenant_id
-from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
+from app.core.logger import get_logger
+from app.core.service_db import run_with_repos
+from app.services.data_import_tenant_resolution import resolve_inbound_routing_tenant_match
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
 class UnipileTenantContext:
-    """Tenant row resolved from ``payload['webhook_name']``."""
+    """Tenant row resolved from inbound recipient emails."""
 
     tenant_uuid: str
     tenant_slug: str
@@ -23,32 +23,27 @@ class UnipileTenantContext:
 
 def resolve_unipile_tenant(*, payload: dict[str, Any]) -> UnipileTenantContext | None:
     """
-    L1 routing: ``webhook_name`` → ``tenants.settings.email_webhook_name`` → UUID + slug.
-
-    ``tenant_slug`` prefers ``tenants.slug`` when it is a ``TENANT_CONFIGS`` key, else
-    ``webhook_name`` when that key exists, else graph default resolution.
+    L1 routing: to/cc/bcc recipient emails → ``tenants.settings.inbound_routing_emails``
+    → UUID + slug (single DB session).
     """
-    tenant_uuid = resolve_email_data_import_tenant_id(payload=payload)
-    if not tenant_uuid:
+    match = run_with_repos(
+        lambda repos: resolve_inbound_routing_tenant_match(
+            payload=payload,
+            tenants_repo=repos.tenants,
+        )
+    )
+    if not match or not match.tenant_id:
         return None
 
-    webhook_name = resolve_unipile_webhook_base_name(
-        str(payload.get("webhook_name") or ""),
-        settings.ENV,
-    ) or ""
-    slug = (get_slug_for_tenant_uuid(tenant_uuid) or "").strip()
+    slug = (match.slug or "").strip()
     valid = frozenset(TENANT_CONFIGS.keys())
 
     if slug not in valid:
-        if webhook_name in valid:
-            slug = webhook_name
-        else:
-            slug = resolve_workflow_graph_tenant_id(
-                data_import_tenant_id=tenant_uuid,
-                webhook_name=webhook_name,
-            )
-
-    if slug not in valid:
+        logger.warning(
+            "unipile tenant resolution: unknown slug=%r tenant_uuid=%s",
+            slug,
+            match.tenant_id,
+        )
         return None
 
-    return UnipileTenantContext(tenant_uuid=tenant_uuid, tenant_slug=slug)
+    return UnipileTenantContext(tenant_uuid=match.tenant_id, tenant_slug=slug)

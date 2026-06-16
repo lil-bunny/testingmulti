@@ -133,7 +133,10 @@
     "enabledProcesses": [
         "load_tendering"
     ],
-    "email_webhook_name": "gelita",
-    "ana_at_gelita_account_id": "umo3hTOoQ4KXxkZ1uKnIPg",
-    "ana_gelita_at_freightx_ai_account_id": "umo3hTOoQ4KXxkZ1uKnIPg"
+    "inbound_routing_emails": [
+        "ana.gelita.test@freightx.ai",
+        "ayush@freightx.ai"
+    ],
+    "ana_at_gelita_account_id": "oizK1OAzTyqJJJ6VySWEDw",
+    "ana_gelita_at_freightx_ai_account_id": "oizK1OAzTyqJJJ6VySWEDw"
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid as uuid_std
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -15,6 +16,15 @@ logger = get_logger(__name__)
 _WHERE_SLUG_CI = """
     WHERE lower(trim(slug)) = lower(:slug)
 """
+
+
+@dataclass(frozen=True)
+class InboundRoutingTenantMatch:
+    """Result of matching normalized recipient emails to ``inbound_routing_emails``."""
+
+    tenant_id: str | None
+    slug: str | None
+    match_count: int
 
 
 class TenantsDbRepository:
@@ -57,40 +67,44 @@ class TenantsDbRepository:
             "settings": parse_json(row.get("settings")),
         }
 
-    def find_tenant_id_by_email_webhook_name(self, webhook_name: str) -> Optional[str]:
+    def find_by_inbound_routing_emails(self, emails: list[str]) -> InboundRoutingTenantMatch:
         """
-        Return ``tenants.id`` (UUID string) where ``settings`` JSON contains
-        ``email_webhook_name`` equal to ``webhook_name`` (exact match).
+        Match pre-normalized recipient emails against ``settings.inbound_routing_emails``.
 
-        Ignores whitespace-only ``webhook_name``. If multiple rows match, logs and returns the
-        first by ``id``.
+        ``emails`` must come from ``extract_recipient_emails`` or validated tenant settings
+        (strip, lowercase, deduped, valid ``@``). Returns up to three matching rows.
         """
-        needle = webhook_name.strip()
-        if not needle:
-            return None
+        if not emails:
+            return InboundRoutingTenantMatch(None, None, 0)
 
         rows = fetchall_dicts(
             self._session,
             f"""
-            SELECT id::text AS id
+            SELECT id::text AS id, NULLIF(trim(slug), '') AS slug
             FROM {self.TABLE_NAME}
             WHERE settings IS NOT NULL
-              AND (settings::jsonb ->> 'email_webhook_name') = :webhook_name
+              AND jsonb_exists_any(settings->'inbound_routing_emails', CAST(:emails_lower AS text[]))
             ORDER BY id
             LIMIT 3
             """,
-            {"webhook_name": needle},
+            {"emails_lower": emails},
         )
         if not rows:
-            return None
-        if len(rows) > 1:
+            return InboundRoutingTenantMatch(None, None, 0)
+
+        match_count = len(rows)
+        if match_count > 1:
             logger.warning(
-                "tenants lookup: multiple rows match email_webhook_name=%r (%s ids); "
-                "using first",
-                needle,
-                len(rows),
+                "tenants lookup: multiple rows match inbound_routing_emails (%s ids)",
+                match_count,
             )
-        return str(rows[0]["id"])
+        first = rows[0]
+        slug = first.get("slug")
+        return InboundRoutingTenantMatch(
+            str(first["id"]),
+            str(slug).strip() if slug else None,
+            match_count,
+        )
 
     def fetch_tenant_settings_by_slug(self, slug: str) -> dict[str, Any] | None:
         """Return ``tenants.settings`` JSON for ``slug`` (case-insensitive), or ``None``."""
@@ -176,11 +190,6 @@ class TenantsDbRepository:
         if slug is None:
             return None
         return str(slug).strip() or None
-
-
-def find_tenant_id_by_settings_email_webhook_name(webhook_name: str) -> Optional[str]:
-    with db_scope() as repos:
-        return repos.tenants.find_tenant_id_by_email_webhook_name(webhook_name)
 
 
 def fetch_tenant_settings_by_slug(slug: str) -> dict[str, Any] | None:

@@ -8,7 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
 from app.domain.reminder_schedule import WorkflowRemindersConfig
-from app.domain.tenant_settings.email_recipients import EmailRecipients, coerce_email_list
+from app.domain.tenant_settings.email_recipients import (
+    EmailRecipients,
+    InboundRoutingEmails,
+    coerce_email_list,
+)
 from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
 
 # Reusable list fields: required TO accepts str | list; optional CC/BCC default empty.
@@ -157,7 +161,7 @@ class GelitaTenantSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     enabledProcesses: list[str] = Field(default_factory=list)
-    email_webhook_name: str
+    inbound_routing_emails: InboundRoutingEmails
     ana_at_gelita_account_id: str
     ana_gelita_at_freightx_ai_account_id: str
     prompts: dict[str, str]

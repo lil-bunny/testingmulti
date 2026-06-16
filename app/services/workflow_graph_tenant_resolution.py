@@ -18,18 +18,18 @@ logger = get_logger(__name__)
 def resolve_workflow_graph_tenant_id(
     *,
     data_import_tenant_id: str,
-    webhook_name: str,
+    tenant_slug_hint: str,
     tenants_repo: TenantsDbRepository | None = None,
 ) -> str:
     """
     Pick Celery/graph ``tenant_id``: ``tenants.slug`` wins when it equals a ``TENANT_CONFIGS``
-    top-level key, else ``webhook_name`` when it matches such a key, else ``t3ra``.
+    top-level key, else ``tenant_slug_hint`` when it matches such a key, else ``t3ra``.
     """
     from app.repositories.tenants_db_repository import TenantsDbRepository
 
     valid = frozenset(TENANT_CONFIGS.keys())
     tenant_uuid = str(data_import_tenant_id or "").strip()
-    hook = str(webhook_name or "").strip()
+    hint = str(tenant_slug_hint or "").strip()
 
     stored_key: str | None = None
     if tenant_uuid:
@@ -60,14 +60,14 @@ def resolve_workflow_graph_tenant_id(
         )
         return stored_key
 
-    if hook and hook in valid:
+    if hint and hint in valid:
         logger.info(
-            "workflow_graph_tenant: tenant_id=%r resolved_from=webhook_name "
+            "workflow_graph_tenant: tenant_id=%r resolved_from=tenant_slug_hint "
             "data_import_tenant_id=%s",
-            hook,
+            hint,
             tenant_uuid,
         )
-        return hook
+        return hint
 
     logger.info(
         "workflow_graph_tenant: tenant_id=%r resolved_from=default data_import_tenant_id=%s",

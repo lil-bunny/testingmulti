@@ -73,7 +73,6 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "account_id",
             "attachments",
             "has_attachments",
-            "webhook_name",
             "data_import_id",
             "execution_id",
             "workflow_lifecycle_payload",

@@ -491,9 +491,19 @@ def upgrade() -> None:
         WHERE external_id IS NOT NULL
         """
     )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_tenants_settings_inbound_routing_emails_gin
+        ON tenants
+        USING GIN ((settings->'inbound_routing_emails'))
+        """
+    )
 
 
 def downgrade() -> None:
+    op.execute(
+        "DROP INDEX IF EXISTS idx_tenants_settings_inbound_routing_emails_gin"
+    )
     op.execute("DROP TABLE IF EXISTS activity_logs CASCADE")
     op.execute("DROP TABLE IF EXISTS communications CASCADE")
     op.execute("DROP TABLE IF EXISTS workflow_runs CASCADE")
