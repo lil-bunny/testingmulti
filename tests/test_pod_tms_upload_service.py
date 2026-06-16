@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.services.pod_tms_upload_service import (
+    PodDocumentNotFoundError,
     PodLifecycleNotFoundError,
     PodTmsUploadService,
 )
@@ -95,3 +96,58 @@ def test_resolve_pod_lifecycle_not_found_without_lifecycle():
                 tenant_slug="t3ra",
                 shipment_id=_SHIPMENTS_ROW_UUID,
             )
+
+
+def test_resolve_existing_pod_document_success():
+    fake_row = {
+        "id": "doc-uuid-1",
+        "storage_key": "pod_attachments/pod_1000324895.pdf",
+    }
+    fake_documents = MagicMock()
+    fake_documents.find_latest_by_shipment_and_type.return_value = fake_row
+
+    class _FakeRepos:
+        documents = fake_documents
+
+    svc = PodTmsUploadService()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "app.services.pod_tms_upload_service.db_scope",
+            lambda: _FakeContextManager(_FakeRepos()),
+        )
+        out = svc.resolve_existing_pod_document(shipments_row_id=_SHIPMENTS_ROW_UUID)
+
+    assert out.object_key == "pod_attachments/pod_1000324895.pdf"
+    assert out.document_id == "doc-uuid-1"
+    fake_documents.find_latest_by_shipment_and_type.assert_called_once_with(
+        shipment_id=_SHIPMENTS_ROW_UUID,
+        doc_type="pod",
+    )
+
+
+def test_resolve_existing_pod_document_not_found():
+    fake_documents = MagicMock()
+    fake_documents.find_latest_by_shipment_and_type.return_value = None
+
+    class _FakeRepos:
+        documents = fake_documents
+
+    svc = PodTmsUploadService()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "app.services.pod_tms_upload_service.db_scope",
+            lambda: _FakeContextManager(_FakeRepos()),
+        )
+        with pytest.raises(PodDocumentNotFoundError, match="pod document not found"):
+            svc.resolve_existing_pod_document(shipments_row_id=_SHIPMENTS_ROW_UUID)
+
+
+class _FakeContextManager:
+    def __init__(self, repos):
+        self._repos = repos
+
+    def __enter__(self):
+        return self._repos
+
+    def __exit__(self, *args):
+        return False
