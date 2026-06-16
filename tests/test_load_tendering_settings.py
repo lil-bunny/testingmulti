@@ -70,12 +70,14 @@ def test_shared_unipile_accounts_merged_from_tenant_settings_root() -> None:
     state = SimpleNamespace(
         data={"tenant_settings": _gelita_tenant_settings()},
     )
+    account_id = "oizK1OAzTyqJJJ6VySWEDw"
     ltl_email = action_settings(state, "send_tender_email", load_type="LTL")
-    assert ltl_email["ana_gelita_at_freightx_ai_account_id"] == "umo3hTOoQ4KXxkZ1uKnIPg"
+    assert ltl_email["ana_at_gelita_account_id"] == account_id
+    assert "ana_gelita_at_freightx_ai_account_id" not in ltl_email
     ltl_rem = action_settings(state, "send_tender_reminder", load_type="LTL")
-    assert ltl_rem["ana_at_gelita_account_id"] == "umo3hTOoQ4KXxkZ1uKnIPg"
+    assert ltl_rem["ana_at_gelita_account_id"] == account_id
     ftl_esc = action_settings(state, "escalate_tender", load_type="FTL")
-    assert ftl_esc["ana_at_gelita_account_id"] == "umo3hTOoQ4KXxkZ1uKnIPg"
+    assert ftl_esc["ana_at_gelita_account_id"] == account_id
     assert isinstance(ftl_esc["escalation_notify_email"], list)
     assert len(ftl_esc["escalation_notify_email"]) >= 1
     ftl_vendor = action_settings(state, "send_tender_email", load_type="FTL")

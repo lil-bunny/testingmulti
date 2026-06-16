@@ -44,7 +44,7 @@ def send_tender_email(state):
         raise SendTenderEmailError(msg)
 
     merged = action_settings(state, "send_tender_email", load_type=load_type)
-    account_id = str(merged.get("ana_gelita_at_freightx_ai_account_id") or "").strip()
+    account_id = str(merged.get("ana_at_gelita_account_id") or "").strip()
     if not account_id:
         msg = "missing_sender_account_id"
         logger.error("send_tender_email: %s", msg)
