@@ -43,11 +43,11 @@ def create_app() -> FastAPI:
             content={"status": "OK"},
         )
 
-    @app.get("/health", summary="Health check (returns 'ok')")
+    @app.get("/health", summary="Health check (returns 'Running')")
     async def health():
         return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"status": "ok"},
+        content={"status": "Running"},
     )
 
 
