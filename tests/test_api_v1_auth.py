@@ -77,6 +77,7 @@ def test_upload_pod_authenticated_success(client, monkeypatch):
             object_key="pod_attachments/x.pdf",
             document_id="doc-1",
             celery_task_id="task-1",
+            source="upload",
         ),
     ):
         resp = client.post(

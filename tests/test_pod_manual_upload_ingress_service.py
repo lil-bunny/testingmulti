@@ -10,8 +10,10 @@ from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.pod_manual_upload_ingress_service import PodManualUploadIngressService
 from app.services.pod_tms_upload_service import (
     PodAttachmentStageResult,
+    PodDocumentNotFoundError,
     PodLifecycleNotFoundError,
     PodLifecycleResolution,
+    StoredPodDocument,
 )
 
 _MIN_PDF = b"%PDF-1.4\n1 0 obj\n"
@@ -50,6 +52,7 @@ def test_enqueue_stages_and_queues_workflow():
     assert result.shipment_id == _SHIPMENTS_ROW_UUID
     assert result.object_key == "pod_attachments/manual.pdf"
     assert result.celery_task_id == "celery-task-1"
+    assert result.source == "upload"
 
     apply_async.assert_called_once()
     kwargs = apply_async.call_args.kwargs["kwargs"]
@@ -60,6 +63,66 @@ def test_enqueue_stages_and_queues_workflow():
     assert payload["pod_object_keys"] == ["pod_attachments/manual.pdf"]
     assert payload["uploaded_by"] == "ana.gelita.test@freightx.ai"
     assert kwargs["workflow_name"] == "pod_lifecycle"
+
+
+    staging.stage_pod_attachment.assert_called_once()
+
+
+def test_enqueue_uses_stored_document_without_pdf_bytes():
+    staging = MagicMock()
+    staging.resolve_pod_lifecycle.return_value = PodLifecycleResolution(
+        tenant_uuid="tenant-uuid",
+        shipment_number="1000324895",
+        shipments_row_id=_SHIPMENTS_ROW_UUID,
+        workflow_lifecycle_id="wl-1",
+    )
+    staging.resolve_stored_pod_document.return_value = StoredPodDocument(
+        storage_key="pod_attachments/existing.pdf",
+        document_id="doc-stored-1",
+    )
+
+    celery_task = MagicMock(id="celery-task-2")
+    with patch(
+        "app.tasks.workflows.run_workflow_async.apply_async",
+        return_value=celery_task,
+    ) as apply_async:
+        result = PodManualUploadIngressService(staging_service=staging).enqueue(
+            tenant_slug="t3ra",
+            shipment_id=_SHIPMENTS_ROW_UUID,
+            uploaded_by_user_id="user-1",
+        )
+
+    staging.stage_pod_attachment.assert_not_called()
+    staging.resolve_stored_pod_document.assert_called_once_with(
+        shipments_row_id=_SHIPMENTS_ROW_UUID,
+    )
+    assert result.object_key == "pod_attachments/existing.pdf"
+    assert result.document_id == "doc-stored-1"
+    assert result.source == "stored"
+
+    payload = apply_async.call_args.kwargs["kwargs"]["payload"]
+    assert payload["pod_object_keys"] == ["pod_attachments/existing.pdf"]
+    assert payload["manual_pod_document_id"] == "doc-stored-1"
+    assert payload["uploaded_by_user_id"] == "user-1"
+
+
+def test_enqueue_propagates_missing_stored_document():
+    staging = MagicMock()
+    staging.resolve_pod_lifecycle.return_value = PodLifecycleResolution(
+        tenant_uuid="tenant-uuid",
+        shipment_number="1000324895",
+        shipments_row_id=_SHIPMENTS_ROW_UUID,
+        workflow_lifecycle_id="wl-1",
+    )
+    staging.resolve_stored_pod_document.side_effect = PodDocumentNotFoundError(
+        "No POD document on file for shipment"
+    )
+
+    with pytest.raises(PodDocumentNotFoundError):
+        PodManualUploadIngressService(staging_service=staging).enqueue(
+            tenant_slug="t3ra",
+            shipment_id=_SHIPMENTS_ROW_UUID,
+        )
 
 
 def test_enqueue_propagates_missing_lifecycle():
