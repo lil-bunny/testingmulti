@@ -20,10 +20,7 @@ from app.services.pod_manual_upload_ingress_service import (
 )
 from app.services.pod_review_acknowledge_service import PodReviewAcknowledgeService
 from app.services.pod_review_resolve_service import PodReviewResolveService
-from app.services.pod_tms_upload_service import (
-    PodDocumentNotFoundError,
-    PodTmsUploadService,
-)
+from app.services.pod_tms_upload_service import PodTmsUploadService
 
 router = APIRouter(prefix="/shipments", tags=["shipments-v1"])
 logger = get_logger(__name__)
@@ -73,31 +70,23 @@ async def upload_pod(
     user: Annotated[ApiUser, Depends(get_current_user)],
     tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
     _: Annotated[str, Depends(require_turvo_oauth_linked_for_slug)],
-    file: UploadFile | None = File(None),
+    file: UploadFile = File(...),
 ) -> PodUploadQueuedResponse:
-    pdf_bytes: bytes | None = None
-    filename: str | None = None
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only PDF files are supported",
+        )
 
-    if file is not None and file.filename:
-        content_type = (file.content_type or "").lower()
-        if content_type and content_type not in (
-            "application/pdf",
-            "application/octet-stream",
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Only PDF files are supported",
-            )
-
-        pdf_bytes = await file.read()
-        try:
-            PodTmsUploadService.validate_pdf(pdf_bytes)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(e),
-            ) from e
-        filename = file.filename or None
+    pdf_bytes = await file.read()
+    try:
+        PodTmsUploadService.validate_pdf(pdf_bytes)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
 
     uploaded_by = str(user.email).strip() if user.email else None
     uploaded_by_user_id = str(user.id).strip() if user.id else None
@@ -107,7 +96,7 @@ async def upload_pod(
             tenant_slug=tenant_slug,
             shipment_id=shipment_id.strip(),
             pdf_bytes=pdf_bytes,
-            filename=filename,
+            filename=file.filename or None,
             uploaded_by=uploaded_by or None,
             uploaded_by_user_id=uploaded_by_user_id or None,
         )
@@ -115,11 +104,6 @@ async def upload_pod(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e) or "pod_lifecycle not found for shipment",
-        ) from e
-    except PodDocumentNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e) or "pod document not found for shipment",
         ) from e
     except RuntimeError as e:
         logger.exception("upload_pod staging failed shipment_id=%s", shipment_id)

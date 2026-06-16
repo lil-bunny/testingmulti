@@ -15,7 +15,6 @@ from app.services.pod_manual_upload_ingress_service import (
 )
 from app.services.pod_review_acknowledge_service import PodReviewAcknowledgeResult
 from app.services.pod_review_resolve_service import PodReviewResolveResult
-from app.services.pod_tms_upload_service import PodDocumentNotFoundError
 from tests.helpers.auth_tokens import bearer_headers, make_test_api_user
 
 _MIN_PDF = b"%PDF-1.4\n1 0 obj\n"
@@ -125,59 +124,6 @@ def test_upload_pod_accepted_queues_workflow(client, monkeypatch):
     assert body["workflow_lifecycle_id"] == "wl-1"
     assert body["shipment_id"] == _SHIPMENTS_ROW_UUID
     assert body["message"] == "workflow queued"
-
-
-def test_upload_pod_accepted_without_file_uses_existing_document(client, monkeypatch):
-    monkeypatch.setattr(
-        "app.api.deps.TurvoOAuthService.has_tms_partner_config",
-        lambda self, slug: True,
-    )
-    monkeypatch.setattr(
-        "app.api.deps.TurvoOAuthService.has_oauth",
-        lambda self, slug: True,
-    )
-    with patch(
-        "app.api.v1.shipments.PodManualUploadIngressService.enqueue",
-        return_value=PodManualUploadEnqueueResult(
-            execution_id="exec-2",
-            workflow_lifecycle_id="wl-1",
-            shipment_id=_SHIPMENTS_ROW_UUID,
-            object_key="pod_attachments/pod_1000324895.pdf",
-            document_id="doc-existing",
-            celery_task_id="task-2",
-        ),
-    ) as enqueue:
-        resp = client.post(
-            _UPLOAD_POD_URL,
-            headers=bearer_headers(),
-        )
-    assert resp.status_code == 202
-    enqueue.assert_called_once()
-    call_kwargs = enqueue.call_args.kwargs
-    assert call_kwargs["pdf_bytes"] is None
-    body = resp.json()
-    assert body["execution_id"] == "exec-2"
-    assert body["document_id"] == "doc-existing"
-
-
-def test_upload_pod_404_when_existing_pod_document_not_found(client, monkeypatch):
-    monkeypatch.setattr(
-        "app.api.deps.TurvoOAuthService.has_tms_partner_config",
-        lambda self, slug: True,
-    )
-    monkeypatch.setattr(
-        "app.api.deps.TurvoOAuthService.has_oauth",
-        lambda self, slug: True,
-    )
-    with patch(
-        "app.api.v1.shipments.PodManualUploadIngressService.enqueue",
-        side_effect=PodDocumentNotFoundError("pod document not found for shipment"),
-    ):
-        resp = client.post(
-            _UPLOAD_POD_URL,
-            headers=bearer_headers(),
-        )
-    assert resp.status_code == 404
 
 
 def test_acknowledge_pod_review_422_blank_comment(client) -> None:

@@ -10,8 +10,6 @@ from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.pod_manual_upload_ingress_service import PodManualUploadIngressService
 from app.services.pod_tms_upload_service import (
     PodAttachmentStageResult,
-    PodDocumentNotFoundError,
-    PodExistingDocumentResolution,
     PodLifecycleNotFoundError,
     PodLifecycleResolution,
 )
@@ -73,61 +71,4 @@ def test_enqueue_propagates_missing_lifecycle():
             tenant_slug="t3ra",
             shipment_id=_SHIPMENTS_ROW_UUID,
             pdf_bytes=_MIN_PDF,
-        )
-
-
-def test_enqueue_uses_existing_pod_document_without_pdf_bytes():
-    staging = MagicMock()
-    staging.resolve_pod_lifecycle.return_value = PodLifecycleResolution(
-        tenant_uuid="tenant-uuid",
-        shipment_number="1000324895",
-        shipments_row_id=_SHIPMENTS_ROW_UUID,
-        workflow_lifecycle_id="wl-1",
-    )
-    staging.resolve_existing_pod_document.return_value = PodExistingDocumentResolution(
-        object_key="pod_attachments/pod_1000324895.pdf",
-        document_id="doc-existing",
-    )
-
-    celery_task = MagicMock(id="celery-task-2")
-    with patch(
-        "app.tasks.workflows.run_workflow_async.apply_async",
-        return_value=celery_task,
-    ) as apply_async:
-        result = PodManualUploadIngressService(staging_service=staging).enqueue(
-            tenant_slug="t3ra",
-            shipment_id=_SHIPMENTS_ROW_UUID,
-            uploaded_by="ops@freightx.ai",
-        )
-
-    staging.stage_pod_attachment.assert_not_called()
-    staging.resolve_existing_pod_document.assert_called_once_with(
-        shipments_row_id=_SHIPMENTS_ROW_UUID,
-    )
-
-    assert result.object_key == "pod_attachments/pod_1000324895.pdf"
-    assert result.document_id == "doc-existing"
-
-    payload = apply_async.call_args.kwargs["kwargs"]["payload"]
-    assert payload["pod_object_keys"] == ["pod_attachments/pod_1000324895.pdf"]
-    assert payload["manual_pod_document_id"] == "doc-existing"
-    assert payload["uploaded_by"] == "ops@freightx.ai"
-
-
-def test_enqueue_propagates_missing_existing_pod_document():
-    staging = MagicMock()
-    staging.resolve_pod_lifecycle.return_value = PodLifecycleResolution(
-        tenant_uuid="tenant-uuid",
-        shipment_number="1000324895",
-        shipments_row_id=_SHIPMENTS_ROW_UUID,
-        workflow_lifecycle_id="wl-1",
-    )
-    staging.resolve_existing_pod_document.side_effect = PodDocumentNotFoundError(
-        "pod document not found for shipment",
-    )
-
-    with pytest.raises(PodDocumentNotFoundError):
-        PodManualUploadIngressService(staging_service=staging).enqueue(
-            tenant_slug="t3ra",
-            shipment_id=_SHIPMENTS_ROW_UUID,
         )
