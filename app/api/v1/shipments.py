@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
@@ -20,7 +20,10 @@ from app.services.pod_manual_upload_ingress_service import (
 )
 from app.services.pod_review_acknowledge_service import PodReviewAcknowledgeService
 from app.services.pod_review_resolve_service import PodReviewResolveService
-from app.services.pod_tms_upload_service import PodTmsUploadService
+from app.services.pod_tms_upload_service import (
+    PodDocumentNotFoundError,
+    PodTmsUploadService,
+)
 
 router = APIRouter(prefix="/shipments", tags=["shipments-v1"])
 logger = get_logger(__name__)
@@ -34,6 +37,7 @@ class PodUploadQueuedResponse(BaseModel):
     message: str
     object_key: str | None = None
     document_id: str | None = None
+    source: Literal["upload", "stored"] | None = None
 
 
 class PodReviewCommentRequest(BaseModel):
@@ -62,7 +66,9 @@ class PodReviewResolveResponse(BaseModel):
     status_code=status.HTTP_202_ACCEPTED,
     summary="Queue POD processing workflow for a shipment",
     description=(
-        "``shipment_id`` is ``shipments.id`` (UUID primary key), not Turvo shipment number."
+        "``shipment_id`` is ``shipments.id`` (UUID primary key), not Turvo shipment number. "
+        "Send a multipart PDF in ``file``, or omit ``file`` to queue TMS upload using the "
+        "stored POD ``documents`` row for this shipment."
     ),
 )
 async def upload_pod(
@@ -70,23 +76,30 @@ async def upload_pod(
     user: Annotated[ApiUser, Depends(get_current_user)],
     tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
     _: Annotated[str, Depends(require_turvo_oauth_linked_for_slug)],
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(default=None),
 ) -> PodUploadQueuedResponse:
-    content_type = (file.content_type or "").lower()
-    if content_type and content_type not in ("application/pdf", "application/octet-stream"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only PDF files are supported",
-        )
+    pdf_bytes: bytes | None = None
+    filename: str | None = None
+    if file is not None:
+        content_type = (file.content_type or "").lower()
+        if content_type and content_type not in (
+            "application/pdf",
+            "application/octet-stream",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only PDF files are supported",
+            )
 
-    pdf_bytes = await file.read()
-    try:
-        PodTmsUploadService.validate_pdf(pdf_bytes)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
+        pdf_bytes = await file.read()
+        filename = file.filename or None
+        try:
+            PodTmsUploadService.validate_pdf(pdf_bytes)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            ) from e
 
     uploaded_by = str(user.email).strip() if user.email else None
     uploaded_by_user_id = str(user.id).strip() if user.id else None
@@ -96,7 +109,7 @@ async def upload_pod(
             tenant_slug=tenant_slug,
             shipment_id=shipment_id.strip(),
             pdf_bytes=pdf_bytes,
-            filename=file.filename or None,
+            filename=filename,
             uploaded_by=uploaded_by or None,
             uploaded_by_user_id=uploaded_by_user_id or None,
         )
@@ -104,6 +117,12 @@ async def upload_pod(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e) or "pod_lifecycle not found for shipment",
+        ) from e
+    except PodDocumentNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+            or "No POD document on file for this shipment; upload a PDF or wait for email ingestion",
         ) from e
     except RuntimeError as e:
         logger.exception("upload_pod staging failed shipment_id=%s", shipment_id)
@@ -119,6 +138,7 @@ async def upload_pod(
         message="workflow queued",
         object_key=result.object_key,
         document_id=result.document_id,
+        source=result.source,
     )
 
 

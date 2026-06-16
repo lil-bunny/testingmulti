@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.pod_tms_upload_service import (
+    PodDocumentNotFoundError,
     PodLifecycleNotFoundError,
     PodTmsUploadService,
+    StoredPodDocument,
 )
 from app.services.shipments_service import ShipmentsService
 
@@ -95,3 +97,37 @@ def test_resolve_pod_lifecycle_not_found_without_lifecycle():
                 tenant_slug="t3ra",
                 shipment_id=_SHIPMENTS_ROW_UUID,
             )
+
+
+def test_resolve_stored_pod_document_returns_row():
+    fake_row = {
+        "id": "doc-uuid-1",
+        "storage_key": "pod_attachments/existing.pdf",
+    }
+    fake_repos = MagicMock()
+    fake_repos.documents.find_latest_by_shipment_and_type.return_value = fake_row
+
+    svc = PodTmsUploadService()
+    with patch("app.services.pod_tms_upload_service.db_scope") as db_scope:
+        db_scope.return_value.__enter__.return_value = fake_repos
+        out = svc.resolve_stored_pod_document(shipments_row_id=_SHIPMENTS_ROW_UUID)
+
+    assert out == StoredPodDocument(
+        storage_key="pod_attachments/existing.pdf",
+        document_id="doc-uuid-1",
+    )
+    fake_repos.documents.find_latest_by_shipment_and_type.assert_called_once_with(
+        shipment_id=_SHIPMENTS_ROW_UUID,
+        doc_type="pod",
+    )
+
+
+def test_resolve_stored_pod_document_not_found():
+    fake_repos = MagicMock()
+    fake_repos.documents.find_latest_by_shipment_and_type.return_value = None
+
+    svc = PodTmsUploadService()
+    with patch("app.services.pod_tms_upload_service.db_scope") as db_scope:
+        db_scope.return_value.__enter__.return_value = fake_repos
+        with pytest.raises(PodDocumentNotFoundError, match="No POD document on file"):
+            svc.resolve_stored_pod_document(shipments_row_id=_SHIPMENTS_ROW_UUID)
