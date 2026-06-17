@@ -42,9 +42,13 @@ from app.services.driver_assignment_activity_service import DriverAssignmentActi
 
 from app.services.shipments_service import ShipmentsService
 
+from app.services.unipile_service import UnipileException
+
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 
 from app.services.workflow_runs_service import WorkflowRunsService
+
+from app.tools.email import reply_to_thread
 
 
 
@@ -139,6 +143,18 @@ class EligibilityResult:
     def eligible(self) -> bool:
 
         return self.skip_reason is None
+
+
+
+
+
+@dataclass(frozen=True)
+
+class SendReminderResult:
+
+    sent: bool
+
+    error: str | None = None
 
 
 
@@ -1076,6 +1092,210 @@ class DriverAssignmentIngressService:
 
 
 
+    def check_reminder_eligibility(
+
+        self,
+
+        *,
+
+        tenant_id: str,
+
+        payload: dict[str, Any],
+
+    ) -> EligibilityResult:
+
+        """Reminder_due gate: Turvo + driver-not-assigned only (no ratecon duplicate check)."""
+
+        for key in ("thread_id", "load_id", "shipment_id", "shipments_row_id"):
+
+            if not self._clean(payload.get(key)):
+
+                return EligibilityResult(skip_reason="missing_correlation_keys")
+
+
+
+        shipment = payload.get("shipment")
+
+        if isinstance(shipment, dict):
+
+            if driver_assigned_from_payload(shipment):
+
+                return EligibilityResult(skip_reason="driver_already_assigned")
+
+            eligibility_skip = self._driver_request_skip_reason(shipment)
+
+            if eligibility_skip:
+
+                return EligibilityResult(skip_reason=eligibility_skip)
+
+
+
+        shipments_row_id = self._clean(payload.get("shipments_row_id"))
+
+        if shipments_row_id and self._driver_lifecycle_terminal(
+
+            tenant_id=tenant_id,
+
+            shipments_row_id=shipments_row_id,
+
+        ):
+
+            return EligibilityResult(skip_reason="already_completed")
+
+
+
+        return EligibilityResult(skip_reason=None)
+
+
+
+    def send_reminder_email(
+
+        self,
+
+        *,
+
+        tenant_id: str,
+
+        tenant_settings: dict[str, Any] | None,
+
+        payload: dict[str, Any],
+
+        workflow_run_id: str | None = None,
+
+    ) -> SendReminderResult:
+
+        thread_id = self._clean(payload.get("thread_id"))
+
+        ratecon_lifecycle_id = self._clean(payload.get("ratecon_workflow_lifecycle_id"))
+
+        if not thread_id and ratecon_lifecycle_id:
+
+            thread_id = self._communications.resolve_thread_for_lifecycle(
+
+                tenant_id=tenant_id,
+
+                workflow_lifecycle_id=ratecon_lifecycle_id,
+
+            )
+
+        if not thread_id:
+
+            return SendReminderResult(sent=False, error="missing_thread_id")
+
+
+
+        settings = tenant_settings or {}
+
+        account_id = self._clean(settings.get("mikey_account_id"))
+
+        if not account_id:
+
+            return SendReminderResult(sent=False, error="missing_mikey_account_id")
+
+
+
+        reminder_step = payload.get("reminder_step")
+
+        subject = self._clean(payload.get("subject"))
+
+        if not subject:
+
+            step_label = int(reminder_step) if reminder_step is not None else 0
+
+            subject = f"Driver assignment reminder (step {step_label})"
+
+
+
+        body = (str(payload.get("body") or "").strip()) or (
+
+            "Please provide driver name and contact information for this load."
+
+        )
+
+
+
+        try:
+
+            result = reply_to_thread(
+
+                thread_id=thread_id,
+
+                body=body,
+
+                account_id=account_id,
+
+                subject=subject,
+
+                tenant_id=tenant_id,
+
+                workflow_run_id=workflow_run_id,
+
+                communication_metadata={
+
+                    "source": "driver_assignment_reminder",
+
+                    "thread_id": thread_id,
+
+                    "workflow_lifecycle_id": payload.get("workflow_lifecycle_id"),
+
+                    "shipment_id": payload.get("shipment_id"),
+
+                    "reminder_step": reminder_step,
+
+                },
+
+            )
+
+        except UnipileException as exc:
+
+            logger.warning(
+
+                "send_reminder_email Unipile error lifecycle_id=%s shipment_id=%s: %s",
+
+                payload.get("workflow_lifecycle_id"),
+
+                payload.get("shipment_id"),
+
+                exc,
+
+            )
+
+            return SendReminderResult(sent=False, error=str(exc))
+
+        except Exception:
+
+            logger.exception(
+
+                "send_reminder_email unexpected error lifecycle_id=%s shipment_id=%s",
+
+                payload.get("workflow_lifecycle_id"),
+
+                payload.get("shipment_id"),
+
+            )
+
+            return SendReminderResult(sent=False, error="unexpected_error")
+
+
+
+        success = True
+
+        if isinstance(result, dict):
+
+            success = bool(result.get("success", True))
+
+        elif result is False:
+
+            success = False
+
+        if not success:
+
+            return SendReminderResult(sent=False, error="send_failed")
+
+        return SendReminderResult(sent=True, error=None)
+
+
+
 
 
 __all__ = (
@@ -1089,6 +1309,8 @@ __all__ = (
     "EnqueueResult",
 
     "PrepareResult",
+
+    "SendReminderResult",
 
 )
 

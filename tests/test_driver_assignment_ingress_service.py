@@ -332,3 +332,64 @@ async def test_prepare_raises_when_load_id_missing():
             tenant_slug="t3ra",
             payload=payload,
         )
+
+
+def test_check_reminder_eligibility_ok_when_ratecon_duplicate_would_block():
+    svc = _service(duplicate=True)
+    svc._driver_lifecycle_terminal = MagicMock(return_value=False)  # type: ignore[method-assign]
+
+    result = svc.check_reminder_eligibility(
+        tenant_id=_TENANT_ID,
+        payload=_base_payload(event_type="reminder_due"),
+    )
+
+    assert result.eligible is True
+    svc._runs_service.is_workflow_initial_path_blocked.assert_not_called()
+
+
+def test_check_reminder_eligibility_skips_when_driver_assigned():
+    svc = _service()
+    svc._driver_lifecycle_terminal = MagicMock(return_value=False)  # type: ignore[method-assign]
+    shipment = _turvo_shipment_fixture()
+    shipment["details"]["carrierOrder"] = [
+        {
+            "deleted": False,
+            "drivers": [
+                {
+                    "deleted": False,
+                    "phone": {"number": "5551234567"},
+                }
+            ],
+        }
+    ]
+
+    result = svc.check_reminder_eligibility(
+        tenant_id=_TENANT_ID,
+        payload=_base_payload(event_type="reminder_due", shipment=shipment),
+    )
+
+    assert result.skip_reason == "driver_already_assigned"
+
+
+@patch("app.services.driver_assignment_ingress_service.reply_to_thread")
+def test_send_reminder_email_success(mock_reply: MagicMock) -> None:
+    mock_reply.return_value = {"success": True}
+    svc = _service()
+
+    result = svc.send_reminder_email(
+        tenant_id=_TENANT_ID,
+        tenant_settings={"mikey_account_id": "acct-1"},
+        payload=_base_payload(
+            event_type="reminder_due",
+            reminder_step=1,
+            body="Please send driver info",
+        ),
+        workflow_run_id="run-1",
+    )
+
+    assert result.sent is True
+    assert result.error is None
+    mock_reply.assert_called_once()
+    call_kwargs = mock_reply.call_args.kwargs
+    assert call_kwargs["thread_id"] == "thread-1"
+    assert call_kwargs["body"] == "Please send driver info"

@@ -8,6 +8,7 @@ from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
     format_driver_assignment_not_started_action,
     format_driver_assignment_started_action,
+    format_driver_reminder_sent_action,
     format_driver_reminders_scheduled_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
@@ -153,6 +154,44 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_driver_reminders_scheduled_action(),
+                        metadata=meta,
+                    ),
+                ),
+            )
+        )
+
+    def record_reminder_sent(self, state) -> None:
+        if not state.data.get("driver_reminder_sent"):
+            return
+
+        scope = self._scope_ids(state)
+        if scope is None:
+            logger.warning(
+                "record_reminder_sent skipped missing ids "
+                "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
+                bool(state.data.get("workflow_lifecycle_id")),
+                bool(state.tenant_id or state.data.get("tenant_id")),
+                bool(state.execution_id),
+            )
+            return
+
+        wl_id, tenant_id, run_id = scope
+        meta = self._base_metadata(state)
+        reminder_step = state.data.get("reminder_step")
+        if reminder_step is not None:
+            meta["reminder_step"] = reminder_step
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_driver_reminder_sent_action(
+                            step=int(reminder_step) if reminder_step is not None else None
+                        ),
                         metadata=meta,
                     ),
                 ),

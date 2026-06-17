@@ -25,6 +25,8 @@ _DEFAULT_PAYLOAD_KEYS: tuple[str, ...] = (
     "thread_id",
     "shipment_id",
     "load_id",
+    "shipments_row_id",
+    "ratecon_workflow_lifecycle_id",
     "pickup_appointment_at",
     "pickup_appointment_timezone",
     "account_id",

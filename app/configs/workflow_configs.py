@@ -129,27 +129,39 @@ WORKFLOW_CONFIGS = {
         "exit": "end",
         "nodes": [
             "route_event",
+            "get_shipment",
             "check_driver_assignment_eligibility",
+            "check_driver_reminder_eligibility",
             "resolve_workflow_lifecycle",
             "schedule_driver_reminders",
             "record_driver_assignment_started",
+            "send_driver_reminder",
+            "record_driver_reminder_sent",
             "end",
         ],
         "edges": [
             ["resolve_workflow_lifecycle", "schedule_driver_reminders"],
             ["schedule_driver_reminders", "record_driver_assignment_started"],
             ["record_driver_assignment_started", "end"],
+            ["get_shipment", "check_driver_reminder_eligibility"],
+            ["send_driver_reminder", "record_driver_reminder_sent"],
+            ["record_driver_reminder_sent", "end"],
         ],
         "routers": {
             "route_event": {
                 "router": "event_type",
                 "map": {
                     "ratecon_completed": "check_driver_assignment_eligibility",
+                    "reminder_due": "get_shipment",
                 },
             },
             "check_driver_assignment_eligibility": {
                 "router": "driver_assignment_eligibility_router",
                 "map": {"eligible": "resolve_workflow_lifecycle", "skip": "end"},
+            },
+            "check_driver_reminder_eligibility": {
+                "router": "driver_assignment_eligibility_router",
+                "map": {"eligible": "send_driver_reminder", "skip": "end"},
             },
         },
     },

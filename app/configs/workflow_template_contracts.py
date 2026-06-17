@@ -56,8 +56,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
         workflow_name="driver_assignment",
         operation="driver_assignment",
         version="1.0.0",
-        description="Driver assignment workflow; triggered when ratecon completes.",
-        event_types=["ratecon_completed"],
+        description="Driver assignment workflow; triggered when ratecon completes or reminder_due.",
+        event_types=["ratecon_completed", "reminder_due"],
         required_state_keys=[
             "event_type",
             "load_id",
@@ -79,6 +79,12 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "pickup_appointment_source",
             "driver_assignment_skip_reason",
             "driver_assignment_eligible",
+            "reminder_step",
+            "driver_reminder_sent",
+            "driver_reminder_error",
+            "body",
+            "subject",
+            "shipment",
         ],
     ),
     "load_tendering": WorkflowTemplateContract(

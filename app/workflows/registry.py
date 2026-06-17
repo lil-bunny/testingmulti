@@ -43,8 +43,11 @@ from app.workflows.nodes.enqueue_driver_assignment import (
 )
 from app.workflows.nodes.driver_assignment import (
     check_driver_assignment_eligibility,
+    check_driver_reminder_eligibility,
     record_driver_assignment_started,
+    record_driver_reminder_sent,
     schedule_driver_reminders,
+    send_driver_reminder,
 )
 from app.workflows.nodes.record_pod_activity import (
     record_pod_escalation_activity,
@@ -99,6 +102,9 @@ NODE_REGISTRY = {
     "record_ratecon_processed_activity": record_ratecon_processed_activity,
     "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
     "check_driver_assignment_eligibility": check_driver_assignment_eligibility,
+    "check_driver_reminder_eligibility": check_driver_reminder_eligibility,
+    "send_driver_reminder": send_driver_reminder,
+    "record_driver_reminder_sent": record_driver_reminder_sent,
     "record_driver_assignment_started": record_driver_assignment_started,
     "schedule_driver_reminders": schedule_driver_reminders,
     "record_pod_started_activity": record_pod_started_activity,

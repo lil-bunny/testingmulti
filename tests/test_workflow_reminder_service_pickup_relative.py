@@ -29,6 +29,8 @@ def test_schedule_before_pickup_uses_eta(mock_task: MagicMock) -> None:
         "tenant_id": "tenant-1",
         "tenant_slug": "t3ra",
         "workflow_lifecycle_id": "wl-1",
+        "shipments_row_id": "ship-row-1",
+        "ratecon_workflow_lifecycle_id": "ratecon-wl-1",
         "pickup_appointment_at": pickup_at.isoformat(),
         "pickup_appointment_timezone": "America/Los_Angeles",
         "tenant_settings": _before_pickup_settings(),
@@ -47,6 +49,9 @@ def test_schedule_before_pickup_uses_eta(mock_task: MagicMock) -> None:
     first_call = mock_task.apply_async.call_args_list[0]
     assert "eta" in first_call.kwargs
     assert first_call.kwargs["eta"] == pickup_at - timedelta(hours=48)
+    payload = first_call.kwargs["kwargs"]["payload"]
+    assert payload["shipments_row_id"] == "ship-row-1"
+    assert payload["ratecon_workflow_lifecycle_id"] == "ratecon-wl-1"
 
     schedule = data["driver_reminder_schedule"]
     assert len(schedule["reminder_steps"]) == 4

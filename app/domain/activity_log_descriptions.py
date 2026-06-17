@@ -20,6 +20,7 @@ from app.domain.activity_log_constants import (
     DRIVER_ASSIGNMENT_STARTED_ACTION,
     DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE,
     DRIVER_REMINDERS_SCHEDULED_ACTION,
+    DRIVER_REMINDER_SENT_TEMPLATE,
     POD_ESCALATION_SENT_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
     POD_DOCUMENT_UPLOAD_FAILED_ACTION,
@@ -176,6 +177,11 @@ def format_driver_assignment_not_started_action(*, reason: str) -> str:
 
 def format_driver_reminders_scheduled_action() -> str:
     return DRIVER_REMINDERS_SCHEDULED_ACTION
+
+
+def format_driver_reminder_sent_action(*, step: int | None = None) -> str:
+    label = str(step) if step is not None else "?"
+    return DRIVER_REMINDER_SENT_TEMPLATE.format(step=label)
 
 
 def format_pod_escalation_sent_action() -> str:
