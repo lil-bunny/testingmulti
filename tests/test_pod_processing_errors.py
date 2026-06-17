@@ -16,6 +16,7 @@ import pytest
 
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
 from app.domain.state import WorkflowState
+from app.models.activity_type import ActivityType
 from app.workflows.nodes.pod import (
     classify_attachments,
     load_ratecon_analysis,
@@ -317,6 +318,14 @@ def test_pod_analysis_unexpected_exception_sets_unexpected_node_failure(mock_too
 # POD failure → record_workflow_failure_node (node chain)
 # ---------------------------------------------------------------------------
 
+
+def _exception_metadata(mock_svc: MagicMock) -> dict:
+    mock_svc.apply_sequence.assert_called_once()
+    exception_cmd = mock_svc.apply_sequence.call_args[0][0]
+    assert exception_cmd.activity_type == ActivityType.EXCEPTION
+    return exception_cmd.metadata
+
+
 @patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
 @patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
 @patch("app.workflows.nodes.pod.get_pod_analysis")
@@ -338,8 +347,7 @@ def test_pod_analysis_failure_flows_to_record_workflow_failure(
 
     record_workflow_failure_node(state)
 
-    mock_svc.apply_from_state.assert_called_once()
-    metadata = mock_svc.apply_from_state.call_args.kwargs["metadata"]
+    metadata = _exception_metadata(mock_svc)
     assert metadata["error"] == BusinessError.POD_EXTRACTION_EMPTY.value
     assert metadata["shipment_id"] == "SHP-001"
     assert metadata["load_id"] == "LD-001"
@@ -367,7 +375,6 @@ def test_ratecon_analysis_failure_flows_to_record_workflow_failure(
 
     record_workflow_failure_node(state)
 
-    mock_svc.apply_from_state.assert_called_once()
-    metadata = mock_svc.apply_from_state.call_args.kwargs["metadata"]
+    metadata = _exception_metadata(mock_svc)
     assert metadata["error"] == BusinessError.RATECON_EXTRACTION_EMPTY.value
     mock_enqueue.assert_called_once()

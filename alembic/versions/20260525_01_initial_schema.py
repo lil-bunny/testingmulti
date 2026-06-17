@@ -66,6 +66,7 @@ def upgrade() -> None:
         """
         CREATE TYPE activity_log_type AS ENUM (
             'action',
+            'exception',
             'status_change',
             'sub_status_change'
         )
@@ -378,7 +379,7 @@ def upgrade() -> None:
                 REFERENCES communications(id) ON DELETE SET NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT activity_logs_action_snapshot_chk CHECK (
-                activity_type <> 'action'
+                activity_type NOT IN ('action', 'exception')
                 OR (
                     from_status = to_status
                     AND from_sub_status = to_sub_status

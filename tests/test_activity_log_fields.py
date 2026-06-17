@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain.activity_log_fields import build_activity_log_status_fields
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.models.activity_type import ActivityType
@@ -23,9 +25,13 @@ def _command(**kwargs) -> LifecycleTransitionCommand:
     return LifecycleTransitionCommand(**base)
 
 
-def test_action_snapshot_equals_current() -> None:
+@pytest.mark.parametrize(
+    "activity_type",
+    [ActivityType.ACTION, ActivityType.EXCEPTION],
+)
+def test_snapshot_activity_type_equals_current(activity_type: ActivityType) -> None:
     log_from, log_to, log_from_sub, log_to_sub = build_activity_log_status_fields(
-        _command(activity_type=ActivityType.ACTION),
+        _command(activity_type=activity_type),
         current_status=StatusType.PENDING_REVIEW,
         current_sub=StatusSubType.TENDER_SENT_TO_CARRIER,
     )
@@ -33,10 +39,16 @@ def test_action_snapshot_equals_current() -> None:
     assert log_from_sub == log_to_sub == StatusSubType.TENDER_SENT_TO_CARRIER
 
 
-def test_action_ignores_command_to_fields_in_builder() -> None:
+@pytest.mark.parametrize(
+    "activity_type",
+    [ActivityType.ACTION, ActivityType.EXCEPTION],
+)
+def test_snapshot_activity_type_ignores_command_to_fields(
+    activity_type: ActivityType,
+) -> None:
     log_from, log_to, log_from_sub, log_to_sub = build_activity_log_status_fields(
         _command(
-            activity_type=ActivityType.ACTION,
+            activity_type=activity_type,
             to_status=StatusType.COMPLETED,
             to_sub_status=StatusSubType.ACCEPTED,
         ),

@@ -61,9 +61,18 @@ def test_record_activity_legacy_string_type_uses_repo(mock_repo: MagicMock) -> N
 
 
 @patch("app.services.activity_log_service.LifecycleTransitionService")
-def test_record_action_delegates_without_direct_insert(
+@pytest.mark.parametrize(
+    ("method_name", "activity_type"),
+    [
+        ("record_action", ActivityType.ACTION),
+        ("record_exception", ActivityType.EXCEPTION),
+    ],
+)
+def test_record_snapshot_delegates_without_direct_insert(
     mock_transition_cls: MagicMock,
     mock_repo: MagicMock,
+    method_name: str,
+    activity_type: ActivityType,
 ) -> None:
     from app.domain.lifecycle_transition import LifecycleTransitionResult
 
@@ -79,12 +88,12 @@ def test_record_action_delegates_without_direct_insert(
     mock_transition_cls.return_value = mock_transition
 
     svc = ActivityLogService(repository=mock_repo)
-    out = svc.record_action(_write(description="side effect"))
+    out = getattr(svc, method_name)(_write(description="side effect"))
 
     assert out == ACTIVITY_UUID
     mock_transition.apply.assert_called_once()
     command = mock_transition.apply.call_args[0][0]
-    assert command.activity_type == ActivityType.ACTION
+    assert command.activity_type == activity_type
     assert command.update_lifecycle is False
     mock_repo.insert.assert_not_called()
 

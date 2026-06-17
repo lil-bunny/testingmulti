@@ -51,15 +51,18 @@ def test_record_workflow_failure_node_applies_transition(
 
     record_workflow_failure_node(state)
 
-    mock_svc.apply_from_state.assert_called_once()
-    kwargs = mock_svc.apply_from_state.call_args.kwargs
-    assert kwargs["to_status"] == StatusType.PENDING_REVIEW
-    assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
-    assert kwargs["metadata"]["error"] == BusinessError.MISSING_PACK_CODE.value
-    assert kwargs["metadata"]["error_category"] == BusinessError.CATEGORY.value
-    assert kwargs["metadata"]["error_description"] == PACK_MSG
-    assert kwargs["metadata"]["tender_id"] == TENDER_UUID
-    assert kwargs["metadata"]["pack_code"] == "9999"
+    commands = mock_svc.apply_sequence.call_args[0]
+    assert len(commands) == 2
+    assert commands[0].activity_type == ActivityType.EXCEPTION
+    assert commands[1].activity_type == ActivityType.STATUS_CHANGE
+    assert commands[1].to_status == StatusType.PENDING_REVIEW
+    metadata = commands[0].metadata
+    assert metadata["error"] == BusinessError.MISSING_PACK_CODE.value
+    assert metadata["error_category"] == BusinessError.CATEGORY.value
+    assert metadata["error_description"] == PACK_MSG
+    assert metadata["tender_id"] == TENDER_UUID
+    assert metadata["pack_code"] == "9999"
+    assert commands[0].description == PACK_MSG
     mock_enqueue.assert_called_once_with(state)
 
 
@@ -72,7 +75,7 @@ def test_record_workflow_failure_node_skips_enqueue_on_transition_error(
     from app.workflows.nodes.error_handler import record_workflow_failure_node
 
     mock_svc = MagicMock()
-    mock_svc.apply_from_state.side_effect = RuntimeError("db down")
+    mock_svc.apply_sequence.side_effect = RuntimeError("db down")
     mock_transition_cls.return_value = mock_svc
 
     state = WorkflowState(
@@ -125,9 +128,9 @@ def test_record_workflow_failure_node_missing_delivery_address(
 
     record_workflow_failure_node(state)
 
-    mock_svc.apply_from_state.assert_called_once()
-    kwargs = mock_svc.apply_from_state.call_args.kwargs
-    assert kwargs["metadata"]["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
-    assert kwargs["metadata"]["error_description"] == DEL_MSG
-    assert kwargs["metadata"]["delivery_address_code"] == "41000100"
+    commands = mock_svc.apply_sequence.call_args[0]
+    metadata = commands[0].metadata
+    assert metadata["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
+    assert metadata["error_description"] == DEL_MSG
+    assert metadata["delivery_address_code"] == "41000100"
     mock_enqueue.assert_called_once_with(state)

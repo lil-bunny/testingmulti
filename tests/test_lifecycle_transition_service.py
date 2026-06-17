@@ -166,13 +166,34 @@ def test_apply_lifecycle_only_when_record_activity_false(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
-def test_apply_action_snapshots_lifecycle_without_update(
+@pytest.mark.parametrize(
+    ("activity_type", "status", "sub_status", "description"),
+    [
+        (
+            ActivityType.ACTION,
+            StatusType.PENDING_REVIEW,
+            StatusSubType.TENDER_SENT_TO_CARRIER,
+            "Queued reminders",
+        ),
+        (
+            ActivityType.EXCEPTION,
+            StatusType.PROCESSING,
+            StatusSubType.TENDER_CREATED,
+            "Product pack code is required.",
+        ),
+    ],
+)
+def test_apply_snapshot_activity_type_without_lifecycle_update(
     _resolve_tenant: MagicMock,
+    activity_type: ActivityType,
+    status: StatusType,
+    sub_status: StatusSubType,
+    description: str,
 ) -> None:
     lifecycles = MagicMock()
     lifecycles.get_for_update.return_value = {
-        "status": StatusType.PENDING_REVIEW.value,
-        "sub_status": StatusSubType.TENDER_SENT_TO_CARRIER.value,
+        "status": status.value,
+        "sub_status": sub_status.value,
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
@@ -185,24 +206,27 @@ def test_apply_action_snapshots_lifecycle_without_update(
     )
     result = svc.apply(
         _command(
-            activity_type=ActivityType.ACTION,
+            activity_type=activity_type,
             to_status=StatusType.COMPLETED,
             to_sub_status=StatusSubType.ACCEPTED,
             update_lifecycle=True,
-            description="Queued reminders",
+            description=description,
+            metadata={"error": "missing_pack_code"}
+            if activity_type == ActivityType.EXCEPTION
+            else None,
         )
     )
 
     lifecycles.update_status.assert_not_called()
     row = activity_logs.insert.call_args[0][0]
-    assert row["activity_type"] == ActivityType.ACTION.value
-    assert row["from_status"] == StatusType.PENDING_REVIEW.value
-    assert row["to_status"] == StatusType.PENDING_REVIEW.value
-    assert row["from_sub_status"] == StatusSubType.TENDER_SENT_TO_CARRIER.value
-    assert row["to_sub_status"] == StatusSubType.TENDER_SENT_TO_CARRIER.value
+    assert row["activity_type"] == activity_type.value
+    assert row["from_status"] == status.value
+    assert row["to_status"] == status.value
+    assert row["from_sub_status"] == sub_status.value
+    assert row["to_sub_status"] == sub_status.value
     assert result.lifecycle_updated is False
-    assert result.from_status == StatusType.PENDING_REVIEW
-    assert result.to_status == StatusType.PENDING_REVIEW
+    assert result.from_status == status
+    assert result.to_status == status
 
 
 def test_apply_requires_workflow_lifecycle_id() -> None:

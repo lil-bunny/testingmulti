@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from app.domain.error_catalog import BusinessError, workflow_error_payload
 from app.domain.state import WorkflowState
+from app.models.activity_type import ActivityType
 from app.workflows.nodes.error_handler import record_workflow_failure_node
 
 
@@ -36,6 +37,13 @@ def _state(**data) -> WorkflowState:
     )
 
 
+def _exception_metadata(mock_svc: MagicMock) -> dict:
+    mock_svc.apply_sequence.assert_called_once()
+    exception_cmd = mock_svc.apply_sequence.call_args[0][0]
+    assert exception_cmd.activity_type == ActivityType.EXCEPTION
+    return exception_cmd.metadata
+
+
 @patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
 @patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
 def test_record_workflow_failure_includes_shipment_id_in_metadata(
@@ -52,9 +60,7 @@ def test_record_workflow_failure_includes_shipment_id_in_metadata(
 
     record_workflow_failure_node(state)
 
-    mock_svc.apply_from_state.assert_called_once()
-    call_kwargs = mock_svc.apply_from_state.call_args.kwargs
-    metadata = call_kwargs["metadata"]
+    metadata = _exception_metadata(mock_svc)
 
     assert metadata["shipment_id"] == "SHP-999"
     assert metadata["load_id"] == "LD-123"
@@ -76,8 +82,7 @@ def test_record_workflow_failure_omits_shipment_id_when_absent(
 
     record_workflow_failure_node(state)
 
-    call_kwargs = mock_svc.apply_from_state.call_args.kwargs
-    metadata = call_kwargs["metadata"]
+    metadata = _exception_metadata(mock_svc)
 
     assert "shipment_id" not in metadata
     assert "load_id" not in metadata
@@ -100,8 +105,7 @@ def test_record_workflow_failure_includes_shipment_from_nested_shipment_dict(
 
     record_workflow_failure_node(state)
 
-    call_kwargs = mock_svc.apply_from_state.call_args.kwargs
-    metadata = call_kwargs["metadata"]
+    metadata = _exception_metadata(mock_svc)
 
     assert metadata["shipment_id"] == "SHP-FROM-DICT"
     assert metadata["load_id"] == "LD-456"
@@ -125,8 +129,7 @@ def test_record_workflow_failure_existing_tender_metadata_preserved(
 
     record_workflow_failure_node(state)
 
-    call_kwargs = mock_svc.apply_from_state.call_args.kwargs
-    metadata = call_kwargs["metadata"]
+    metadata = _exception_metadata(mock_svc)
 
     assert metadata["tender_id"] == "TND-1"
     assert metadata["pack_code"] == "5366"

@@ -17,7 +17,7 @@ from app.domain.lifecycle_transition import (
     LifecycleTransitionSequenceResult,
 )
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
-from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
+from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID, is_snapshot_activity_type
 from app.models.status import StatusSubType, StatusType
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
@@ -123,7 +123,7 @@ class LifecycleTransitionService:
     ) -> tuple[StatusType | None, StatusSubType | None]:
         if row is None:
             return command.from_status, command.from_sub_status
-        if command.activity_type == ActivityType.ACTION:
+        if is_snapshot_activity_type(command.activity_type):
             return (
                 status_type_from_db(row.get("status")),
                 sub_status_type_from_db(row.get("sub_status")),
@@ -157,7 +157,7 @@ class LifecycleTransitionService:
         StatusSubType,
         StatusSubType,
     ]:
-        if command.activity_type == ActivityType.ACTION:
+        if is_snapshot_activity_type(command.activity_type):
             step_status, step_sub = self._resolve_current_status(command, row)
         else:
             step_status, step_sub = current_status, current_sub
@@ -173,7 +173,7 @@ class LifecycleTransitionService:
         lifecycle_updated = False
         update_lifecycle = (
             command.update_lifecycle
-            and command.activity_type != ActivityType.ACTION
+            and not is_snapshot_activity_type(command.activity_type)
         )
         next_status = step_status
         next_sub = step_sub

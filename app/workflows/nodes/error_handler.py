@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.state import WorkflowState
 from app.workflows.shipment_resolver import resolve_shipment_id
 from app.models.activity_type import ActivityType, ActorType
@@ -21,8 +22,8 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
     """
     Global sink for catalog workflow errors.
 
-    Persists lifecycle pending_review with error metadata, then enqueues async
-    operational alerts when the transition succeeds.
+    Persists lifecycle ``pending_review`` with an ``exception`` activity log row, then
+    enqueues async operational alerts when the transition succeeds.
     """
     workflow_error = state.data.get("error")
     if not isinstance(workflow_error, dict):
@@ -56,12 +57,21 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             metadata["load_id"] = load_id
 
         try:
-            lifecycle_transition_service.apply_from_state(
-                state,
-                to_status=StatusType.PENDING_REVIEW,
-                activity_type=ActivityType.STATUS_CHANGE,
-                actor_type=ActorType.SYSTEM,
-                metadata=metadata or None,
+            lifecycle_transition_service.apply_sequence(
+                LifecycleTransitionCommand.from_workflow_state(
+                    state,
+                    activity_type=ActivityType.EXCEPTION,
+                    actor_type=ActorType.SYSTEM,
+                    metadata=metadata or None,
+                    description=workflow_error.get("message"),
+                    update_lifecycle=False,
+                ),
+                LifecycleTransitionCommand.from_workflow_state(
+                    state,
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    to_status=StatusType.PENDING_REVIEW,
+                    actor_type=ActorType.SYSTEM,
+                ),
             )
         except Exception:
             logger.exception(

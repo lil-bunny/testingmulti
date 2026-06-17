@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
-from app.models.activity_type import ActivityType
+from app.models.activity_type import ActivityType, is_snapshot_activity_type
 from app.models.status import StatusSubType, StatusType
 
 
@@ -25,11 +25,12 @@ def build_activity_log_status_fields(
     """
     Return ``(log_from_status, log_to_status, log_from_sub, log_to_sub)``.
 
-    ``action``: snapshot only — ``from_*`` and ``to_*`` equal current lifecycle state.
+    ``action`` / ``exception``: snapshot only — ``from_*`` and ``to_*`` equal current
+    lifecycle state.
     ``status_change`` / ``sub_status_change``: transition — ``from_*`` from current,
     ``to_*`` from command when set else unchanged.
     """
-    if command.activity_type == ActivityType.ACTION:
+    if is_snapshot_activity_type(command.activity_type):
         snap_status = status_for_log(current_status)
         snap_sub = sub_status_for_log(current_sub)
         return snap_status, snap_status, snap_sub, snap_sub

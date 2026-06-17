@@ -29,11 +29,10 @@ LISTEN_TURVO_WORKFLOW_NAME = "pod_lifecycle"
 def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     """
     Webhooks (e.g. Turvo) often cannot send custom query params. Precedence: optional
-    X-Workflow-Tenant-Id header, then TURVO_WEBHOOK_WORKFLOW_TENANT_ID, then STUDIO_TENANT_SLUG.
+    X-Workflow-Tenant-Id header, then STUDIO_TENANT_SLUG.
     """
     for candidate in (
         (override or "").strip() or None,
-        (settings.TURVO_WEBHOOK_WORKFLOW_TENANT_ID or "").strip() or None,
         (settings.STUDIO_TENANT_SLUG or "").strip() or None,
     ):
         if candidate:
@@ -95,7 +94,7 @@ async def webhook_email(request: Request):
                 "schema": {"type": "string"},
                 "description": (
                     "Optional workflow tenant key (e.g. t3ra). "
-                    "Else TURVO_WEBHOOK_WORKFLOW_TENANT_ID, STUDIO_TENANT_SLUG, or t3ra."
+                    "Else STUDIO_TENANT_SLUG, or t3ra."
                 ),
             }
         ]

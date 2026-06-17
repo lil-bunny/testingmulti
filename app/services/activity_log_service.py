@@ -4,7 +4,7 @@ Callable from any workflow node, webhook handler, or Celery task. Resolves graph
 keys (e.g. ``gelita``) to ``tenants.id`` before insert. Failures are logged and return
 ``None`` so graph execution is not blocked.
 
-Use ``record_action``, ``record_status_change``, ``record_sub_status_change``, or
+Use ``record_action``, ``record_exception``, ``record_status_change``, ``record_sub_status_change``, or
 ``record_sequence`` for lifecycle-scoped rows. ``record_activity`` remains for legacy
 non-lifecycle event type strings only.
 """
@@ -12,6 +12,7 @@ non-lifecycle event type strings only.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any, Optional
 
 from app.core.logger import get_logger
@@ -26,7 +27,7 @@ from app.domain.lifecycle_transition import (
     LifecycleTransitionCommand,
     LifecycleTransitionError,
 )
-from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID
+from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID, is_snapshot_activity_type
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -118,7 +119,7 @@ class ActivityLogService:
         wl, wr, tenant_id = scope
 
         if update_lifecycle is None:
-            update_lifecycle = activity_type != ActivityType.ACTION
+            update_lifecycle = not is_snapshot_activity_type(activity_type)
 
         return LifecycleTransitionCommand(
             tenant_id=tenant_id,
@@ -152,7 +153,7 @@ class ActivityLogService:
         tenant_id: str,
     ) -> LifecycleTransitionCommand:
         if step.update_lifecycle is None:
-            update_lifecycle = step.activity_type != ActivityType.ACTION
+            update_lifecycle = not is_snapshot_activity_type(step.activity_type)
         else:
             update_lifecycle = step.update_lifecycle
 
@@ -226,19 +227,28 @@ class ActivityLogService:
             )
             return None
 
-    def record_action(self, write: ActivityLogWrite) -> str | None:
-        """One ``action`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
+    def _record_snapshot(
+        self, write: ActivityLogWrite, *, activity_type: ActivityType
+    ) -> str | None:
         wl = self._uuid_or_none(
             write.workflow_lifecycle_id, field_name="workflow_lifecycle_id"
         )
         wr = self._uuid_or_none(write.workflow_run_id, field_name="workflow_run_id")
         command = self._to_command(
             write,
-            activity_type=ActivityType.ACTION,
+            activity_type=activity_type,
             update_lifecycle=False,
             portal_lifecycle_scoped=wr is None,
         )
         return self._apply_command(command)
+
+    def record_action(self, write: ActivityLogWrite) -> str | None:
+        """One ``action`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
+        return self._record_snapshot(write, activity_type=ActivityType.ACTION)
+
+    def record_exception(self, write: ActivityLogWrite) -> str | None:
+        """One ``exception`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
+        return self._record_snapshot(write, activity_type=ActivityType.EXCEPTION)
 
     def record_status_change(self, write: ActivityLogWrite) -> str | None:
         """
@@ -314,27 +324,29 @@ class ActivityLogService:
         """
         Legacy/generic insert. Prefer ``record_action`` / ``record_status_change``.
 
-        Routes ``action``, ``status_change``, and ``sub_status_change`` through the
+        Routes ``action``, ``exception``, ``status_change``, and ``sub_status_change`` through the
         lifecycle transition service. Other ``activity_type`` strings use a direct
         repository insert (no lifecycle update).
         """
-        at = self._clean(activity_type)
-        if not at:
+        clean_activity_type = self._clean(activity_type)
+        if not clean_activity_type:
             logger.warning("activity_log skipped: activity_type is required")
             return None
 
-        wl = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
-        wr = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
-        if not wl or not wr:
+        lifecycle_id = self._uuid_or_none(
+            workflow_lifecycle_id, field_name="workflow_lifecycle_id"
+        )
+        run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        if not lifecycle_id or not run_id:
             logger.warning(
                 "activity_log skipped: workflow_lifecycle_id and workflow_run_id required "
                 "(activity_type=%r)",
-                at,
+                clean_activity_type,
             )
             return None
 
-        tid_uuid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
-        if not tid_uuid:
+        tenant_uuid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        if not tenant_uuid:
             if self._clean(tenant_id):
                 logger.warning(
                     "activity_log skipped: cannot resolve tenant_id=%r to tenants.id (UUID)",
@@ -342,71 +354,66 @@ class ActivityLogService:
                 )
             return None
 
-        if at == ActivityType.ACTION.value:
-            return self.record_action(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    description=description,
-                    metadata=metadata,
-                    actor_type=ActorType(self._clean(actor_type) or ActorType.SYSTEM),
-                    actor_id=actor_id,
-                )
-            )
-        if at == ActivityType.STATUS_CHANGE.value:
+        resolved_actor_type = ActorType(self._clean(actor_type) or ActorType.SYSTEM)
+        routed_write = ActivityLogWrite(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=lifecycle_id,
+            workflow_run_id=run_id,
+            description=description,
+            metadata=metadata,
+            actor_type=resolved_actor_type,
+            actor_id=actor_id,
+        )
+
+        if clean_activity_type == ActivityType.ACTION.value:
+            return self.record_action(routed_write)
+        if clean_activity_type == ActivityType.EXCEPTION.value:
+            return self.record_exception(routed_write)
+        if clean_activity_type == ActivityType.STATUS_CHANGE.value:
             from app.models.status import StatusSubType, StatusType
 
             return self.record_status_change(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    description=description,
-                    metadata=metadata,
-                    actor_type=ActorType(self._clean(actor_type) or ActorType.SYSTEM),
-                    actor_id=actor_id,
+                replace(
+                    routed_write,
                     to_status=StatusType(to_status) if to_status else None,
                     to_sub_status=StatusSubType(to_sub_status) if to_sub_status else None,
                     from_status=StatusType(from_status) if from_status else None,
-                    from_sub_status=StatusSubType(from_sub_status) if from_sub_status else None,
+                    from_sub_status=StatusSubType(from_sub_status)
+                    if from_sub_status
+                    else None,
                 )
             )
-        if at == ActivityType.SUB_STATUS_CHANGE.value:
+        if clean_activity_type == ActivityType.SUB_STATUS_CHANGE.value:
             from app.models.status import StatusSubType, StatusType
 
             return self.record_sub_status_change(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl,
-                    workflow_run_id=wr,
-                    description=description,
-                    metadata=metadata,
-                    actor_type=ActorType(self._clean(actor_type) or ActorType.SYSTEM),
-                    actor_id=actor_id,
+                replace(
+                    routed_write,
                     to_sub_status=StatusSubType(to_sub_status) if to_sub_status else None,
                     from_status=StatusType(from_status) if from_status else None,
-                    from_sub_status=StatusSubType(from_sub_status) if from_sub_status else None,
+                    from_sub_status=StatusSubType(from_sub_status)
+                    if from_sub_status
+                    else None,
                 )
             )
 
-        actor = self._uuid_or_none(actor_id, field_name="actor_id")
-        actor_type_clean = self._clean(actor_type)
-        if not actor and actor_type_clean == ActorType.SYSTEM.value:
-            actor = SYSTEM_ACTOR_ID
+        actor_uuid = self._uuid_or_none(actor_id, field_name="actor_id")
+        actor_type_value = self._clean(actor_type)
+        if not actor_uuid and actor_type_value == ActorType.SYSTEM.value:
+            actor_uuid = SYSTEM_ACTOR_ID
 
         row = {
-            "tenant_id": tid_uuid,
-            "workflow_lifecycle_id": wl,
-            "workflow_run_id": wr,
-            "activity_type": at,
+            "tenant_id": tenant_uuid,
+            "workflow_lifecycle_id": lifecycle_id,
+            "workflow_run_id": run_id,
+            "activity_type": clean_activity_type,
             "description": self._clean(description),
             "from_status": self._clean(from_status),
             "to_status": self._clean(to_status),
             "from_sub_status": self._clean(from_sub_status),
             "to_sub_status": self._clean(to_sub_status),
             "actor_type": self._clean(actor_type),
-            "actor_id": actor,
+            "actor_id": actor_uuid,
             "metadata": metadata if metadata is not None else {},
         }
 
@@ -417,8 +424,8 @@ class ActivityLogService:
         except Exception:
             logger.exception(
                 "activity_log insert failed activity_type=%r tenant_id=%s",
-                at,
-                tid_uuid,
+                clean_activity_type,
+                tenant_uuid,
             )
             return None
 
