@@ -29,6 +29,9 @@ RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE = (
     "Ratecon document processed — LLM extraction{confidence_suffix}"
 )
 POD_STARTED_ACTION = "POD lifecycle started"
+DRIVER_ASSIGNMENT_STARTED_ACTION = "Driver assignment started"
+DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE = "Driver assignment not started: {reason}"
+DRIVER_REMINDERS_SCHEDULED_ACTION = "Driver reminders scheduled"
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
 POD_DOCUMENT_UPLOAD_FAILED_ACTION = "POD document upload failed"

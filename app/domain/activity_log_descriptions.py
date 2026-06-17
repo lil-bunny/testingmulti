@@ -17,6 +17,9 @@ from app.domain.activity_log_constants import (
     RATECON_DOCUMENT_PROCESSING_FAILED_ACTION,
     RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE,
     POD_STARTED_ACTION,
+    DRIVER_ASSIGNMENT_STARTED_ACTION,
+    DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE,
+    DRIVER_REMINDERS_SCHEDULED_ACTION,
     POD_ESCALATION_SENT_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
     POD_DOCUMENT_UPLOAD_FAILED_ACTION,
@@ -161,6 +164,18 @@ def format_ratecon_document_processed_with_llm_action(
 
 def format_pod_started_action() -> str:
     return POD_STARTED_ACTION
+
+
+def format_driver_assignment_started_action() -> str:
+    return DRIVER_ASSIGNMENT_STARTED_ACTION
+
+
+def format_driver_assignment_not_started_action(*, reason: str) -> str:
+    return DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE.format(reason=reason)
+
+
+def format_driver_reminders_scheduled_action() -> str:
+    return DRIVER_REMINDERS_SCHEDULED_ACTION
 
 
 def format_pod_escalation_sent_action() -> str:
