@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from pydantic import ValidationError
@@ -25,6 +25,8 @@ _DEFAULT_PAYLOAD_KEYS: tuple[str, ...] = (
     "thread_id",
     "shipment_id",
     "load_id",
+    "pickup_appointment_at",
+    "pickup_appointment_timezone",
     "account_id",
     "to",
     "subject",
@@ -179,6 +181,19 @@ def enrich_step_payload(
     return payload
 
 
+def _parse_pickup_appointment_at(data: dict[str, Any]) -> datetime | None:
+    raw = data.get("pickup_appointment_at")
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
 class WorkflowReminderService:
     def schedule(self, data: dict[str, Any], *, workflow_name: str) -> None:
         wf = (workflow_name or "").strip()
@@ -221,6 +236,10 @@ class WorkflowReminderService:
                 data["reminders_scheduled"] = True
                 return
 
+        if reminders.schedule_mode == "before_pickup":
+            self._schedule_before_pickup(data, workflow_name=wf, reminders=reminders)
+            return
+
         steps = resolve_reminder_steps(reminders, data, workflow_name=wf)
         if not steps:
             return
@@ -259,4 +278,101 @@ class WorkflowReminderService:
                     pass
             return
 
+        data["reminders_scheduled"] = True
+
+    def _schedule_before_pickup(
+        self,
+        data: dict[str, Any],
+        *,
+        workflow_name: str,
+        reminders: WorkflowRemindersConfig,
+    ) -> None:
+        pickup_at = _parse_pickup_appointment_at(data)
+        if pickup_at is None:
+            logger.warning(
+                "workflow_reminder missing pickup_appointment_at workflow=%s lifecycle_id=%s",
+                workflow_name,
+                data.get("workflow_lifecycle_id"),
+            )
+            return
+
+        offsets = reminders.offsets_before_pickup_hours or []
+        if not offsets:
+            return
+
+        now = datetime.now(timezone.utc)
+        base_payload = build_enqueue_payload(
+            data, workflow_name=workflow_name, reminders=reminders
+        )
+        reminder_steps: list[dict[str, Any]] = []
+        skipped_steps: list[dict[str, Any]] = []
+        to_enqueue: list[tuple[int, float, datetime, dict[str, Any]]] = []
+
+        for index, offset_hours in enumerate(offsets, start=1):
+            offset = float(offset_hours)
+            fire_at = pickup_at - timedelta(hours=offset)
+            step_info = {
+                "step": index,
+                "offset_hours": offset,
+                "fire_at": fire_at.isoformat(),
+            }
+            if fire_at <= now:
+                skipped_steps.append(step_info)
+                continue
+
+            reminder_steps.append(step_info)
+            payload = copy.deepcopy(base_payload)
+            payload["event_type"] = "reminder_due"
+            payload["reminder_step"] = index
+            payload["pickup_appointment_at"] = pickup_at.isoformat()
+            tz = data.get("pickup_appointment_timezone")
+            if tz is not None and str(tz).strip():
+                payload["pickup_appointment_timezone"] = str(tz).strip()
+
+            email_body = reminders.resolve_email_body()
+            if email_body is not None:
+                payload["body"] = (
+                    str(payload.get("body") or data.get("body") or "").strip()
+                ) or email_body
+            to_enqueue.append((index, offset, fire_at, payload))
+
+        if to_enqueue:
+            latest_fire_at = max(fire_at for _, _, fire_at, _ in to_enqueue)
+            expire_s = int(
+                (
+                    (latest_fire_at - now)
+                    + timedelta(hours=reminders.expire_grace_hours)
+                ).total_seconds()
+            )
+        else:
+            expire_s = int(timedelta(hours=reminders.expire_grace_hours).total_seconds())
+
+        queued: list[Any] = []
+        try:
+            for _, _, fire_at, payload in to_enqueue:
+                result = trigger_workflow_reminder.apply_async(
+                    kwargs={"payload": payload},
+                    eta=fire_at,
+                    expires=expire_s,
+                )
+                queued.append(result)
+        except Exception:
+            logger.exception(
+                "workflow_reminder before_pickup enqueue failed workflow=%s lifecycle_id=%s",
+                workflow_name,
+                data.get("workflow_lifecycle_id"),
+            )
+            for item in queued:
+                try:
+                    item.revoke(terminate=False)
+                except Exception:
+                    pass
+            return
+
+        data["driver_reminder_schedule"] = {
+            "pickup_appointment_at": pickup_at.isoformat(),
+            "pickup_appointment_timezone": data.get("pickup_appointment_timezone"),
+            "reminder_steps": reminder_steps,
+            "skipped_steps": skipped_steps,
+        }
         data["reminders_scheduled"] = True

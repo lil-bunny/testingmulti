@@ -34,6 +34,8 @@ class WorkflowRemindersConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     expire_grace_hours: float = Field(default=2.0, gt=0)
+    schedule_mode: Literal["delay_from_start", "before_pickup"] = "delay_from_start"
+    offsets_before_pickup_hours: list[float] | None = None
     steps: list[ReminderStepSpec] | None = None
     variants: dict[str, list[ReminderStepSpec]] | None = None
     variant_selector: Literal["load_type"] | None = None
@@ -71,6 +73,12 @@ class WorkflowRemindersConfig(BaseModel):
 
     @model_validator(mode="after")
     def _steps_or_variants(self) -> WorkflowRemindersConfig:
+        if self.schedule_mode == "before_pickup":
+            if not self.offsets_before_pickup_hours:
+                raise ValueError(
+                    "offsets_before_pickup_hours is required when schedule_mode is before_pickup"
+                )
+            return self
         has_steps = bool(self.steps)
         has_variants = bool(self.variants)
         if has_steps == has_variants:
