@@ -59,9 +59,9 @@ class WorkflowRunsRepository:
         exclude_run_id: str | None = None,
     ) -> bool:
         """
-        Whether a prior recorded run already covers this ``route_completed`` trigger.
+        Whether a prior recorded run already covers this initial-path trigger.
 
-        Matches either same ``workflow_lifecycle_id`` + ``route_completed`` or any run for the same
+        Matches either same ``workflow_lifecycle_id`` + ``event_type`` or any run for the same
         tenant shipment (via ``workflow_lifecycles.shipment_id``). Requires resolvable UUID ``tenant_id``.
         """
         tid = self._tenant_uuid_or_none(tenant_id)
@@ -71,7 +71,7 @@ class WorkflowRunsRepository:
         sid_uuid = self._uuid_or_none(sid)
         exc = self._clean(exclude_run_id)
 
-        if not tid or not wl or et != "route_completed" or not sid:
+        if not tid or not wl or not et or not sid:
             return False
 
         shipment_match_sql = ""
@@ -82,7 +82,7 @@ class WorkflowRunsRepository:
                 SELECT 1 FROM {table} wr
                 INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
                 WHERE trim(both wr.tenant_id::text) = trim(both CAST(:tid AS text))
-                  AND wr.event_type = 'route_completed'
+                  AND wr.event_type = :et
                   AND wl.shipment_id IS NOT DISTINCT FROM CAST(:sid_uuid AS uuid)
                   AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
             """.format(table=self.TABLE_NAME)
