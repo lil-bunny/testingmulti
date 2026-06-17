@@ -12,7 +12,9 @@ from app.domain.lifecycle_transition import (
 )
 from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType, ActorType
+from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
+from app.repositories.workflow_lifecycles_repository import LifecycleUpdate
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -51,7 +53,7 @@ def test_apply_updates_lifecycle_and_inserts_activity(
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
 
     activity_logs = MagicMock()
     activity_logs.insert.return_value = ACTIVITY_UUID
@@ -63,10 +65,13 @@ def test_apply_updates_lifecycle_and_inserts_activity(
     result = svc.apply(_command())
 
     lifecycles.get_for_update.assert_called_once_with(lifecycle_id=LIFECYCLE_UUID)
-    lifecycles.update_status.assert_called_once_with(
+    lifecycles.update_lifecycle.assert_called_once_with(
         lifecycle_id=LIFECYCLE_UUID,
-        status=StatusType.COMPLETED,
-        sub_status=StatusSubType.ACCEPTED,
+        update=LifecycleUpdate(
+            status=StatusType.COMPLETED,
+            sub_status=StatusSubType.ACCEPTED,
+            clear_pause=True,
+        ),
     )
     activity_logs.insert.assert_called_once()
     row = activity_logs.insert.call_args[0][0]
@@ -82,17 +87,19 @@ def test_apply_updates_lifecycle_and_inserts_activity(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
-def test_apply_sub_status_only_keeps_top_level_status_on_log(
+def test_apply_sub_status_change_auto_resumes_from_pending_review(
     _resolve_tenant: MagicMock,
 ) -> None:
+    """A non-exception sub_status_change off ``pending_review`` lifts status to
+    ``processing`` and clears any prior ``pause_type`` (forward-progress fix)."""
     lifecycles = MagicMock()
     lifecycles.get_for_update.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
-        "sub_status": StatusSubType.TENDER_SENT_TO_TENANT.value,
+        "sub_status": StatusSubType.TENDER_CREATED.value,
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
     activity_logs.insert.return_value = ACTIVITY_UUID
 
@@ -103,25 +110,24 @@ def test_apply_sub_status_only_keeps_top_level_status_on_log(
     result = svc.apply(
         _command(
             to_status=None,
-            to_sub_status=StatusSubType.ESCALATED,
+            to_sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
             activity_type=ActivityType.SUB_STATUS_CHANGE,
         )
     )
 
-    lifecycles.update_status.assert_called_once_with(
+    lifecycles.update_lifecycle.assert_called_once_with(
         lifecycle_id=LIFECYCLE_UUID,
-        status=None,
-        sub_status=StatusSubType.ESCALATED,
+        update=LifecycleUpdate(
+            status=StatusType.PROCESSING,
+            sub_status=StatusSubType.TENDER_SENT_TO_CARRIER,
+            clear_pause=True,
+        ),
     )
     row = activity_logs.insert.call_args[0][0]
     assert row["from_status"] == StatusType.PENDING_REVIEW.value
-    assert row["to_status"] == StatusType.PENDING_REVIEW.value
-    assert row["to_sub_status"] == StatusSubType.ESCALATED.value
-    assert (
-        row["description"]
-        == "Sub-status changed from Tender Sent To Tenant to Escalated"
-    )
-    assert result.to_status == StatusType.PENDING_REVIEW
+    assert row["to_status"] == StatusType.PROCESSING.value
+    assert row["to_sub_status"] == StatusSubType.TENDER_SENT_TO_CARRIER.value
+    assert result.to_status == StatusType.PROCESSING
 
 
 @patch(
@@ -138,7 +144,7 @@ def test_apply_lifecycle_only_when_record_activity_false(
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
 
     svc = LifecycleTransitionService(
@@ -152,10 +158,13 @@ def test_apply_lifecycle_only_when_record_activity_false(
         )
     )
 
-    lifecycles.update_status.assert_called_once_with(
+    lifecycles.update_lifecycle.assert_called_once_with(
         lifecycle_id=LIFECYCLE_UUID,
-        status=StatusType.COMPLETED,
-        sub_status=StatusSubType.DO_NOTHING,
+        update=LifecycleUpdate(
+            status=StatusType.COMPLETED,
+            sub_status=StatusSubType.DO_NOTHING,
+            clear_pause=True,
+        ),
     )
     activity_logs.insert.assert_not_called()
     assert result.lifecycle_updated is True
@@ -217,7 +226,13 @@ def test_apply_snapshot_activity_type_without_lifecycle_update(
         )
     )
 
-    lifecycles.update_status.assert_not_called()
+    if activity_type is ActivityType.EXCEPTION:
+        lifecycles.update_lifecycle.assert_called_once_with(
+            lifecycle_id=LIFECYCLE_UUID,
+            update=LifecycleUpdate(pause_type=PauseType.SYSTEM_ERROR),
+        )
+    else:
+        lifecycles.update_lifecycle.assert_not_called()
     row = activity_logs.insert.call_args[0][0]
     assert row["activity_type"] == activity_type.value
     assert row["from_status"] == status.value
@@ -279,7 +294,7 @@ def test_apply_portal_lifecycle_scoped_action_without_run_id(
     )
 
     lifecycles.get_for_update.assert_called_once_with(lifecycle_id=LIFECYCLE_UUID)
-    lifecycles.update_status.assert_not_called()
+    lifecycles.update_lifecycle.assert_not_called()
     row = activity_logs.insert.call_args[0][0]
     assert row["workflow_lifecycle_id"] == LIFECYCLE_UUID
     assert row["workflow_run_id"] is None
@@ -305,7 +320,7 @@ def test_apply_sequence_portal_lifecycle_scoped_without_run_id(
         "tenant_id": TENANT_UUID,
         "workflow_name": "pod_lifecycle",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
     activity_logs.insert.side_effect = [
         ACTIVITY_UUID,
@@ -335,7 +350,7 @@ def test_apply_sequence_portal_lifecycle_scoped_without_run_id(
 
     result = svc.apply_sequence(action, status_change)
 
-    lifecycles.update_status.assert_called_once()
+    lifecycles.update_lifecycle.assert_called_once()
     assert activity_logs.insert.call_count == 2
     assert result.activity_log_ids == [
         ACTIVITY_UUID,
@@ -460,7 +475,7 @@ def test_apply_sequence_action_then_status_in_one_transaction(
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
     activity_logs.insert.side_effect = [
         "action-log-id",
@@ -503,7 +518,7 @@ def test_apply_sequence_action_then_status_in_one_transaction(
         == "Status changed from None to Processing"
     )
 
-    lifecycles.update_status.assert_called_once()
+    lifecycles.update_lifecycle.assert_called_once()
 
 
 @patch(
@@ -520,7 +535,7 @@ def test_apply_from_state_passes_communication_id_to_insert(
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
     activity_logs.insert.return_value = ACTIVITY_UUID
 
@@ -564,7 +579,7 @@ def test_apply_status_change_uses_generated_description(
         "tenant_id": TENANT_UUID,
         "workflow_name": "load_tendering",
     }
-    lifecycles.update_status.return_value = True
+    lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
     activity_logs.insert.return_value = ACTIVITY_UUID
 

@@ -3,12 +3,37 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
+
+
+@dataclass(frozen=True)
+class LifecycleUpdate:
+    """One atomic write into ``workflow_lifecycles`` row.
+
+    ``pause_type`` set means write that value; ``clear_pause=True`` means write NULL.
+    If both are unset, ``pause_type`` is not touched. ``clear_pause`` is ignored when
+    ``pause_type`` is provided.
+    """
+
+    status: StatusType | None = None
+    sub_status: StatusSubType | None = None
+    pause_type: PauseType | None = None
+    clear_pause: bool = False
+
+    def has_changes(self) -> bool:
+        return (
+            self.status is not None
+            or self.sub_status is not None
+            or self.pause_type is not None
+            or self.clear_pause
+        )
 
 _WHERE_LIFECYCLE_ID = """
     WHERE id = CAST(:lifecycle_id AS uuid)
@@ -88,19 +113,37 @@ class WorkflowLifecyclesRepository:
         status: StatusType | None = None,
         sub_status: StatusSubType | None = None,
     ) -> bool:
+        return self.update_lifecycle(
+            lifecycle_id=lifecycle_id,
+            update=LifecycleUpdate(status=status, sub_status=sub_status),
+        )
+
+    def update_lifecycle(
+        self,
+        *,
+        lifecycle_id: str,
+        update: LifecycleUpdate,
+    ) -> bool:
+        """Single-statement update of status / sub_status / pause_type."""
+        if not update.has_changes():
+            return False
+
         updates: list[str] = []
         params: dict[str, Any] = {"lifecycle_id": lifecycle_id}
 
-        if status is not None:
+        if update.status is not None:
             updates.append("status = CAST(:status AS lifecycle_status)")
-            params["status"] = status.value
+            params["status"] = update.status.value
 
-        if sub_status is not None:
+        if update.sub_status is not None:
             updates.append("sub_status = CAST(:sub_status AS lifecycle_sub_status)")
-            params["sub_status"] = sub_status.value
+            params["sub_status"] = update.sub_status.value
 
-        if not updates:
-            return False
+        if update.pause_type is not None:
+            updates.append("pause_type = CAST(:pause_type AS lifecycle_pause_type)")
+            params["pause_type"] = update.pause_type.value
+        elif update.clear_pause:
+            updates.append("pause_type = NULL")
 
         updates.append("updated_at = NOW()")
         sql = f"""

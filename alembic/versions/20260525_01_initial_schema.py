@@ -1,7 +1,6 @@
 """FreightX application schema (DDL only).
 
 Revision ID: 20260525_01
-Revises: 20260521_01
 Create Date: 2026-06-11
 
 FreightX workflow / logistics tables. Requires ``tenants`` from
@@ -66,7 +65,6 @@ def upgrade() -> None:
         """
         CREATE TYPE activity_log_type AS ENUM (
             'action',
-            'exception',
             'status_change',
             'sub_status_change'
         )
@@ -379,7 +377,7 @@ def upgrade() -> None:
                 REFERENCES communications(id) ON DELETE SET NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             CONSTRAINT activity_logs_action_snapshot_chk CHECK (
-                activity_type NOT IN ('action', 'exception')
+                activity_type <> 'action'
                 OR (
                     from_status = to_status
                     AND from_sub_status = to_sub_status

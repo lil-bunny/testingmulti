@@ -9,6 +9,7 @@ from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.state import WorkflowState
 from app.workflows.shipment_resolver import resolve_shipment_id
 from app.models.activity_type import ActivityType, ActorType
+from app.models.pause_type import PauseType
 from app.models.status import StatusType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_error_alert_enqueue_service import (
@@ -56,6 +57,8 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
         if load_id:
             metadata["load_id"] = load_id
 
+        pause_type = PauseType.from_error_category(workflow_error.get("category"))
+
         try:
             lifecycle_transition_service.apply_sequence(
                 LifecycleTransitionCommand.from_workflow_state(
@@ -65,6 +68,7 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
                     metadata=metadata or None,
                     description=workflow_error.get("message"),
                     update_lifecycle=False,
+                    pause_type=pause_type,
                 ),
                 LifecycleTransitionCommand.from_workflow_state(
                     state,

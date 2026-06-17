@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.activity_type import ActivityType, ActorType
+from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
 
 
@@ -50,6 +51,8 @@ class LifecycleTransitionCommand:
 
     email_thread_id: str | None = None
 
+    pause_type: PauseType | None = None
+
     @classmethod
     def from_workflow_state(
         cls,
@@ -72,6 +75,7 @@ class LifecycleTransitionCommand:
         workflow_lifecycle_id: str | None = None,
         workflow_run_id: str | None = None,
         tenant_id: str | None = None,
+        pause_type: PauseType | None = None,
     ) -> LifecycleTransitionCommand:
         data = getattr(state, "data", None) or {}
         tenant_raw = tenant_id
@@ -116,6 +120,7 @@ class LifecycleTransitionCommand:
             require_lifecycle_row=require_lifecycle_row,
             email_thread_id=str(thread).strip() if thread else None,
             communication_id=_normalize_uuid(comm),
+            pause_type=pause_type,
         )
 
 

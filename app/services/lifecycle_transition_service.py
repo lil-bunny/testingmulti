@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from app.core.db import db_scope, db_transaction
@@ -18,10 +20,37 @@ from app.domain.lifecycle_transition import (
 )
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID, is_snapshot_activity_type
+from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
+from app.repositories.workflow_lifecycles_repository import (
+    LifecycleUpdate,
+    WorkflowLifecyclesRepository,
+)
+
+
+@dataclass(frozen=True)
+class _PauseContext:
+    """Sequence-wide pause decision: set on any EXCEPTION, else clear on lifecycle write."""
+
+    has_exception: bool
+    pause_type: PauseType | None
+
+
+def _resolve_pause_context(
+    commands: tuple[LifecycleTransitionCommand, ...],
+) -> _PauseContext:
+    has_exception = False
+    pause_type: PauseType | None = None
+    for command in commands:
+        if command.activity_type is ActivityType.EXCEPTION:
+            has_exception = True
+            if pause_type is None and command.pause_type is not None:
+                pause_type = command.pause_type
+    if has_exception and pause_type is None:
+        pause_type = PauseType.SYSTEM_ERROR
+    return _PauseContext(has_exception=has_exception, pause_type=pause_type)
 
 logger = get_logger(__name__)
 
@@ -147,8 +176,10 @@ class LifecycleTransitionService:
         current_sub: StatusSubType | None,
         actor_type: ActorType,
         actor_id: str,
+        pause_context: _PauseContext,
     ) -> tuple[
         str | None,
+        bool,
         bool,
         StatusType | None,
         StatusSubType | None,
@@ -162,39 +193,64 @@ class LifecycleTransitionService:
         else:
             step_status, step_sub = current_status, current_sub
 
+        effective_command = command
+        snapshot = is_snapshot_activity_type(command.activity_type)
+        if (
+            not snapshot
+            and command.update_lifecycle
+            and not pause_context.has_exception
+            and command.to_status is None
+            and command.to_sub_status is not None
+            and step_status == StatusType.PENDING_REVIEW
+        ):
+            effective_command = dataclasses.replace(
+                command, to_status=StatusType.PROCESSING
+            )
+
         log_from_status, log_to_status, log_from_sub, log_to_sub = (
             build_activity_log_status_fields(
-                command,
+                effective_command,
                 current_status=step_status,
                 current_sub=step_sub,
             )
         )
 
         lifecycle_updated = False
-        update_lifecycle = (
-            command.update_lifecycle
-            and not is_snapshot_activity_type(command.activity_type)
+        pause_written = False
+        update_lifecycle_flag = (
+            effective_command.update_lifecycle and not snapshot
         )
         next_status = step_status
         next_sub = step_sub
-        if update_lifecycle and row is not None:
-            if command.to_status is not None or command.to_sub_status is not None:
-                lifecycle_updated = lifecycles.update_status(
-                    lifecycle_id=lifecycle_id,
-                    status=command.to_status,
-                    sub_status=command.to_sub_status,
+        if update_lifecycle_flag and row is not None:
+            if (
+                effective_command.to_status is not None
+                or effective_command.to_sub_status is not None
+            ):
+                update = LifecycleUpdate(
+                    status=effective_command.to_status,
+                    sub_status=effective_command.to_sub_status,
+                    pause_type=pause_context.pause_type
+                    if pause_context.has_exception
+                    else None,
+                    clear_pause=not pause_context.has_exception,
                 )
+                lifecycle_updated = lifecycles.update_lifecycle(
+                    lifecycle_id=lifecycle_id,
+                    update=update,
+                )
+                pause_written = True
             next_status = log_to_status
             next_sub = log_to_sub
 
         activity_log_id: str | None = None
-        if command.record_activity:
+        if effective_command.record_activity:
             activity_log_id = self._insert_activity_row(
                 activity_logs,
                 tenant_uuid=tenant_uuid,
                 lifecycle_id=lifecycle_id,
                 run_id=run_id,
-                command=command,
+                command=effective_command,
                 actor_type=actor_type,
                 actor_id=actor_id,
                 log_from_status=log_from_status,
@@ -206,6 +262,7 @@ class LifecycleTransitionService:
         return (
             activity_log_id,
             lifecycle_updated,
+            pause_written,
             next_status,
             next_sub,
             log_from_status,
@@ -265,9 +322,11 @@ class LifecycleTransitionService:
                 )
 
         current_status, current_sub = self._resolve_current_status(command, row)
+        pause_context = _resolve_pause_context((command,))
         (
             activity_log_id,
             lifecycle_updated,
+            pause_written,
             _,
             _,
             log_from_status,
@@ -286,7 +345,19 @@ class LifecycleTransitionService:
             current_sub=current_sub,
             actor_type=actor_type,
             actor_id=actor_id,
+            pause_context=pause_context,
         )
+
+        if (
+            pause_context.has_exception
+            and not pause_written
+            and lifecycle_id is not None
+            and row is not None
+        ):
+            lifecycles.update_lifecycle(
+                lifecycle_id=lifecycle_id,
+                update=LifecycleUpdate(pause_type=pause_context.pause_type),
+            )
 
         logger.info(
             "lifecycle_transition applied lifecycle_id=%s activity_type=%s "
@@ -346,6 +417,8 @@ class LifecycleTransitionService:
             )
 
         current_status, current_sub = self._resolve_current_status(first, row)
+        pause_context = _resolve_pause_context(commands)
+        any_pause_written = False
 
         for command in commands:
             cmd_tenant = resolve_graph_tenant_to_uuid(self._clean(command.tenant_id))
@@ -380,6 +453,7 @@ class LifecycleTransitionService:
             (
                 activity_log_id,
                 lifecycle_updated,
+                pause_written,
                 current_status,
                 current_sub,
                 _,
@@ -398,10 +472,23 @@ class LifecycleTransitionService:
                 current_sub=current_sub,
                 actor_type=step_actor_type,
                 actor_id=step_actor_id,
+                pause_context=pause_context,
             )
             activity_log_ids.append(activity_log_id)
             if lifecycle_updated:
                 any_lifecycle_updated = True
+            if pause_written:
+                any_pause_written = True
+
+        if (
+            pause_context.has_exception
+            and not any_pause_written
+            and row is not None
+        ):
+            lifecycles.update_lifecycle(
+                lifecycle_id=lifecycle_id,
+                update=LifecycleUpdate(pause_type=pause_context.pause_type),
+            )
 
         logger.info(
             "lifecycle_transition sequence applied lifecycle_id=%s steps=%s "
