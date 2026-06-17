@@ -28,7 +28,7 @@ class TenderEmailProductLine:
     qty_per_unit: str
     weight_unit: str
     pallets_count: str
-    pallet_dims: str
+    unit_dims: str
     gross_weight_lbs: str
     price: str
 
@@ -96,7 +96,7 @@ def _product_lines_from_payload(
                 qty_per_unit=_str_field(row, "qty_per_unit"),
                 weight_unit=_str_field(row, "weight_unit") or WeightUnit.KG.value,
                 pallets_count=_str_field(row, "pallets_count"),
-                pallet_dims=_str_field(row, "pallet_dims"),
+                unit_dims=_str_field(row, "unit_dims"),
                 gross_weight_lbs=_str_field(row, "gross_weight_lbs"),
                 price=_format_price(row.get("product_value")),
             )
@@ -240,7 +240,7 @@ def _format_pallets_line(line: TenderEmailProductLine) -> str:
     if not line.pallets_count:
         return ""
     count = line.pallets_count.strip()
-    dims = line.pallet_dims.strip()
+    dims = line.unit_dims.strip()
     if dims:
         return f"Number of pallets: {count} pallets ~ {escape(dims)}"
     return f"Number of pallets: {count}"
@@ -316,7 +316,7 @@ def _combine_product_lines(
             qty_per_unit=first.qty_per_unit,
             weight_unit=first.weight_unit,
             pallets_count=sum_field(groups[key], "pallets_count"),
-            pallet_dims=first.pallet_dims,
+            unit_dims=first.unit_dims,
             gross_weight_lbs=sum_field(groups[key], "gross_weight_lbs"),
             price=sum_field(groups[key], "price", money=True),
         )

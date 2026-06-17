@@ -18,6 +18,7 @@ from app.tools.tender_email import (
     build_ftl_tender_email_from_tender,
     build_ltl_tender_email_from_tender,
 )
+from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.workflows.utils.decorators import safe_node
 
 logger = get_logger(__name__)
@@ -51,6 +52,8 @@ def send_tender_email(state):
         raise SendTenderEmailError(msg)
 
     tender = dict(get_tender(state.data) or {})
+    if parse_tender_date(tender.get("delivery_date")) is None:
+        raise WorkflowException(BusinessError.MISSING_DELIVERY_DATE)
     if _missing_address(tender.get("pickup_address")):
         raise WorkflowException(BusinessError.MISSING_PICKUP_ADDRESS)
     if _missing_address(tender.get("delivery_address")):

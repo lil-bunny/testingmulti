@@ -22,7 +22,6 @@ from app.tasks.workflows import run_workflow_async
 router = APIRouter()
 logger = get_logger(__name__)
 
-WEBHOOK_HANDLER_VERSION = "v2-request-no-query-tenant"
 TURVO_ROUTE_GATE_WORKFLOW = "ratecon"
 LISTEN_TURVO_WORKFLOW_NAME = "pod_lifecycle"
 
@@ -193,17 +192,7 @@ async def listen_turvo_status(request: Request) -> Response:
                 "payload": queued_payload,
             }
         )
-        logger.info(
-            "Turvo webhook queued task_id=%s execution_id=%s workflow_name=%s "
-            "tenant_slug=%s shipment_id=%s shipments_row_id=%s thread_id=%s",
-            task.id,
-            execution_id,
-            LISTEN_TURVO_WORKFLOW_NAME,
-            workflow_tenant,
-            payload.get("shipment_id"),
-            lifecycle_shipment_uuid,
-            payload.get("thread_id"),
-        )
+        logger.info("Turvo webhook queued task_id=%s", task.id)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"execution_id": execution_id},

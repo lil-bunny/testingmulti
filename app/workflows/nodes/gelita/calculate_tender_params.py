@@ -5,7 +5,10 @@ from __future__ import annotations
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
-from app.domain.delivery_address import format_usps_mailing_address
+from app.domain.delivery_address import (
+    format_usps_mailing_address,
+    is_unresolved_customer_name,
+)
 from app.models.weight_unit import WeightUnit
 from app.domain.load_tendering_settings import (
     gelita_tender_calculate_settings,
@@ -132,6 +135,15 @@ def calculate_tender_params(state):
             state.data["delivery_address_code"] = delivery_code
         raise WorkflowException(BusinessError.MISSING_DELIVERY_ADDRESS)
 
+    if is_unresolved_customer_name(tender):
+        delivery_code = ingest_delivery_address_code(state.data)
+        if delivery_code:
+            existing = get_tender(state.data) or {}
+            existing["delivery_address_code"] = delivery_code
+            set_tender(state.data, existing)
+            state.data["delivery_address_code"] = delivery_code
+        raise WorkflowException(BusinessError.MISSING_CUSTOMER_NAME)
+
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
     total_pieces = Decimal(0)
@@ -157,9 +169,9 @@ def calculate_tender_params(state):
         if total_qty is None or total_qty == 0:
             raise WorkflowException(BusinessError.MISSING_TOTAL_QTY)
 
-        pallet_dims = product.get("pallet_dims")
-        if pallet_dims is None or not str(pallet_dims).strip():
-            raise WorkflowException(BusinessError.MISSING_PALLET_DIMS)
+        unit_dims = product.get("unit_dims")
+        if unit_dims is None or not str(unit_dims).strip():
+            raise WorkflowException(BusinessError.MISSING_UNIT_DIMS)
 
         try:
             profile_key, pallet_profile = calc_settings.resolve_pallet_type(

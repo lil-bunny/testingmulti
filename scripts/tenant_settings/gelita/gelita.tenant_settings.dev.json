@@ -55,8 +55,13 @@
                         "delay_hours": 0.016
                     },
                     {
+                        "step": 2,
+                        "event_type": "reminder_due",
+                        "delay_hours": 0.05
+                    },
+                    {
                         "event_type": "escalation_due",
-                        "delay_hours": 0.033
+                        "delay_hours": 0.06
                     }
                 ],
                 "ltl": [
@@ -82,7 +87,11 @@
                 "rejected"
             ],
             "expire_grace_hours": 2,
-            "schedule_on_event_type": "carrier_email_received"
+            "schedule_on_event_type": "carrier_email_received",
+            "delivery_cutoff": {
+                "local_time": "13:00",
+                "timezone": "America/Chicago"
+            }
         },
         "workflow_error_alerts": {
             "enabled": true,

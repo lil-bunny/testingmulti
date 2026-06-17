@@ -39,7 +39,7 @@ PACK_CODE_ID = "9d579b89-2280-4fb0-8f1b-12acf9c5f178"
 PACK_CODE = "5366"
 QTY_PER_UNIT = Decimal("15")
 TOTAL_QTY = Decimal("600")
-PALLET_DIMS = '48"x40"x5"'
+UNIT_DIMS = '48"x40"x5"'
 
 FTL_TENDER_ID = "86e5fd7a-42e5-430f-94d7-216589748c9c"
 FTL_ORDER_NUMBER = "96564"
@@ -61,7 +61,7 @@ def _email_product_line(
     pack_code: str = PACK_CODE,
     qty_per_unit: str = "15",
     weight_unit: str = "kg",
-    pallet_dims: str = PALLET_DIMS,
+    unit_dims: str = UNIT_DIMS,
 ) -> TenderEmailProductLine:
     return TenderEmailProductLine(
         product_name=product_name,
@@ -70,7 +70,7 @@ def _email_product_line(
         qty_per_unit=qty_per_unit,
         weight_unit=weight_unit,
         pallets_count=pallets_count,
-        pallet_dims=pallet_dims,
+        unit_dims=unit_dims,
         gross_weight_lbs=gross_weight_lbs,
         price=price,
     )
@@ -125,7 +125,7 @@ def _ftl_bundle() -> dict:
                 "qty_per_unit": QTY_PER_UNIT,
                 "total_qty": TOTAL_QTY,
                 "pallet_type": "4-way wood",
-                "pallet_dims": PALLET_DIMS,
+                "unit_dims": UNIT_DIMS,
                 "metadata": {},
             }
         ],
@@ -147,7 +147,7 @@ def _ltl_bundle() -> dict:
             "qty_per_unit": QTY_PER_UNIT,
             "total_qty": TOTAL_QTY,
             "pallet_type": "4-way wood",
-            "pallet_dims": PALLET_DIMS,
+            "unit_dims": UNIT_DIMS,
             "metadata": {},
         }
 
@@ -215,13 +215,45 @@ def test_calculate_tender_params_missing_delivery_address_returns_error_code(
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
-def test_calculate_tender_params_missing_pallet_dims_returns_error_code(
+def test_calculate_tender_params_missing_customer_name_returns_error_code(
+    mock_svc_cls: MagicMock,
+) -> None:
+    from app.domain.delivery_address import (
+        CUSTOMER_NAME_PLACEHOLDER,
+        CUSTOMER_NAME_SOURCE_UNKNOWN,
+    )
+
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["tender"]["customer_name"] = CUSTOMER_NAME_PLACEHOLDER
+    bundle["tender"]["metadata"] = {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN}
+    mock_svc.read_order.return_value = bundle
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    state.data["tender"] = {
+        "order_number": FTL_ORDER_NUMBER,
+        "delivery_address_code": "41000100",
+    }
+    result = calculate_tender_params(state)
+
+    assert isinstance(result, dict)
+    error = result["data"]["error"]
+    assert error["code"] == BusinessError.MISSING_CUSTOMER_NAME.value
+    assert error["category"] == BusinessError.CATEGORY.value
+    assert error["message"] == BusinessError.MISSING_CUSTOMER_NAME.description
+    assert result["data"]["delivery_address_code"] == "41000100"
+    mock_svc.update_load_type.assert_not_called()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_missing_unit_dims_returns_error_code(
     mock_svc_cls: MagicMock,
 ) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
     bundle = _ftl_bundle()
-    bundle["products"][0].pop("pallet_dims")
+    bundle["products"][0].pop("unit_dims")
     mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
@@ -229,9 +261,9 @@ def test_calculate_tender_params_missing_pallet_dims_returns_error_code(
 
     assert isinstance(result, dict)
     error = result["data"]["error"]
-    assert error["code"] == BusinessError.MISSING_PALLET_DIMS
+    assert error["code"] == BusinessError.MISSING_UNIT_DIMS
     assert error["category"] == BusinessError.CATEGORY.value
-    assert error["message"] == BusinessError.MISSING_PALLET_DIMS.description
+    assert error["message"] == BusinessError.MISSING_UNIT_DIMS.description
     mock_svc.update_load_type.assert_not_called()
 
 

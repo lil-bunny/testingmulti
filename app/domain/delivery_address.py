@@ -90,6 +90,15 @@ def customer_name_from_location_row(location_row: dict[str, Any]) -> str | None:
     return text or None
 
 
+def is_unresolved_customer_name(tender: dict[str, Any]) -> bool:
+    """True when ingest could not resolve ``tenders.customer_name`` from column J."""
+    metadata = tender.get("metadata") if isinstance(tender.get("metadata"), dict) else {}
+    if metadata.get("customer_name_source") == CUSTOMER_NAME_SOURCE_UNKNOWN:
+        return True
+    name = str(tender.get("customer_name") or "").strip()
+    return name == CUSTOMER_NAME_PLACEHOLDER
+
+
 def resolve_customer_name(
     delivery_code: Any,
     index: DeliveryLocationsIndex | None,

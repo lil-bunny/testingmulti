@@ -21,6 +21,7 @@ def _state(*, tender: dict) -> WorkflowState:
             "tenant_settings": load_tenant_settings_dev("gelita"),
             "tender": {
                 "load_type": "ltl",
+                "delivery_date": "2026-06-20",
                 "pickup_address": "GELITA USA\n123 Main St\nSIOUX CITY IA 51101",
                 "delivery_address": "ACME\n456 Oak Ave\nCHICAGO IL 60601",
                 "tender_products": [{"product_name": "Widget", "pack_code": "5366"}],
@@ -54,5 +55,19 @@ def test_send_tender_email_missing_pickup_address(mock_send_email) -> None:
     assert isinstance(result, dict)
     error = result["data"]["error"]
     assert error["code"] == BusinessError.MISSING_PICKUP_ADDRESS.value
+    assert error["category"] == BusinessError.CATEGORY.value
+    mock_send_email.assert_not_called()
+
+
+@patch("app.workflows.nodes.send_tender_email.send_email")
+def test_send_tender_email_missing_delivery_date(mock_send_email) -> None:
+    mock_send_email.return_value = {"success": True, "communication_id": "comm-1"}
+    state = _state(tender={"delivery_date": ""})
+
+    result = send_tender_email(state)
+
+    assert isinstance(result, dict)
+    error = result["data"]["error"]
+    assert error["code"] == BusinessError.MISSING_DELIVERY_DATE.value
     assert error["category"] == BusinessError.CATEGORY.value
     mock_send_email.assert_not_called()
