@@ -4,8 +4,8 @@ Callable from any workflow node, webhook handler, or Celery task. Resolves graph
 keys (e.g. ``gelita``) to ``tenants.id`` before insert. Failures are logged and return
 ``None`` so graph execution is not blocked.
 
-Use ``record_action``, ``record_exception``, ``record_status_change``, ``record_sub_status_change``, or
-``record_sequence`` for lifecycle-scoped rows. ``record_activity`` remains for legacy
+Use ``record_action``, ``record_exception``, ``record_status_change``, ``record_sub_status_change``,
+``link_communication``, or ``record_sequence`` for lifecycle-scoped rows. ``record_activity`` remains for legacy
 non-lifecycle event type strings only.
 """
 
@@ -249,6 +249,53 @@ class ActivityLogService:
     def record_exception(self, write: ActivityLogWrite) -> str | None:
         """One ``exception`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
         return self._record_snapshot(write, activity_type=ActivityType.EXCEPTION)
+
+    def link_communication(
+        self,
+        *,
+        activity_log_id: str,
+        tenant_id: str,
+        communication_id: str,
+        metadata_patch: dict[str, Any] | None = None,
+    ) -> bool:
+        """Link async outbound delivery to an existing row; no-op when invalid or already linked."""
+        log_id = self._uuid_or_none(activity_log_id, field_name="activity_log_id")
+        tenant_uuid = self._clean(tenant_id)
+        comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
+        if log_id is None or not tenant_uuid or comm_id is None:
+            logger.warning(
+                "activity_log link_communication skipped: invalid scope "
+                "(activity_log_id=%r tenant_id=%r communication_id=%r)",
+                activity_log_id,
+                tenant_id,
+                communication_id,
+            )
+            return False
+
+        try:
+            tenant_uuid = resolve_graph_tenant_to_uuid(tenant_uuid) or tenant_uuid
+            if self._repository is not None:
+                return self._repository.link_communication(
+                    activity_log_id=log_id,
+                    tenant_id=tenant_uuid,
+                    communication_id=comm_id,
+                    metadata_patch=metadata_patch,
+                )
+            return run_with_repos(
+                lambda repos: repos.activity_logs.link_communication(
+                    activity_log_id=log_id,
+                    tenant_id=tenant_uuid,
+                    communication_id=comm_id,
+                    metadata_patch=metadata_patch,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "activity_log link_communication failed activity_log_id=%s tenant_id=%s",
+                log_id,
+                tenant_uuid,
+            )
+            return False
 
     def record_status_change(self, write: ActivityLogWrite) -> str | None:
         """

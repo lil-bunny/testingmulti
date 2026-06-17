@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.domain.error_catalog import BusinessError, format_error_message, workflow_error_payload
+from app.domain.lifecycle_transition import LifecycleTransitionSequenceResult
 from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType
 from app.models.status import StatusType
@@ -13,6 +14,7 @@ TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 TENDER_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+EXCEPTION_ACTIVITY_LOG_UUID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
 
 PACK_MSG = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="9999")
@@ -30,6 +32,10 @@ def test_record_workflow_failure_node_applies_transition(
     from app.workflows.nodes.error_handler import record_workflow_failure_node
 
     mock_svc = MagicMock()
+    mock_svc.apply_sequence.return_value = LifecycleTransitionSequenceResult(
+        activity_log_ids=[EXCEPTION_ACTIVITY_LOG_UUID, "status-log-id"],
+        lifecycle_updated=True,
+    )
     mock_transition_cls.return_value = mock_svc
 
     state = WorkflowState(
@@ -63,7 +69,10 @@ def test_record_workflow_failure_node_applies_transition(
     assert metadata["tender_id"] == TENDER_UUID
     assert metadata["pack_code"] == "9999"
     assert commands[0].description == PACK_MSG
-    mock_enqueue.assert_called_once_with(state)
+    mock_enqueue.assert_called_once_with(
+        state,
+        exception_activity_log_id=EXCEPTION_ACTIVITY_LOG_UUID,
+    )
 
 
 @patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
@@ -107,6 +116,10 @@ def test_record_workflow_failure_node_missing_delivery_address(
     from app.workflows.nodes.error_handler import record_workflow_failure_node
 
     mock_svc = MagicMock()
+    mock_svc.apply_sequence.return_value = LifecycleTransitionSequenceResult(
+        activity_log_ids=[EXCEPTION_ACTIVITY_LOG_UUID, "status-log-id"],
+        lifecycle_updated=True,
+    )
     mock_transition_cls.return_value = mock_svc
 
     state = WorkflowState(
@@ -133,4 +146,7 @@ def test_record_workflow_failure_node_missing_delivery_address(
     assert metadata["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
     assert metadata["error_description"] == DEL_MSG
     assert metadata["delivery_address_code"] == "41000100"
-    mock_enqueue.assert_called_once_with(state)
+    mock_enqueue.assert_called_once_with(
+        state,
+        exception_activity_log_id=EXCEPTION_ACTIVITY_LOG_UUID,
+    )

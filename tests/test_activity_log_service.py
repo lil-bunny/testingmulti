@@ -60,6 +60,29 @@ def test_record_activity_legacy_string_type_uses_repo(mock_repo: MagicMock) -> N
     mock_repo.insert.assert_called_once()
 
 
+def test_link_communication_uses_repo(mock_repo: MagicMock) -> None:
+    mock_repo.link_communication.return_value = True
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        linked = svc.link_communication(
+            activity_log_id=ACTIVITY_UUID,
+            tenant_id=TENANT_UUID,
+            communication_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+            metadata_patch={"channel": "email"},
+        )
+
+    assert linked is True
+    mock_repo.link_communication.assert_called_once_with(
+        activity_log_id=ACTIVITY_UUID,
+        tenant_id=TENANT_UUID,
+        communication_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        metadata_patch={"channel": "email"},
+    )
+
+
 @patch("app.services.activity_log_service.LifecycleTransitionService")
 @pytest.mark.parametrize(
     ("method_name", "activity_type"),

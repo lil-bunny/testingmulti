@@ -23,8 +23,8 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
     """
     Global sink for catalog workflow errors.
 
-    Persists lifecycle ``pending_review`` with an ``exception`` activity log row, then
-    enqueues async operational alerts when the transition succeeds.
+    Writes ``exception`` + ``pending_review``, then enqueues alerts with the exception
+    activity log id so outbound comms link to that row instead of a new ``action``.
     """
     workflow_error = state.data.get("error")
     if not isinstance(workflow_error, dict):
@@ -60,7 +60,7 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
         pause_type = PauseType.from_error_category(workflow_error.get("category"))
 
         try:
-            lifecycle_transition_service.apply_sequence(
+            transition_result = lifecycle_transition_service.apply_sequence(
                 LifecycleTransitionCommand.from_workflow_state(
                     state,
                     activity_type=ActivityType.EXCEPTION,
@@ -85,6 +85,14 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
                 error_code,
             )
         else:
-            enqueue_workflow_error_alert_from_state(state)
+            exception_activity_log_id = (
+                transition_result.activity_log_ids[0]
+                if transition_result.activity_log_ids
+                else None
+            )
+            enqueue_workflow_error_alert_from_state(
+                state,
+                exception_activity_log_id=exception_activity_log_id,
+            )
 
     return state

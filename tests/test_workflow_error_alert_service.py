@@ -12,6 +12,7 @@ from app.services.workflow_error_alert_service import WorkflowErrorAlertService
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+EXCEPTION_ACTIVITY_LOG_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 
 
 PACK_MSG = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="5366")
@@ -49,6 +50,7 @@ def _payload() -> WorkflowErrorAlertPayload:
         workflow_data={
             "tender": {"order_number": "ORD-9", "customer_po": "PO-9"},
         },
+        exception_activity_log_id=EXCEPTION_ACTIVITY_LOG_UUID,
     )
 
 
@@ -78,9 +80,12 @@ def test_send_workflow_error_alert_email_channel(mock_send_email: MagicMock) -> 
     metadata = kwargs["communication_metadata"]
     assert metadata["error_code"] == BusinessError.MISSING_PACK_CODE.value
     assert metadata["idempotency_key"]
-    activity_log_service.record_action.assert_called_once()
-    write = activity_log_service.record_action.call_args.args[0]
-    assert write.description == PACK_MSG
+    activity_log_service.link_communication.assert_called_once()
+    link_kwargs = activity_log_service.link_communication.call_args.kwargs
+    assert link_kwargs["activity_log_id"] == EXCEPTION_ACTIVITY_LOG_UUID
+    assert link_kwargs["communication_id"] == "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    assert link_kwargs["metadata_patch"]["channel"] == "email"
+    assert link_kwargs["metadata_patch"]["alert_type"] == "workflow_error_alert"
 
 
 @patch("app.services.workflow_error_alert_service.send_email")
@@ -98,4 +103,12 @@ def test_send_skips_duplicate_idempotency(mock_send_email: MagicMock) -> None:
     service.send_workflow_error_alert(_payload())
 
     mock_send_email.assert_not_called()
-    activity_log_service.record_action.assert_not_called()
+    activity_log_service.link_communication.assert_called_once_with(
+        activity_log_id=EXCEPTION_ACTIVITY_LOG_UUID,
+        tenant_id=TENANT_UUID,
+        communication_id="existing-comm-id",
+        metadata_patch={
+            "channel": "email",
+            "alert_type": "workflow_error_alert",
+        },
+    )
