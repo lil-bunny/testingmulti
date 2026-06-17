@@ -3,6 +3,7 @@ from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
 from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
@@ -18,7 +19,9 @@ from app.workflows.graph.routers import (
     pod_missing_dispatch_router,
     ratecon_cache_router,
     read_workflow_lifecycle_router,
+    driver_assignment_eligibility_router,
 )
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from typing import Optional
 import uuid
 
@@ -36,6 +39,7 @@ ROUTER_REGISTRY = {
     "tender_status_router": tender_status_router,
     "carrier_ack_router": carrier_ack_router,
     "manual_tms_upload_router": manual_tms_upload_router,
+    "driver_assignment_eligibility_router": driver_assignment_eligibility_router,
 }
 
 
@@ -49,6 +53,28 @@ class WorkflowService:
         self.tenants_service = TenantsService()
         self._ratecon_ingress = RateconIngressService()
         self._pod_lifecycle_ingress = PodLifecycleIngressService()
+        self._driver_assignment_ingress = DriverAssignmentIngressService()
+
+    @staticmethod
+    def _skipped_driver_assignment_result(
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict,
+        reason: str,
+    ) -> dict:
+        execution_id = (
+            str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+        )
+        data = dict(payload)
+        data["skipped_driver_assignment"] = True
+        data["driver_assignment_skip_reason"] = reason
+        return {
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant_slug,
+            "execution_id": execution_id,
+            "data": data,
+        }
 
     @staticmethod
     def _skipped_route_completed_result(
@@ -95,6 +121,25 @@ class WorkflowService:
                 tenant_slug=tenant_slug,
                 payload=payload,
             )
+
+        if (
+            workflow_name == "driver_assignment"
+            and payload.get("event_type")
+            == WorkflowRunEventType.RATECON_COMPLETED.value
+        ):
+            prepared = await self._driver_assignment_ingress.prepare_ratecon_completed_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if prepared.skipped:
+                return self._skipped_driver_assignment_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    reason=prepared.skip_reason or "unknown",
+                )
+            payload = prepared.payload or payload
 
         if (
             workflow_name == "pod_lifecycle"

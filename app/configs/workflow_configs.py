@@ -99,6 +99,7 @@ WORKFLOW_CONFIGS = {
             "record_ratecon_upload_activity",
             "ratecon_analysis",
             "record_ratecon_processed_activity",
+            "enqueue_driver_assignment_on_ratecon_complete",
             "check_ratecon_workflow_lifecycle",
             "end",
         ],
@@ -111,10 +112,46 @@ WORKFLOW_CONFIGS = {
             ["upload_ratecon_attachments", "record_ratecon_upload_activity"],
             ["record_ratecon_upload_activity", "ratecon_analysis"],
             ["ratecon_analysis", "record_ratecon_processed_activity"],
-            ["record_ratecon_processed_activity", "check_ratecon_workflow_lifecycle"],
+            [
+                "record_ratecon_processed_activity",
+                "enqueue_driver_assignment_on_ratecon_complete",
+            ],
+            [
+                "enqueue_driver_assignment_on_ratecon_complete",
+                "check_ratecon_workflow_lifecycle",
+            ],
             ["check_ratecon_workflow_lifecycle", "end"],
         ],
         "routers": {},
+    },
+    "driver_assignment": {
+        "entry": "route_event",
+        "exit": "end",
+        "nodes": [
+            "route_event",
+            "check_driver_assignment_eligibility",
+            "resolve_workflow_lifecycle",
+            "schedule_driver_reminders",
+            "record_driver_assignment_started",
+            "end",
+        ],
+        "edges": [
+            ["resolve_workflow_lifecycle", "schedule_driver_reminders"],
+            ["schedule_driver_reminders", "record_driver_assignment_started"],
+            ["record_driver_assignment_started", "end"],
+        ],
+        "routers": {
+            "route_event": {
+                "router": "event_type",
+                "map": {
+                    "ratecon_completed": "check_driver_assignment_eligibility",
+                },
+            },
+            "check_driver_assignment_eligibility": {
+                "router": "driver_assignment_eligibility_router",
+                "map": {"eligible": "resolve_workflow_lifecycle", "skip": "end"},
+            },
+        },
     },
     "load_tendering": {
         "entry": "route_event",

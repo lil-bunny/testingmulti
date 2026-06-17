@@ -11,6 +11,7 @@ from app.domain.prompt_step_keys import (
     RATECON_PAGE_EXTRACTION,
 )
 from app.domain.tenant_settings import parse_tenant_settings
+from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
 from app.domain.tenant_settings.t3ra import T3raTenantSettings
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -21,11 +22,26 @@ _T3RA_SETTINGS = json.loads(
 
 def test_t3ra_fixture_validates() -> None:
     model = T3raTenantSettings.model_validate(_T3RA_SETTINGS)
-    assert model.inbound_routing_emails == ["ayushkansal303+fxratecon@gmail.com"]
-    assert model.mikey_account_id == "7jKV_5jBQVG8med4nvXHJw"
+    assert model.inbound_routing_emails == ["deb@freightx.ai"]
+    assert model.mikey_account_id == "W7Xyw8gLT2mvog37VsGHZQ"
+    assert "driver_assignment" in model.enabledProcesses
+    assert model.driver_assignment is not None
+    assert model.driver_assignment.reminders.schedule_mode == "before_pickup"
+    assert model.driver_assignment.reminders.offsets_before_pickup_hours == [
+        48,
+        24,
+        12,
+        6,
+    ]
     assert len(model.pod_lifecycle.reminders.steps) == 3
     assert model.prompts[POD_PAGE_EXTRACTION] == "pod-page-extraction:staging"
     assert model.prompts[RATECON_PAGE_EXTRACTION] == "ratecon-page-extraction:staging"
     assert model.prompts[POD_VS_RATECON_SUMMARY] == "pod-vs-ratecon-summary:staging"
     parsed = parse_tenant_settings("t3ra", _T3RA_SETTINGS)
     assert isinstance(parsed, T3raTenantSettings)
+
+
+def test_normalize_preserves_driver_assignment_settings() -> None:
+    normalized = normalize_tenant_settings_dict("t3ra", _T3RA_SETTINGS)
+    assert "driver_assignment" in normalized["enabledProcesses"]
+    assert normalized["driver_assignment"]["reminders"]["schedule_mode"] == "before_pickup"

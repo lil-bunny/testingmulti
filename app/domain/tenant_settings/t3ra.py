@@ -15,6 +15,12 @@ class T3raPodLifecycleSettings(BaseModel):
     reminders: WorkflowRemindersConfig
 
 
+class T3raDriverAssignmentSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    reminders: WorkflowRemindersConfig
+
+
 class T3raTenantSettings(BaseModel):
     """
     Root ``tenants.settings`` JSON for t3ra.
@@ -24,8 +30,10 @@ class T3raTenantSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    enabledProcesses: list[str] = Field(default_factory=list)
     inbound_routing_emails: InboundRoutingEmails
     mikey_account_id: str
     tms: TmsSettings
     prompts: dict[str, str] = Field(default_factory=dict)
     pod_lifecycle: T3raPodLifecycleSettings
+    driver_assignment: T3raDriverAssignmentSettings | None = None

@@ -14,6 +14,13 @@
     "pod_document_lookup_id": "20271627",
     "access_token_expires_at": "2026-06-10T19:35:53.779424+00:00"
   },
+  "driver_assignment": {
+    "reminders": {
+      "schedule_mode": "before_pickup",
+      "offsets_before_pickup_hours": [48, 24, 12, 6],
+      "expire_grace_hours": 2
+    }
+  },
   "pod_lifecycle": {
     "reminders": {
       "steps": [
@@ -39,7 +46,8 @@
   },
   "enabledProcesses": [
     "pod_lifecycle",
-    "pod_collection"
+    "pod_collection",
+    "driver_assignment"
   ],
   "prompts": {
     "pod_lifecycle.page_extraction": "pod-page-extraction:staging",

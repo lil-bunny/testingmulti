@@ -84,7 +84,15 @@ def event_type_router(state):
         return "email_received"
     if event_type == "manual_pod_upload":
         return "manual_pod_upload"
+    if event_type == "ratecon_completed":
+        return "ratecon_completed"
     return "route_completed"
+
+
+def driver_assignment_eligibility_router(state):
+    if state.data.get("driver_assignment_eligible"):
+        return "eligible"
+    return "skip"
 
 
 def load_type_router(state):

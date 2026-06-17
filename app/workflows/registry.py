@@ -38,6 +38,14 @@ from app.workflows.nodes.record_ratecon_activity import (
     record_ratecon_received_activity,
     record_ratecon_upload_activity,
 )
+from app.workflows.nodes.enqueue_driver_assignment import (
+    enqueue_driver_assignment_on_ratecon_complete,
+)
+from app.workflows.nodes.driver_assignment import (
+    check_driver_assignment_eligibility,
+    record_driver_assignment_started,
+    schedule_driver_reminders,
+)
 from app.workflows.nodes.record_pod_activity import (
     record_pod_escalation_activity,
     record_pod_extraction_activity,
@@ -89,6 +97,10 @@ NODE_REGISTRY = {
     "record_ratecon_received_activity": record_ratecon_received_activity,
     "record_ratecon_upload_activity": record_ratecon_upload_activity,
     "record_ratecon_processed_activity": record_ratecon_processed_activity,
+    "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
+    "check_driver_assignment_eligibility": check_driver_assignment_eligibility,
+    "record_driver_assignment_started": record_driver_assignment_started,
+    "schedule_driver_reminders": schedule_driver_reminders,
     "record_pod_started_activity": record_pod_started_activity,
     "record_pod_reminder_activity": record_pod_reminder_activity,
     "record_pod_escalation_activity": record_pod_escalation_activity,
