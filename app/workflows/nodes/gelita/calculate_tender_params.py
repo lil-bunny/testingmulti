@@ -20,13 +20,20 @@ from app.domain.load_tendering_state import (
     ingest_pack_code,
     set_tender,
 )
-from app.domain.error_catalog import BusinessError, SystemError
+from app.domain.error_catalog import BusinessError, SystemError, format_error_message
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
 from app.workflows.utils.decorators import safe_node
 
 _PALLET_ROUND_TOLERANCE = Decimal("0.05")
 _KG_TO_LBS = Decimal("2.2046")
+
+
+def _pack_code_for_error(product: dict[str, Any], state_data: dict[str, Any]) -> str:
+    code = str(product.get("pack_code") or "").strip()
+    if code:
+        return code
+    return ingest_pack_code(state_data)
 
 
 def _product_weight_lbs(order_quantity: Decimal, weight_unit: WeightUnit) -> Decimal:
@@ -133,7 +140,12 @@ def calculate_tender_params(state):
             existing["delivery_address_code"] = delivery_code
             set_tender(state.data, existing)
             state.data["delivery_address_code"] = delivery_code
-        raise WorkflowException(BusinessError.MISSING_DELIVERY_ADDRESS)
+        raise WorkflowException(
+            BusinessError.MISSING_DELIVERY_ADDRESS,
+            format_error_message(
+                BusinessError.MISSING_DELIVERY_ADDRESS, del_code=delivery_code
+            ),
+        )
 
     if is_unresolved_customer_name(tender):
         delivery_code = ingest_delivery_address_code(state.data)
@@ -142,7 +154,12 @@ def calculate_tender_params(state):
             existing["delivery_address_code"] = delivery_code
             set_tender(state.data, existing)
             state.data["delivery_address_code"] = delivery_code
-        raise WorkflowException(BusinessError.MISSING_CUSTOMER_NAME)
+        raise WorkflowException(
+            BusinessError.MISSING_CUSTOMER_NAME,
+            format_error_message(
+                BusinessError.MISSING_CUSTOMER_NAME, del_code=delivery_code
+            ),
+        )
 
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
@@ -158,27 +175,55 @@ def calculate_tender_params(state):
                 existing["pack_code"] = excel_pack
                 set_tender(state.data, existing)
                 state.data["pack_code"] = excel_pack
-            raise WorkflowException(BusinessError.MISSING_PACK_CODE)
+            raise WorkflowException(
+                BusinessError.MISSING_PACK_CODE,
+                format_error_message(
+                    BusinessError.MISSING_PACK_CODE, pack_code=excel_pack
+                ),
+            )
 
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
         total_qty = product.get("total_qty")
+        pack_code = _pack_code_for_error(product, state.data)
 
         if qty_per_unit is None or qty_per_unit == 0:
-            raise WorkflowException(BusinessError.MISSING_QTY_PER_UNIT)
+            raise WorkflowException(
+                BusinessError.MISSING_QTY_PER_UNIT,
+                format_error_message(
+                    BusinessError.MISSING_QTY_PER_UNIT, pack_code=pack_code
+                ),
+            )
         if total_qty is None or total_qty == 0:
-            raise WorkflowException(BusinessError.MISSING_TOTAL_QTY)
+            raise WorkflowException(
+                BusinessError.MISSING_TOTAL_QTY,
+                format_error_message(
+                    BusinessError.MISSING_TOTAL_QTY, pack_code=pack_code
+                ),
+            )
 
         unit_dims = product.get("unit_dims")
         if unit_dims is None or not str(unit_dims).strip():
-            raise WorkflowException(BusinessError.MISSING_UNIT_DIMS)
+            raise WorkflowException(
+                BusinessError.MISSING_UNIT_DIMS,
+                format_error_message(
+                    BusinessError.MISSING_UNIT_DIMS, pack_code=pack_code
+                ),
+            )
 
         try:
             profile_key, pallet_profile = calc_settings.resolve_pallet_type(
                 product.get("pallet_type")
             )
         except ValueError:
-            raise WorkflowException(SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE)
+            raise WorkflowException(
+                SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE,
+                format_error_message(
+                    SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE,
+                    pack_code=pack_code,
+                    pallet_type=str(product.get("pallet_type") or "").strip(),
+                ),
+            )
 
         pieces_int, pallets_int, gross_weight_dec, product_value = gelita_calculate_params(
             order_quantity=order_quantity,

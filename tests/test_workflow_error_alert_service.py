@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from app.domain.error_catalog import BusinessError, workflow_error_payload
+from app.domain.error_catalog import BusinessError, format_error_message, workflow_error_payload
 from app.domain.workflow_error_alert_payload import WorkflowErrorAlertPayload
 from app.services.workflow_error_alert_service import WorkflowErrorAlertService
 
@@ -12,6 +12,9 @@ from app.services.workflow_error_alert_service import WorkflowErrorAlertService
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+
+PACK_MSG = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="5366")
 
 
 def _payload() -> WorkflowErrorAlertPayload:
@@ -22,7 +25,7 @@ def _payload() -> WorkflowErrorAlertPayload:
         workflow_run_id=RUN_UUID,
         error=workflow_error_payload(
             code=BusinessError.MISSING_PACK_CODE.value,
-            message=BusinessError.MISSING_PACK_CODE.description,
+            message=PACK_MSG,
             category=BusinessError.CATEGORY,
         ),
         tenant_settings={
@@ -77,7 +80,7 @@ def test_send_workflow_error_alert_email_channel(mock_send_email: MagicMock) -> 
     assert metadata["idempotency_key"]
     activity_log_service.record_action.assert_called_once()
     write = activity_log_service.record_action.call_args.args[0]
-    assert write.description == BusinessError.MISSING_PACK_CODE.description
+    assert write.description == PACK_MSG
 
 
 @patch("app.services.workflow_error_alert_service.send_email")

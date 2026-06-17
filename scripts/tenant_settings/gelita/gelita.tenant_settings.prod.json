@@ -105,13 +105,13 @@
         "accepted",
         "rejected"
       ],
-            "expire_grace_hours": 2,
-            "schedule_on_event_type": "carrier_email_received",
-            "delivery_cutoff": {
-                "local_time": "13:00",
-                "timezone": "America/Chicago"
-            }
-        },
+      "expire_grace_hours": 2,
+      "schedule_on_event_type": "carrier_email_received",
+      "delivery_cutoff": {
+        "local_time": "13:00",
+        "timezone": "America/Chicago"
+      }
+    },
     "tender_calculate": {
       "pallet_profiles": {
         "european": {

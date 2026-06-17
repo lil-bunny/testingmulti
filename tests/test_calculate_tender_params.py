@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.domain.error_catalog import BusinessError
+from app.domain.error_catalog import BusinessError, format_error_message
 from app.domain.load_tendering_state import get_tender
 from app.domain.state import WorkflowState
 from app.tools.tender_email import (
@@ -209,7 +209,9 @@ def test_calculate_tender_params_missing_delivery_address_returns_error_code(
     error = result["data"]["error"]
     assert error["code"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
     assert error["category"] == BusinessError.CATEGORY.value
-    assert error["message"] == BusinessError.MISSING_DELIVERY_ADDRESS.description
+    assert error["message"] == format_error_message(
+        BusinessError.MISSING_DELIVERY_ADDRESS, del_code="41000100"
+    )
     assert result["data"]["delivery_address_code"] == "41000100"
     mock_svc.update_load_type.assert_not_called()
 
@@ -241,7 +243,9 @@ def test_calculate_tender_params_missing_customer_name_returns_error_code(
     error = result["data"]["error"]
     assert error["code"] == BusinessError.MISSING_CUSTOMER_NAME.value
     assert error["category"] == BusinessError.CATEGORY.value
-    assert error["message"] == BusinessError.MISSING_CUSTOMER_NAME.description
+    assert error["message"] == format_error_message(
+        BusinessError.MISSING_CUSTOMER_NAME, del_code="41000100"
+    )
     assert result["data"]["delivery_address_code"] == "41000100"
     mock_svc.update_load_type.assert_not_called()
 
@@ -263,7 +267,9 @@ def test_calculate_tender_params_missing_unit_dims_returns_error_code(
     error = result["data"]["error"]
     assert error["code"] == BusinessError.MISSING_UNIT_DIMS
     assert error["category"] == BusinessError.CATEGORY.value
-    assert error["message"] == BusinessError.MISSING_UNIT_DIMS.description
+    assert error["message"] == format_error_message(
+        BusinessError.MISSING_UNIT_DIMS, pack_code=PACK_CODE
+    )
     mock_svc.update_load_type.assert_not_called()
 
 

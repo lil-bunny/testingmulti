@@ -5,7 +5,7 @@ from app.domain.activity_log_descriptions import (
     format_workflow_error_alert_sent_action,
     generate_activity_log_description,
 )
-from app.domain.error_catalog import BusinessError
+from app.domain.error_catalog import BusinessError, format_error_message
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 
@@ -50,6 +50,15 @@ def test_generate_sub_status_change_description() -> None:
         to_sub_status=StatusSubType.ESCALATED,
     )
     assert text == "Sub-status changed from Tender Sent To Tenant to Escalated"
+
+
+def test_format_workflow_error_alert_sent_action_prefers_message() -> None:
+    msg = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="5366")
+    text = format_workflow_error_alert_sent_action(
+        error_code=BusinessError.MISSING_PACK_CODE.value,
+        message=msg,
+    )
+    assert text == msg
 
 
 def test_format_workflow_error_alert_sent_action_uses_catalog_description() -> None:

@@ -262,7 +262,8 @@ class WorkflowErrorAlertService:
                 workflow_lifecycle_id=payload.workflow_lifecycle_id,
                 workflow_run_id=payload.workflow_run_id,
                 description=format_workflow_error_alert_sent_action(
-                    error_code=error_code
+                    error_code=error_code,
+                    message=str(payload.error.get("message") or "").strip() or None,
                 ),
                 metadata=metadata,
                 communication_id=communication_id,

@@ -56,18 +56,30 @@ class BusinessError(_CatalogError):
     MISSING_TENDER_ID = ("missing_tender_id", "Tender ID is missing.")
     TENDER_NOT_FOUND = ("tender_not_found", "Tender not found.")
     MISSING_PRODUCT_LINES = ("missing_product_lines", "No tender products found.")
-    MISSING_PACK_CODE = ("missing_pack_code", "Product pack code is required.")
+    MISSING_PACK_CODE = (
+        "missing_pack_code",
+        "Product pack code {pack_code} is missing.",
+    )
     MISSING_DELIVERY_ADDRESS = (
         "missing_delivery_address",
-        "Delivery address could not be resolved from the delivery location code.",
+        "Delivery address is not found for delivery location code {del_code}.",
     )
     MISSING_CUSTOMER_NAME = (
         "missing_customer_name",
-        "Customer name could not be resolved from the delivery location code.",
+        "Customer name is not found from delivery location code {del_code}.",
     )
-    MISSING_QTY_PER_UNIT = ("missing_qty_per_unit", "Pack code quantity per unit is missing.")
-    MISSING_TOTAL_QTY = ("missing_total_qty", "Pack code total quantity is missing.")
-    MISSING_UNIT_DIMS = ("missing_unit_dims", "Pack code unit dimensions are missing.")
+    MISSING_QTY_PER_UNIT = (
+        "missing_qty_per_unit",
+        "Pack code {pack_code} quantity per unit is missing.",
+    )
+    MISSING_TOTAL_QTY = (
+        "missing_total_qty",
+        "Pack code {pack_code} total quantity is missing.",
+    )
+    MISSING_UNIT_DIMS = (
+        "missing_unit_dims",
+        "Pack code {pack_code} unit dimensions are missing.",
+    )
     MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required.")
     # POD lifecycle
     POD_ATTACHMENT_UPLOAD_FAILED = (
@@ -116,7 +128,7 @@ class SystemError(_CatalogError):
     )
     UNKNOWN_PACK_CODE_PALLET_TYPE = (
         "unknown_pack_code_pallet_type",
-        "Pallet Type is missing in pack codes.",
+        "Pallet type {pallet_type} is missing in pack code {pack_code}.",
     )
     MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS = (
         "missing_tenant_settings_gelita_pickup_address",
@@ -145,6 +157,16 @@ _ERROR_BY_CODE: dict[str, ErrorCode] = {
 def resolve_error_code(code: str) -> ErrorCode | None:
     """Map a persisted wire code back to its catalog entry."""
     return _ERROR_BY_CODE.get(code)
+
+
+def format_error_message(error: _CatalogError, **values: str) -> str:
+    """Format a catalog description; missing keys become empty strings."""
+
+    class _SafeFormatMap(dict[str, str]):
+        def __missing__(self, key: str) -> str:
+            return ""
+
+    return error.description.format_map(_SafeFormatMap(values))
 
 
 def error_description(code: ErrorCode | str) -> str | None:
