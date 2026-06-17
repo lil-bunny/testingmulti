@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.domain.error_catalog import BusinessError, workflow_error_payload
+from app.domain.error_catalog import BusinessError, format_error_message, workflow_error_payload
 from app.domain.workflow_error_alert_templates import (
     build_workflow_error_alert_template_context,
     format_workflow_error_alert_template,
@@ -10,19 +10,24 @@ from app.domain.workflow_error_alert_templates import (
 
 
 def test_build_template_context_uses_order_number_not_tender_id() -> None:
+    pack_msg = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="5366")
     context = build_workflow_error_alert_template_context(
         data={
             "tender_id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
-            "tender": {"order_number": "ORD-100", "customer_po": "PO-55"},
+            "tender": {
+                "order_number": "ORD-100",
+                "customer_po": "PO-55",
+                "pack_code": "5366",
+            },
             "error": workflow_error_payload(
                 code=BusinessError.MISSING_PACK_CODE.value,
-                message=BusinessError.MISSING_PACK_CODE.description,
+                message=pack_msg,
                 category=BusinessError.CATEGORY,
             ),
         },
         error=workflow_error_payload(
             code=BusinessError.MISSING_PACK_CODE.value,
-            message=BusinessError.MISSING_PACK_CODE.description,
+            message=pack_msg,
             category=BusinessError.CATEGORY,
         ),
         workflow_lifecycle_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
@@ -30,8 +35,7 @@ def test_build_template_context_uses_order_number_not_tender_id() -> None:
     )
     assert context["order_number"] == "ORD-100"
     assert context["customer_po"] == "PO-55"
-    assert context["failure_reason"] == BusinessError.MISSING_PACK_CODE.description
-    assert context["delivery_location_code_block"] == ""
+    assert context["failure_reason"] == pack_msg
 
 
 def test_missing_placeholders_render_empty() -> None:

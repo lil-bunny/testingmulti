@@ -1,6 +1,7 @@
 from app.core.logger import get_logger
 from app.domain.load_tendering_state import get_tender
 from app.models.status import StatusSubType, StatusType
+from app.tools.tender_reminder_delivery_cutoff import is_past_delivery_cutoff
 
 logger = get_logger(__name__)
 
@@ -103,6 +104,17 @@ def tender_status_router(state):
         return "completed"
     event_type = state.data.get("event_type")
     if event_type in ("reminder_due", "escalation_due"):
+        if is_past_delivery_cutoff(state.data):
+            tender = get_tender(state.data) or {}
+            logger.info(
+                "tender_status_router skipping past delivery cutoff "
+                "event_type=%s tender_id=%s delivery_date=%s lifecycle_id=%s",
+                event_type,
+                state.data.get("tender_id"),
+                tender.get("delivery_date"),
+                state.data.get("workflow_lifecycle_id"),
+            )
+            return "completed"
         return event_type
     return "missing"
 

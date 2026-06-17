@@ -69,10 +69,7 @@ def main() -> None:
             if isinstance(current, str):
                 current = json.loads(current)
 
-            for acct_key in (
-                "ana_at_gelita_account_id",
-                "ana_gelita_at_freightx_ai_account_id",
-            ):
+            for acct_key in ("ana_at_gelita_account_id",):
                 if current.get(acct_key):
                     fixture[acct_key] = current[acct_key]
 

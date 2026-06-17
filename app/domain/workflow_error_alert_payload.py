@@ -10,7 +10,10 @@ from app.domain.load_tendering_state import ingest_delivery_address_code, ingest
 
 
 class WorkflowErrorAlertPayload(BaseModel):
-    """Serializable context for one workflow error alert delivery attempt."""
+    """Serializable context for one workflow error alert delivery attempt.
+
+    ``exception_activity_log_id`` points at the failure ``exception`` activity row.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -24,6 +27,7 @@ class WorkflowErrorAlertPayload(BaseModel):
     pack_code: str | None = None
     delivery_address_code: str | None = None
     workflow_data: dict[str, Any] = Field(default_factory=dict)
+    exception_activity_log_id: str | None = None
 
     @classmethod
     def from_workflow_state_data(
@@ -33,8 +37,9 @@ class WorkflowErrorAlertPayload(BaseModel):
         workflow_name: str,
         workflow_run_id: str,
         data: dict[str, Any],
+        exception_activity_log_id: str | None = None,
     ) -> WorkflowErrorAlertPayload | None:
-        """Build a task payload from graph state when a catalog error is present."""
+        """Build a Celery payload from graph state; returns ``None`` without a catalog error."""
         error = data.get("error")
         if not isinstance(error, dict) or not str(error.get("code") or "").strip():
             return None
@@ -60,4 +65,5 @@ class WorkflowErrorAlertPayload(BaseModel):
             pack_code=pack_code or None,
             delivery_address_code=delivery_address_code or None,
             workflow_data=dict(data),
+            exception_activity_log_id=str(exception_activity_log_id or "").strip() or None,
         )

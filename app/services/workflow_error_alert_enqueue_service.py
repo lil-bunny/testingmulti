@@ -9,10 +9,15 @@ from app.domain.workflow_error_alert_payload import WorkflowErrorAlertPayload
 logger = get_logger(__name__)
 
 
-def enqueue_workflow_error_alert_from_state(state: WorkflowState) -> None:
+def enqueue_workflow_error_alert_from_state(
+    state: WorkflowState,
+    *,
+    exception_activity_log_id: str | None = None,
+) -> None:
     """
     Queue async alert delivery after a successful failure lifecycle transition.
 
+    ``exception_activity_log_id`` is the ``exception`` row from the failure sink.
     Swallows broker errors so the graph failure sink always completes.
     """
     workflow_name = str(state.data.get("workflow_name") or "").strip()
@@ -21,6 +26,7 @@ def enqueue_workflow_error_alert_from_state(state: WorkflowState) -> None:
         workflow_name=workflow_name,
         workflow_run_id=state.execution_id,
         data=state.data,
+        exception_activity_log_id=exception_activity_log_id,
     )
     if payload is None:
         return

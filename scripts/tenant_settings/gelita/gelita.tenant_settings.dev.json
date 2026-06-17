@@ -55,8 +55,13 @@
                         "delay_hours": 0.016
                     },
                     {
+                        "step": 2,
+                        "event_type": "reminder_due",
+                        "delay_hours": 0.05
+                    },
+                    {
                         "event_type": "escalation_due",
-                        "delay_hours": 0.033
+                        "delay_hours": 0.06
                     }
                 ],
                 "ltl": [
@@ -82,7 +87,11 @@
                 "rejected"
             ],
             "expire_grace_hours": 2,
-            "schedule_on_event_type": "carrier_email_received"
+            "schedule_on_event_type": "carrier_email_received",
+            "delivery_cutoff": {
+                "local_time": "13:00",
+                "timezone": "America/Chicago"
+            }
         },
         "workflow_error_alerts": {
             "enabled": true,
@@ -95,7 +104,7 @@
                     "cc": [],
                     "bcc": [],
                     "subject": "Exception: Gelita Order Processing Failure PO {customer_po}",
-                    "body_template": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita Order Processing Failure</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p>Dear Team,</p>\n<p>We are unable to process the below Gelita order due to an exception.</p>\n<p><strong>Reason for Failure:</strong><br />{failure_reason}</p>\n{delivery_location_code_block}\n<p><strong>Order ID:</strong> {order_number}</p>\n<p>Regards,<br />Ana</p>\n</body>\n</html>"
+                    "body_template": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita Order Processing Failure</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p>Dear Team,</p>\n<p>We are unable to process the below Gelita order due to an exception.</p>\n<p><strong>Reason for Failure:</strong><br />{failure_reason}</p>\n<p><strong>Order ID:</strong> {order_number}</p>\n<p>Regards,<br />Ana</p>\n</body>\n</html>"
                 }
             ]
         },
@@ -134,9 +143,7 @@
         "load_tendering"
     ],
     "inbound_routing_emails": [
-        "ana.gelita.test@freightx.ai",
         "ayush@freightx.ai"
     ],
-    "ana_at_gelita_account_id": "oizK1OAzTyqJJJ6VySWEDw",
-    "ana_gelita_at_freightx_ai_account_id": "oizK1OAzTyqJJJ6VySWEDw"
+    "ana_at_gelita_account_id": "umo3hTOoQ4KXxkZ1uKnIPg"
 }

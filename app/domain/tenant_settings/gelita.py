@@ -163,7 +163,6 @@ class GelitaTenantSettings(BaseModel):
     enabledProcesses: list[str] = Field(default_factory=list)
     inbound_routing_emails: InboundRoutingEmails
     ana_at_gelita_account_id: str
-    ana_gelita_at_freightx_ai_account_id: str
     prompts: dict[str, str]
     load_tendering: GelitaLoadTenderingSettings
     workflow_error_alerts: WorkflowErrorAlertSettings | None = None

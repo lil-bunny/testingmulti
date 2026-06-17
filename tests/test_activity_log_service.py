@@ -60,10 +60,42 @@ def test_record_activity_legacy_string_type_uses_repo(mock_repo: MagicMock) -> N
     mock_repo.insert.assert_called_once()
 
 
+def test_link_communication_uses_repo(mock_repo: MagicMock) -> None:
+    mock_repo.link_communication.return_value = True
+    svc = ActivityLogService(repository=mock_repo)
+    with patch(
+        "app.services.activity_log_service.resolve_graph_tenant_to_uuid",
+        return_value=TENANT_UUID,
+    ):
+        linked = svc.link_communication(
+            activity_log_id=ACTIVITY_UUID,
+            tenant_id=TENANT_UUID,
+            communication_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+            metadata_patch={"channel": "email"},
+        )
+
+    assert linked is True
+    mock_repo.link_communication.assert_called_once_with(
+        activity_log_id=ACTIVITY_UUID,
+        tenant_id=TENANT_UUID,
+        communication_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        metadata_patch={"channel": "email"},
+    )
+
+
 @patch("app.services.activity_log_service.LifecycleTransitionService")
-def test_record_action_delegates_without_direct_insert(
+@pytest.mark.parametrize(
+    ("method_name", "activity_type"),
+    [
+        ("record_action", ActivityType.ACTION),
+        ("record_exception", ActivityType.EXCEPTION),
+    ],
+)
+def test_record_snapshot_delegates_without_direct_insert(
     mock_transition_cls: MagicMock,
     mock_repo: MagicMock,
+    method_name: str,
+    activity_type: ActivityType,
 ) -> None:
     from app.domain.lifecycle_transition import LifecycleTransitionResult
 
@@ -79,12 +111,12 @@ def test_record_action_delegates_without_direct_insert(
     mock_transition_cls.return_value = mock_transition
 
     svc = ActivityLogService(repository=mock_repo)
-    out = svc.record_action(_write(description="side effect"))
+    out = getattr(svc, method_name)(_write(description="side effect"))
 
     assert out == ACTIVITY_UUID
     mock_transition.apply.assert_called_once()
     command = mock_transition.apply.call_args[0][0]
-    assert command.activity_type == ActivityType.ACTION
+    assert command.activity_type == activity_type
     assert command.update_lifecycle is False
     mock_repo.insert.assert_not_called()
 
