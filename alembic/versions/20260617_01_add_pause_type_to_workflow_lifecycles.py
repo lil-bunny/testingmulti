@@ -21,7 +21,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE activity_log_type ADD VALUE IF NOT EXISTS 'exception'")
+    # PostgreSQL requires new enum values to be committed before use in CHECK.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "ALTER TYPE activity_log_type ADD VALUE IF NOT EXISTS 'exception'"
+        )
+    op.execute(
+        """
+        CREATE TYPE lifecycle_pause_type AS ENUM (
+            'system_error',
+            'business_exception'
+        )
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE workflow_lifecycles
+        ADD COLUMN IF NOT EXISTS pause_type lifecycle_pause_type
+        """
+    )
     op.execute(
         """
         ALTER TABLE activity_logs
@@ -40,20 +58,6 @@ def upgrade() -> None:
         )
         """
     )
-    op.execute(
-        """
-        CREATE TYPE lifecycle_pause_type AS ENUM (
-            'system_error',
-            'business_exception'
-        )
-        """
-    )
-    op.execute(
-        """
-        ALTER TABLE workflow_lifecycles
-        ADD COLUMN IF NOT EXISTS pause_type lifecycle_pause_type
-        """
-    )
 
 
 def downgrade() -> None:
@@ -65,6 +69,36 @@ def downgrade() -> None:
         DROP CONSTRAINT IF EXISTS activity_logs_action_snapshot_chk
         """
     )
+    op.execute(
+        """
+        UPDATE activity_logs
+        SET activity_type = 'action'
+        WHERE activity_type = 'exception'
+        """
+    )
+
+    # Remove 'exception' from activity_log_type by recreating the enum.
+    # PostgreSQL cannot DROP a single enum value, so we swap the type.
+    op.execute(
+        """
+        CREATE TYPE activity_log_type_prev AS ENUM (
+            'action',
+            'status_change',
+            'sub_status_change'
+        )
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE activity_logs
+            ALTER COLUMN activity_type TYPE activity_log_type_prev
+            USING activity_type::text::activity_log_type_prev
+        """
+    )
+    op.execute("DROP TYPE activity_log_type")
+    op.execute("ALTER TYPE activity_log_type_prev RENAME TO activity_log_type")
+
+    # Restore the original action-only CHECK.
     op.execute(
         """
         ALTER TABLE activity_logs
