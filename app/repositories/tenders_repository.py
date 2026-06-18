@@ -21,7 +21,7 @@ _WHERE_TENANT_ORDER = """
 
 @dataclass(frozen=True)
 class TenderInsertResult:
-    """``created`` is True when a new row was inserted; False when the order already existed."""
+    """``insert_batch`` outcome: new tender id and whether ingest should enqueue workflow."""
 
     tender_id: str
     created: bool
@@ -99,7 +99,7 @@ class TendersRepository:
     def get_by_order_number(
         self, *, tenant_id: str, order_number: str
     ) -> dict[str, Any] | None:
-        """Return ``{id, order_number}`` for a tenant-scoped tender row, or ``None``."""
+        """Latest ``{id, order_number}`` for ``(tenant_id, order_number)`` (``created_at DESC``), or ``None``."""
         tid = self._clean(tenant_id)
         order = self._clean(order_number)
         if not tid or not order:
@@ -111,7 +111,7 @@ class TendersRepository:
                 SELECT id::text, order_number
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_ORDER}
-                ORDER BY updated_at DESC
+                ORDER BY created_at DESC
                 LIMIT 1
                 """
             ),
@@ -144,11 +144,7 @@ class TendersRepository:
         return result.rowcount > 0
 
     def insert_batch(self, rows: list[dict[str, Any]]) -> list[TenderInsertResult]:
-        """
-        Insert rows in order; return id + whether each row was newly created.
-
-        On duplicate ``(tenant_id, order_number)``, does nothing (existing row unchanged).
-        """
+        """Insert one tender row per input dict; duplicate order numbers are allowed (order rollover)."""
         if not rows:
             return []
 
@@ -180,17 +176,7 @@ class TendersRepository:
                 CAST(:delivery_address AS jsonb),
                 CAST(:metadata AS jsonb)
             )
-            ON CONFLICT ON CONSTRAINT tenders_tenant_order_number_unique
-            DO NOTHING
-            RETURNING id, (xmax = 0) AS inserted
-            """
-        )
-        lookup_sql = text(
-            f"""
-            SELECT id::text
-            FROM {self.TABLE_NAME}
-            {_WHERE_TENANT_ORDER}
-            LIMIT 1
+            RETURNING id::text
             """
         )
         results: list[TenderInsertResult] = []
@@ -215,22 +201,7 @@ class TendersRepository:
                 results.append(
                     TenderInsertResult(
                         tender_id=str(row[0]),
-                        created=bool(row[1]),
-                    )
-                )
-                continue
-            existing = self._session.execute(
-                lookup_sql,
-                {
-                    "tenant_id": r["tenant_id"],
-                    "order_number": r["order_number"],
-                },
-            ).first()
-            if existing and existing[0]:
-                results.append(
-                    TenderInsertResult(
-                        tender_id=str(existing[0]),
-                        created=False,
+                        created=True,
                     )
                 )
 
