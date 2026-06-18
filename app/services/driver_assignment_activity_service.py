@@ -17,8 +17,12 @@ from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.workflow_reminder_service import parse_reminders_for_workflow
+from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 
 logger = get_logger(__name__)
+
+_DRIVER_ASSIGNMENT_WORKFLOW = "driver_assignment"
 
 
 class DriverAssignmentActivityService:
@@ -69,11 +73,60 @@ class DriverAssignmentActivityService:
         return meta
 
     @staticmethod
+    def _communication_id(state) -> str | None:
+        raw = state.data.get("communication_id")
+        if raw is None:
+            return None
+        cid = str(raw).strip()
+        return cid or None
+
+    @staticmethod
     def _lifecycle_already_started(row: dict[str, Any] | None) -> bool:
         if not row:
             return False
         status = status_type_from_db(row.get("status"))
         return status not in (None, StatusType.NONE)
+
+    @staticmethod
+    def _skip_sub_statuses_from_state(state) -> frozenset[str]:
+        data = getattr(state, "data", None) or {}
+        if not isinstance(data, dict):
+            return frozenset()
+        cfg = parse_reminders_for_workflow(data, _DRIVER_ASSIGNMENT_WORKFLOW)
+        if cfg is None:
+            return frozenset()
+        return frozenset(s.strip() for s in cfg.skip_sub_statuses if str(s).strip())
+
+    @staticmethod
+    def _sub_status_for_reminder_step(step: int) -> StatusSubType | None:
+        mapping = {
+            1: StatusSubType.REMINDER_1_SENT,
+            2: StatusSubType.REMINDER_2_SENT,
+            3: StatusSubType.REMINDER_3_SENT,
+            4: StatusSubType.REMINDER_4_SENT,
+        }
+        return mapping.get(step)
+
+    @staticmethod
+    def _build_reminder_transition_step(
+        *,
+        current_status: StatusType | None,
+        new_sub: StatusSubType,
+        metadata: dict[str, Any],
+    ) -> ActivityLogStep:
+        to_status = StatusType.PENDING_REVIEW
+        if current_status == to_status:
+            return ActivityLogStep(
+                activity_type=ActivityType.SUB_STATUS_CHANGE,
+                to_sub_status=new_sub,
+                metadata=dict(metadata),
+            )
+        return ActivityLogStep(
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=to_status,
+            to_sub_status=new_sub,
+            metadata=dict(metadata),
+        )
 
     def record_not_started_on_ratecon(
         self,
@@ -162,6 +215,10 @@ class DriverAssignmentActivityService:
 
     def record_reminder_sent(self, state) -> None:
         if not state.data.get("driver_reminder_sent"):
+            logger.info(
+                "record_reminder_sent skipping (reminder not sent) lifecycle_id=%s",
+                state.data.get("workflow_lifecycle_id"),
+            )
             return
 
         scope = self._scope_ids(state)
@@ -176,10 +233,43 @@ class DriverAssignmentActivityService:
             return
 
         wl_id, tenant_id, run_id = scope
+        raw_step = state.data.get("reminder_step")
+        try:
+            step = int(raw_step) if raw_step is not None else None
+        except (TypeError, ValueError):
+            step = None
+        if step not in (1, 2, 3, 4):
+            logger.warning(
+                "record_reminder_sent invalid reminder_step=%r lifecycle_id=%s",
+                raw_step,
+                wl_id,
+            )
+            return
+
+        new_sub = self._sub_status_for_reminder_step(step)
+        assert new_sub is not None
+
+        prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        skip = delayed_workflow_step_skip_reason(
+            prev,
+            skip_sub_statuses=self._skip_sub_statuses_from_state(state),
+        )
+        if skip:
+            logger.info(
+                "record_reminder_sent skipping lifecycle_id=%s reason=%s",
+                wl_id,
+                skip,
+            )
+            return
+
         meta = self._base_metadata(state)
-        reminder_step = state.data.get("reminder_step")
-        if reminder_step is not None:
-            meta["reminder_step"] = reminder_step
+        meta["reminder_step"] = step
+        current_status = status_type_from_db(prev.get("status")) if prev else None
+        transition_step = self._build_reminder_transition_step(
+            current_status=current_status,
+            new_sub=new_sub,
+            metadata=meta,
+        )
 
         self._activity.record_sequence(
             ActivityLogSequence(
@@ -189,11 +279,11 @@ class DriverAssignmentActivityService:
                 steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_driver_reminder_sent_action(
-                            step=int(reminder_step) if reminder_step is not None else None
-                        ),
-                        metadata=meta,
+                        description=format_driver_reminder_sent_action(step=step),
+                        metadata=dict(meta),
+                        communication_id=self._communication_id(state),
                     ),
+                    transition_step,
                 ),
             )
         )
@@ -242,7 +332,7 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         to_status=StatusType.PROCESSING,
-                        to_sub_status=StatusSubType.NONE,
+                        to_sub_status=StatusSubType.DRIVER_ASSIGNMENT_STARTED,
                         from_status=StatusType.NONE,
                         from_sub_status=StatusSubType.NONE,
                         metadata=meta,

@@ -67,9 +67,136 @@ def test_record_started_writes_action_and_status():
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.PROCESSING
+    assert sequence.steps[1].to_sub_status == StatusSubType.DRIVER_ASSIGNMENT_STARTED
 
 
-def test_record_reminders_scheduled_includes_fire_at_metadata():
+def _reminder_state(**data_overrides):
+    base = {
+        "driver_reminder_sent": True,
+        "tenant_settings": {
+            "driver_assignment": {
+                "reminders": {
+                    "schedule_mode": "before_pickup",
+                    "offsets_before_pickup_hours": [48, 24, 12, 6],
+                }
+            }
+        },
+    }
+    base.update(data_overrides)
+    if "reminder_step" not in base:
+        base["reminder_step"] = 1
+    return _state(**base)
+
+
+def test_record_reminder_sent_skips_when_not_sent():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(_state(driver_reminder_sent=False, reminder_step=1))
+
+    activity.record_sequence.assert_not_called()
+    lifecycle.read_lifecycle_row_by_id.assert_not_called()
+
+
+def test_record_reminder_sent_step1_status_change_to_pending_review():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(_reminder_state(reminder_step=1))
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert len(sequence.steps) == 2
+    assert sequence.steps[0].activity_type == ActivityType.ACTION
+    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
+
+
+def test_record_reminder_sent_step2_sub_status_change_only():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(_reminder_state(reminder_step=2))
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
+    assert sequence.steps[1].to_status is None
+
+
+def test_record_reminder_sent_step4_sub_status():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_3_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(_reminder_state(reminder_step=4))
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_4_SENT
+
+
+def test_record_reminder_sent_links_communication_id():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(_reminder_state(reminder_step=1, communication_id="comm-1"))
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[0].communication_id == "comm-1"
+    assert sequence.steps[1].communication_id is None
+
+
+def test_record_reminder_sent_skips_when_lifecycle_completed():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.COMPLETED.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(_reminder_state(reminder_step=1))
+
+    activity.record_sequence.assert_not_called()
+
     activity = MagicMock()
     svc = DriverAssignmentActivityService(activity_log_service=activity)
 

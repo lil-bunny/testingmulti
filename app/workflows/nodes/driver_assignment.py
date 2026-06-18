@@ -63,6 +63,8 @@ def send_driver_reminder(state):
     state.data["driver_reminder_sent"] = result.sent
     if result.error:
         state.data["driver_reminder_error"] = result.error
+    if result.communication_id:
+        state.data["communication_id"] = result.communication_id
     return state
 
 

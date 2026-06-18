@@ -3,6 +3,13 @@ from typing import Any, Dict, List, Optional, Set
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.services.communications.service import CommunicationsService
+from app.domain.email_thread_reply import (
+    build_recipients,
+    build_reply_subject,
+    merge_cc,
+    normalize_email,
+    resolve_parent_id,
+)
 from app.domain.tenant_settings.email_recipients import (
     coerce_email_list,
     unipile_recipients_from_addresses,
@@ -43,28 +50,15 @@ def _record_outbound_communication(
         workflow_run_id=workflow_run_id,
     )
 
-# Private helpers
+# Private helpers (thread reply primitives live in app.domain.email_thread_reply)
 
 def _normalize_email(e: Any) -> str:
-    return (str(e) if e else "").strip().lower()
+    return normalize_email(e)
 
 
 def _unipile_recipient_list(field: Any, *, required: bool) -> List[Dict[str, str]]:
     addrs = coerce_email_list(field, required=required)
     return unipile_recipients_from_addresses(addrs)
-
-
-def _attendee_to_recipient(att: Any) -> Optional[Dict[str, str]]:
-    """Convert a Unipile attendee dict to a {identifier, display_name} recipient."""
-    if not isinstance(att, dict):
-        return None
-    ident = att.get("identifier")
-    if not ident or "@" not in str(ident):
-        return None
-    return {
-        "identifier": str(ident),
-        "display_name": att.get("display_name") or str(ident).split("@")[0],
-    }
 
 
 def _resolve_parent_id(
@@ -73,100 +67,18 @@ def _resolve_parent_id(
     reply_to_message_id: Optional[str],
     account_id: Optional[str],
 ) -> str:
-    """
-    Resolve the internal Unipile email `id` to use as `reply_to`.
-    Prefers an explicit caller-supplied id; falls back to latest email's id.
-    """
-    if reply_to_message_id:
-        reply_to_message_id = str(reply_to_message_id).strip()
-        if not reply_to_message_id:
-            raise UnipileException("reply_to_message_id was provided but empty")
-
-        resolved = None
-        try:
-            resolved = unipile.get_email(reply_to_message_id, account_id=account_id)
-        except Exception:
-            logger.warning(f"[reply_to_thread] Could not resolve provider_id={reply_to_message_id}, using as-is")
-
-        reply_to_id = (resolved.get("id") if isinstance(resolved, dict) else None) or reply_to_message_id
-        return str(reply_to_id).strip()
-
-    pid = latest_email.get("id") or latest_email.get("provider_id") or latest_email.get("message_id")
-    if not pid:
-        raise UnipileException(
-            "Could not determine parent message id to reply to; pass reply_to_message_id explicitly"
-        )
-    return str(pid).strip()
+    return resolve_parent_id(unipile, latest_email, reply_to_message_id, account_id)
 
 
 def _build_reply_subject(original_subject: str, override: Optional[str] = None) -> str:
-    """
-    Pick subject from original thread first, fall back to override.
-    Ensures a 'Re: ' prefix exists (case-insensitive check).
-    """
-    subj = original_subject.strip() if original_subject and original_subject.strip() else None
-    if not subj and override:
-        subj = str(override).strip() or None
-    if not subj:
-        raise UnipileException("No subject found in thread and no override provided")
-
-    low = subj.lstrip().lower()
-    if low.startswith(("re:", "re :")):
-        return subj
-    return f"Re: {subj}"
+    return build_reply_subject(original_subject, override)
 
 
 def _build_recipients(
     latest_email: Dict,
     exclude_email: str,
 ) -> tuple[List[Dict[str, str]], List[Dict[str, str]]]:
-    """
-    Build reply-all TO and CC lists from the latest email in a thread.
-
-    Rules (mirrors standard reply-all behavior):
-      - If we RECEIVED the latest email (role != 'sent'):
-          TO  = from_attendee (the person who sent it to us)
-                + all to_attendees (minus ourselves)
-          CC  = all cc_attendees (minus ourselves)
-      - If we SENT the latest email (role == 'sent'):
-          TO  = all to_attendees (the people we sent to)
-          CC  = all cc_attendees
-      - Always excludes our own email from both lists.
-
-    Returns (to_list, cc_list).
-    """
-    excluded: Set[str] = set()
-    if exclude_email:
-        excluded.add(_normalize_email(exclude_email))
-
-    to_list: List[Dict[str, str]] = []
-    cc_list: List[Dict[str, str]] = []
-    seen: Set[str] = set()
-
-    def _add(recipient: Optional[Dict], target: List[Dict]) -> None:
-        if not recipient or not recipient.get("identifier"):
-            return
-        norm = _normalize_email(recipient["identifier"])
-        if norm in excluded or norm in seen:
-            return
-        seen.add(norm)
-        target.append(recipient)
-
-    role = latest_email.get("role")
-    from_attendee = latest_email.get("from_attendee")
-    to_attendees = latest_email.get("to_attendees") or []
-    cc_attendees = latest_email.get("cc_attendees") or []
-
-    if role != "sent":
-        _add(_attendee_to_recipient(from_attendee), to_list)
-
-    for att in to_attendees:
-        _add(_attendee_to_recipient(att), to_list)
-
-    for att in cc_attendees:
-        _add(_attendee_to_recipient(att), cc_list)
-
-    return to_list, cc_list
+    return build_recipients(latest_email, exclude_email)
 
 
 def _thread_email_summary(email: Dict) -> Dict[str, Any]:
@@ -188,26 +100,7 @@ def _merge_cc(
     exclude_email: str,
     to_recipients: List[Dict[str, str]],
 ) -> Optional[List[Dict[str, str]]]:
-    """Merge upstream caller CC with thread CC, deduplicating against TO and self."""
-    excluded = {_normalize_email(exclude_email)} if exclude_email else set()
-    to_norm = {_normalize_email(r.get("identifier")) for r in to_recipients}
-    seen = {_normalize_email(c.get("identifier")) for c in thread_cc}
-
-    merged = list(thread_cc)
-
-    for c in (upstream_cc or []):
-        if not isinstance(c, dict):
-            continue
-        ident = c.get("identifier") or c.get("email") or c.get("email_address")
-        if not ident or not isinstance(ident, str) or "@" not in ident:
-            continue
-        norm = _normalize_email(ident)
-        if norm in excluded or norm in to_norm or norm in seen:
-            continue
-        seen.add(norm)
-        merged.append({"identifier": ident, "display_name": c.get("display_name") or ident.split("@")[0]})
-
-    return merged or None
+    return merge_cc(thread_cc, upstream_cc, exclude_email, to_recipients)
 
 
 # Public tools

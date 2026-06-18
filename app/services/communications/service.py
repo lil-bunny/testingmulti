@@ -20,6 +20,13 @@ from app.services.communications._mapper import (
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
+from app.domain.email_thread_reply import (
+    build_recipients,
+    build_reply_subject,
+    merge_cc,
+    resolve_parent_id,
+)
+from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
 
@@ -532,6 +539,83 @@ class CommunicationsService:
                 tid,
             )
             return None
+
+    def send_thread_reply(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        body: str,
+        account_id: str,
+        subject: str | None = None,
+        reply_to_message_id: str | None = None,
+        cc: list[dict[str, Any]] | None = None,
+        communication_metadata: dict[str, Any] | None = None,
+        workflow_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Unipile thread reply-all + outbound ``communications`` row."""
+        th = self._clean(thread_id)
+        acc = self._clean(account_id)
+        if not th:
+            raise UnipileException("thread_id is required to reply to a thread")
+        if not acc:
+            raise UnipileException("account_id is required to reply to a thread")
+
+        unipile = Unipile()
+        exclude_email = unipile.get_account_email(acc)
+        emails_result = unipile.list_emails(account_id=acc, thread_id=th, limit=50)
+        emails = emails_result.get("items", []) if isinstance(emails_result, dict) else []
+        if not emails:
+            raise UnipileException(f"No emails found for thread_id={th}")
+
+        sorted_emails = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
+        latest_email = sorted_emails[0]
+        reply_to_id = resolve_parent_id(
+            unipile, latest_email, reply_to_message_id, acc
+        )
+        logger.info("send_thread_reply: resolved reply_to_id=%s", reply_to_id)
+
+        original_subject = (latest_email.get("subject") or "").strip()
+        effective_subject = build_reply_subject(original_subject, subject)
+        to_list, thread_cc = build_recipients(latest_email, exclude_email)
+        if not to_list:
+            raise UnipileException("Could not determine reply recipients from the thread")
+        cc_final = merge_cc(thread_cc, cc, exclude_email, to_list)
+
+        result = unipile.send_email(
+            to=to_list,
+            subject=effective_subject,
+            body=body,
+            account_id=acc,
+            reply_to=reply_to_id,
+            cc=cc_final,
+        )
+        result.setdefault("thread_id", th)
+        result.setdefault("reply_to_message_id", reply_to_id)
+        if not result.get("success", True):
+            logger.warning(
+                "send_thread_reply: Unipile send failed thread_id=%s reply_to_id=%s err=%s",
+                th,
+                reply_to_id,
+                result.get("error"),
+            )
+            return result
+
+        comm_id = self.record_outbound_from_send(
+            tenant_id,
+            send_result=result,
+            body=body,
+            subject=effective_subject,
+            thread_id=th,
+            to=to_list,
+            cc=cc_final,
+            account_id=acc,
+            extra_metadata=communication_metadata,
+            workflow_run_id=workflow_run_id,
+        )
+        if comm_id:
+            result["communication_id"] = comm_id
+        return result
 
     def list_thread_messages(
         self,

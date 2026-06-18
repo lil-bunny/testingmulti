@@ -371,10 +371,14 @@ def test_check_reminder_eligibility_skips_when_driver_assigned():
     assert result.skip_reason == "driver_already_assigned"
 
 
-@patch("app.services.driver_assignment_ingress_service.reply_to_thread")
-def test_send_reminder_email_success(mock_reply: MagicMock) -> None:
-    mock_reply.return_value = {"success": True}
-    svc = _service()
+def test_send_reminder_email_success():
+    comms = MagicMock()
+    comms.resolve_thread_for_lifecycle.return_value = "thread-1"
+    comms.send_thread_reply.return_value = {
+        "success": True,
+        "communication_id": "comm-uuid-1",
+    }
+    svc = DriverAssignmentIngressService(communications_service=comms)
 
     result = svc.send_reminder_email(
         tenant_id=_TENANT_ID,
@@ -389,7 +393,8 @@ def test_send_reminder_email_success(mock_reply: MagicMock) -> None:
 
     assert result.sent is True
     assert result.error is None
-    mock_reply.assert_called_once()
-    call_kwargs = mock_reply.call_args.kwargs
+    assert result.communication_id == "comm-uuid-1"
+    comms.send_thread_reply.assert_called_once()
+    call_kwargs = comms.send_thread_reply.call_args.kwargs
     assert call_kwargs["thread_id"] == "thread-1"
     assert call_kwargs["body"] == "Please send driver info"

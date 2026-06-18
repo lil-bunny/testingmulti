@@ -48,8 +48,6 @@ from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 
 from app.services.workflow_runs_service import WorkflowRunsService
 
-from app.tools.email import reply_to_thread
-
 
 
 logger = get_logger(__name__)
@@ -155,6 +153,8 @@ class SendReminderResult:
     sent: bool
 
     error: str | None = None
+
+    communication_id: str | None = None
 
 
 
@@ -1216,7 +1216,9 @@ class DriverAssignmentIngressService:
 
         try:
 
-            result = reply_to_thread(
+            result = self._communications.send_thread_reply(
+
+                tenant_id=tenant_id,
 
                 thread_id=thread_id,
 
@@ -1225,8 +1227,6 @@ class DriverAssignmentIngressService:
                 account_id=account_id,
 
                 subject=subject,
-
-                tenant_id=tenant_id,
 
                 workflow_run_id=workflow_run_id,
 
@@ -1292,7 +1292,13 @@ class DriverAssignmentIngressService:
 
             return SendReminderResult(sent=False, error="send_failed")
 
-        return SendReminderResult(sent=True, error=None)
+        comm_id = None
+
+        if isinstance(result, dict):
+
+            comm_id = self._clean(result.get("communication_id"))
+
+        return SendReminderResult(sent=True, error=None, communication_id=comm_id)
 
 
 
