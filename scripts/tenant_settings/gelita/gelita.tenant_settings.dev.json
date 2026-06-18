@@ -108,6 +108,13 @@
                 }
             ]
         },
+        "domestic_delivery": {
+            "country_iso_codes": [
+                "US",
+                "CA",
+                "MX"
+            ]
+        },
         "tender_calculate": {
             "pallet_profiles": {
                 "wood_4way": {

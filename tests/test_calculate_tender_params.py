@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.domain.error_catalog import BusinessError, format_error_message
-from app.domain.load_tendering_state import get_tender
+from app.domain.load_tendering_state import get_tender, set_tender, tender_from_read_order
 from app.domain.state import WorkflowState
 from app.tools.tender_email import (
     TenderEmailProductLine,
@@ -100,6 +100,16 @@ def _workflow_state(*, tender_id: str) -> WorkflowState:
             "tender_id": tender_id,
             "tenant_settings": _tenant_settings(),
         },
+    )
+
+
+def _hydrate_state_from_bundle(state: WorkflowState, bundle: dict) -> None:
+    set_tender(
+        state.data,
+        tender_from_read_order(
+            {"tender": bundle["tender"], "products": bundle["products"]},
+            None,
+        ),
     )
 
 
@@ -196,13 +206,10 @@ def test_calculate_tender_params_missing_delivery_address_returns_error_code(
     mock_svc_cls.return_value = mock_svc
     bundle = _ftl_bundle()
     bundle["tender"]["delivery_address"] = None
-    mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
-    state.data["tender"] = {
-        "order_number": FTL_ORDER_NUMBER,
-        "delivery_address_code": "41000100",
-    }
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["tender"]["delivery_address_code"] = "41000100"
     result = calculate_tender_params(state)
 
     assert isinstance(result, dict)
@@ -230,13 +237,10 @@ def test_calculate_tender_params_missing_customer_name_returns_error_code(
     bundle = _ftl_bundle()
     bundle["tender"]["customer_name"] = CUSTOMER_NAME_PLACEHOLDER
     bundle["tender"]["metadata"] = {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN}
-    mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
-    state.data["tender"] = {
-        "order_number": FTL_ORDER_NUMBER,
-        "delivery_address_code": "41000100",
-    }
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["tender"]["delivery_address_code"] = "41000100"
     result = calculate_tender_params(state)
 
     assert isinstance(result, dict)
@@ -258,9 +262,9 @@ def test_calculate_tender_params_missing_unit_dims_returns_error_code(
     mock_svc_cls.return_value = mock_svc
     bundle = _ftl_bundle()
     bundle["products"][0].pop("unit_dims")
-    mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
     result = calculate_tender_params(state)
 
     assert isinstance(result, dict)
@@ -277,9 +281,9 @@ def test_calculate_tender_params_missing_unit_dims_returns_error_code(
 def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
-    mock_svc.read_order.return_value = _ftl_bundle()
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, _ftl_bundle())
     result = calculate_tender_params(state)
 
     assert result is state
@@ -323,9 +327,9 @@ def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> Non
 def test_calculate_tender_params_order_96399_ltl(mock_svc_cls: MagicMock) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
-    mock_svc.read_order.return_value = _ltl_bundle()
 
     state = _workflow_state(tender_id=LTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, _ltl_bundle())
     result = calculate_tender_params(state)
 
     mock_svc.update_load_type.assert_called_once_with(

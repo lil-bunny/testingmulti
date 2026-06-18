@@ -16,6 +16,7 @@ from app.domain.load_tendering_settings import (
 )
 from app.domain.load_tendering_state import (
     get_tender,
+    get_tender_products,
     ingest_delivery_address_code,
     ingest_pack_code,
     set_tender,
@@ -102,11 +103,7 @@ def gelita_calculate_params(
 
 @safe_node
 def calculate_tender_params(state):
-    """
-    Load tenant + tender, apply Gelita formulas per product line, persist order ``load_type``.
-
-    Writes ``state.data['tender']`` (order fields + ``tender_products`` with calc).
-    """
+    """Apply Gelita formulas per hydrated product line and persist order load_type."""
     tenant_id = (state.tenant_id or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()
 
@@ -120,18 +117,15 @@ def calculate_tender_params(state):
         raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES)
     pickup_address = calc_settings.gelita_pickup_address.model_dump()
 
-    tender_service = TenderService()
-    bundle = tender_service.read_order(
-        tenant_id=tenant_id,
-        tender_id=tender_id,
-    )
-    if not bundle:
+    tender = get_tender(state.data)
+    if not tender:
         raise WorkflowException(BusinessError.TENDER_NOT_FOUND)
 
-    tender = bundle["tender"]
-    products = bundle["products"]
+    products = get_tender_products(tender)
     if not products:
         raise WorkflowException(BusinessError.MISSING_PRODUCT_LINES)
+
+    tender_service = TenderService()
 
     if tender.get("delivery_address") is None:
         delivery_code = ingest_delivery_address_code(state.data)

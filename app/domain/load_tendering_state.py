@@ -93,9 +93,17 @@ def tender_from_read_order(
     po = str(metadata.get("po_number") or "").strip()
     if po and not base.get("customer_po"):
         base["customer_po"] = po
+    if metadata:
+        base["metadata"] = metadata
+    shipping = parse_tender_date(order.get("shipping_date"))
+    if shipping is not None:
+        base["shipping_date"] = shipping.isoformat()
     delivery = parse_tender_date(order.get("delivery_date"))
     if delivery is not None:
         base["delivery_date"] = delivery.isoformat()
+    delivery_raw = order.get("delivery_address")
+    if isinstance(delivery_raw, dict):
+        base["delivery_address"] = delivery_raw
     return base
 
 

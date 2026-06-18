@@ -130,13 +130,15 @@ WORKFLOW_CONFIGS = {
             "classify_carrier_ack",
             "record_ack_received",
             "read_tender_row",
+            "complete_international_tender",
             "send_tender_reminder",
             "update_reminder_status",
             "escalate_tender",
             "end",
         ],
         "edges": [
-            ["record_tender_created_activity", "calculate_tender_params"],
+            ["record_tender_created_activity", "read_tender_row"],
+            ["complete_international_tender", "end"],
             ["send_tender_email", "log_tender_activity"],
             ["log_tender_activity", "end"],
             ["record_tender_sent_to_carrier", "schedule_tender_reminders"],
@@ -165,8 +167,10 @@ WORKFLOW_CONFIGS = {
                 },
             },
             "read_tender_row": {
-                "router": "tender_status_router",
+                "router": "post_read_tender_router",
                 "map": {
+                    "international": "complete_international_tender",
+                    "domestic": "calculate_tender_params",
                     "completed": "end",
                     "reminder_due": "send_tender_reminder",
                     "escalation_due": "escalate_tender",
