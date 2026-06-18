@@ -131,6 +131,7 @@ WORKFLOW_CONFIGS = {
             "record_ack_received",
             "read_tender_row",
             "complete_international_tender",
+            "record_tender_business_warnings",
             "send_tender_reminder",
             "update_reminder_status",
             "escalate_tender",
@@ -139,7 +140,8 @@ WORKFLOW_CONFIGS = {
         "edges": [
             ["record_tender_created_activity", "read_tender_row"],
             ["complete_international_tender", "end"],
-            ["send_tender_email", "log_tender_activity"],
+            ["send_tender_email", "record_tender_business_warnings"],
+            ["record_tender_business_warnings", "log_tender_activity"],
             ["log_tender_activity", "end"],
             ["record_tender_sent_to_carrier", "schedule_tender_reminders"],
             ["schedule_tender_reminders", "end"],

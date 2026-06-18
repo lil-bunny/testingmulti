@@ -410,6 +410,8 @@ def build_ltl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
     subject_template: str,
+    *,
+    reason_for_failure: str = "",
 ) -> dict[str, str]:
     """Fill LTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -425,6 +427,7 @@ def build_ltl_tender_email_from_tender(
         pickup_address=ctx.pickup_address,
         delivery_address=ctx.delivery_address,
         products_block=products_block,
+        reason_for_failure=reason_for_failure,
     )
 
     subject = format_tender_email_subject(subject_template, ctx)
@@ -435,6 +438,8 @@ def build_ftl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
     subject_template: str,
+    *,
+    reason_for_failure: str = "",
 ) -> dict[str, str]:
     """Fill FTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -451,6 +456,7 @@ def build_ftl_tender_email_from_tender(
         delivery_date=ctx.delivery_date,
         delivery_address=ctx.delivery_address,
         products_block=products_block,
+        reason_for_failure=reason_for_failure,
     )
 
     subject = format_tender_email_subject(subject_template, ctx)

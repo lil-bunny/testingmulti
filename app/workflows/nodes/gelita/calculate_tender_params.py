@@ -22,9 +22,11 @@ from app.domain.load_tendering_state import (
     set_tender,
 )
 from app.domain.error_catalog import BusinessError, SystemError, format_error_message
+from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
 from app.workflows.utils.decorators import safe_node
+from app.workflows.utils.gelita_soft_fail import record_business_gap, record_business_gap_or_raise
 
 _PALLET_ROUND_TOLERANCE = Decimal("0.05")
 _KG_TO_LBS = Decimal("2.2046")
@@ -55,6 +57,28 @@ def _round_pallet_count(pallets_raw: Decimal) -> int:
     return floor_val + 1
 
 
+def _enriched_product_without_calc(product: dict[str, Any]) -> dict[str, Any]:
+    """Placeholder product line when calc inputs are missing under soft-fail."""
+    return {
+        **product,
+        "pieces_count": "",
+        "pallets_count": "",
+        "gross_weight_lbs": "",
+        "product_value": None,
+    }
+
+
+def _product_gap_or_raise(
+    state_data: dict[str, Any],
+    error: BusinessError,
+    **format_kwargs: str,
+) -> bool:
+    """Soft-record the gap when enabled; otherwise raise. Returns True when recorded."""
+    if record_business_gap(state_data, error, **format_kwargs):
+        return True
+    raise WorkflowException(error, format_error_message(error, **format_kwargs))
+
+
 def gelita_calculate_params(
     *,
     order_quantity,
@@ -79,7 +103,6 @@ def gelita_calculate_params(
     pieces_int = int(pieces_raw.to_integral_value(rounding=ROUND_CEILING))
     pallets_raw = order_quantity / total_qty
     pallets_int = _round_pallet_count(pallets_raw)
-    # pallets_dec = Decimal(pallets_int)
 
     unit = WeightUnit.parse(weight_unit) or WeightUnit.KG
     gross_weight_raw = _product_weight_lbs(order_quantity, unit) + (
@@ -127,18 +150,18 @@ def calculate_tender_params(state):
 
     tender_service = TenderService()
 
-    if tender.get("delivery_address") is None:
+    delivery_raw = tender.get("delivery_address")
+    if delivery_raw is None or not isinstance(delivery_raw, dict):
         delivery_code = ingest_delivery_address_code(state.data)
         if delivery_code:
             existing = get_tender(state.data) or {}
             existing["delivery_address_code"] = delivery_code
             set_tender(state.data, existing)
             state.data["delivery_address_code"] = delivery_code
-        raise WorkflowException(
+        record_business_gap_or_raise(
+            state.data,
             BusinessError.MISSING_DELIVERY_ADDRESS,
-            format_error_message(
-                BusinessError.MISSING_DELIVERY_ADDRESS, del_code=delivery_code
-            ),
+            del_code=delivery_code,
         )
 
     if is_unresolved_customer_name(tender):
@@ -148,17 +171,14 @@ def calculate_tender_params(state):
             existing["delivery_address_code"] = delivery_code
             set_tender(state.data, existing)
             state.data["delivery_address_code"] = delivery_code
-        raise WorkflowException(
+        record_business_gap_or_raise(
+            state.data,
             BusinessError.MISSING_CUSTOMER_NAME,
-            format_error_message(
-                BusinessError.MISSING_CUSTOMER_NAME, del_code=delivery_code
-            ),
+            del_code=delivery_code,
         )
 
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
-    total_pieces = Decimal(0)
-    total_pallets = 0
     total_gross = Decimal(0)
 
     for product in products:
@@ -169,41 +189,43 @@ def calculate_tender_params(state):
                 existing["pack_code"] = excel_pack
                 set_tender(state.data, existing)
                 state.data["pack_code"] = excel_pack
-            raise WorkflowException(
+            if _product_gap_or_raise(
+                state.data,
                 BusinessError.MISSING_PACK_CODE,
-                format_error_message(
-                    BusinessError.MISSING_PACK_CODE, pack_code=excel_pack
-                ),
-            )
+                pack_code=excel_pack,
+            ):
+                enriched_products.append(_enriched_product_without_calc(product))
+                continue
 
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
         total_qty = product.get("total_qty")
         pack_code = _pack_code_for_error(product, state.data)
+        unit_dims = product.get("unit_dims")
 
+        product_gap = False
         if qty_per_unit is None or qty_per_unit == 0:
-            raise WorkflowException(
+            product_gap |= _product_gap_or_raise(
+                state.data,
                 BusinessError.MISSING_QTY_PER_UNIT,
-                format_error_message(
-                    BusinessError.MISSING_QTY_PER_UNIT, pack_code=pack_code
-                ),
+                pack_code=pack_code,
             )
         if total_qty is None or total_qty == 0:
-            raise WorkflowException(
+            product_gap |= _product_gap_or_raise(
+                state.data,
                 BusinessError.MISSING_TOTAL_QTY,
-                format_error_message(
-                    BusinessError.MISSING_TOTAL_QTY, pack_code=pack_code
-                ),
+                pack_code=pack_code,
+            )
+        if unit_dims is None or not str(unit_dims).strip():
+            product_gap |= _product_gap_or_raise(
+                state.data,
+                BusinessError.MISSING_UNIT_DIMS,
+                pack_code=pack_code,
             )
 
-        unit_dims = product.get("unit_dims")
-        if unit_dims is None or not str(unit_dims).strip():
-            raise WorkflowException(
-                BusinessError.MISSING_UNIT_DIMS,
-                format_error_message(
-                    BusinessError.MISSING_UNIT_DIMS, pack_code=pack_code
-                ),
-            )
+        if product_gap:
+            enriched_products.append(_enriched_product_without_calc(product))
+            continue
 
         profile_key, pallet_profile = calc_settings.resolve_pallet_type(
             product.get("pallet_type")
@@ -225,22 +247,27 @@ def calculate_tender_params(state):
                 "pallet_threshold": pallet_profile.threshold,
             }
         )
-        total_pieces += pieces_int
-        total_pallets += pallets_int
         total_gross += gross_weight_dec
 
         qty_per_unit_dec = Decimal(str(qty_per_unit))
         total_qty_dec = Decimal(str(total_qty))
-        enriched: dict[str, Any] = {
-            **product,
-            "pieces_count": str(pieces_int),
-            "pallets_count": str(pallets_int),
-            "gross_weight_lbs": f"{int(gross_weight_dec):,}",
-            "qty_per_unit": str(qty_per_unit_dec),
-            "total_qty": str(total_qty_dec),
-            "product_value": product_value,
-        }
-        enriched_products.append(enriched)
+        enriched_products.append(
+            {
+                **product,
+                "pieces_count": str(pieces_int),
+                "pallets_count": str(pallets_int),
+                "gross_weight_lbs": f"{int(gross_weight_dec):,}",
+                "qty_per_unit": str(qty_per_unit_dec),
+                "total_qty": str(total_qty_dec),
+                "product_value": product_value,
+            }
+        )
+
+    total_pallets = sum(
+        int(item["pallets_count"])
+        for item in products_calc
+        if str(item.get("pallets_count") or "").isdigit()
+    )
 
     load_type = load_type_from_pallet_totals(products_calc)
 
@@ -256,28 +283,15 @@ def calculate_tender_params(state):
         prior = get_tender(state.data) or {}
         customer_po = str(prior.get("customer_po") or prior.get("po_number") or "").strip()
     if not customer_po:
-        raise WorkflowException(BusinessError.MISSING_CUSTOMER_PO)
+        record_business_gap_or_raise(state.data, BusinessError.MISSING_CUSTOMER_PO)
 
-    ship_date = tender.get("shipping_date")
-    ship_date_str = ship_date.isoformat() if hasattr(ship_date, "isoformat") else str(ship_date or "")
+    ship_date = parse_tender_date(tender.get("shipping_date"))
+    ship_date_str = ship_date.isoformat() if ship_date else ""
 
-    delivery_date = tender.get("delivery_date")
-    delivery_date_str = (
-        delivery_date.isoformat()
-        if hasattr(delivery_date, "isoformat")
-        else str(delivery_date or "")
-    )
-
-    # order_value = ""
-    # if isinstance(metadata, dict):
-    #     for key in ("value", "order_value", "shipment_value"):
-    #         raw = metadata.get(key)
-    #         if raw is not None and str(raw).strip():
-    #             order_value = str(raw).strip()
-    #             break
+    delivery_date = parse_tender_date(tender.get("delivery_date"))
+    delivery_date_str = delivery_date.isoformat() if delivery_date else ""
 
     pickup_formatted = format_usps_mailing_address(pickup_address)
-    delivery_raw = tender.get("delivery_address")
     delivery_formatted = (
         format_usps_mailing_address(delivery_raw)
         if isinstance(delivery_raw, dict)
@@ -301,7 +315,7 @@ def calculate_tender_params(state):
             "pickup_address": pickup_formatted,
             "delivery_address": delivery_formatted,
             "pallets_count": str(total_pallets),
-            "gross_weight_lbs": f"{int(total_gross):,}",
+            "gross_weight_lbs": f"{int(total_gross):,}" if total_gross else "",
             "load_type": load_type.lower(),
             "tender_products": enriched_products,
         },
