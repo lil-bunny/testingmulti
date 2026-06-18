@@ -121,6 +121,7 @@ class GelitaPalletProfile(BaseModel):
     weight_lbs: float
     threshold: int
     match: list[str] = Field(min_length=1)
+    default: bool = False
 
 
 class GelitaTenderCalculateSettings(BaseModel):
@@ -129,16 +130,31 @@ class GelitaTenderCalculateSettings(BaseModel):
     pallet_profiles: dict[str, GelitaPalletProfile]
     gelita_pickup_address: GelitaPickupAddress
 
+    def _default_pallet_profile(self) -> tuple[str, GelitaPalletProfile]:
+        """Return the single profile marked ``default: true`` in tenant settings."""
+        matches = [
+            (key, profile)
+            for key, profile in self.pallet_profiles.items()
+            if profile.default
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError("multiple default pallet profiles in tenant settings")
+        raise ValueError("no default pallet profile in tenant settings")
+
     def resolve_pallet_type(self, pallet_type: str | None) -> tuple[str, GelitaPalletProfile]:
-        """Map ``pack_codes.pallet_type`` to a configured profile key."""
+        """Map ``pack_codes.pallet_type`` to a configured profile key.
+
+        Empty or unmatched labels fall back to the profile with ``default: true``.
+        """
         norm = normalize_pallet_type_label(pallet_type)
-        if not norm:
-            raise ValueError("pack_codes.pallet_type is empty")
-        for key, profile in self.pallet_profiles.items():
-            for label in profile.match:
-                if normalize_pallet_type_label(label) == norm:
-                    return key, profile
-        raise ValueError(f"unknown pack_codes.pallet_type: {pallet_type!r}")
+        if norm:
+            for key, profile in self.pallet_profiles.items():
+                for label in profile.match:
+                    if normalize_pallet_type_label(label) == norm:
+                        return key, profile
+        return self._default_pallet_profile()
 
 
 class GelitaLoadTenderingSettings(BaseModel):

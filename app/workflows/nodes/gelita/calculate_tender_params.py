@@ -211,19 +211,9 @@ def calculate_tender_params(state):
                 ),
             )
 
-        try:
-            profile_key, pallet_profile = calc_settings.resolve_pallet_type(
-                product.get("pallet_type")
-            )
-        except ValueError:
-            raise WorkflowException(
-                SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE,
-                format_error_message(
-                    SystemError.UNKNOWN_PACK_CODE_PALLET_TYPE,
-                    pack_code=pack_code,
-                    pallet_type=str(product.get("pallet_type") or "").strip(),
-                ),
-            )
+        profile_key, pallet_profile = calc_settings.resolve_pallet_type(
+            product.get("pallet_type")
+        )
 
         pieces_int, pallets_int, gross_weight_dec, product_value = gelita_calculate_params(
             order_quantity=order_quantity,

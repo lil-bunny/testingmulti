@@ -120,7 +120,8 @@
             "European pallet"
           ],
           "threshold": 8,
-          "weight_lbs": 56
+          "weight_lbs": 56,
+          "default": false
         },
         "wood_4way": {
           "match": [
@@ -128,7 +129,8 @@
             "2-way wood"
           ],
           "threshold": 8,
-          "weight_lbs": 50
+          "weight_lbs": 50,
+          "default": true
         },
         "plastic_4way": {
           "match": [
@@ -136,7 +138,8 @@
             "4 way plastic"
           ],
           "threshold": 8,
-          "weight_lbs": 66
+          "weight_lbs": 66,
+          "default": false
         }
       },
       "gelita_pickup_address": {

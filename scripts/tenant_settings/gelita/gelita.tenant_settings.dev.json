@@ -113,6 +113,7 @@
                 "wood_4way": {
                     "weight_lbs": 50,
                     "threshold": 8,
+                    "default": true,
                     "match": [
                         "4-way wood",
                         "2-way wood"
@@ -121,6 +122,7 @@
                 "european": {
                     "weight_lbs": 56,
                     "threshold": 8,
+                    "default": false,
                     "match": [
                         "European Pallet",
                         "European pallet"
@@ -129,6 +131,7 @@
                 "plastic_4way": {
                     "weight_lbs": 66,
                     "threshold": 8,
+                    "default": false,
                     "match": [
                         "4-way plastic",
                         "4 way plastic"
