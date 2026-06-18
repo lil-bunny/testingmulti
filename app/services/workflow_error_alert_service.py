@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import format_workflow_error_alert_sent_action
-from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.load_tendering_settings import shared_unipile_account_settings
 from app.domain.tenant_settings.workflow_error_alerts import (
     WorkflowErrorAlertChannelSettings,
@@ -70,8 +68,8 @@ class WorkflowErrorAlertService:
         Deliver alerts for one catalog error.
 
         Resolves per-workflow alert settings, renders templates, sends on each
-        enabled channel, persists communications, and records activity log actions.
-        Raises when any channel fails so the worker can retry.
+        enabled channel, persists communications, and links comms to the exception
+        log row. Raises when any channel fails so the worker can retry.
         """
         settings = resolve_workflow_error_alert_settings(
             {"tenant_settings": payload.tenant_settings},
@@ -125,7 +123,7 @@ class WorkflowErrorAlertService:
         error_code: str,
         template_context: dict[str, str],
     ) -> None:
-        """Send on one channel when not already delivered for this run and error code."""
+        """Send on one channel and link the outbound comm to the failure ``exception`` row."""
         channel = channel_cfg.channel
         idempotency_key = _idempotency_key(
             tenant_id=payload.tenant_id,
@@ -134,14 +132,14 @@ class WorkflowErrorAlertService:
             error_code=error_code,
             channel=channel,
         )
-        if self._communications_service.find_outbound_id_by_idempotency_key(
+        existing_comm_id = self._communications_service.find_outbound_id_by_idempotency_key(
             tenant_id=payload.tenant_id,
             idempotency_key=idempotency_key,
             channel=channel,
-        ):
-            return
-
-        if isinstance(channel_cfg, WorkflowErrorAlertEmailChannelSettings):
+        )
+        if existing_comm_id:
+            communication_id = str(existing_comm_id)
+        elif isinstance(channel_cfg, WorkflowErrorAlertEmailChannelSettings):
             communication_id = self._send_email_channel(
                 payload=payload,
                 channel_cfg=channel_cfg,
@@ -157,11 +155,10 @@ class WorkflowErrorAlertService:
             return
 
         if communication_id:
-            self._record_alert_action(
+            self._link_alert_to_exception(
                 payload=payload,
                 channel=channel,
                 communication_id=communication_id,
-                error_code=error_code,
             )
 
     def _send_email_channel(
@@ -234,37 +231,37 @@ class WorkflowErrorAlertService:
             meta["delivery_address_code"] = payload.delivery_address_code
         return meta
 
-    def _record_alert_action(
+    def _link_alert_to_exception(
         self,
         *,
         payload: WorkflowErrorAlertPayload,
         channel: str,
         communication_id: str,
-        error_code: str,
     ) -> None:
-        """Append one activity log action linked to the outbound communication."""
-        metadata: dict[str, Any] = {
-            "error_code": error_code,
-            "error_category": payload.error.get("category"),
+        """Set ``communication_id`` and alert metadata on the failure ``exception`` row."""
+        exception_activity_log_id = str(payload.exception_activity_log_id or "").strip()
+        if not exception_activity_log_id:
+            logger.info(
+                "workflow_error_alert skipped activity link: no exception_activity_log_id "
+                "lifecycle_id=%s",
+                payload.workflow_lifecycle_id,
+            )
+            return
+
+        metadata_patch: dict[str, Any] = {
             "channel": channel,
             "alert_type": _ALERT_SOURCE,
         }
         if payload.tender_id:
-            metadata["tender_id"] = payload.tender_id
+            metadata_patch["tender_id"] = payload.tender_id
         if payload.pack_code:
-            metadata["pack_code"] = payload.pack_code
+            metadata_patch["pack_code"] = payload.pack_code
         if payload.delivery_address_code:
-            metadata["delivery_address_code"] = payload.delivery_address_code
+            metadata_patch["delivery_address_code"] = payload.delivery_address_code
 
-        self._activity_log_service.record_action(
-            ActivityLogWrite(
-                tenant_id=payload.tenant_id,
-                workflow_lifecycle_id=payload.workflow_lifecycle_id,
-                workflow_run_id=payload.workflow_run_id,
-                description=format_workflow_error_alert_sent_action(
-                    error_code=error_code
-                ),
-                metadata=metadata,
-                communication_id=communication_id,
-            )
+        self._activity_log_service.link_communication(
+            activity_log_id=exception_activity_log_id,
+            tenant_id=payload.tenant_id,
+            communication_id=communication_id,
+            metadata_patch=metadata_patch,
         )

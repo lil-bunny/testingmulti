@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.services.tender_service import TenderOrderPlusProducts
 
 TENDER_STATE_KEY = "tender"
@@ -92,6 +93,9 @@ def tender_from_read_order(
     po = str(metadata.get("po_number") or "").strip()
     if po and not base.get("customer_po"):
         base["customer_po"] = po
+    delivery = parse_tender_date(order.get("delivery_date"))
+    if delivery is not None:
+        base["delivery_date"] = delivery.isoformat()
     return base
 
 

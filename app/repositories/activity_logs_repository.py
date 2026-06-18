@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, jsonb_param
@@ -71,3 +72,32 @@ class ActivityLogsRepository:
         if not row_id:
             raise RuntimeError("activity_logs insert returned no id")
         return str(row_id)
+
+    def link_communication(
+        self,
+        *,
+        activity_log_id: str,
+        tenant_id: str,
+        communication_id: str,
+        metadata_patch: dict[str, Any] | None = None,
+    ) -> bool:
+        """Set ``communication_id`` and merge ``metadata`` when not yet linked."""
+        rowcount = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET communication_id = CAST(:communication_id AS uuid),
+                    metadata = metadata || CAST(:metadata_patch AS jsonb)
+                WHERE id = CAST(:activity_log_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                  AND communication_id IS NULL
+                """
+            ),
+            {
+                "activity_log_id": activity_log_id,
+                "tenant_id": tenant_id,
+                "communication_id": communication_id,
+                "metadata_patch": jsonb_param(metadata_patch or {}),
+            },
+        ).rowcount
+        return rowcount > 0

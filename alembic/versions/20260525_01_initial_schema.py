@@ -1,7 +1,6 @@
 """FreightX application schema (DDL only).
 
 Revision ID: 20260525_01
-Revises: 20260521_01
 Create Date: 2026-06-11
 
 FreightX workflow / logistics tables. Requires ``tenants`` from

@@ -13,7 +13,8 @@ from app.models.load_type import LoadType
 from app.models.weight_unit import WeightUnit
 
 
-def _parse_optional_date(val: Any) -> date | None:
+def parse_tender_date(val: Any) -> date | None:
+    """Calendar date from ``tenders`` DATE columns or ISO strings."""
     if val is None:
         return None
     if isinstance(val, datetime):
@@ -30,6 +31,10 @@ def _parse_optional_date(val: Any) -> date | None:
             return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
         except ValueError:
             return None
+
+
+def _parse_optional_date(val: Any) -> date | None:
+    return parse_tender_date(val)
 
 
 def _parse_order_quantity(val: Any) -> Decimal | None:

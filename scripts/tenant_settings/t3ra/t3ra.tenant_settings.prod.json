@@ -38,17 +38,16 @@
     }
   },
   "enabledProcesses": [
-    "pod_lifecycle",
-    "load_tendering"
+    "pod_collection"
   ],
   "prompts": {
-    "pod_lifecycle.page_extraction": "pod-page-extraction:staging",
-    "ratecon.page_extraction": "ratecon-page-extraction:staging",
-    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
-    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
+    "pod_lifecycle.page_extraction": "pod-page-extraction:production",
+    "ratecon.page_extraction": "ratecon-page-extraction:production",
+    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:production",
+    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:production"
   },
-  "mikey_account_id": "W7Xyw8gLT2mvog37VsGHZQ",
+  "mikey_account_id": "",
   "inbound_routing_emails": [
-    "deb@freightx.ai"
+    ""
   ]
 }
