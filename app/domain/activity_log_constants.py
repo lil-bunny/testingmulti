@@ -18,6 +18,9 @@ TENDER_SENT_TO_VENDOR_ACTION = "Tender email sent to vendor"
 CARRIER_ACK_LLM_ACTION_TEMPLATE = (
     "Carrier ack LLM classified reply as {decision}{confidence_suffix}: {reason}"
 )
+DRIVER_DETAILS_LLM_ACTION_TEMPLATE = (
+    "Driver details LLM classified reply as {decision}{confidence_suffix}: {reason}"
+)
 REMINDER_SENT_ACTION_TEMPLATE = "Reminder {step} sent to carrier"
 ESCALATION_SENT_ACTION = "Tender escalated to internal recipients"
 RATECON_RECEIVED_ACTION = "Ratecon email received"
@@ -33,6 +36,12 @@ DRIVER_ASSIGNMENT_STARTED_ACTION = "Driver assignment started"
 DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE = "Driver assignment not started: {reason}"
 DRIVER_REMINDERS_SCHEDULED_ACTION = "Driver reminders scheduled"
 DRIVER_REMINDER_SENT_TEMPLATE = "Driver reminder {step} sent"
+DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE = (
+    "Driver details received from carrier email ({name}{contact_suffix})"
+)
+DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE = (
+    "Driver details partial follow-up sent (reminder step {step})"
+)
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
 POD_DOCUMENT_UPLOAD_FAILED_ACTION = "POD document upload failed"

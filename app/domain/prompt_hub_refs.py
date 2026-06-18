@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 CARRIER_ACK_CLASSIFY_PROMPT = "carrier-ack-classify"
+DRIVER_DETAILS_EXTRACT_PROMPT = "driver-details-extract"
 POD_PAGE_EXTRACTION_PROMPT = "pod-page-extraction"
 RATECON_PAGE_EXTRACTION_PROMPT = "ratecon-page-extraction"
 POD_VS_RATECON_SUMMARY_PROMPT = "pod-vs-ratecon-summary"

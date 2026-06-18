@@ -28,6 +28,8 @@ class StatusSubType(StrEnum):
     REMINDER_4_SENT = "reminder_4_sent"
     POD_STARTED = "pod_started"
     DRIVER_ASSIGNMENT_STARTED = "driver_assignment_started"
+    DRIVER_DETAILS_EMAIL_RECEIVED = "driver_details_email_received"  # legacy DB rows
+    DETAILS_RECEIVED = "details_received"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     DO_NOTHING = "do_nothing"

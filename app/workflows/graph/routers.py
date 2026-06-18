@@ -1,6 +1,7 @@
 from app.core.logger import get_logger
 from app.domain.load_tendering_state import get_tender
 from app.models.status import StatusSubType, StatusType
+from app.tools.driver_details import DO_NOTHING, HAS_DETAILS, INSUFFICIENT, has_partial_driver_fields
 
 logger = get_logger(__name__)
 
@@ -86,6 +87,8 @@ def event_type_router(state):
         return "manual_pod_upload"
     if event_type == "ratecon_completed":
         return "ratecon_completed"
+    if event_type == "driver_details_email_received":
+        return "driver_details_email_received"
     return "route_completed"
 
 
@@ -135,3 +138,20 @@ def carrier_ack_router(state):
     ):
         return decision
     return StatusSubType.DO_NOTHING.value
+
+
+def driver_details_router(state):
+    """Route driver_details_email_received LLM decision to graph branch keys."""
+    decision = str(state.data.get("driver_details_decision") or DO_NOTHING).strip()
+    if decision in (HAS_DETAILS, INSUFFICIENT, DO_NOTHING):
+        return decision
+    return DO_NOTHING
+
+
+def driver_details_partial_router(state):
+    """Route insufficient replies: partial fields → follow-up, else end."""
+    extraction = state.data.get("driver_details_extraction") or {}
+    driver = extraction.get("driver") if isinstance(extraction, dict) else {}
+    if isinstance(driver, dict) and has_partial_driver_fields(driver):
+        return "partial_fields"
+    return "no_partial_fields"

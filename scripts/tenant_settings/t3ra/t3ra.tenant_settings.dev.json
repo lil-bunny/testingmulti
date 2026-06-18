@@ -19,6 +19,7 @@
       "schedule_mode": "before_pickup",
       "offsets_before_pickup_hours": [48, 24, 12, 6],
       "expire_grace_hours": 2,
+      "skip_sub_statuses": ["details_received", "uploaded_to_tms"],
       "email_template_html": "<html><body><p>Please provide driver name and mobile number for this load.</p></body></html>"
     }
   },
@@ -54,7 +55,8 @@
     "pod_lifecycle.page_extraction": "pod-page-extraction:staging",
     "ratecon.page_extraction": "ratecon-page-extraction:staging",
     "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
-    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
+    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
+    "driver_assignment.driver_details": "driver-details-extract:staging"
   },
   "mikey_account_id": "W7Xyw8gLT2mvog37VsGHZQ",
   "inbound_routing_emails": [

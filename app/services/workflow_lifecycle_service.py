@@ -350,6 +350,16 @@ class WorkflowLifecycleService:
             return self._lifecycles_repo.read_row_by_id(lid)
         return run_with_repos(lambda repos: self._repo(repos).read_row_by_id(lid))
 
+    def read_correlation_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            return None
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.read_correlation_by_id(lid)
+        return run_with_repos(
+            lambda repos: self._repo(repos).read_correlation_by_id(lid)
+        )
+
     def find_lifecycle_row_by_tender_id(
         self,
         *,

@@ -15,7 +15,7 @@ class WorkflowRunEventType(StrEnum):
 
     POD / Turvo: ``route_completed``, ``email_received``, ``manual_pod_upload``, ``reminder_due``.
 
-    Driver assignment (ratecon tail): ``ratecon_completed``.
+    Driver assignment: ``ratecon_completed``, ``driver_details_email_received``.
     """
 
     ROUTE_COMPLETED = "route_completed"
@@ -27,3 +27,4 @@ class WorkflowRunEventType(StrEnum):
     CARRIER_EMAIL_RECEIVED = "carrier_email_received"
     ACK_RECEIVED = "ack_received"
     ESCALATION_DUE = "escalation_due"
+    DRIVER_DETAILS_EMAIL_RECEIVED = "driver_details_email_received"

@@ -137,6 +137,10 @@ WORKFLOW_CONFIGS = {
             "record_driver_assignment_started",
             "send_driver_reminder",
             "record_driver_reminder_sent",
+            "classify_driver_details",
+            "route_driver_details_partial",
+            "send_driver_details_partial_follow_up",
+            "record_driver_details_email_received",
             "end",
         ],
         "edges": [
@@ -146,6 +150,8 @@ WORKFLOW_CONFIGS = {
             ["get_shipment", "check_driver_reminder_eligibility"],
             ["send_driver_reminder", "record_driver_reminder_sent"],
             ["record_driver_reminder_sent", "end"],
+            ["send_driver_details_partial_follow_up", "record_driver_reminder_sent"],
+            ["record_driver_details_email_received", "end"],
         ],
         "routers": {
             "route_event": {
@@ -153,6 +159,7 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "ratecon_completed": "check_driver_assignment_eligibility",
                     "reminder_due": "get_shipment",
+                    "driver_details_email_received": "classify_driver_details",
                 },
             },
             "check_driver_assignment_eligibility": {
@@ -162,6 +169,21 @@ WORKFLOW_CONFIGS = {
             "check_driver_reminder_eligibility": {
                 "router": "driver_assignment_eligibility_router",
                 "map": {"eligible": "send_driver_reminder", "skip": "end"},
+            },
+            "classify_driver_details": {
+                "router": "driver_details_router",
+                "map": {
+                    "has_details": "record_driver_details_email_received",
+                    "insufficient": "route_driver_details_partial",
+                    "do_nothing": "end",
+                },
+            },
+            "route_driver_details_partial": {
+                "router": "driver_details_partial_router",
+                "map": {
+                    "partial_fields": "send_driver_details_partial_follow_up",
+                    "no_partial_fields": "end",
+                },
             },
         },
     },

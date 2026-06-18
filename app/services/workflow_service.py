@@ -20,6 +20,8 @@ from app.workflows.graph.routers import (
     ratecon_cache_router,
     read_workflow_lifecycle_router,
     driver_assignment_eligibility_router,
+    driver_details_router,
+    driver_details_partial_router,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from typing import Optional
@@ -40,6 +42,8 @@ ROUTER_REGISTRY = {
     "carrier_ack_router": carrier_ack_router,
     "manual_tms_upload_router": manual_tms_upload_router,
     "driver_assignment_eligibility_router": driver_assignment_eligibility_router,
+    "driver_details_router": driver_details_router,
+    "driver_details_partial_router": driver_details_partial_router,
 }
 
 

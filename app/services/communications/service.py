@@ -246,6 +246,44 @@ class CommunicationsService:
             return False
 
 
+    def find_active_lifecycle_id_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_name: str = "driver_assignment",
+    ) -> str | None:
+        """Active (non-terminal) lifecycle for ``workflow_name`` on an email thread."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        if not tid or not th:
+            return None
+        try:
+            if self._repository is not None:
+                lifecycle_id = self._repository.find_active_lifecycle_id_for_thread(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_name=workflow_name,
+                )
+            else:
+                lifecycle_id = run_with_repos(
+                    lambda repos: repos.communications.find_active_lifecycle_id_for_thread(
+                        tenant_id=tid,
+                        thread_id=th,
+                        workflow_name=workflow_name,
+                    )
+                )
+            return lifecycle_id
+        except Exception:
+            logger.exception(
+                "communications find_active_lifecycle_id_for_thread failed "
+                "tenant_id=%s thread_id=%s workflow_name=%s",
+                tid,
+                th,
+                workflow_name,
+            )
+            return None
+
     def resolve_lifecycle_id_for_thread(
         self,
         *,

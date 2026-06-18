@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.domain.activity_log_constants import (
     CARRIER_ACK_LLM_ACTION_TEMPLATE,
+    DRIVER_DETAILS_LLM_ACTION_TEMPLATE,
     ESCALATION_SENT_ACTION,
     REMINDER_SENT_ACTION_TEMPLATE,
     STATUS_CHANGE_DESCRIPTION_TEMPLATE,
@@ -21,6 +22,8 @@ from app.domain.activity_log_constants import (
     DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE,
     DRIVER_REMINDERS_SCHEDULED_ACTION,
     DRIVER_REMINDER_SENT_TEMPLATE,
+    DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE,
+    DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE,
     POD_ESCALATION_SENT_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
     POD_DOCUMENT_UPLOAD_FAILED_ACTION,
@@ -117,6 +120,21 @@ def format_carrier_ack_llm_action(
     )
 
 
+def format_driver_details_llm_action(
+    *,
+    decision: str,
+    reason: str,
+    confidence: float | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    reason_s = (reason or "").strip() or "no reason"
+    return DRIVER_DETAILS_LLM_ACTION_TEMPLATE.format(
+        decision=decision,
+        confidence_suffix=conf,
+        reason=reason_s,
+    )
+
+
 def format_reminder_sent_action(*, step: int) -> str:
     return REMINDER_SENT_ACTION_TEMPLATE.format(step=step)
 
@@ -182,6 +200,30 @@ def format_driver_reminders_scheduled_action() -> str:
 def format_driver_reminder_sent_action(*, step: int | None = None) -> str:
     label = str(step) if step is not None else "?"
     return DRIVER_REMINDER_SENT_TEMPLATE.format(step=label)
+
+
+def format_details_received_from_email_action(
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+    email: str | None = None,
+) -> str:
+    contact_parts: list[str] = []
+    if phone:
+        contact_parts.append(f"phone={phone}")
+    if email:
+        contact_parts.append(f"email={email}")
+    contact_suffix = f", {', '.join(contact_parts)}" if contact_parts else ""
+    name_label = (name or "").strip() or "unknown"
+    return DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE.format(
+        name=name_label,
+        contact_suffix=contact_suffix,
+    )
+
+
+def format_driver_details_partial_follow_up_action(*, step: int | None = None) -> str:
+    label = str(step) if step is not None else "?"
+    return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE.format(step=label)
 
 
 def format_pod_escalation_sent_action() -> str:
