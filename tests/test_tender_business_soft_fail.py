@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from app.domain.error_catalog import BusinessError, format_error_message
 from app.domain.state import WorkflowState
 from app.domain.tender_business_warnings import (
+    filter_primary_business_warnings,
     format_reason_for_failure_html,
     get_tender_business_warnings,
 )
@@ -46,12 +47,153 @@ def test_format_reason_for_failure_html_empty_when_no_warnings() -> None:
     assert format_reason_for_failure_html([]) == ""
 
 
-def test_format_reason_for_failure_html_red_italic_footer() -> None:
+def test_format_reason_for_failure_html_red_italic_header_with_suffix() -> None:
     msg = format_error_message(BusinessError.MISSING_DELIVERY_DATE)
     html = format_reason_for_failure_html([{"code": "x", "message": msg}])
-    assert 'color: red' in html
-    assert 'font-style: italic' in html
+    assert "color: red" in html
+    assert "font-style: italic" in html
     assert msg in html
+    assert "Please update manually." in html
+
+
+def test_filter_primary_business_warnings_suppresses_pack_profile_dependents() -> None:
+    pack_msg = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="5326")
+    qty_msg = format_error_message(BusinessError.MISSING_QTY_PER_UNIT, pack_code="5326")
+    total_msg = format_error_message(BusinessError.MISSING_TOTAL_QTY, pack_code="5326")
+    dims_msg = format_error_message(BusinessError.MISSING_UNIT_DIMS, pack_code="5326")
+    warnings = [
+        {"code": BusinessError.MISSING_PACK_CODE.value, "message": pack_msg},
+        {"code": BusinessError.MISSING_QTY_PER_UNIT.value, "message": qty_msg},
+        {"code": BusinessError.MISSING_TOTAL_QTY.value, "message": total_msg},
+        {"code": BusinessError.MISSING_UNIT_DIMS.value, "message": dims_msg},
+    ]
+
+    primary = filter_primary_business_warnings(warnings)
+    html = format_reason_for_failure_html(warnings)
+
+    assert primary == [{"code": BusinessError.MISSING_PACK_CODE.value, "message": pack_msg}]
+    assert pack_msg in html
+    assert qty_msg not in html
+    assert total_msg not in html
+    assert dims_msg not in html
+    assert "Please update manually." in html
+
+
+def test_filter_primary_business_warnings_suppresses_customer_name_when_address_missing() -> None:
+    del_code = "44120611"
+    address_msg = format_error_message(
+        BusinessError.MISSING_DELIVERY_ADDRESS, del_code=del_code
+    )
+    customer_msg = format_error_message(
+        BusinessError.MISSING_CUSTOMER_NAME, del_code=del_code
+    )
+    warnings = [
+        {
+            "code": BusinessError.MISSING_DELIVERY_ADDRESS.value,
+            "message": address_msg,
+            "context": {"del_code": del_code},
+        },
+        {
+            "code": BusinessError.MISSING_CUSTOMER_NAME.value,
+            "message": customer_msg,
+            "context": {"del_code": del_code},
+        },
+    ]
+
+    primary = filter_primary_business_warnings(warnings)
+    html = format_reason_for_failure_html(warnings)
+
+    assert primary == [
+        {
+            "code": BusinessError.MISSING_DELIVERY_ADDRESS.value,
+            "message": address_msg,
+            "context": {"del_code": del_code},
+        }
+    ]
+    assert address_msg in html
+    assert customer_msg not in html
+
+
+def test_filter_primary_business_warnings_keeps_customer_name_when_address_resolved() -> None:
+    del_code = "41000100"
+    customer_msg = format_error_message(
+        BusinessError.MISSING_CUSTOMER_NAME, del_code=del_code
+    )
+    warnings = [
+        {
+            "code": BusinessError.MISSING_CUSTOMER_NAME.value,
+            "message": customer_msg,
+            "context": {"del_code": del_code},
+        },
+    ]
+
+    primary = filter_primary_business_warnings(warnings)
+    html = format_reason_for_failure_html(warnings)
+
+    assert primary == warnings
+    assert customer_msg in html
+
+
+def test_record_business_gap_skips_dependent_when_ancestor_recorded() -> None:
+    del_code = "44120611"
+    data = {"event_type": "tender_created"}
+
+    assert (
+        record_business_gap(
+            data,
+            BusinessError.MISSING_DELIVERY_ADDRESS,
+            del_code=del_code,
+        )
+        is True
+    )
+    assert (
+        record_business_gap(
+            data,
+            BusinessError.MISSING_CUSTOMER_NAME,
+            del_code=del_code,
+        )
+        is True
+    )
+
+    warnings = get_tender_business_warnings(data)
+    assert len(warnings) == 1
+    assert warnings[0]["code"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
+    assert warnings[0]["context"] == {"del_code": del_code}
+
+
+@patch("app.workflows.nodes.gelita.record_tender_business_warnings.ActivityLogService")
+def test_record_tender_business_warnings_writes_one_row_for_dependent_gaps(
+    mock_activity_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_activity_cls.return_value = mock_svc
+    del_code = "44120611"
+    address_msg = format_error_message(
+        BusinessError.MISSING_DELIVERY_ADDRESS, del_code=del_code
+    )
+    customer_msg = format_error_message(
+        BusinessError.MISSING_CUSTOMER_NAME, del_code=del_code
+    )
+    state = _tender_created_state()
+    state.data["tender_business_warnings"] = [
+        {
+            "code": BusinessError.MISSING_DELIVERY_ADDRESS.value,
+            "message": address_msg,
+            "context": {"del_code": del_code},
+        },
+        {
+            "code": BusinessError.MISSING_CUSTOMER_NAME.value,
+            "message": customer_msg,
+            "context": {"del_code": del_code},
+        },
+    ]
+
+    record_tender_business_warnings(state)
+
+    mock_svc.record_exception.assert_called_once()
+    write = mock_svc.record_exception.call_args[0][0]
+    assert write.description == address_msg
+    assert write.metadata["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
 
 
 def test_record_business_gap_only_on_tender_created() -> None:
@@ -61,6 +203,17 @@ def test_record_business_gap_only_on_tender_created() -> None:
 
     data["event_type"] = "tender_created"
     assert record_business_gap(data, BusinessError.MISSING_DELIVERY_DATE) is True
+    warnings = get_tender_business_warnings(data)
+    assert len(warnings) == 1
+    assert warnings[0]["code"] == BusinessError.MISSING_DELIVERY_DATE.value
+
+
+def test_record_business_gap_dedupes_same_warning() -> None:
+    data = {"event_type": "tender_created"}
+
+    assert record_business_gap(data, BusinessError.MISSING_DELIVERY_DATE) is True
+    assert record_business_gap(data, BusinessError.MISSING_DELIVERY_DATE) is True
+
     warnings = get_tender_business_warnings(data)
     assert len(warnings) == 1
     assert warnings[0]["code"] == BusinessError.MISSING_DELIVERY_DATE.value

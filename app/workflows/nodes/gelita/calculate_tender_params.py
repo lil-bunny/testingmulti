@@ -21,12 +21,12 @@ from app.domain.load_tendering_state import (
     ingest_pack_code,
     set_tender,
 )
-from app.domain.error_catalog import BusinessError, SystemError, format_error_message
+from app.domain.error_catalog import BusinessError, SystemError
 from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
 from app.workflows.utils.decorators import safe_node
-from app.workflows.utils.gelita_soft_fail import record_business_gap, record_business_gap_or_raise
+from app.workflows.utils.gelita_soft_fail import record_business_gap_or_raise
 
 _PALLET_ROUND_TOLERANCE = Decimal("0.05")
 _KG_TO_LBS = Decimal("2.2046")
@@ -45,6 +45,46 @@ def _product_weight_lbs(order_quantity: Decimal, weight_unit: WeightUnit) -> Dec
     return order_quantity * _KG_TO_LBS
 
 
+def _pieces_count(order_quantity: Decimal, qty_per_unit: Decimal) -> int:
+    pieces_raw = order_quantity / qty_per_unit
+    return int(pieces_raw.to_integral_value(rounding=ROUND_CEILING))
+
+
+def _pallets_count(order_quantity: Decimal, total_qty: Decimal) -> int:
+    pallets_raw = order_quantity / total_qty
+    return _round_pallet_count(pallets_raw)
+
+
+def _gross_weight_lbs(
+    *,
+    order_quantity: Decimal,
+    pallets_count: int,
+    pallet_weight_lb: Decimal,
+    weight_unit: WeightUnit | str | None,
+) -> Decimal:
+    unit = WeightUnit.parse(weight_unit) or WeightUnit.KG
+    gross_weight_raw = _product_weight_lbs(order_quantity, unit) + (
+        pallet_weight_lb * pallets_count
+    )
+    return Decimal(int(gross_weight_raw.to_integral_value(rounding=ROUND_CEILING)))
+
+
+def _product_value(
+    *,
+    order_quantity: Decimal,
+    unit_price: Decimal | str | None,
+) -> Decimal | None:
+    if unit_price is None or unit_price == "":
+        return None
+    try:
+        unit_price_dec = Decimal(str(unit_price))
+        if unit_price_dec.is_finite():
+            return unit_price_dec * order_quantity
+    except Exception:
+        return None
+    return None
+
+
 def _round_pallet_count(pallets_raw: Decimal) -> int:
     """
     QA pallet rounding: if fractional part is <= 0.05, round down; else round up.
@@ -55,28 +95,6 @@ def _round_pallet_count(pallets_raw: Decimal) -> int:
     if pallets_raw - Decimal(floor_val) <= _PALLET_ROUND_TOLERANCE:
         return floor_val
     return floor_val + 1
-
-
-def _enriched_product_without_calc(product: dict[str, Any]) -> dict[str, Any]:
-    """Placeholder product line when calc inputs are missing under soft-fail."""
-    return {
-        **product,
-        "pieces_count": "",
-        "pallets_count": "",
-        "gross_weight_lbs": "",
-        "product_value": None,
-    }
-
-
-def _product_gap_or_raise(
-    state_data: dict[str, Any],
-    error: BusinessError,
-    **format_kwargs: str,
-) -> bool:
-    """Soft-record the gap when enabled; otherwise raise. Returns True when recorded."""
-    if record_business_gap(state_data, error, **format_kwargs):
-        return True
-    raise WorkflowException(error, format_error_message(error, **format_kwargs))
 
 
 def gelita_calculate_params(
@@ -98,29 +116,15 @@ def gelita_calculate_params(
     order_quantity = Decimal(str(order_quantity))
     qty_per_unit = Decimal(str(qty_per_unit))
     total_qty = Decimal(str(total_qty))
-
-    pieces_raw = order_quantity / qty_per_unit
-    pieces_int = int(pieces_raw.to_integral_value(rounding=ROUND_CEILING))
-    pallets_raw = order_quantity / total_qty
-    pallets_int = _round_pallet_count(pallets_raw)
-
-    unit = WeightUnit.parse(weight_unit) or WeightUnit.KG
-    gross_weight_raw = _product_weight_lbs(order_quantity, unit) + (
-        Decimal(str(pallet_weight_lb)) * pallets_int
+    pieces_int = _pieces_count(order_quantity, qty_per_unit)
+    pallets_int = _pallets_count(order_quantity, total_qty)
+    gross_weight_dec = _gross_weight_lbs(
+        order_quantity=order_quantity,
+        pallets_count=pallets_int,
+        pallet_weight_lb=Decimal(str(pallet_weight_lb)),
+        weight_unit=weight_unit,
     )
-    gross_weight_dec = Decimal(
-        int(gross_weight_raw.to_integral_value(rounding=ROUND_CEILING))
-    )
-
-    product_value: Decimal | None = None
-    if unit_price is not None and unit_price != "":
-        try:
-            unit_price_dec = Decimal(str(unit_price))
-            if unit_price_dec.is_finite():
-                product_value = unit_price_dec * order_quantity
-        except Exception:
-            product_value = None
-
+    product_value = _product_value(order_quantity=order_quantity, unit_price=unit_price)
     return pieces_int, pallets_int, gross_weight_dec, product_value
 
 
@@ -189,13 +193,11 @@ def calculate_tender_params(state):
                 existing["pack_code"] = excel_pack
                 set_tender(state.data, existing)
                 state.data["pack_code"] = excel_pack
-            if _product_gap_or_raise(
+            record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_PACK_CODE,
                 pack_code=excel_pack,
-            ):
-                enriched_products.append(_enriched_product_without_calc(product))
-                continue
+            )
 
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
@@ -203,62 +205,79 @@ def calculate_tender_params(state):
         pack_code = _pack_code_for_error(product, state.data)
         unit_dims = product.get("unit_dims")
 
-        product_gap = False
+        profile_key, pallet_profile = calc_settings.resolve_pallet_type(
+            product.get("pallet_type")
+        )
+        pieces_int: int | None = None
+        pallets_int: int | None = None
+        gross_weight_dec: Decimal | None = None
+
         if qty_per_unit is None or qty_per_unit == 0:
-            product_gap |= _product_gap_or_raise(
+            record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_QTY_PER_UNIT,
                 pack_code=pack_code,
             )
+        else:
+            pieces_int = _pieces_count(
+                Decimal(str(order_quantity)),
+                Decimal(str(qty_per_unit)),
+            )
+
         if total_qty is None or total_qty == 0:
-            product_gap |= _product_gap_or_raise(
+            record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_TOTAL_QTY,
                 pack_code=pack_code,
             )
+        else:
+            pallets_int = _pallets_count(
+                Decimal(str(order_quantity)),
+                Decimal(str(total_qty)),
+            )
+            gross_weight_dec = _gross_weight_lbs(
+                order_quantity=Decimal(str(order_quantity)),
+                pallets_count=pallets_int,
+                pallet_weight_lb=Decimal(str(pallet_profile.weight_lbs)),
+                weight_unit=product.get("weight_unit"),
+            )
+
         if unit_dims is None or not str(unit_dims).strip():
-            product_gap |= _product_gap_or_raise(
+            record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_UNIT_DIMS,
                 pack_code=pack_code,
             )
 
-        if product_gap:
-            enriched_products.append(_enriched_product_without_calc(product))
-            continue
-
-        profile_key, pallet_profile = calc_settings.resolve_pallet_type(
-            product.get("pallet_type")
-        )
-
-        pieces_int, pallets_int, gross_weight_dec, product_value = gelita_calculate_params(
-            order_quantity=order_quantity,
-            qty_per_unit=qty_per_unit,
-            total_qty=total_qty,
-            pallet_weight_lb=pallet_profile.weight_lbs,
+        product_value = _product_value(
+            order_quantity=Decimal(str(order_quantity)),
             unit_price=product.get("price_per_unit"),
-            weight_unit=product.get("weight_unit"),
         )
 
         products_calc.append(
             {
-                "pallets_count": pallets_int,
+                "pallets_count": pallets_int if pallets_int is not None else "",
                 "pallet_profile": profile_key,
                 "pallet_threshold": pallet_profile.threshold,
             }
         )
-        total_gross += gross_weight_dec
+        if gross_weight_dec is not None:
+            total_gross += gross_weight_dec
 
-        qty_per_unit_dec = Decimal(str(qty_per_unit))
-        total_qty_dec = Decimal(str(total_qty))
         enriched_products.append(
             {
                 **product,
-                "pieces_count": str(pieces_int),
-                "pallets_count": str(pallets_int),
-                "gross_weight_lbs": f"{int(gross_weight_dec):,}",
-                "qty_per_unit": str(qty_per_unit_dec),
-                "total_qty": str(total_qty_dec),
+                "pieces_count": str(pieces_int) if pieces_int is not None else "",
+                "pallets_count": str(pallets_int) if pallets_int is not None else "",
+                "gross_weight_lbs": f"{int(gross_weight_dec):,}"
+                if gross_weight_dec is not None
+                else "",
+                "qty_per_unit": str(qty_per_unit)
+                if qty_per_unit is not None and qty_per_unit != ""
+                else "",
+                "total_qty": str(total_qty)
+                if total_qty is not None and total_qty != ""
+                else "",
                 "product_value": product_value,
             }
         )

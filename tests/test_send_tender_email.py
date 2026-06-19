@@ -57,6 +57,30 @@ def test_send_tender_email_tender_created_soft_fail_missing_pickup(mock_send_ema
     assert "error" not in result.data
     assert result.data.get("tender_email_sent") is True
     mock_send_email.assert_called_once()
+    body = mock_send_email.call_args.kwargs["body"]
+    assert "<strong>Pickup address:</strong><br />Missing pickup address" in body
+
+
+@patch("app.workflows.nodes.send_tender_email.send_email")
+def test_send_tender_email_tender_created_soft_fail_missing_delivery_address(
+    mock_send_email,
+) -> None:
+    mock_send_email.return_value = {"success": True, "communication_id": "comm-1"}
+    state = _state(
+        tender={"delivery_address": "", "delivery_address_code": "44120611"}
+    )
+    state.data["event_type"] = "tender_created"
+
+    result = send_tender_email(state)
+
+    assert result is state
+    assert "error" not in result.data
+    mock_send_email.assert_called_once()
+    body = mock_send_email.call_args.kwargs["body"]
+    assert (
+        "<strong>Deliver to:</strong><br />Missing delivery address "
+        "for delivery location code 44120611"
+    ) in body
 
 
 @patch("app.workflows.nodes.send_tender_email.send_email")

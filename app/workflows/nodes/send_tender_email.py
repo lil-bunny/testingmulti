@@ -42,6 +42,13 @@ def _missing_address(value: Any) -> bool:
     return not str(value or "").strip()
 
 
+def _missing_delivery_address_text(delivery_code: str) -> str:
+    delivery_code = delivery_code.strip()
+    if delivery_code:
+        return f"Missing delivery address for delivery location code {delivery_code}"
+    return "Missing delivery address"
+
+
 @safe_node
 def send_tender_email(state):
     load_type = load_type_from_data(state.data)
@@ -64,8 +71,10 @@ def send_tender_email(state):
     tender = dict(get_tender(state.data) or {})
     if parse_tender_date(tender.get("delivery_date")) is None:
         record_business_gap_or_raise(state.data, BusinessError.MISSING_DELIVERY_DATE)
+        tender["delivery_date"] = "Missing delivery date"
     if _missing_address(tender.get("pickup_address")):
         record_business_gap_or_raise(state.data, BusinessError.MISSING_PICKUP_ADDRESS)
+        tender["pickup_address"] = "Missing pickup address"
     if _missing_address(tender.get("delivery_address")):
         del_code = ingest_delivery_address_code(state.data)
         record_business_gap_or_raise(
@@ -73,6 +82,7 @@ def send_tender_email(state):
             BusinessError.MISSING_DELIVERY_ADDRESS,
             del_code=del_code,
         )
+        tender["delivery_address"] = _missing_delivery_address_text(del_code)
 
     if not get_tender_products(tender):
         msg = f"missing tender_products for tender_id={state.data.get('tender_id')}"

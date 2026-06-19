@@ -9,6 +9,14 @@ from typing import Any
 
 from app.models.weight_unit import WeightUnit
 
+_MISSING_LABEL_STYLE = "color: red;"
+
+
+def _field_label(label: str, *, missing: bool) -> str:
+    if missing:
+        return f'<span style="{_MISSING_LABEL_STYLE}">{escape(label)}</span>'
+    return escape(label)
+
 __all__ = [
     "TenderEmailBuildInput",
     "build_tender_email_input_from_tender",
@@ -193,14 +201,14 @@ def _ceil_weight_display(value: str) -> str:
 def _format_gross_weight_lbs(value: str) -> str:
     weight = _ceil_weight_display(value)
     if not weight:
-        return ""
+        return f"{_field_label('Gross weight:', missing=True)} "
     return f"Gross weight: ~{weight} pounds"
 
 
 def _format_order_value(value: str) -> str:
     raw = value.strip()
     if not raw:
-        return ""
+        return f"{_field_label('Value:', missing=True)} "
     parsed = _parse_numeric_field(raw)
     if parsed is not None:
         return f"Value: {parsed:,.2f}"
@@ -218,12 +226,15 @@ def _combined_order_value_line(
 
 
 def _format_bags_line(line: TenderEmailProductLine) -> str:
-    if not line.pieces_count:
-        return ""
+    pieces_missing = not line.pieces_count
+    qty_missing = not line.qty_per_unit.strip()
+    label = _field_label("Pieces:", missing=pieces_missing or qty_missing)
+    if pieces_missing:
+        return f"{label} "
     unit = WeightUnit.parse(line.weight_unit) or WeightUnit.KG
     qty_raw = line.qty_per_unit.strip()
     if not qty_raw:
-        return f"Pieces: {line.pieces_count} bags"
+        return f"{label} {line.pieces_count} bags @ "
     try:
         qty_dec = Decimal(qty_raw.replace(",", ""))
         qty_str = (
@@ -237,13 +248,19 @@ def _format_bags_line(line: TenderEmailProductLine) -> str:
 
 
 def _format_pallets_line(line: TenderEmailProductLine) -> str:
-    if not line.pallets_count:
-        return ""
+    pallets_missing = not line.pallets_count
+    dims_missing = not line.unit_dims.strip()
+    label = _field_label(
+        "Number of pallets:",
+        missing=pallets_missing or dims_missing,
+    )
+    if pallets_missing:
+        return f"{label} "
     count = line.pallets_count.strip()
     dims = line.unit_dims.strip()
     if dims:
         return f"Number of pallets: {count} pallets ~ {escape(dims)}"
-    return f"Number of pallets: {count}"
+    return f"{label} {count} pallets ~ "
 
 
 def _combined_gross_weight_line(
@@ -255,6 +272,8 @@ def _combined_gross_weight_line(
     gross = order_gross_weight_lbs.strip() or _sum_product_field(
         products, "gross_weight_lbs"
     )
+    if products and any(not line.gross_weight_lbs for line in products):
+        gross = ""
     return _format_gross_weight_lbs(gross)
 
 
@@ -273,7 +292,7 @@ def _product_block_lines(
         rows.append(pallets_line)
     if line.product_name:
         rows.append(f"Product: {escape(line.product_name)}")
-    if include_value and line.price:
+    if include_value:
         rows.append(f"Value: {line.price}")
     return "<br />".join(rows)
 

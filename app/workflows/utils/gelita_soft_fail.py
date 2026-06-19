@@ -26,6 +26,7 @@ def record_business_gap(
         state_data,
         code=error.value,
         message=format_error_message(error, **format_kwargs),
+        context=format_kwargs or None,
     )
     return True
 

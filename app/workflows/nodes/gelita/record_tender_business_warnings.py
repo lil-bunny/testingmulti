@@ -6,7 +6,10 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.activity_log_write import ActivityLogWrite
-from app.domain.tender_business_warnings import get_tender_business_warnings
+from app.domain.tender_business_warnings import (
+    filter_primary_business_warnings,
+    get_tender_business_warnings,
+)
 from app.models.activity_type import ActorType
 from app.services.activity_log_service import ActivityLogService
 
@@ -20,7 +23,7 @@ def record_tender_business_warnings(state):
     run_id = str(state.execution_id or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()
 
-    warnings = get_tender_business_warnings(state.data)
+    warnings = filter_primary_business_warnings(get_tender_business_warnings(state.data))
     if not warnings:
         return state
 
