@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.domain.error_catalog import BusinessError, format_error_message
-from app.domain.load_tendering_state import get_tender
+from app.domain.load_tendering_state import get_tender, set_tender, tender_from_read_order
 from app.domain.state import WorkflowState
 from app.tools.tender_email import (
     TenderEmailProductLine,
@@ -100,6 +100,16 @@ def _workflow_state(*, tender_id: str) -> WorkflowState:
             "tender_id": tender_id,
             "tenant_settings": _tenant_settings(),
         },
+    )
+
+
+def _hydrate_state_from_bundle(state: WorkflowState, bundle: dict) -> None:
+    set_tender(
+        state.data,
+        tender_from_read_order(
+            {"tender": bundle["tender"], "products": bundle["products"]},
+            None,
+        ),
     )
 
 
@@ -196,13 +206,10 @@ def test_calculate_tender_params_missing_delivery_address_returns_error_code(
     mock_svc_cls.return_value = mock_svc
     bundle = _ftl_bundle()
     bundle["tender"]["delivery_address"] = None
-    mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
-    state.data["tender"] = {
-        "order_number": FTL_ORDER_NUMBER,
-        "delivery_address_code": "41000100",
-    }
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["tender"]["delivery_address_code"] = "41000100"
     result = calculate_tender_params(state)
 
     assert isinstance(result, dict)
@@ -230,13 +237,10 @@ def test_calculate_tender_params_missing_customer_name_returns_error_code(
     bundle = _ftl_bundle()
     bundle["tender"]["customer_name"] = CUSTOMER_NAME_PLACEHOLDER
     bundle["tender"]["metadata"] = {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN}
-    mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
-    state.data["tender"] = {
-        "order_number": FTL_ORDER_NUMBER,
-        "delivery_address_code": "41000100",
-    }
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["tender"]["delivery_address_code"] = "41000100"
     result = calculate_tender_params(state)
 
     assert isinstance(result, dict)
@@ -251,35 +255,197 @@ def test_calculate_tender_params_missing_customer_name_returns_error_code(
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
-def test_calculate_tender_params_missing_unit_dims_returns_error_code(
+def test_calculate_tender_params_missing_unit_dims_keeps_partial_calc(
     mock_svc_cls: MagicMock,
 ) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
     bundle = _ftl_bundle()
     bundle["products"][0].pop("unit_dims")
-    mock_svc.read_order.return_value = bundle
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "tender_created"
     result = calculate_tender_params(state)
 
-    assert isinstance(result, dict)
-    error = result["data"]["error"]
-    assert error["code"] == BusinessError.MISSING_UNIT_DIMS
-    assert error["category"] == BusinessError.CATEGORY.value
-    assert error["message"] == format_error_message(
-        BusinessError.MISSING_UNIT_DIMS, pack_code=PACK_CODE
+    assert result is state
+    mock_svc.update_load_type.assert_called_once_with(
+        tenant_id=TENANT_ID,
+        tender_id=FTL_TENDER_ID,
+        load_type="FTL",
     )
-    mock_svc.update_load_type.assert_not_called()
+
+    warnings = result.data.get("tender_business_warnings")
+    assert warnings == [
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": format_error_message(
+                BusinessError.MISSING_UNIT_DIMS, pack_code=PACK_CODE
+            ),
+            "context": {"pack_code": PACK_CODE},
+        }
+    ]
+
+    tender = get_tender(result.data)
+    assert tender is not None
+    line = tender["tender_products"][0]
+    assert line["pieces_count"] == "448"
+    assert line["pallets_count"] == "12"
+    assert line["gross_weight_lbs"] == "15,415"
+
+    ctx = build_tender_email_input_from_tender(tender)
+    block = _ftl_products_block(
+        ctx.products,
+        order_gross_weight_lbs=ctx.gross_weight_lbs,
+        order_value=ctx.order_value,
+    )
+    assert "Gross weight: ~15,415 pounds" in block
+    assert "Pieces: 448 bags @ 15kg each" in block
+    assert "color: red" in block
+    assert "12 pallets ~ " in block
+    assert "48&quot;x40&quot;x5&quot;" not in block
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_missing_qty_per_unit_keeps_gross(
+    mock_svc_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["products"][0].pop("qty_per_unit")
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "tender_created"
+    result = calculate_tender_params(state)
+
+    assert result is state
+    tender = get_tender(result.data)
+    assert tender is not None
+    line = tender["tender_products"][0]
+    assert line["pieces_count"] == ""
+    assert line["pallets_count"] == "12"
+    assert line["gross_weight_lbs"] == "15,415"
+
+    ctx = build_tender_email_input_from_tender(tender)
+    block = _ftl_products_block(
+        ctx.products,
+        order_gross_weight_lbs=ctx.gross_weight_lbs,
+        order_value=ctx.order_value,
+    )
+    assert "color: red" in block
+    assert '<span style="color: red;">Pieces:</span>' in block
+    assert "Number of pallets: 12 pallets ~ 48&quot;x40&quot;x5&quot;" in block
+    assert "Gross weight: ~15,415 pounds" in block
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_multi_product_unknown_pack_uses_source_metadata(
+    mock_svc_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["products"] = [
+        {
+            "id": "tp-unknown",
+            "tender_id": FTL_TENDER_ID,
+            "product_name": "275 Bloom Porkskin Gelatine 40 Mesh",
+            "order_quantity": Decimal("1750"),
+            "price_per_unit": Decimal("10"),
+            "pack_code_id": None,
+            "pack_code": "",
+            "source_pack_code": "6300",
+            "metadata": {"source": {"pack_code": "6300"}},
+            "weight_unit": "lbs",
+        },
+        {
+            "id": "tp-known",
+            "tender_id": FTL_TENDER_ID,
+            "product_name": "PEPTIPLUS XB (US)",
+            "order_quantity": Decimal("20"),
+            "price_per_unit": Decimal("9.7"),
+            "pack_code_id": PACK_CODE_ID,
+            "pack_code": "5326",
+            "qty_per_unit": Decimal("20"),
+            "total_qty": Decimal("800"),
+            "pallet_type": "4-way wood",
+            "unit_dims": '49"x42"x59"',
+            "metadata": {},
+            "weight_unit": "kg",
+        },
+    ]
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "tender_created"
+    state.data["pack_code"] = "5326"
+    result = calculate_tender_params(state)
+
+    warnings = result.data.get("tender_business_warnings")
+    assert warnings == [
+        {
+            "code": BusinessError.MISSING_PACK_CODE.value,
+            "message": format_error_message(
+                BusinessError.MISSING_PACK_CODE, pack_code="6300"
+            ),
+            "context": {"tender_product_id": "tp-unknown", "pack_code": "6300"},
+        }
+    ]
+    assert "5326" not in str(warnings)
+    mock_svc.update_load_type.assert_called_once()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_multi_product_same_pack_missing_unit_dims_dedupes(
+    mock_svc_cls: MagicMock,
+) -> None:
+    """Order 97357: shared catalog row gap should warn once, not per product line."""
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    shared_product = {
+        "tender_id": FTL_TENDER_ID,
+        "order_quantity": Decimal("20"),
+        "price_per_unit": Decimal("9.7"),
+        "pack_code_id": PACK_CODE_ID,
+        "pack_code": "3002",
+        "qty_per_unit": Decimal("20"),
+        "total_qty": Decimal("800"),
+        "pallet_type": "4-way wood",
+        "unit_dims": None,
+        "metadata": {},
+        "weight_unit": "kg",
+    }
+    bundle["products"] = [
+        {**shared_product, "id": "tp-line-1", "product_name": "PEPTIPLUS XB (US)"},
+        {**shared_product, "id": "tp-line-2", "product_name": "PEPTIPLUS XBB"},
+    ]
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "tender_created"
+    result = calculate_tender_params(state)
+
+    warnings = result.data.get("tender_business_warnings")
+    assert warnings == [
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": "Unit dimensions are missing.",
+            "context": {"pack_code": "3002"},
+        }
+    ]
+    mock_svc.update_load_type.assert_called_once()
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
 def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
-    mock_svc.read_order.return_value = _ftl_bundle()
 
     state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, _ftl_bundle())
     result = calculate_tender_params(state)
 
     assert result is state
@@ -323,9 +489,9 @@ def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> Non
 def test_calculate_tender_params_order_96399_ltl(mock_svc_cls: MagicMock) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
-    mock_svc.read_order.return_value = _ltl_bundle()
 
     state = _workflow_state(tender_id=LTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, _ltl_bundle())
     result = calculate_tender_params(state)
 
     mock_svc.update_load_type.assert_called_once_with(
@@ -575,6 +741,35 @@ def test_format_bags_line_uses_lbs_weight_unit() -> None:
     )
     block = _ltl_products_block(products)
     assert "Pieces: 25 bags @ 50lbs each" in block
+
+
+def test_products_block_renders_missing_values_inline() -> None:
+    products = (
+        _email_product_line(
+            product_name="275 Bloom Porkskin Gelatine 40 Mesh",
+            pieces_count="",
+            pallets_count="",
+            gross_weight_lbs="",
+            qty_per_unit="",
+            unit_dims="",
+        ),
+        _email_product_line(
+            product_name="PEPTIPLUS XB (US)",
+            pieces_count="1",
+            pallets_count="0",
+            gross_weight_lbs="45",
+            qty_per_unit="20",
+            unit_dims='49"x42"x59"',
+        ),
+    )
+
+    block = _ltl_products_block(products)
+
+    assert "color: red" in block
+    assert "Gross weight:" in block
+    assert "Pieces:" in block
+    assert "Number of pallets:" in block
+    assert "Number of pallets: 0 pallets ~ 49&quot;x42&quot;x59&quot;" in block
 
 
 @pytest.mark.parametrize(

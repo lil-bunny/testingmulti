@@ -1,7 +1,8 @@
 """Nodes for Tenders table."""
 
 from app.core.logger import get_logger
-from app.domain.error_catalog import BusinessError
+from app.domain.error_catalog import BusinessError, SystemError
+from app.domain.load_tendering_settings import gelita_domestic_delivery_settings
 from app.domain.load_tendering_state import get_tender, set_tender, tender_from_read_order
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
@@ -12,11 +13,24 @@ from app.workflows.utils.decorators import safe_node
 logger = get_logger(__name__)
 
 
+def _delivery_country_from_order(order: dict) -> str | None:
+    delivery_address = order.get("delivery_address")
+    if not isinstance(delivery_address, dict):
+        return None
+    country = delivery_address.get("country")
+    if country is None:
+        return None
+    text = str(country).strip()
+    return text or None
+
+
 @safe_node
 def read_tender_row(state):
-    """Load order + product lines into ``state.data['tender']`` for reminder/escalation."""
+    """Load order + product lines into ``state.data['tender']``."""
     tender_id = str(state.data.get("tender_id") or "").strip()
     tenant_id = (state.tenant_id or "").strip()
+    event_type = str(state.data.get("event_type") or "").strip()
+    is_tender_created = event_type == "tender_created"
 
     tender_service = TenderService()
     tender_order_plus_products = tender_service.read_order(
@@ -24,11 +38,13 @@ def read_tender_row(state):
         tender_id=tender_id,
     )
     if not tender_order_plus_products:
+        if is_tender_created:
+            raise WorkflowException(BusinessError.TENDER_NOT_FOUND)
         logger.warning("read_tender_row failed tender_id=%s", tender_id)
         return state
 
     order = tender_order_plus_products["tender"]
-    if parse_tender_date(order.get("delivery_date")) is None:
+    if not is_tender_created and parse_tender_date(order.get("delivery_date")) is None:
         raise WorkflowException(BusinessError.MISSING_DELIVERY_DATE)
 
     set_tender(
@@ -38,6 +54,14 @@ def read_tender_row(state):
             get_tender(state.data),
         ),
     )
+
+    if is_tender_created:
+        domestic_cfg = gelita_domestic_delivery_settings(state)
+        if domestic_cfg is None:
+            raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_DOMESTIC_DELIVERY)
+        state.data["is_domestic_delivery"] = domestic_cfg.is_domestic_delivery_country(
+            _delivery_country_from_order(order)
+        )
 
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     if wl_id:

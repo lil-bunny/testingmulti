@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.error_catalog import ErrorCategory
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.state import WorkflowState
 from app.workflows.shipment_resolver import resolve_shipment_id
@@ -58,6 +59,14 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             metadata["load_id"] = load_id
 
         pause_type = PauseType.from_error_category(workflow_error.get("category"))
+        # Business gaps are audited in activity logs, not via lifecycle pause.
+        if (
+            workflow_error.get("category") == ErrorCategory.BUSINESS.value
+            or pause_type is PauseType.BUSINESS_EXCEPTION
+        ):
+            pause_type = None
+            # DO NOT remove this: keeping it for upcoming usecases
+            # pause_type = PauseType.BUSINESS_EXCEPTION
 
         try:
             transition_result = lifecycle_transition_service.apply_sequence(

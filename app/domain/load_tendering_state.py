@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.ingest_source_fields import source_delivery_address_code
 from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.services.tender_service import TenderOrderPlusProducts
 
@@ -93,9 +94,20 @@ def tender_from_read_order(
     po = str(metadata.get("po_number") or "").strip()
     if po and not base.get("customer_po"):
         base["customer_po"] = po
+    if metadata:
+        base["metadata"] = metadata
+    shipping = parse_tender_date(order.get("shipping_date"))
+    if shipping is not None:
+        base["shipping_date"] = shipping.isoformat()
     delivery = parse_tender_date(order.get("delivery_date"))
     if delivery is not None:
         base["delivery_date"] = delivery.isoformat()
+    delivery_raw = order.get("delivery_address")
+    if isinstance(delivery_raw, dict):
+        base["delivery_address"] = delivery_raw
+    delivery_code = source_delivery_address_code(order)
+    if delivery_code:
+        base["delivery_address_code"] = delivery_code
     return base
 
 

@@ -47,11 +47,11 @@ class TendersIngestService:
         projected_rows: list[dict[str, Any]],
     ) -> list[str | None]:
         """
-        Insert one ``tenders`` row per order_number and product lines into ``tender_products``.
+        Insert one ``tenders`` row per distinct order number and attach product lines.
 
-        Returns one entry per ``projected_rows`` index: ``tenders.id`` when the order was
-        **newly** inserted (workflow should run); ``None`` when the order already existed,
-        the row was unusable, or was a duplicate order position in the file.
+        Returns one entry per ``projected_rows`` index: tender id when insert succeeded
+        (caller should enqueue workflow); ``None`` for unusable rows or duplicate
+        order positions within the same import.
         """
         tid = tenant_id.strip()
         did = (data_import_id or "").strip()
@@ -89,10 +89,16 @@ class TendersIngestService:
                     row.get("delivery_address_code"),
                     did,
                 )
+            delivery_address = resolve_delivery_address(
+                row.get("delivery_address_code"),
+                locations_index,
+                state_resolver=lookup_state,
+            )
             header = projected_row_to_tender_insert(
                 row,
                 customer_name=resolved_customer_name,
                 customer_name_source=customer_name_source,
+                delivery_address=delivery_address,
                 active_pack_code_index=pack_code_index,
             )
             product = projected_row_to_tender_product_insert(
@@ -102,11 +108,7 @@ class TendersIngestService:
             if header is None or product is None:
                 skipped_invalid += 1
                 continue
-            header["delivery_address"] = resolve_delivery_address(
-                row.get("delivery_address_code"),
-                locations_index,
-                state_resolver=lookup_state,
-            )
+            header["delivery_address"] = delivery_address
             row_slots.append(
                 (
                     row_index,
@@ -176,21 +178,10 @@ class TendersIngestService:
 
             order_to_tender_id: dict[str, str] = {}
             order_created: dict[str, bool] = {}
-            skipped_existing = 0
             for header, result in zip(insert_batch, insert_results, strict=True):
                 order_number = str(header["order_number"])
                 order_to_tender_id[order_number] = result.tender_id
                 order_created[order_number] = result.created
-                if not result.created:
-                    skipped_existing += 1
-
-            if skipped_existing:
-                logger.info(
-                    "tenders ingest: %s order(s) already in tenders; skipping workflow enqueue "
-                    "data_import_id=%s",
-                    skipped_existing,
-                    did,
-                )
 
             existing_by_tender: dict[str, set[tuple]] = {}
             product_batch: list[dict[str, Any]] = []

@@ -2,39 +2,38 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.core.logger import get_logger
-from app.domain.error_catalog import BusinessError, format_error_message
+from app.domain.error_catalog import BusinessError
 from app.domain.load_tendering_settings import (
     action_settings,
     gelita_send_tender_email_settings,
     is_ftl_load_type,
 )
+from app.domain.ingest_source_fields import delivery_gap_context
 from app.domain.load_tendering_state import (
     get_tender,
     get_tender_products,
-    ingest_delivery_address_code,
     load_type_from_data,
 )
-from app.exceptions import WorkflowException
+from app.domain.load_tendering_tender_rows import parse_tender_date
+from app.domain.tender_business_warnings import (
+    format_reason_for_failure_html,
+    get_tender_business_warnings,
+)
 from app.tools.email import send_email
 from app.tools.tender_email import (
     build_ftl_tender_email_from_tender,
     build_ltl_tender_email_from_tender,
+    is_missing_address_value,
 )
-from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.workflows.utils.decorators import safe_node
+from app.workflows.utils.gelita_soft_fail import record_business_gap_or_raise
 
 logger = get_logger(__name__)
 
 
 class SendTenderEmailError(Exception):
     """``send_tender_email`` failed; raised to terminate the workflow run."""
-
-
-def _missing_address(value: Any) -> bool:
-    return not str(value or "").strip()
 
 
 @safe_node
@@ -58,17 +57,19 @@ def send_tender_email(state):
 
     tender = dict(get_tender(state.data) or {})
     if parse_tender_date(tender.get("delivery_date")) is None:
-        raise WorkflowException(BusinessError.MISSING_DELIVERY_DATE)
-    if _missing_address(tender.get("pickup_address")):
-        raise WorkflowException(BusinessError.MISSING_PICKUP_ADDRESS)
-    if _missing_address(tender.get("delivery_address")):
-        del_code = ingest_delivery_address_code(state.data)
-        raise WorkflowException(
+        record_business_gap_or_raise(state.data, BusinessError.MISSING_DELIVERY_DATE)
+        tender["delivery_date"] = "Missing delivery date"
+    if is_missing_address_value(tender.get("pickup_address")):
+        record_business_gap_or_raise(state.data, BusinessError.MISSING_PICKUP_ADDRESS)
+        tender["pickup_address"] = ""
+    if is_missing_address_value(tender.get("delivery_address")):
+        delivery_ctx = delivery_gap_context(tender, state.data)
+        record_business_gap_or_raise(
+            state.data,
             BusinessError.MISSING_DELIVERY_ADDRESS,
-            format_error_message(
-                BusinessError.MISSING_DELIVERY_ADDRESS, del_code=del_code
-            ),
+            **delivery_ctx,
         )
+        tender["delivery_address"] = ""
 
     if not get_tender_products(tender):
         msg = f"missing tender_products for tender_id={state.data.get('tender_id')}"
@@ -91,11 +92,25 @@ def send_tender_email(state):
         logger.error("send_tender_email: %s", msg)
         raise SendTenderEmailError(msg)
 
+    reason_for_failure = format_reason_for_failure_html(
+        get_tender_business_warnings(state.data)
+    )
+
     recipients = email_cfg.recipients()
     if ftl:
-        built = build_ftl_tender_email_from_tender(tender, template, subject_template)
+        built = build_ftl_tender_email_from_tender(
+            tender,
+            template,
+            subject_template,
+            reason_for_failure=reason_for_failure,
+        )
     else:
-        built = build_ltl_tender_email_from_tender(tender, template, subject_template)
+        built = build_ltl_tender_email_from_tender(
+            tender,
+            template,
+            subject_template,
+            reason_for_failure=reason_for_failure,
+        )
 
     run_id = str(state.execution_id or "").strip() or None
     result = send_email(

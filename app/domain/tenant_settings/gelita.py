@@ -14,6 +14,7 @@ from app.domain.tenant_settings.email_recipients import (
     coerce_email_list,
 )
 from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
+from app.integrations.pgeocode.country_aliases import get_country_iso
 
 # Reusable list fields: required TO accepts str | list; optional CC/BCC default empty.
 RequiredEmailList = list[str]
@@ -121,6 +122,7 @@ class GelitaPalletProfile(BaseModel):
     weight_lbs: float
     threshold: int
     match: list[str] = Field(min_length=1)
+    default: bool = False
 
 
 class GelitaTenderCalculateSettings(BaseModel):
@@ -129,16 +131,61 @@ class GelitaTenderCalculateSettings(BaseModel):
     pallet_profiles: dict[str, GelitaPalletProfile]
     gelita_pickup_address: GelitaPickupAddress
 
+    def _default_pallet_profile(self) -> tuple[str, GelitaPalletProfile]:
+        """Return the single profile marked ``default: true`` in tenant settings."""
+        matches = [
+            (key, profile)
+            for key, profile in self.pallet_profiles.items()
+            if profile.default
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise ValueError("multiple default pallet profiles in tenant settings")
+        raise ValueError("no default pallet profile in tenant settings")
+
     def resolve_pallet_type(self, pallet_type: str | None) -> tuple[str, GelitaPalletProfile]:
-        """Map ``pack_codes.pallet_type`` to a configured profile key."""
+        """Map ``pack_codes.pallet_type`` to a configured profile key.
+
+        Empty or unmatched labels fall back to the profile with ``default: true``.
+        """
         norm = normalize_pallet_type_label(pallet_type)
-        if not norm:
-            raise ValueError("pack_codes.pallet_type is empty")
-        for key, profile in self.pallet_profiles.items():
-            for label in profile.match:
-                if normalize_pallet_type_label(label) == norm:
-                    return key, profile
-        raise ValueError(f"unknown pack_codes.pallet_type: {pallet_type!r}")
+        if norm:
+            for key, profile in self.pallet_profiles.items():
+                for label in profile.match:
+                    if normalize_pallet_type_label(label) == norm:
+                        return key, profile
+        return self._default_pallet_profile()
+
+
+class GelitaDomesticDeliverySettings(BaseModel):
+    """``load_tendering.domestic_delivery`` — ISO2 codes treated as domestic for routing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    country_iso_codes: list[str] = Field(min_length=1)
+
+    @field_validator("country_iso_codes", mode="before")
+    @classmethod
+    def _normalize_iso_codes(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            raise ValueError("country_iso_codes must be a list")
+        codes = [str(item).strip().upper() for item in value if str(item).strip()]
+        if not codes:
+            raise ValueError("country_iso_codes must not be empty")
+        return codes
+
+    def is_domestic_delivery_country(self, country: str | None) -> bool:
+        iso = get_country_iso(country)
+        if iso is None:
+            return True
+        return iso in frozenset(self.country_iso_codes)
+
+    def is_international_delivery_country(self, country: str | None) -> bool:
+        iso = get_country_iso(country)
+        if iso is None:
+            return False
+        return iso not in frozenset(self.country_iso_codes)
 
 
 class GelitaLoadTenderingSettings(BaseModel):
@@ -148,6 +195,7 @@ class GelitaLoadTenderingSettings(BaseModel):
     ltl: GelitaLoadTypeBranch
     ftl: GelitaLoadTypeBranch
     tender_calculate: GelitaTenderCalculateSettings
+    domestic_delivery: GelitaDomesticDeliverySettings
     workflow_error_alerts: WorkflowErrorAlertSettings | None = None
 
 

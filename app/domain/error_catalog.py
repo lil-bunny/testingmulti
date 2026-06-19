@@ -58,7 +58,7 @@ class BusinessError(_CatalogError):
     MISSING_PRODUCT_LINES = ("missing_product_lines", "No tender products found.")
     MISSING_PACK_CODE = (
         "missing_pack_code",
-        "Product pack code {pack_code} is missing.",
+        "Product Pack code {pack_code} is not found in sheet.",
     )
     MISSING_DELIVERY_ADDRESS = (
         "missing_delivery_address",
@@ -96,6 +96,10 @@ class BusinessError(_CatalogError):
     )
     MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required.")
     MISSING_DELIVERY_DATE = ("missing_delivery_date", "Delivery date is required.")
+    INTERNATIONAL_DELIVERY_SKIPPED = (
+        "international_delivery_skipped",
+        "International (overseas) shipments are skipped",
+    )
 
 
 class IntegrationError(_CatalogError):
@@ -125,6 +129,10 @@ class SystemError(_CatalogError):
     MISSING_TENANT_SETTINGS_PALLET_PROFILES = (
         "missing_tenant_settings_pallet_profiles",
         "Pallet Profiles is missing from config.",
+    )
+    MISSING_TENANT_SETTINGS_DOMESTIC_DELIVERY = (
+        "missing_tenant_settings_domestic_delivery",
+        "Tenant setting 'domestic_delivery' is required.",
     )
     UNKNOWN_PACK_CODE_PALLET_TYPE = (
         "unknown_pack_code_pallet_type",
