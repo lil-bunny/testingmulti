@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.domain.tenant_settings.gelita import (
+    GelitaDomesticDeliverySettings,
     GelitaEscalateTenderSettings,
     GelitaSendTenderEmailSettings,
     GelitaTenderCalculateSettings,
@@ -223,5 +224,16 @@ def gelita_tender_calculate_settings(
     cfg = action_settings(state_or_data, "tender_calculate")
     try:
         return GelitaTenderCalculateSettings.model_validate(cfg)
+    except ValidationError:
+        return None
+
+
+def gelita_domestic_delivery_settings(
+    state_or_data: Any,
+) -> GelitaDomesticDeliverySettings | None:
+    """Parse ``domestic_delivery`` block for Gelita; ``None`` if validation fails."""
+    block = load_tendering_settings_root(state_or_data).get("domestic_delivery")
+    try:
+        return GelitaDomesticDeliverySettings.model_validate(block)
     except ValidationError:
         return None

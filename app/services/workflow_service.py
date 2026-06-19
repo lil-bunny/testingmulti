@@ -12,6 +12,8 @@ from app.workflows.graph.routers import (
     event_type_router,
     tender_status_router,
     load_type_router,
+    domestic_delivery_router,
+    post_read_tender_router,
     manual_tms_upload_router,
     shipment_router,
     pod_exists_router,
@@ -34,6 +36,8 @@ ROUTER_REGISTRY = {
     "read_workflow_lifecycle_router": read_workflow_lifecycle_router,
     "load_type_router": load_type_router,
     "tender_status_router": tender_status_router,
+    "domestic_delivery_router": domestic_delivery_router,
+    "post_read_tender_router": post_read_tender_router,
     "carrier_ack_router": carrier_ack_router,
     "manual_tms_upload_router": manual_tms_upload_router,
 }

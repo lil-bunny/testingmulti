@@ -338,10 +338,10 @@ class GelitaInboundEmailService:
         tenant_id: str,
     ) -> tuple[str, str, str, str, dict[str, Any]]:
         """
-        Parse carrier email and load the existing ``load_tendering`` lifecycle.
+        Parse carrier email and load the ``load_tendering`` lifecycle for the order.
 
-        Resolves ``tenders`` by order number, then lifecycle by ``tender_id``. Raises
-        ``GelitaCarrierEmailIngressError`` if tender or lifecycle from ``tender_created`` is missing.
+        Resolves the latest tender for the order number, then lifecycle by ``tender_id``.
+        Raises ``GelitaCarrierEmailIngressError`` when tender or lifecycle is missing.
         Returns ``(order_number, thread_id, lifecycle_id, tender_id, lifecycle_row)``.
         """
         body_html = str(payload.get("body") or "")

@@ -46,7 +46,45 @@ def test_send_tender_email_missing_delivery_address(mock_send_email) -> None:
 
 
 @patch("app.workflows.nodes.send_tender_email.send_email")
-def test_send_tender_email_missing_pickup_address(mock_send_email) -> None:
+def test_send_tender_email_tender_created_soft_fail_missing_pickup(mock_send_email) -> None:
+    mock_send_email.return_value = {"success": True, "communication_id": "comm-1"}
+    state = _state(tender={"pickup_address": None})
+    state.data["event_type"] = "tender_created"
+
+    result = send_tender_email(state)
+
+    assert result is state
+    assert "error" not in result.data
+    assert result.data.get("tender_email_sent") is True
+    mock_send_email.assert_called_once()
+    body = mock_send_email.call_args.kwargs["body"]
+    assert 'color: red;">Pickup address:</span>' in body
+    assert "Missing pickup address" not in body
+
+
+@patch("app.workflows.nodes.send_tender_email.send_email")
+def test_send_tender_email_tender_created_soft_fail_missing_delivery_address(
+    mock_send_email,
+) -> None:
+    mock_send_email.return_value = {"success": True, "communication_id": "comm-1"}
+    state = _state(
+        tender={"delivery_address": "", "delivery_address_code": "44120611"}
+    )
+    state.data["event_type"] = "tender_created"
+
+    result = send_tender_email(state)
+
+    assert result is state
+    assert "error" not in result.data
+    mock_send_email.assert_called_once()
+    body = mock_send_email.call_args.kwargs["body"]
+    assert 'color: red;">Deliver to:</span>' in body
+    assert "Missing delivery address" not in body
+    assert "Delivery address is not found for delivery location code 44120611" in body
+
+
+@patch("app.workflows.nodes.send_tender_email.send_email")
+def test_send_tender_email_missing_pickup_address_hard_fail(mock_send_email) -> None:
     mock_send_email.return_value = {"success": True, "communication_id": "comm-1"}
     state = _state(tender={"pickup_address": None})
 

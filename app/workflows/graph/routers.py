@@ -139,3 +139,14 @@ def carrier_ack_router(state):
     ):
         return decision
     return StatusSubType.DO_NOTHING.value
+
+
+def domestic_delivery_router(state):
+    return "domestic" if state.data.get("is_domestic_delivery") else "international"
+
+
+def post_read_tender_router(state):
+    event_type = str(state.data.get("event_type") or "").strip()
+    if event_type == "tender_created":
+        return domestic_delivery_router(state)
+    return tender_status_router(state)
