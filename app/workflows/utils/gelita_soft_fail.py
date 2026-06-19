@@ -8,6 +8,33 @@ from app.domain.error_catalog import BusinessError, format_error_message
 from app.domain.tender_business_warnings import append_tender_business_warning
 from app.exceptions import WorkflowException
 
+_MULTI_PRODUCT_CATALOG_GAP_MESSAGES: dict[BusinessError, str] = {
+    BusinessError.MISSING_QTY_PER_UNIT: "Quantity per unit is missing.",
+    BusinessError.MISSING_TOTAL_QTY: "Total quantity is missing.",
+    BusinessError.MISSING_UNIT_DIMS: "Unit dimensions are missing.",
+}
+
+
+def _business_gap_message(
+    error: BusinessError,
+    *,
+    multi_product: bool = False,
+    catalog_gap: bool = False,
+    **format_kwargs: str,
+) -> str:
+    if (
+        error == BusinessError.MISSING_PACK_CODE
+        and not str(format_kwargs.get("pack_code") or "").strip()
+    ):
+        return "Pack code is missing."
+    if (
+        catalog_gap
+        and multi_product
+        and error in _MULTI_PRODUCT_CATALOG_GAP_MESSAGES
+    ):
+        return _MULTI_PRODUCT_CATALOG_GAP_MESSAGES[error]
+    return format_error_message(error, **format_kwargs)
+
 
 def gelita_tender_created_soft_fail_enabled(state_data: dict[str, Any]) -> bool:
     """True when ``tender_created`` should warn instead of failing the graph."""
@@ -17,6 +44,9 @@ def gelita_tender_created_soft_fail_enabled(state_data: dict[str, Any]) -> bool:
 def record_business_gap(
     state_data: dict[str, Any],
     error: BusinessError,
+    *,
+    multi_product: bool = False,
+    catalog_gap: bool = False,
     **format_kwargs: str,
 ) -> bool:
     """Append a catalog gap when soft-fail applies; return True if recorded."""
@@ -25,7 +55,12 @@ def record_business_gap(
     append_tender_business_warning(
         state_data,
         code=error.value,
-        message=format_error_message(error, **format_kwargs),
+        message=_business_gap_message(
+            error,
+            multi_product=multi_product,
+            catalog_gap=catalog_gap,
+            **format_kwargs,
+        ),
         context=format_kwargs or None,
     )
     return True
@@ -34,12 +69,26 @@ def record_business_gap(
 def record_business_gap_or_raise(
     state_data: dict[str, Any],
     error: BusinessError,
+    *,
+    multi_product: bool = False,
+    catalog_gap: bool = False,
     **format_kwargs: str,
 ) -> None:
     """Record the gap on ``tender_created``; otherwise raise ``WorkflowException``."""
-    if record_business_gap(state_data, error, **format_kwargs):
+    if record_business_gap(
+        state_data,
+        error,
+        multi_product=multi_product,
+        catalog_gap=catalog_gap,
+        **format_kwargs,
+    ):
         return
     raise WorkflowException(
         error,
-        format_error_message(error, **format_kwargs),
+        _business_gap_message(
+            error,
+            multi_product=multi_product,
+            catalog_gap=catalog_gap,
+            **format_kwargs,
+        ),
     )

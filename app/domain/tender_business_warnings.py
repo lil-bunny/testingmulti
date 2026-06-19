@@ -11,10 +11,19 @@ from app.domain.business_error_dependencies import (
     warning_code,
     warning_context,
 )
+from app.domain.error_catalog import BusinessError
 
 TENDER_BUSINESS_WARNINGS_KEY = "tender_business_warnings"
 
 _REASON_SUFFIX = "Please update the field highlighted in red manually."
+
+_CATALOG_PROFILE_CODES = frozenset(
+    {
+        BusinessError.MISSING_QTY_PER_UNIT.value,
+        BusinessError.MISSING_TOTAL_QTY.value,
+        BusinessError.MISSING_UNIT_DIMS.value,
+    }
+)
 
 
 def get_tender_business_warnings(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -35,6 +44,41 @@ def get_tender_business_warnings(data: dict[str, Any]) -> list[dict[str, Any]]:
         if context:
             row["context"] = context
         out.append(row)
+    return out
+
+
+def _catalog_profile_dedupe_key(
+    code: str,
+    context: dict[str, str],
+) -> tuple[str, str] | None:
+    if code not in _CATALOG_PROFILE_CODES:
+        return None
+    pack_code = str(context.get("pack_code") or "").strip()
+    if not pack_code:
+        return None
+    return (code, pack_code)
+
+
+def _collapse_duplicate_catalog_profile_warnings(
+    warnings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep one row per catalog profile gap (same code + pack_code on shared row)."""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for warning in warnings:
+        code = warning_code(warning)
+        context = warning_context(warning)
+        key = _catalog_profile_dedupe_key(code, context)
+        if key is not None:
+            if key in seen:
+                continue
+            seen.add(key)
+            pack_code = context.get("pack_code", "")
+            warning = {
+                **warning,
+                "context": {"pack_code": pack_code} if pack_code else {},
+            }
+        out.append(warning)
     return out
 
 
@@ -71,6 +115,15 @@ def append_tender_business_warning(
         for item in warnings
     ):
         return
+
+    catalog_key = _catalog_profile_dedupe_key(code, normalized_context)
+    if catalog_key is not None and any(
+        _catalog_profile_dedupe_key(warning_code(item), warning_context(item))
+        == catalog_key
+        for item in warnings
+    ):
+        return
+
     warnings.append(row)
 
 
@@ -101,16 +154,21 @@ def filter_primary_business_warnings(
                 suppress_ids.add(i)
                 break
 
-    return [warning for idx, warning in indexed if idx not in suppress_ids]
+    return _collapse_duplicate_catalog_profile_warnings(
+        [warning for idx, warning in indexed if idx not in suppress_ids]
+    )
 
 
 def format_reason_for_failure_html(warnings: list[dict[str, Any]]) -> str:
     """Vendor email header HTML for root-cause gaps; empty when there are none."""
-    messages = [
-        str(w.get("message") or "").strip()
-        for w in filter_primary_business_warnings(warnings)
-    ]
-    messages = [m for m in messages if m]
+    seen_messages: set[str] = set()
+    messages: list[str] = []
+    for warning in filter_primary_business_warnings(warnings):
+        message = str(warning.get("message") or "").strip()
+        if not message or message in seen_messages:
+            continue
+        seen_messages.add(message)
+        messages.append(message)
     if not messages:
         return ""
     body = "<br />".join(escape(message) for message in messages)

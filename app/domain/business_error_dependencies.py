@@ -24,10 +24,10 @@ BUSINESS_ERROR_DEPENDENCIES: dict[str, frozenset[str]] = {
 ERROR_SCOPE_KEYS: dict[str, tuple[str, ...]] = {
     BusinessError.MISSING_DELIVERY_ADDRESS.value: ("del_code",),
     BusinessError.MISSING_CUSTOMER_NAME.value: ("del_code",),
-    BusinessError.MISSING_PACK_CODE.value: ("pack_code",),
-    BusinessError.MISSING_QTY_PER_UNIT.value: ("pack_code",),
-    BusinessError.MISSING_TOTAL_QTY.value: ("pack_code",),
-    BusinessError.MISSING_UNIT_DIMS.value: ("pack_code",),
+    BusinessError.MISSING_PACK_CODE.value: ("pack_code", "tender_product_id"),
+    BusinessError.MISSING_QTY_PER_UNIT.value: ("pack_code", "tender_product_id"),
+    BusinessError.MISSING_TOTAL_QTY.value: ("pack_code", "tender_product_id"),
+    BusinessError.MISSING_UNIT_DIMS.value: ("pack_code", "tender_product_id"),
 }
 
 

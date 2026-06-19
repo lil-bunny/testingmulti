@@ -53,7 +53,63 @@ def test_format_reason_for_failure_html_red_italic_header_with_suffix() -> None:
     assert "color: red" in html
     assert "font-style: italic" in html
     assert msg in html
-    assert "Please update manually." in html
+    assert "Please update the field highlighted in red manually." in html
+
+
+def test_filter_primary_business_warnings_collapses_duplicate_catalog_profile_gaps() -> None:
+    dims_msg = format_error_message(BusinessError.MISSING_UNIT_DIMS, pack_code="3002")
+    generic_msg = "Unit dimensions are missing."
+    warnings = [
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": dims_msg,
+            "context": {"pack_code": "3002", "tender_product_id": "a"},
+        },
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": generic_msg,
+            "context": {"pack_code": "3002", "tender_product_id": "b"},
+        },
+    ]
+
+    primary = filter_primary_business_warnings(warnings)
+    html = format_reason_for_failure_html(warnings)
+
+    assert len(primary) == 1
+    assert primary[0]["context"] == {"pack_code": "3002"}
+    assert dims_msg in html or generic_msg in html
+    assert html.count("unit dimensions are missing") == 1
+
+
+@patch("app.workflows.nodes.gelita.record_tender_business_warnings.ActivityLogService")
+def test_record_tender_business_warnings_single_row_for_duplicate_catalog_gaps(
+    mock_activity_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_activity_cls.return_value = mock_svc
+    msg = "Unit dimensions are missing."
+    state = _tender_created_state()
+    state.data["tender_business_warnings"] = [
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": msg,
+            "context": {"pack_code": "3002", "tender_product_id": "a"},
+        },
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": msg,
+            "context": {"pack_code": "3002", "tender_product_id": "b"},
+        },
+    ]
+
+    record_tender_business_warnings(state)
+
+    mock_svc.record_exception.assert_called_once()
+    write = mock_svc.record_exception.call_args[0][0]
+    assert write.description == msg
+    assert write.metadata["error"] == BusinessError.MISSING_UNIT_DIMS.value
+    assert write.metadata["pack_code"] == "3002"
+    assert "tender_product_id" not in write.metadata
 
 
 def test_filter_primary_business_warnings_suppresses_pack_profile_dependents() -> None:
@@ -76,7 +132,7 @@ def test_filter_primary_business_warnings_suppresses_pack_profile_dependents() -
     assert qty_msg not in html
     assert total_msg not in html
     assert dims_msg not in html
-    assert "Please update manually." in html
+    assert "Please update the field highlighted in red manually." in html
 
 
 def test_filter_primary_business_warnings_suppresses_customer_name_when_address_missing() -> None:

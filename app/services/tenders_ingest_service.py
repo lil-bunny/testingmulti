@@ -89,10 +89,16 @@ class TendersIngestService:
                     row.get("delivery_address_code"),
                     did,
                 )
+            delivery_address = resolve_delivery_address(
+                row.get("delivery_address_code"),
+                locations_index,
+                state_resolver=lookup_state,
+            )
             header = projected_row_to_tender_insert(
                 row,
                 customer_name=resolved_customer_name,
                 customer_name_source=customer_name_source,
+                delivery_address=delivery_address,
                 active_pack_code_index=pack_code_index,
             )
             product = projected_row_to_tender_product_insert(
@@ -102,11 +108,7 @@ class TendersIngestService:
             if header is None or product is None:
                 skipped_invalid += 1
                 continue
-            header["delivery_address"] = resolve_delivery_address(
-                row.get("delivery_address_code"),
-                locations_index,
-                state_resolver=lookup_state,
-            )
+            header["delivery_address"] = delivery_address
             row_slots.append(
                 (
                     row_index,

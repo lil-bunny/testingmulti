@@ -6,7 +6,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.load_tendering_state import ingest_delivery_address_code, ingest_pack_code
+from app.domain.ingest_source_fields import (
+    delivery_gap_context,
+    pack_code_for_product_gap,
+    source_delivery_address_code,
+)
+from app.domain.load_tendering_state import get_tender, get_tender_products
 
 
 class WorkflowErrorAlertPayload(BaseModel):
@@ -52,8 +57,16 @@ class WorkflowErrorAlertPayload(BaseModel):
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):
             tenant_settings = {}
-        pack_code = ingest_pack_code(data) or None
-        delivery_address_code = ingest_delivery_address_code(data) or None
+        tender = get_tender(data)
+        pack_code = None
+        delivery_address_code = None
+        if tender:
+            delivery_address_code = source_delivery_address_code(tender) or None
+            for product in get_tender_products(tender):
+                code = pack_code_for_product_gap(product)
+                if code:
+                    pack_code = code
+                    break
         return cls(
             tenant_id=tenant_id,
             workflow_name=wf_name,

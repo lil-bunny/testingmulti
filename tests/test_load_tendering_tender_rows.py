@@ -249,6 +249,7 @@ def test_product_mapper_unknown_pack_code_text_becomes_null_id() -> None:
     out = projected_row_to_tender_product_insert(row, active_pack_code_index={})
     assert out is not None
     assert out["pack_code_id"] is None
+    assert out["metadata"] == {"source": {"pack_code": "9999"}}
 
 
 def test_product_mapper_resolves_pack_code_text_via_index() -> None:
@@ -264,6 +265,7 @@ def test_product_mapper_resolves_pack_code_text_via_index() -> None:
     out = projected_row_to_tender_product_insert(row, active_pack_code_index=index)
     assert out is not None
     assert out["pack_code_id"] == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+    assert out["metadata"] == {}
 
 
 def test_resolve_pack_code_id_exact_match_trims_spaces_only() -> None:

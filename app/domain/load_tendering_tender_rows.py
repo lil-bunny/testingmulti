@@ -8,6 +8,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from app.domain.ingest_source_fields import (
+    merge_metadata,
+    product_metadata_for_ingest,
+    tender_metadata_source_patch,
+)
 from app.domain.spreadsheet_cells import identifier_string_from_cell
 from app.models.load_type import LoadType
 from app.models.weight_unit import WeightUnit
@@ -143,6 +148,7 @@ def projected_row_to_tender_insert(
     *,
     customer_name: str | None = None,
     customer_name_source: str | None = None,
+    delivery_address: dict[str, Any] | None = None,
     active_pack_code_index: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """
@@ -168,6 +174,14 @@ def projected_row_to_tender_insert(
         metadata["po_number"] = po_number
     if customer_name_source:
         metadata["customer_name_source"] = customer_name_source
+    metadata = merge_metadata(
+        metadata,
+        tender_metadata_source_patch(
+            row,
+            delivery_address=delivery_address,
+            customer_name_source=customer_name_source,
+        ),
+    )
 
     return {
         "order_number": order_number,
@@ -223,7 +237,7 @@ def projected_row_to_tender_product_insert(
         "pack_code_id": pack_id,
         "price_per_unit": price_per_unit,
         "weight_unit": weight_unit,
-        "metadata": {},
+        "metadata": product_metadata_for_ingest(row, pack_code_id=pack_id),
     }
 
 

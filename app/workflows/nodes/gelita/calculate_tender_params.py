@@ -10,6 +10,12 @@ from app.domain.delivery_address import (
     is_unresolved_customer_name,
 )
 from app.models.weight_unit import WeightUnit
+from app.domain.ingest_source_fields import (
+    delivery_gap_context,
+    pack_code_for_product_gap,
+    product_gap_context,
+    product_or_catalog_gap_context,
+)
 from app.domain.load_tendering_settings import (
     gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
@@ -17,8 +23,6 @@ from app.domain.load_tendering_settings import (
 from app.domain.load_tendering_state import (
     get_tender,
     get_tender_products,
-    ingest_delivery_address_code,
-    ingest_pack_code,
     set_tender,
 )
 from app.domain.error_catalog import BusinessError, SystemError
@@ -32,11 +36,14 @@ _PALLET_ROUND_TOLERANCE = Decimal("0.05")
 _KG_TO_LBS = Decimal("2.2046")
 
 
-def _pack_code_for_error(product: dict[str, Any], state_data: dict[str, Any]) -> str:
-    code = str(product.get("pack_code") or "").strip()
-    if code:
-        return code
-    return ingest_pack_code(state_data)
+def _sync_delivery_address_code(state_data: dict[str, Any], tender: dict[str, Any]) -> None:
+    delivery_code = delivery_gap_context(tender, state_data).get("del_code", "")
+    if not delivery_code:
+        return
+    existing = get_tender(state_data) or {}
+    existing["delivery_address_code"] = delivery_code
+    set_tender(state_data, existing)
+    state_data["delivery_address_code"] = delivery_code
 
 
 def _product_weight_lbs(order_quantity: Decimal, weight_unit: WeightUnit) -> Decimal:
@@ -156,54 +163,42 @@ def calculate_tender_params(state):
 
     delivery_raw = tender.get("delivery_address")
     if delivery_raw is None or not isinstance(delivery_raw, dict):
-        delivery_code = ingest_delivery_address_code(state.data)
-        if delivery_code:
-            existing = get_tender(state.data) or {}
-            existing["delivery_address_code"] = delivery_code
-            set_tender(state.data, existing)
-            state.data["delivery_address_code"] = delivery_code
+        _sync_delivery_address_code(state.data, tender)
         record_business_gap_or_raise(
             state.data,
             BusinessError.MISSING_DELIVERY_ADDRESS,
-            del_code=delivery_code,
+            **delivery_gap_context(tender, state.data),
         )
 
     if is_unresolved_customer_name(tender):
-        delivery_code = ingest_delivery_address_code(state.data)
-        if delivery_code:
-            existing = get_tender(state.data) or {}
-            existing["delivery_address_code"] = delivery_code
-            set_tender(state.data, existing)
-            state.data["delivery_address_code"] = delivery_code
+        _sync_delivery_address_code(state.data, tender)
         record_business_gap_or_raise(
             state.data,
             BusinessError.MISSING_CUSTOMER_NAME,
-            del_code=delivery_code,
+            **delivery_gap_context(tender, state.data),
         )
 
     products_calc: list[dict[str, Any]] = []
     enriched_products: list[dict[str, Any]] = []
     total_gross = Decimal(0)
+    multi_product = len(products) > 1
 
     for product in products:
         if not product.get("pack_code_id"):
-            excel_pack = ingest_pack_code(state.data)
-            if excel_pack:
-                existing = get_tender(state.data) or {}
-                existing["pack_code"] = excel_pack
-                set_tender(state.data, existing)
-                state.data["pack_code"] = excel_pack
             record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_PACK_CODE,
-                pack_code=excel_pack,
+                **product_gap_context(product),
             )
 
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
         total_qty = product.get("total_qty")
-        pack_code = _pack_code_for_error(product, state.data)
+        pack_code = pack_code_for_product_gap(product)
         unit_dims = product.get("unit_dims")
+        gap_context, catalog_gap = product_or_catalog_gap_context(
+            product, pack_code=pack_code
+        )
 
         profile_key, pallet_profile = calc_settings.resolve_pallet_type(
             product.get("pallet_type")
@@ -216,7 +211,9 @@ def calculate_tender_params(state):
             record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_QTY_PER_UNIT,
-                pack_code=pack_code,
+                multi_product=multi_product,
+                catalog_gap=catalog_gap,
+                **gap_context,
             )
         else:
             pieces_int = _pieces_count(
@@ -228,7 +225,9 @@ def calculate_tender_params(state):
             record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_TOTAL_QTY,
-                pack_code=pack_code,
+                multi_product=multi_product,
+                catalog_gap=catalog_gap,
+                **gap_context,
             )
         else:
             pallets_int = _pallets_count(
@@ -246,7 +245,9 @@ def calculate_tender_params(state):
             record_business_gap_or_raise(
                 state.data,
                 BusinessError.MISSING_UNIT_DIMS,
-                pack_code=pack_code,
+                multi_product=multi_product,
+                catalog_gap=catalog_gap,
+                **gap_context,
             )
 
         product_value = _product_value(

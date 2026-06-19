@@ -23,6 +23,7 @@ __all__ = [
     "format_tender_email_subject",
     "build_ltl_tender_email_from_tender",
     "build_ftl_tender_email_from_tender",
+    "is_missing_address_value",
 ]
 
 
@@ -73,6 +74,26 @@ def _html_address_block(text: str) -> str:
     return "<br />".join(
         escape(line.strip()) for line in str(text).splitlines() if line.strip()
     )
+
+
+def is_missing_address_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, dict):
+        return not any(
+            str(value.get(key) or "").strip()
+            for key in ("name", "address1", "city", "postal_code")
+        )
+    text = str(value).strip()
+    if not text:
+        return True
+    return text.lower().startswith("missing ")
+
+
+def _address_html(value: Any) -> str:
+    if is_missing_address_value(value):
+        return ""
+    return _html_address_block(value or "")
 
 
 def _str_field(data: dict[str, Any], key: str) -> str:
@@ -133,8 +154,8 @@ def build_tender_email_input_from_tender(tender: dict[str, Any]) -> TenderEmailB
         ship_date=_str_field(tender, "ship_date"),
         delivery_date=_str_field(tender, "delivery_date"),
         order_value=order_value,
-        pickup_address=_html_address_block(tender.get("pickup_address") or ""),
-        delivery_address=_html_address_block(tender.get("delivery_address") or ""),
+        pickup_address=_address_html(tender.get("pickup_address")),
+        delivery_address=_address_html(tender.get("delivery_address")),
         pieces_count=pieces,
         pallets_count=pallets,
         gross_weight_lbs=gross,
@@ -311,6 +332,12 @@ def _combine_product_lines(
             return summed
         return getattr(lines[0], field)
 
+    def first_unless_any_missing(lines: list[TenderEmailProductLine], field: str) -> str:
+        values = [str(getattr(line, field) or "").strip() for line in lines]
+        if any(not value for value in values):
+            return ""
+        return values[0]
+
     combined: list[TenderEmailProductLine] = []
     groups: dict[str, list[TenderEmailProductLine]] = {}
     positions: dict[str, int] = {}
@@ -332,10 +359,10 @@ def _combine_product_lines(
             product_name=first.product_name,
             pack_code=first.pack_code,
             pieces_count=sum_field(groups[key], "pieces_count"),
-            qty_per_unit=first.qty_per_unit,
+            qty_per_unit=first_unless_any_missing(groups[key], "qty_per_unit"),
             weight_unit=first.weight_unit,
             pallets_count=sum_field(groups[key], "pallets_count"),
-            unit_dims=first.unit_dims,
+            unit_dims=first_unless_any_missing(groups[key], "unit_dims"),
             gross_weight_lbs=sum_field(groups[key], "gross_weight_lbs"),
             price=sum_field(groups[key], "price", money=True),
         )
@@ -425,6 +452,18 @@ def format_tender_email_subject(subject_template: str, ctx: TenderEmailBuildInpu
     return subject_template.format(**data)
 
 
+def _address_headers(tender: dict[str, Any]) -> dict[str, str]:
+    def header(label: str, field: str) -> str:
+        if is_missing_address_value(tender.get(field)):
+            return _field_label(label, missing=True)
+        return f"<strong>{escape(label)}</strong>"
+
+    return {
+        "pickup_address_header": header("Pickup address:", "pickup_address"),
+        "delivery_to_header": header("Deliver to:", "delivery_address"),
+    }
+
+
 def build_ltl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
@@ -443,6 +482,7 @@ def build_ltl_tender_email_from_tender(
         order_number=ctx.order_number,
         customer_po=ctx.customer_po,
         ship_date=ctx.ship_date,
+        **_address_headers(tender),
         pickup_address=ctx.pickup_address,
         delivery_address=ctx.delivery_address,
         products_block=products_block,
@@ -468,11 +508,13 @@ def build_ftl_tender_email_from_tender(
         order_value=ctx.order_value,
     )
 
+    headers = _address_headers(tender)
     body_html = template.format(
         order_number=ctx.order_number,
         customer_po=ctx.customer_po,
         ship_date=ctx.ship_date,
         delivery_date=ctx.delivery_date,
+        delivery_to_header=headers["delivery_to_header"],
         delivery_address=ctx.delivery_address,
         products_block=products_block,
         reason_for_failure=reason_for_failure,

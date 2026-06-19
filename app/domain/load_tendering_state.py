@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.ingest_source_fields import source_delivery_address_code
 from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.services.tender_service import TenderOrderPlusProducts
 
@@ -104,6 +105,9 @@ def tender_from_read_order(
     delivery_raw = order.get("delivery_address")
     if isinstance(delivery_raw, dict):
         base["delivery_address"] = delivery_raw
+    delivery_code = source_delivery_address_code(order)
+    if delivery_code:
+        base["delivery_address_code"] = delivery_code
     return base
 
 

@@ -9,6 +9,7 @@ from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.tender_business_warnings import (
     filter_primary_business_warnings,
     get_tender_business_warnings,
+    warning_context,
 )
 from app.models.activity_type import ActorType
 from app.services.activity_log_service import ActivityLogService
@@ -45,6 +46,13 @@ def record_tender_business_warnings(state):
             metadata["error"] = code
         if tender_id:
             metadata["tender_id"] = tender_id
+        context = warning_context(warning)
+        if context.get("pack_code"):
+            metadata["pack_code"] = context["pack_code"]
+        if context.get("del_code"):
+            metadata["delivery_address_code"] = context["del_code"]
+        if context.get("tender_product_id"):
+            metadata["tender_product_id"] = context["tender_product_id"]
         activity_log_service.record_exception(
             ActivityLogWrite(
                 tenant_id=tenant_id,

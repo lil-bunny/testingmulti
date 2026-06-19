@@ -341,6 +341,105 @@ def test_calculate_tender_params_missing_qty_per_unit_keeps_gross(
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_multi_product_unknown_pack_uses_source_metadata(
+    mock_svc_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["products"] = [
+        {
+            "id": "tp-unknown",
+            "tender_id": FTL_TENDER_ID,
+            "product_name": "275 Bloom Porkskin Gelatine 40 Mesh",
+            "order_quantity": Decimal("1750"),
+            "price_per_unit": Decimal("10"),
+            "pack_code_id": None,
+            "pack_code": "",
+            "source_pack_code": "6300",
+            "metadata": {"source": {"pack_code": "6300"}},
+            "weight_unit": "lbs",
+        },
+        {
+            "id": "tp-known",
+            "tender_id": FTL_TENDER_ID,
+            "product_name": "PEPTIPLUS XB (US)",
+            "order_quantity": Decimal("20"),
+            "price_per_unit": Decimal("9.7"),
+            "pack_code_id": PACK_CODE_ID,
+            "pack_code": "5326",
+            "qty_per_unit": Decimal("20"),
+            "total_qty": Decimal("800"),
+            "pallet_type": "4-way wood",
+            "unit_dims": '49"x42"x59"',
+            "metadata": {},
+            "weight_unit": "kg",
+        },
+    ]
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "tender_created"
+    state.data["pack_code"] = "5326"
+    result = calculate_tender_params(state)
+
+    warnings = result.data.get("tender_business_warnings")
+    assert warnings == [
+        {
+            "code": BusinessError.MISSING_PACK_CODE.value,
+            "message": format_error_message(
+                BusinessError.MISSING_PACK_CODE, pack_code="6300"
+            ),
+            "context": {"tender_product_id": "tp-unknown", "pack_code": "6300"},
+        }
+    ]
+    assert "5326" not in str(warnings)
+    mock_svc.update_load_type.assert_called_once()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_multi_product_same_pack_missing_unit_dims_dedupes(
+    mock_svc_cls: MagicMock,
+) -> None:
+    """Order 97357: shared catalog row gap should warn once, not per product line."""
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    shared_product = {
+        "tender_id": FTL_TENDER_ID,
+        "order_quantity": Decimal("20"),
+        "price_per_unit": Decimal("9.7"),
+        "pack_code_id": PACK_CODE_ID,
+        "pack_code": "3002",
+        "qty_per_unit": Decimal("20"),
+        "total_qty": Decimal("800"),
+        "pallet_type": "4-way wood",
+        "unit_dims": None,
+        "metadata": {},
+        "weight_unit": "kg",
+    }
+    bundle["products"] = [
+        {**shared_product, "id": "tp-line-1", "product_name": "PEPTIPLUS XB (US)"},
+        {**shared_product, "id": "tp-line-2", "product_name": "PEPTIPLUS XBB"},
+    ]
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "tender_created"
+    result = calculate_tender_params(state)
+
+    warnings = result.data.get("tender_business_warnings")
+    assert warnings == [
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": "Unit dimensions are missing.",
+            "context": {"pack_code": "3002"},
+        }
+    ]
+    mock_svc.update_load_type.assert_called_once()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
 def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> None:
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc

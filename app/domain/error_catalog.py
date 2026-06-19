@@ -58,7 +58,7 @@ class BusinessError(_CatalogError):
     MISSING_PRODUCT_LINES = ("missing_product_lines", "No tender products found.")
     MISSING_PACK_CODE = (
         "missing_pack_code",
-        "Product pack code {pack_code} is missing.",
+        "Product Pack code {pack_code} is not found in sheet.",
     )
     MISSING_DELIVERY_ADDRESS = (
         "missing_delivery_address",

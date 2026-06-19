@@ -40,6 +40,27 @@ def test_scopes_match_requires_same_pack_code() -> None:
     )
 
 
+def test_scopes_match_requires_same_tender_product_id() -> None:
+    assert scopes_match(
+        ancestor_code=BusinessError.MISSING_PACK_CODE.value,
+        ancestor_context={"pack_code": "5326", "tender_product_id": "a"},
+        dependent_code=BusinessError.MISSING_QTY_PER_UNIT.value,
+        dependent_context={"pack_code": "5326", "tender_product_id": "a"},
+    )
+    assert not scopes_match(
+        ancestor_code=BusinessError.MISSING_PACK_CODE.value,
+        ancestor_context={"pack_code": "5326", "tender_product_id": "a"},
+        dependent_code=BusinessError.MISSING_QTY_PER_UNIT.value,
+        dependent_context={"pack_code": "5326", "tender_product_id": "b"},
+    )
+    assert not is_suppressed_by_ancestor(
+        ancestor_code=BusinessError.MISSING_DELIVERY_ADDRESS.value,
+        ancestor_context={"del_code": "44120611"},
+        dependent_code=BusinessError.MISSING_PACK_CODE.value,
+        dependent_context={"pack_code": "5326"},
+    )
+
+
 def test_is_suppressed_by_ancestor_delivery_customer_chain() -> None:
     assert is_suppressed_by_ancestor(
         ancestor_code=BusinessError.MISSING_DELIVERY_ADDRESS.value,
