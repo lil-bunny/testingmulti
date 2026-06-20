@@ -207,6 +207,28 @@ class CommunicationsService:
             )
             return False
 
+    def is_communication_linked_to_run(self, *, communication_id: str) -> bool:
+        """True when this communication is already linked to a workflow run."""
+        comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
+        if not comm_id:
+            return False
+        try:
+            if self._repository is not None:
+                return self._repository.is_communication_linked_to_run(
+                    communication_id=comm_id,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.is_communication_linked_to_run(
+                    communication_id=comm_id,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications is_communication_linked_to_run failed comm_id=%s",
+                comm_id,
+            )
+            return False
+
     def resolve_thread_for_lifecycle(
         self,
         *,

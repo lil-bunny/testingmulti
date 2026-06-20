@@ -24,6 +24,9 @@ DRIVER_DETAILS_LLM_ACTION_TEMPLATE = (
 REMINDER_SENT_ACTION_TEMPLATE = "Reminder {step} sent to carrier"
 ESCALATION_SENT_ACTION = "Tender escalated to internal recipients"
 RATECON_RECEIVED_ACTION = "Ratecon email received"
+RATECON_SUPERSEDED_ACTION = (
+    "Ratecon cancelled — superseded by new inbound ratecon email"
+)
 RATECON_DOCUMENT_UPLOADED_ACTION = "Ratecon document uploaded to S3"
 RATECON_DOCUMENT_UPLOAD_FAILED_ACTION = "Ratecon document upload failed"
 RATECON_DOCUMENT_PROCESSED_ACTION = "Ratecon document processed"
@@ -34,6 +37,9 @@ RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE = (
 POD_STARTED_ACTION = "POD lifecycle started"
 DRIVER_ASSIGNMENT_STARTED_ACTION = "Driver assignment started"
 DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE = "Driver assignment not started: {reason}"
+DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION = (
+    "Driver assignment cancelled — shipment tendered in Turvo"
+)
 DRIVER_REMINDERS_SCHEDULED_ACTION = "Driver reminders scheduled"
 DRIVER_REMINDER_SENT_TEMPLATE = "Driver reminder {step} sent"
 DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE = (
@@ -41,6 +47,29 @@ DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE = (
 )
 DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE = (
     "Driver details partial follow-up sent (reminder step {step})"
+)
+DRIVER_FOUND_IN_TMS_TEMPLATE = (
+    "Driver found in TMS ({match_by}={match_value}, contact_id={contact_id})"
+)
+DRIVER_NOT_FOUND_IN_TMS_TEMPLATE = (
+    "Driver not found in TMS ({match_by}={match_value})"
+)
+DRIVER_AMBIGUOUS_IN_TMS_TEMPLATE = (
+    "Multiple drivers found in TMS ({match_by}={match_value}, count={count})"
+)
+DRIVER_CREATED_IN_TMS_TEMPLATE = (
+    "Driver contact created in TMS ({name}, contact_id={contact_id})"
+)
+DRIVER_ASSIGNED_IN_TMS_ACTION = "Driver assigned to shipment in TMS"
+DRIVER_ALREADY_ASSIGNED_IN_TMS_ACTION = (
+    "Driver already assigned on shipment in TMS; assign skipped"
+)
+DRIVER_ASSIGN_TO_TMS_FAILED_TEMPLATE = "Driver assignment to TMS failed: {reason}"
+DRIVER_CONFIRMATION_TRACKING_SENT_ACTION = (
+    "Driver confirmation email sent (tracking customer)"
+)
+DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION = (
+    "Driver confirmation email sent"
 )
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
