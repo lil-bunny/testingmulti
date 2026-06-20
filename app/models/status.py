@@ -38,3 +38,4 @@ class StatusSubType(StrEnum):
     DOCUMENT_UPLOADED = "document_uploaded"
     DOCUMENT_PROCESSED = "document_processed"
     UPLOADED_TO_TMS = "uploaded_to_tms"
+    CANCELLED = "cancelled"
