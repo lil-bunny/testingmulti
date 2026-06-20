@@ -7,7 +7,11 @@ from fastapi.responses import JSONResponse, Response
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.models.tenants import TenantSlug
-from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
+from app.integrations.turvo.webhook_mapping import (
+    TENDERED_STATUS_CODE_KEY,
+    map_turvo_status_webhook,
+    map_turvo_status_webhook_to_payload,
+)
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
@@ -16,6 +20,10 @@ from app.services.t3ra_inbound_email_service import T3raInboundEmailService
 from app.exceptions import TenantResolutionError
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.integrations.turvo.workflow_cancel import shipment_tendered_trigger_from_turvo
+from app.services.workflow_lifecycle_cancel_orchestrator import (
+    WorkflowLifecycleCancelOrchestrator,
+)
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.workflows import run_workflow_async
 
@@ -110,6 +118,26 @@ async def listen_turvo_status(request: Request) -> Response:
 
     override = request.headers.get("X-Workflow-Tenant-Id")
     workflow_tenant = _resolve_workflow_tenant_id(override)
+    event = map_turvo_status_webhook(body)
+    if event is None:
+        logger.info("Turvo webhook skipped: unsupported status or shipment/load id missing")
+        return Response(status_code=status.HTTP_200_OK)
+
+    if event.status_key == TENDERED_STATUS_CODE_KEY:
+        if not event.shipment_id:
+            logger.info("Turvo tendered webhook skipped: shipment id missing")
+            return Response(status_code=status.HTTP_200_OK)
+        trigger = shipment_tendered_trigger_from_turvo(
+            tenant_id=workflow_tenant,
+            tenant_slug=workflow_tenant,
+            event=event,
+        )
+        results = WorkflowLifecycleCancelOrchestrator().cancel_for_trigger(trigger)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=WorkflowLifecycleCancelOrchestrator.to_api_content(results),
+        )
+
     payload = map_turvo_status_webhook_to_payload(body)
     if payload is None or not payload.get("shipment_id"):
         logger.info("Turvo webhook skipped: status key is not 2116 or shipment/load id missing")

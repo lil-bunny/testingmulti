@@ -54,6 +54,30 @@ class WorkflowRunsService:
             )
         )
 
+    def is_ratecon_completed_blocked_for_shipment(
+        self,
+        *,
+        tenant_id: str | None,
+        workflow_lifecycle_id: str | None,
+        shipment_id: str | None,
+        exclude_run_id: str | None = None,
+    ) -> bool:
+        if self._repository is not None:
+            return self._repository.is_ratecon_completed_blocked_for_shipment(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                shipment_id=shipment_id,
+                exclude_run_id=exclude_run_id,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).is_ratecon_completed_blocked_for_shipment(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                shipment_id=shipment_id,
+                exclude_run_id=exclude_run_id,
+            )
+        )
+
     def record_workflow_run(
         self,
         *,
