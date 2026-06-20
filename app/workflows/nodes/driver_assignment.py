@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.core.logger import get_logger
 from app.services.driver_assignment_activity_service import DriverAssignmentActivityService
 from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment_turvo_service import DriverAssignmentTurvoService
 from app.services.driver_details_classification_service import (
     DriverDetailsClassificationService,
 )
@@ -110,6 +111,10 @@ def route_driver_details_partial(state):
     return state
 
 
+def route_tms_searchable(state):
+    return state
+
+
 def send_driver_details_partial_follow_up(state):
     tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
     run_id = str(state.execution_id or state.data.get("execution_id") or "").strip() or None
@@ -134,4 +139,51 @@ def send_driver_details_partial_follow_up(state):
 
 def record_driver_details_email_received(state):
     DriverAssignmentActivityService().record_driver_details_email_received(state)
+    return state
+
+
+def resolve_turvo_driver(state):
+    state.data.update(DriverAssignmentTurvoService().resolve_from_state(state))
+    return state
+
+
+def record_tms_driver_success(state):
+    DriverAssignmentActivityService().record_tms_driver_success(state)
+    return state
+
+
+def record_tms_driver_not_resolved(state):
+    DriverAssignmentActivityService().record_tms_driver_not_resolved(state)
+    return state
+
+
+def record_tms_driver_error(state):
+    DriverAssignmentActivityService().record_tms_driver_error(state)
+    return state
+
+
+def send_driver_details_confirmation(state):
+    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
+    run_id = str(state.execution_id or state.data.get("execution_id") or "").strip() or None
+    result = DriverAssignmentIngressService().send_driver_details_confirmation_email(
+        tenant_id=tenant_id,
+        tenant_settings=state.data.get("tenant_settings") or {},
+        payload=state.data,
+        workflow_run_id=run_id,
+    )
+    state.data["driver_confirmation_sent"] = result.sent
+    if result.error:
+        state.data["driver_confirmation_error"] = result.error
+    if result.communication_id:
+        state.data["communication_id"] = result.communication_id
+    return state
+
+
+def record_driver_details_confirmation_sent(state):
+    DriverAssignmentActivityService().record_driver_details_confirmation_sent(state)
+    return state
+
+
+def record_driver_assignment_completed(state):
+    DriverAssignmentActivityService().record_driver_assignment_completed(state)
     return state

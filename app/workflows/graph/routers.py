@@ -1,7 +1,13 @@
 from app.core.logger import get_logger
 from app.domain.load_tendering_state import get_tender
 from app.models.status import StatusSubType, StatusType
-from app.tools.driver_details import DO_NOTHING, HAS_DETAILS, INSUFFICIENT, has_partial_driver_fields
+from app.tools.driver_details import (
+    DO_NOTHING,
+    HAS_DETAILS,
+    INSUFFICIENT,
+    has_partial_driver_fields,
+    has_tms_searchable_fields,
+)
 
 logger = get_logger(__name__)
 
@@ -155,3 +161,26 @@ def driver_details_partial_router(state):
     if isinstance(driver, dict) and has_partial_driver_fields(driver):
         return "partial_fields"
     return "no_partial_fields"
+
+
+def tms_searchable_router(state):
+    """Insufficient branch: TMS search when name/phone present, else follow-up or end."""
+    extraction = state.data.get("driver_details_extraction") or {}
+    driver = extraction.get("driver") if isinstance(extraction, dict) else {}
+    if isinstance(driver, dict) and has_tms_searchable_fields(driver):
+        return "searchable"
+    if isinstance(driver, dict) and has_partial_driver_fields(driver):
+        return "follow_up_only"
+    return "none"
+
+
+def tms_driver_router(state):
+    """Route TMS driver resolution outcome."""
+    outcome = str(state.data.get("tms_driver_outcome") or "").strip()
+    if outcome == "assigned":
+        return "assigned"
+    if outcome == "follow_up":
+        return "follow_up"
+    if outcome == "error":
+        return "error"
+    return "error"

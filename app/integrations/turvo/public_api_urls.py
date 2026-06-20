@@ -32,3 +32,15 @@ def build_publicapi_v1_url(normalized_base: str, path: str) -> str:
     base = normalized_base.rstrip("/")
     suffix = path if path.startswith("/") else f"/{path}"
     return f"{base}/v1{suffix}"
+
+
+def build_turvo_ui_base_url(public_api_url: str) -> str:
+    """Derive Turvo web UI base from Public API URL (e.g. sandbox -publicapi host)."""
+    base = normalize_turvo_publicapi_url(public_api_url or "")
+    if not base:
+        return ""
+    if "-publicapi." in base:
+        return base.replace("-publicapi.", ".", 1)
+    if "://publicapi." in base:
+        return base.replace("://publicapi.", "://app.", 1)
+    return base

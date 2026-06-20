@@ -2,11 +2,36 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.domain.tenant_settings.email_recipients import normalize_emails_for_matching
 
 _RECIPIENT_ATTENDEE_KEYS = ("to_attendees", "cc_attendees", "bcc_attendees")
+_RE_REPLY_SUBJECT = re.compile(r"^Re:\s", re.IGNORECASE)
+
+
+def _has_in_reply_to_value(val: Any) -> bool:
+    if val is None:
+        return False
+    if isinstance(val, dict):
+        for key in ("message_id", "id"):
+            text = val.get(key)
+            if text is not None and str(text).strip():
+                return True
+        return False
+    return bool(str(val).strip())
+
+
+def is_unipile_email_reply(payload: dict[str, Any]) -> bool:
+    """True when Unipile payload looks like a thread reply (official ``in_reply_to`` or Re: fallback)."""
+    if _has_in_reply_to_value(payload.get("in_reply_to")):
+        return True
+    thread_id = payload.get("thread_id")
+    if thread_id is None or not str(thread_id).strip():
+        return False
+    subject = str(payload.get("subject") or "").strip()
+    return bool(_RE_REPLY_SUBJECT.match(subject))
 
 
 def build_unipile_attachment_fetch_context(

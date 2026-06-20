@@ -28,6 +28,8 @@ class WorkflowRemindersConfig(BaseModel):
     ``tenant_settings.<workflow_subkey>.reminders`` — schedule + optional email copy.
 
     Use flat ``steps`` or ``variants`` + ``variant_selector`` (e.g. load_type → ltl/ftl).
+    ``delay_hours`` means hours after schedule when ``schedule_mode=delay_from_start`` (POD),
+    or hours before pickup when ``schedule_mode=before_pickup`` (driver assignment).
     Email HTML: prefer ``email_template_html``; ``default_body`` is legacy fallback.
     """
 
@@ -58,26 +60,36 @@ class WorkflowRemindersConfig(BaseModel):
     def _normalize_variants(cls, data: object) -> object:
         if not isinstance(data, dict):
             return data
-        raw_variants = data.get("variants")
+        out = dict(data)
+        if (
+            out.get("schedule_mode") == "before_pickup"
+            and not out.get("steps")
+            and out.get("offsets_before_pickup_hours")
+        ):
+            offsets = out["offsets_before_pickup_hours"]
+            out["steps"] = [
+                {"step": i, "event_type": "reminder_due", "delay_hours": h}
+                for i, h in enumerate(offsets, start=1)
+            ]
+        raw_variants = out.get("variants")
         if not isinstance(raw_variants, dict):
-            return data
+            return out
         normalized: dict[str, list] = {}
         for key, value in raw_variants.items():
             if isinstance(value, dict) and "steps" in value:
                 normalized[str(key)] = value["steps"]
             else:
                 normalized[str(key)] = value
-        out = dict(data)
         out["variants"] = normalized
         return out
 
     @model_validator(mode="after")
     def _steps_or_variants(self) -> WorkflowRemindersConfig:
         if self.schedule_mode == "before_pickup":
-            if not self.offsets_before_pickup_hours:
-                raise ValueError(
-                    "offsets_before_pickup_hours is required when schedule_mode is before_pickup"
-                )
+            if self.variants:
+                raise ValueError("variants is not supported when schedule_mode is before_pickup")
+            if not self.steps:
+                raise ValueError("steps is required when schedule_mode is before_pickup")
             return self
         has_steps = bool(self.steps)
         has_variants = bool(self.variants)

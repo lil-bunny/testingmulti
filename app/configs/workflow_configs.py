@@ -138,6 +138,14 @@ WORKFLOW_CONFIGS = {
             "send_driver_reminder",
             "record_driver_reminder_sent",
             "classify_driver_details",
+            "route_tms_searchable",
+            "resolve_turvo_driver",
+            "record_tms_driver_success",
+            "record_tms_driver_not_resolved",
+            "record_tms_driver_error",
+            "send_driver_details_confirmation",
+            "record_driver_details_confirmation_sent",
+            "record_driver_assignment_completed",
             "route_driver_details_partial",
             "send_driver_details_partial_follow_up",
             "record_driver_details_email_received",
@@ -151,7 +159,15 @@ WORKFLOW_CONFIGS = {
             ["send_driver_reminder", "record_driver_reminder_sent"],
             ["record_driver_reminder_sent", "end"],
             ["send_driver_details_partial_follow_up", "record_driver_reminder_sent"],
-            ["record_driver_details_email_received", "end"],
+            ["record_tms_driver_not_resolved", "send_driver_details_partial_follow_up"],
+            ["record_tms_driver_success", "send_driver_details_confirmation"],
+            ["send_driver_details_confirmation", "record_driver_details_confirmation_sent"],
+            [
+                "record_driver_details_confirmation_sent",
+                "record_driver_assignment_completed",
+            ],
+            ["record_driver_assignment_completed", "end"],
+            ["record_tms_driver_error", "end"],
         ],
         "routers": {
             "route_event": {
@@ -173,9 +189,25 @@ WORKFLOW_CONFIGS = {
             "classify_driver_details": {
                 "router": "driver_details_router",
                 "map": {
-                    "has_details": "record_driver_details_email_received",
-                    "insufficient": "route_driver_details_partial",
+                    "has_details": "resolve_turvo_driver",
+                    "insufficient": "route_tms_searchable",
                     "do_nothing": "end",
+                },
+            },
+            "route_tms_searchable": {
+                "router": "tms_searchable_router",
+                "map": {
+                    "searchable": "resolve_turvo_driver",
+                    "follow_up_only": "send_driver_details_partial_follow_up",
+                    "none": "end",
+                },
+            },
+            "resolve_turvo_driver": {
+                "router": "tms_driver_router",
+                "map": {
+                    "assigned": "record_tms_driver_success",
+                    "follow_up": "record_tms_driver_not_resolved",
+                    "error": "record_tms_driver_error",
                 },
             },
             "route_driver_details_partial": {

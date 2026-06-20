@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.driver_assignment_confirmation_email import (
+    DriverAssignmentConfirmationEmailConfig,
+)
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import InboundRoutingEmails
 from app.domain.tenant_settings.tms import TmsSettings
@@ -19,6 +22,7 @@ class T3raDriverAssignmentSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     reminders: WorkflowRemindersConfig
+    confirmation_email: DriverAssignmentConfirmationEmailConfig | None = None
 
 
 class T3raTenantSettings(BaseModel):

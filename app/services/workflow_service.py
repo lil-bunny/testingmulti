@@ -22,6 +22,8 @@ from app.workflows.graph.routers import (
     driver_assignment_eligibility_router,
     driver_details_router,
     driver_details_partial_router,
+    tms_searchable_router,
+    tms_driver_router,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from typing import Optional
@@ -44,6 +46,8 @@ ROUTER_REGISTRY = {
     "driver_assignment_eligibility_router": driver_assignment_eligibility_router,
     "driver_details_router": driver_details_router,
     "driver_details_partial_router": driver_details_partial_router,
+    "tms_searchable_router": tms_searchable_router,
+    "tms_driver_router": tms_driver_router,
 }
 
 
@@ -171,10 +175,21 @@ class WorkflowService:
                     lifecycle_id=duplicate.lifecycle_id,
                 )
 
-        lifecycle = self.lifecycle_service.resolve_or_create_lifecycle(
-            tenant_id=tenant_id,
-            workflow_name=workflow_name,
-            payload=payload,
+        lifecycle = (
+            self.lifecycle_service.resolve_driver_assignment_cycle(
+                tenant_id=tenant_id,
+                payload=payload,
+            )
+            if (
+                workflow_name == "driver_assignment"
+                and payload.get("event_type")
+                == WorkflowRunEventType.RATECON_COMPLETED.value
+            )
+            else self.lifecycle_service.resolve_or_create_lifecycle(
+                tenant_id=tenant_id,
+                workflow_name=workflow_name,
+                payload=payload,
+            )
         )
         workflow_lifecycle_id = lifecycle.workflow_lifecycle_id
         payload["workflow_lifecycle_id"] = workflow_lifecycle_id

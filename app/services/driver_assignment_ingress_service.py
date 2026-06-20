@@ -19,6 +19,10 @@ from app.core.logger import get_logger
 
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 
+from app.domain.driver_assignment_lifecycle_guards import (
+    blocks_driver_assignment_reminder,
+)
+
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
 
 from app.integrations.turvo.shipments import (
@@ -36,6 +40,12 @@ from app.models.status import StatusSubType, StatusType
 from app.models.tenants import TenantSlug
 
 from app.models.workflow_run_event_type import WorkflowRunEventType
+
+from app.domain.driver_assignment_confirmation_email import (
+    parse_driver_assignment_confirmation_email,
+)
+from app.domain.unipile_email import is_unipile_email_reply
+from app.tools.driver_details import render_driver_confirmation_html
 
 from app.services.communications.service import CommunicationsService
 
@@ -107,6 +117,15 @@ _LAYER1_ACTIVITY_SKIP_REASONS = frozenset(
 
     }
 
+)
+
+_DRIVER_DETAILS_TERMINAL_SUB_STATUSES = frozenset(
+    {
+        StatusSubType.DETAILS_RECEIVED,
+        StatusSubType.DRIVER_DETAILS_EMAIL_RECEIVED,
+        StatusSubType.UPLOADED_TO_TMS,
+        StatusSubType.CANCELLED,
+    }
 )
 
 
@@ -371,7 +390,7 @@ class DriverAssignmentIngressService:
 
 
 
-    def _driver_lifecycle_terminal(
+    def _blocks_restart_for_shipment(
 
         self,
 
@@ -383,37 +402,24 @@ class DriverAssignmentIngressService:
 
     ) -> bool:
 
-        lifecycle = self._lifecycle_service.check_lifecycle_exists(
+        active_id = self._lifecycle_service.find_active_driver_assignment_lifecycle_id(
 
             tenant_id=tenant_id,
-
-            workflow_name=DRIVER_ASSIGNMENT_WORKFLOW,
 
             shipment_id=shipments_row_id,
 
         )
 
-        if not lifecycle.get("exists"):
+        if active_id:
 
-            return False
+            return True
 
-        lifecycle_id = self._clean(lifecycle.get("lifecycle_id"))
+        return self._lifecycle_service.has_success_terminal_driver_assignment_lifecycle(
 
-        if not lifecycle_id:
+            tenant_id=tenant_id,
 
-            return False
+            shipment_id=shipments_row_id,
 
-        row = self._lifecycle_service.read_lifecycle_row_by_id(lifecycle_id)
-
-        if not row:
-
-            return False
-
-        sub = sub_status_type_from_db(row.get("sub_status"))
-
-        return sub in (
-            StatusSubType.UPLOADED_TO_TMS,
-            StatusSubType.DETAILS_RECEIVED,
         )
 
 
@@ -452,35 +458,15 @@ class DriverAssignmentIngressService:
 
         exclude_run_id: str | None = None,
 
+        workflow_lifecycle_id: str | None = None,
+
     ) -> bool:
 
-        lifecycle = self._lifecycle_service.check_lifecycle_exists(
+        return self._runs_service.is_ratecon_completed_blocked_for_shipment(
 
             tenant_id=tenant_id,
 
-            workflow_name=DRIVER_ASSIGNMENT_WORKFLOW,
-
-            shipment_id=shipments_row_id,
-
-        )
-
-        if not lifecycle.get("exists"):
-
-            return False
-
-        lifecycle_id = self._clean(lifecycle.get("lifecycle_id"))
-
-        if not lifecycle_id:
-
-            return False
-
-        return self._runs_service.is_workflow_initial_path_blocked(
-
-            tenant_id=tenant_id,
-
-            event_type=WorkflowRunEventType.RATECON_COMPLETED.value,
-
-            workflow_lifecycle_id=lifecycle_id,
+            workflow_lifecycle_id=workflow_lifecycle_id,
 
             shipment_id=shipments_row_id,
 
@@ -604,7 +590,7 @@ class DriverAssignmentIngressService:
 
 
 
-        if self._driver_lifecycle_terminal(
+        if self._blocks_restart_for_shipment(
 
             tenant_id=tenant_id,
 
@@ -1154,12 +1140,19 @@ class DriverAssignmentIngressService:
 
         shipments_row_id = self._clean(payload.get("shipments_row_id"))
 
-        if shipments_row_id and self._driver_lifecycle_terminal(
+        wl_id = self._clean(payload.get("workflow_lifecycle_id"))
 
+        if wl_id:
+
+            row = self._lifecycle_service.read_lifecycle_row_by_id(wl_id)
+
+            if blocks_driver_assignment_reminder(row):
+
+                return EligibilityResult(skip_reason="already_completed")
+
+        elif shipments_row_id and self._blocks_restart_for_shipment(
             tenant_id=tenant_id,
-
             shipments_row_id=shipments_row_id,
-
         ):
 
             return EligibilityResult(skip_reason="already_completed")
@@ -1457,21 +1450,106 @@ class DriverAssignmentIngressService:
 
         )
 
+    def send_driver_details_confirmation_email(
+        self,
+        *,
+        tenant_id: str,
+        tenant_settings: dict[str, Any] | None,
+        payload: dict[str, Any],
+        workflow_run_id: str | None = None,
+    ) -> SendReminderResult:
+        resolution = str(payload.get("tms_resolution") or "").strip()
+        if resolution == "skipped_already_assigned":
+            return SendReminderResult(sent=False, error="skipped_already_assigned")
+        if str(payload.get("tms_driver_outcome") or "").strip() != "assigned":
+            return SendReminderResult(sent=False, error="not_assigned")
+        if resolution not in ("found", "created", "assigned"):
+            return SendReminderResult(sent=False, error="not_assigned")
 
+        conf = parse_driver_assignment_confirmation_email(tenant_settings)
+        if conf is None:
+            return SendReminderResult(sent=False, error="missing_confirmation_email_config")
 
-    @staticmethod
+        is_tracking = bool(payload.get("tms_is_tracking_customer"))
+        template = conf.template_html_for(is_tracking_customer=is_tracking)
+        if not template:
+            variant = conf.variant_key_for(is_tracking_customer=is_tracking)
+            return SendReminderResult(sent=False, error=f"missing_{variant}_template_html")
 
-    def _has_in_reply_to(payload: dict[str, Any]) -> bool:
+        extraction = payload.get("driver_details_extraction") or {}
+        driver = extraction.get("driver") if isinstance(extraction, dict) else {}
+        if not isinstance(driver, dict):
+            driver = {}
 
-        val = payload.get("in_reply_to")
+        body = render_driver_confirmation_html(
+            template,
+            driver_name=payload.get("tms_matched_driver_name") or driver.get("name"),
+            driver_phone=payload.get("tms_matched_driver_phone") or driver.get("phone"),
+        )
+        send_payload = dict(payload)
+        send_payload["body"] = body
+        send_payload.pop("subject", None)
+        send_payload["reminder_email_source"] = "driver_details_confirmation"
+        send_payload["driver_confirmation_variant"] = conf.variant_key_for(
+            is_tracking_customer=is_tracking
+        )
 
-        if val is None:
+        return self.send_reminder_email(
+            tenant_id=tenant_id,
+            tenant_settings=tenant_settings,
+            payload=send_payload,
+            workflow_run_id=workflow_run_id,
+        )
 
-            return False
+    def _resolve_active_driver_details_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+    ) -> str | None:
+        lifecycle_id = self._communications.find_active_lifecycle_id_for_thread(
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            workflow_name=DRIVER_ASSIGNMENT_WORKFLOW,
+        )
+        if lifecycle_id:
+            return lifecycle_id
 
-        return bool(str(val).strip())
+        rows = self._communications.find_shipment_context_for_thread(
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+        )
+        if not rows:
+            return None
 
+        distinct_shipments = {
+            self._clean(row.get("shipments_row_id"))
+            for row in rows
+            if self._clean(row.get("shipments_row_id"))
+        }
+        if len(distinct_shipments) > 1:
+            logger.warning(
+                "driver_details ingress: multiple shipments on thread shipments=%s",
+                sorted(distinct_shipments),
+            )
 
+        shipments_row_id = self._clean(rows[0].get("shipments_row_id"))
+        if not shipments_row_id:
+            return None
+
+        lifecycle_id = self._lifecycle_service.find_active_driver_assignment_lifecycle_id(
+            tenant_id=tenant_id,
+            shipment_id=shipments_row_id,
+        )
+        if not lifecycle_id:
+            return None
+
+        row = self._lifecycle_service.read_lifecycle_row_by_id(lifecycle_id) or {}
+        sub = sub_status_type_from_db(row.get("sub_status"))
+        if sub in _DRIVER_DETAILS_TERMINAL_SUB_STATUSES:
+            return None
+
+        return lifecycle_id
 
     def _build_driver_details_workflow_payload(
 
@@ -1685,7 +1763,7 @@ class DriverAssignmentIngressService:
 
     ) -> JSONResponse | None:
 
-        if not self._has_in_reply_to(payload):
+        if not is_unipile_email_reply(payload):
 
             return None
 
@@ -1709,18 +1787,18 @@ class DriverAssignmentIngressService:
 
 
 
-        lifecycle_id = self._communications.find_active_lifecycle_id_for_thread(
-
+        lifecycle_id = self._resolve_active_driver_details_lifecycle_id(
             tenant_id=tenant.tenant_uuid,
-
             thread_id=thread_id,
-
-            workflow_name=DRIVER_ASSIGNMENT_WORKFLOW,
-
         )
 
         if not lifecycle_id:
-
+            logger.info(
+                "driver_details_email_received skipped no_active_lifecycle "
+                "thread_id=%s tenant=%s",
+                thread_id,
+                tenant.tenant_uuid,
+            )
             return None
 
 

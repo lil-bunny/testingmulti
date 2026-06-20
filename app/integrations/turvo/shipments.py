@@ -23,6 +23,11 @@ from app.integrations.pgeocode.state_lookup import lookup_state
 from app.integrations.turvo.documents import check_pod_by_shipment_id
 from app.integrations.turvo.public_api_client import TurvoApiClient
 
+# Turvo lookup keys (Public API docs + sandbox verification).
+TRACKING_METHOD_NONE = {"key": "31300", "value": "none"}
+TRACKING_METHOD_TURVO_APP = {"key": "31301", "value": "Turvo Driver app"}
+DRIVER_TYPE_SINGLE = {"key": "20020", "value": "Single driver"}
+
 
 def global_route_stops_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Return ``details.globalRoute`` from a Turvo shipment API payload."""
@@ -144,6 +149,14 @@ def delivery_address_from_global_route_stop(stop: dict[str, Any]) -> dict[str, A
         "postal_code": postal,
         "country": country or "US",
     }
+
+
+def customer_name_from_payload(payload: dict[str, Any]) -> str | None:
+    """First non-deleted ``customerOrder[].customer.name`` from a Turvo shipment GET."""
+    details = payload.get("details") if isinstance(payload, dict) else None
+    if not isinstance(details, dict):
+        return None
+    return _first_non_deleted_entity_name(details.get("customerOrder"), "customer")
 
 
 def _first_non_deleted_entity_name(
@@ -475,4 +488,131 @@ async def get_shipment(
         slug,
         "GET",
         f"/shipments/{shipment_id}",
+    )
+
+
+def driver_contact_ids_from_carrier_order(order: dict[str, Any]) -> list[int]:
+    """Non-deleted ``drivers[]`` / ``driver`` contact ids on one carrier order."""
+    if not isinstance(order, dict) or order.get("deleted"):
+        return []
+    ids: list[int] = []
+    seen: set[int] = set()
+    for key in ("drivers", "driver", "primaryDriver"):
+        raw = order.get(key)
+        entries: list[dict[str, Any]] = []
+        if isinstance(raw, list):
+            entries = [e for e in raw if isinstance(e, dict)]
+        elif isinstance(raw, dict):
+            entries = [raw]
+        for entry in entries:
+            if entry.get("deleted"):
+                continue
+            cid: Any = None
+            context = entry.get("context")
+            if isinstance(context, dict):
+                cid = context.get("id")
+            if cid is None:
+                cid = entry.get("driverId")
+            if cid is None:
+                continue
+            try:
+                contact_id = int(cid)
+            except (TypeError, ValueError):
+                continue
+            if contact_id not in seen:
+                seen.add(contact_id)
+                ids.append(contact_id)
+    return ids
+
+
+def driver_contact_ids_from_shipment(payload: dict[str, Any], *, carrier_id: int) -> list[int]:
+    """Contact ids referenced on the active carrier order for ``carrier_id``."""
+    order = first_active_carrier_order(payload)
+    if not order:
+        return []
+    order_carrier_id, _ = carrier_from_order(order)
+    if order_carrier_id != carrier_id:
+        return []
+    return driver_contact_ids_from_carrier_order(order)
+
+
+def first_active_carrier_order(payload: dict[str, Any]) -> dict[str, Any] | None:
+    details = payload.get("details") if isinstance(payload, dict) else None
+    orders = details.get("carrierOrder") if isinstance(details, dict) else None
+    if not isinstance(orders, list):
+        return None
+    for order in orders:
+        if isinstance(order, dict) and not order.get("deleted"):
+            return order
+    return None
+
+
+def carrier_from_order(order: dict[str, Any]) -> tuple[int | None, str | None]:
+    carrier = order.get("carrier") if isinstance(order, dict) else None
+    if not isinstance(carrier, dict):
+        return None, None
+    try:
+        carrier_id = int(carrier.get("id")) if carrier.get("id") is not None else None
+    except (TypeError, ValueError):
+        carrier_id = None
+    name = carrier.get("name")
+    carrier_name = str(name).strip() if name else None
+    return carrier_id, carrier_name
+
+
+def segment_id_from_order(order: dict[str, Any]) -> str | None:
+    for key in ("segmentId", "segmentID"):
+        val = order.get(key)
+        if val:
+            return str(val)
+    drivers = order.get("drivers")
+    if isinstance(drivers, list):
+        for d in drivers:
+            if isinstance(d, dict) and d.get("segmentId"):
+                return str(d["segmentId"])
+    return None
+
+
+async def assign_driver_to_shipment(
+    tenant_slug: str,
+    shipment_id: Any,
+    *,
+    carrier_order_id: int,
+    contact_id: int,
+    segment_id: str | None = None,
+    send_invite: bool = False,
+    client: Optional[TurvoApiClient] = None,
+) -> dict[str, Any]:
+    """PUT /shipments/{id} — attach driver contact to active carrier order."""
+    api = client or TurvoApiClient()
+    sid = int(shipment_id) if str(shipment_id).isdigit() else shipment_id
+    driver_entry: dict[str, Any] = {
+        "driverId": int(contact_id),
+        "segmentSequence": 0,
+        "segmentId": segment_id or "",
+        "_operation": 0,
+        "sendInvite": bool(send_invite),
+        "trackingMethod": (
+            TRACKING_METHOD_TURVO_APP if send_invite else TRACKING_METHOD_NONE
+        ),
+    }
+    if send_invite:
+        # Docs: sendInvite true only when trackingMethod is Turvo Driver app.
+        driver_entry["driverType"] = DRIVER_TYPE_SINGLE
+    body = {
+        "id": sid,
+        "carrierOrder": [
+            {
+                "id": carrier_order_id,
+                "_operation": 1,
+                "drivers": [driver_entry],
+            }
+        ],
+    }
+    return await api.request(
+        tenant_slug,
+        "PUT",
+        f"/shipments/{shipment_id}",
+        params={"fullResponse": "true"},
+        json_body=body,
     )

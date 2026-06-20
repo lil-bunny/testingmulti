@@ -298,8 +298,8 @@ class WorkflowReminderService:
             )
             return
 
-        offsets = reminders.offsets_before_pickup_hours or []
-        if not offsets:
+        steps = reminders.resolve_steps()
+        if not steps:
             return
 
         now = datetime.now(timezone.utc)
@@ -308,14 +308,15 @@ class WorkflowReminderService:
         )
         reminder_steps: list[dict[str, Any]] = []
         skipped_steps: list[dict[str, Any]] = []
-        to_enqueue: list[tuple[int, float, datetime, dict[str, Any]]] = []
+        to_enqueue: list[tuple[datetime, dict[str, Any]]] = []
 
-        for index, offset_hours in enumerate(offsets, start=1):
-            offset = float(offset_hours)
+        for index, step in enumerate(steps, start=1):
+            step_num = step.step if step.step is not None else index
+            offset = float(step.delay_hours)
             fire_at = pickup_at - timedelta(hours=offset)
             step_info = {
-                "step": index,
-                "offset_hours": offset,
+                "step": step_num,
+                "delay_hours": offset,
                 "fire_at": fire_at.isoformat(),
             }
             if fire_at <= now:
@@ -323,23 +324,19 @@ class WorkflowReminderService:
                 continue
 
             reminder_steps.append(step_info)
-            payload = copy.deepcopy(base_payload)
-            payload["event_type"] = "reminder_due"
-            payload["reminder_step"] = index
+            payload = enrich_step_payload(
+                base_payload, step=step, reminders=reminders, data=data
+            )
+            if step.step is None:
+                payload["reminder_step"] = step_num
             payload["pickup_appointment_at"] = pickup_at.isoformat()
             tz = data.get("pickup_appointment_timezone")
             if tz is not None and str(tz).strip():
                 payload["pickup_appointment_timezone"] = str(tz).strip()
-
-            email_body = reminders.resolve_email_body()
-            if email_body is not None:
-                payload["body"] = (
-                    str(payload.get("body") or data.get("body") or "").strip()
-                ) or email_body
-            to_enqueue.append((index, offset, fire_at, payload))
+            to_enqueue.append((fire_at, payload))
 
         if to_enqueue:
-            latest_fire_at = max(fire_at for _, _, fire_at, _ in to_enqueue)
+            latest_fire_at = max(fire_at for fire_at, _ in to_enqueue)
             expire_s = int(
                 (
                     (latest_fire_at - now)
@@ -351,7 +348,7 @@ class WorkflowReminderService:
 
         queued: list[Any] = []
         try:
-            for _, _, fire_at, payload in to_enqueue:
+            for fire_at, payload in to_enqueue:
                 result = trigger_workflow_reminder.apply_async(
                     kwargs={"payload": payload},
                     eta=fire_at,
