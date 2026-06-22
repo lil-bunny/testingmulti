@@ -59,6 +59,7 @@ def _email_product_line(
     gross_weight_lbs: str,
     price: str = "",
     pack_code: str = PACK_CODE,
+    pack_code_description: str = "",
     qty_per_unit: str = "15",
     weight_unit: str = "kg",
     unit_dims: str = UNIT_DIMS,
@@ -66,6 +67,7 @@ def _email_product_line(
     return TenderEmailProductLine(
         product_name=product_name,
         pack_code=pack_code,
+        pack_code_description=pack_code_description,
         pieces_count=pieces_count,
         qty_per_unit=qty_per_unit,
         weight_unit=weight_unit,
@@ -741,6 +743,55 @@ def test_format_bags_line_uses_lbs_weight_unit() -> None:
     )
     block = _ltl_products_block(products)
     assert "Pieces: 25 bags @ 50lbs each" in block
+
+
+def test_format_pieces_line_uses_drums_from_pack_description() -> None:
+    products = (
+        _email_product_line(
+            product_name="GELITA® VacciPro®",
+            pieces_count="2",
+            pallets_count="1",
+            gross_weight_lbs="220",
+            pack_code="5003",
+            pack_code_description="Drum 44 gal, 4 x 50 KG - 8 X 11 inch label",
+            qty_per_unit="50",
+        ),
+    )
+    block = _ltl_products_block(products)
+    assert "Pieces: 2 drums @ 50kg each" in block
+
+
+def test_format_pieces_line_drums_prefix_plural() -> None:
+    products = (
+        _email_product_line(
+            product_name="Gelatin",
+            pieces_count="6",
+            pallets_count="1",
+            gross_weight_lbs="300",
+            pack_code="6410",
+            pack_code_description="DRUMS 6 x 50 LBS - 8 X 6 inch label",
+            qty_per_unit="50",
+            weight_unit="lbs",
+        ),
+    )
+    block = _ltl_products_block(products)
+    assert "Pieces: 6 drums @ 50lbs each" in block
+
+
+def test_format_pieces_line_bags_from_pack_description() -> None:
+    products = (
+        _email_product_line(
+            product_name="Gelatin",
+            pieces_count="25",
+            pallets_count="1",
+            gross_weight_lbs="1050",
+            pack_code="5366",
+            pack_code_description="Bag 40 x 15 KG - 8 X 6 inch label",
+            qty_per_unit="15",
+        ),
+    )
+    block = _ltl_products_block(products)
+    assert "Pieces: 25 bags @ 15kg each" in block
 
 
 def test_products_block_renders_missing_values_inline() -> None:
