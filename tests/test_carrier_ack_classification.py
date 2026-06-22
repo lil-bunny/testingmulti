@@ -19,6 +19,8 @@ from app.models.status import StatusSubType, StatusType
 from app.services.communications._mapper import (
     build_email_thread_llm_user_message,
     format_email_thread_for_llm,
+    format_labeled_email_thread_for_llm,
+    normalize_email_body_for_llm,
 )
 from app.tools.carrier_ack import classify_carrier_acknowledgment
 from app.workflows.graph.routers import carrier_ack_router
@@ -50,6 +52,7 @@ def _state(*, decision: str | None = None, **data_extra):
         "workflow_lifecycle_id": LIFECYCLE_UUID,
         "tender_id": TENDER_UUID,
         "body": "We accept the load.",
+        "load_type": "ltl",
         "tenant_settings": _tenant_settings(),
     }
     if decision is not None:
@@ -75,6 +78,127 @@ def test_build_email_thread_llm_user_message_from_communications_rows():
     assert "email 1" in text
     assert "email 2" in text
     assert "We accept the load." in text
+
+
+def test_build_email_thread_includes_sender_headers():
+    messages = [
+        {
+            "content": "Could you create the BOL?",
+            "direction": "inbound",
+            "metadata": {"from": "vendor@x.com", "to": ["ana@gelita.com"]},
+        },
+    ]
+    text = build_email_thread_llm_user_message(messages)
+    assert text == (
+        "email 1 [inbound | from: vendor@x.com | to: ana@gelita.com]\n"
+        "Could you create the BOL?"
+    )
+
+
+def test_build_email_thread_outbound_sender_defaults_to_ops_rep():
+    messages = [
+        {
+            "content": "Following up on the request. Thanks",
+            "direction": "outbound",
+            "metadata": {"to": ["vendor@x.com"]},
+        },
+    ]
+    text = build_email_thread_llm_user_message(messages)
+    assert text == (
+        "email 1 [outbound | from: ops_rep | to: vendor@x.com]\n"
+        "Following up on the request. Thanks"
+    )
+
+
+def test_format_labeled_email_thread_orders_and_labels():
+    turns = [
+        ({"direction": "outbound", "metadata": {"from": "a@g.com", "to": ["v@x.com"]}}, "Tender"),
+        ({"direction": "inbound", "metadata": {"from": "v@x.com", "to": ["a@g.com"]}}, "We'll cover it"),
+    ]
+    text = format_labeled_email_thread_for_llm(turns)
+    assert text == (
+        "email 1 [outbound | from: a@g.com | to: v@x.com]\nTender\n\n"
+        "email 2 [inbound | from: v@x.com | to: a@g.com]\nWe'll cover it"
+    )
+
+
+def test_normalize_email_body_strips_outlook_forward_html():
+    html = (
+        '<html><body><div class="elementToProof">Will do, thanks</div>'
+        '<div id="appendonsend"></div><hr>'
+        '<div id="divRplyFwdMsg"><b>From:</b> Ayush &lt;vendor@gmail.com&gt;'
+        "<br><b>Sent:</b> 22 June 2026<br><b>Subject:</b> Re: tender</div>"
+        "<div>i have r+l carriers assigned</div>"
+        "</body></html>"
+    )
+    assert normalize_email_body_for_llm(body=html) == "Will do, thanks"
+
+
+def test_normalize_email_body_keeps_forwarded_load_details_after_short_note():
+    html = (
+        '<html><body><div class="elementToProof"><br></div>'
+        '<div style="font-family:Calibri">Howdy</div>'
+        '<hr style="display:inline-block; width:98%">'
+        '<div style="font-family:Calibri"><b>From:</b>&nbsp;tenant@x.com'
+        "<br><b>Sent:</b>&nbsp;Monday, June 22, 2026 19:35"
+        "<br><b>To:</b>&nbsp;vendor@x.com"
+        "<br><b>Subject:</b>&nbsp;PICK UP REQUEST # 97088 </div>"
+        "<p><b>Pickup address:</b><br>GELITA USA<br>SERGEANT BLUFF IA 51054</p>"
+        "<p><b>Deliver to:</b><br>VIOBIN<br>MONTICELLO IL 61856</p>"
+        "</body></html>"
+    )
+    text = normalize_email_body_for_llm(body=html)
+    assert "Howdy" in text
+    assert "Pickup address" in text
+    assert "Deliver to" in text
+    assert "VIOBIN" in text
+    assert "From:" not in text
+    assert "Sent:" not in text
+
+
+def test_normalize_email_body_keeps_pure_forward_body_without_new_reply_text():
+    html = (
+        "<html><body><div class=\"elementToProof\"><br></div>"
+        '<div id="appendonsend"></div><hr>'
+        '<div id="divRplyFwdMsg"><b>From:</b> Ayush Kansal &lt;tenant@x.com&gt;'
+        "<br><b>Sent:</b> 22 June 2026<br><b>Subject:</b> PICK UP REQUEST"
+        "</div><div>Deliver to: CUSTOMER</div></body></html>"
+    )
+    assert normalize_email_body_for_llm(body=html) == "Deliver to: CUSTOMER"
+
+
+def test_normalize_email_body_strips_inline_forward_plain():
+    text = (
+        "Will do, thanks From: Ayush <vendor@gmail.com> Sent: 22 June 2026 "
+        "To: ops@tenant.com Subject: Re: tender I have R+L assigned"
+    )
+    assert normalize_email_body_for_llm(body=text) == "Will do, thanks"
+
+
+def test_build_email_thread_keeps_forwarded_load_details_in_thread():
+    messages = [
+        {
+            "content": (
+                "<html><body><div class=\"elementToProof\"><br></div>"
+                '<div style="font-family:Calibri">Howdy</div>'
+                '<hr style="display:inline-block; width:98%">'
+                '<div style="font-family:Calibri"><b>From:</b>&nbsp;tenant@x.com'
+                "<br><b>Sent:</b>&nbsp;today<br><b>Subject:</b> tender</div>"
+                "<div>Deliver to: CUSTOMER</div></body></html>"
+            ),
+            "direction": "inbound",
+            "metadata": {"from": "vendor@x.com", "to": ["tenant@x.com"]},
+        },
+        {
+            "content": "I have R+L carriers assigned, can you create the BOL?",
+            "direction": "inbound",
+            "metadata": {"from": "vendor@gmail.com", "to": ["vendor@x.com"]},
+        },
+    ]
+    text = build_email_thread_llm_user_message(messages)
+    assert "Howdy" in text
+    assert "Deliver to: CUSTOMER" in text
+    assert "I have R+L carriers assigned" in text
 
 
 def test_build_email_thread_llm_user_message_fallback_to_webhook():
@@ -191,6 +315,8 @@ def test_classify_carrier_ack_node_sets_decision(
     out = classify_carrier_ack(state)
     comm_svc.build_thread_llm_user_message.assert_called_once()
     prompt_service.render_step.assert_called_once()
+    render_variables = prompt_service.render_step.call_args.kwargs["variables"]
+    assert render_variables == {"thread_text": thread_llm}
     mock_classify.assert_called_once_with(
         thread_llm,
         system_prompt=TEST_SYSTEM_PROMPT,

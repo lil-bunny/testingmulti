@@ -10,8 +10,52 @@ from app.domain.unipile_email import attachments_metadata_from_payload
 
 _QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)
 _BLOCKQUOTE_RE = re.compile(r"<blockquote\b", re.IGNORECASE)
+_OUTLOOK_FWD_BLOCK_RE = re.compile(
+    r'<div[^>]*\bid=["\'][^"\']*divRplyFwdMsg["\'][^>]*>.*?</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_OUTLOOK_APPEND_HTML_RE = re.compile(
+    r'<div[^>]*\bid=["\'][^"\']*appendonsend["\'][^>]*>\s*</div>',
+    re.IGNORECASE,
+)
+_OUTLOOK_FWD_HEADER_DIV_RE = re.compile(
+    r"""
+    <div[^>]*>
+        .*?<b>\s*From:\s*</b>.*?
+        <b>\s*Sent:\s*</b>.*?
+        (?:<b>\s*To:\s*</b>.*?)?
+        (?:<b>\s*(?:Cc|CC):\s*</b>.*?)?
+        <b>\s*Subject:\s*</b>.*?
+    </div>
+    """,
+    re.IGNORECASE | re.DOTALL | re.VERBOSE,
+)
+_HR_TAG_RE = re.compile(r"<hr\b[^>]*>", re.IGNORECASE)
 _ON_WROTE_RE = re.compile(r"\bOn .+ wrote:\s*", re.IGNORECASE | re.DOTALL)
+_ORIGINAL_MESSAGE_RE = re.compile(
+    r"-{3,}\s*Original Message\s*-{3,}",
+    re.IGNORECASE,
+)
+_FORWARD_HEADER_BLOCK_RE = re.compile(
+    r"""
+    \bFrom:\s*.+?(?:\n|$)
+    \s*Sent:\s*.+?(?:\n|$)
+    (?:\s*To:\s*.+?(?:\n|$))?
+    (?:\s*(?:Cc|CC):\s*.+?(?:\n|$))?
+    \s*Subject:\s*.+?(?:\n|$)
+    """,
+    re.IGNORECASE | re.MULTILINE | re.DOTALL | re.VERBOSE,
+)
+_FORWARD_HEADER_PREFIX_RE = re.compile(
+    r"^(?:From:\s*.+?(?:\n|$))"
+    r"(?:\s*Sent:\s*.+?(?:\n|$))?"
+    r"(?:\s*To:\s*.+?(?:\n|$))?"
+    r"(?:\s*(?:Cc|CC):\s*.+?(?:\n|$))?"
+    r"(?:\s*Subject:\s*.+?(?:\n|$))?\s*",
+    re.IGNORECASE | re.MULTILINE,
+)
 _WS_RE = re.compile(r"\s+")
+_OUTBOUND_LLM_SENDER = "ops_rep"
 
 
 def _strip_html(text: str) -> str:
@@ -23,23 +67,109 @@ def _collapse_ws(text: str) -> str:
     return _WS_RE.sub(" ", text).strip()
 
 
-def _strip_quoted_html(html: str) -> str:
+def _strip_reply_quotes_only(html: str) -> str:
+    """Drop nested reply quotes; used on the latest-reply segment only."""
     for pattern in (_QUOTE_HTML_RE, _BLOCKQUOTE_RE):
         match = pattern.search(html)
         if match:
-            return html[: match.start()].strip()
+            html = html[: match.start()].strip()
+            break
     return html
 
 
+def _process_forward_html_segment(html: str) -> str:
+    """Strip forward header noise from a post-``<hr>`` segment; keep load details."""
+    html = _OUTLOOK_APPEND_HTML_RE.sub("", html)
+    html = _OUTLOOK_FWD_BLOCK_RE.sub("", html)
+    html = _OUTLOOK_FWD_HEADER_DIV_RE.sub("", html)
+    return _strip_reply_quotes_only(html)
+
+
+def _strip_quoted_html(html: str) -> str:
+    """
+    Remove forward/reply noise from HTML while keeping substantive body text.
+
+    When Outlook/Gmail insert ``<hr>`` between a short new reply and a forward
+    block, keep both the leading reply and the forwarded load details (minus
+    From/Sent/To/Subject headers). When the segment after ``<hr>`` is only a
+    quoted prior reply, drop it.
+    """
+    hr_match = _HR_TAG_RE.search(html)
+    if hr_match:
+        head_html = _strip_reply_quotes_only(html[: hr_match.start()])
+        tail_raw = html[hr_match.end() :]
+        tail_html = _process_forward_html_segment(tail_raw)
+        head = _collapse_ws(_strip_html(head_html))
+        tail = _collapse_ws(_strip_html(tail_html))
+        # ``divRplyFwdMsg`` after ``<hr>`` marks a quoted reply chain when there is
+        # also new reply text before the rule; pure forwards keep the tail body.
+        reply_forward = _OUTLOOK_FWD_BLOCK_RE.search(tail_raw) is not None and bool(head)
+        if reply_forward:
+            return head
+        if head and tail:
+            return f"{head} {tail}"
+        if head:
+            return head
+        if tail:
+            return tail
+        return ""
+
+    html = _process_forward_html_segment(html)
+    return _strip_reply_quotes_only(html)
+
+
+def _strip_forward_header_prefix(text: str) -> str:
+    """Drop a leading From/Sent/To/Subject block; keep operational text after it."""
+    stripped = text
+    while True:
+        match = _FORWARD_HEADER_PREFIX_RE.match(stripped)
+        if not match:
+            break
+        stripped = stripped[match.end() :].strip()
+    return stripped
+
+def _strip_forward_header_blocks(text: str) -> str:
+    """
+    Remove Outlook-style forwarding metadata while preserving the
+    forwarded message body.
+
+    Example:
+
+        Howdy
+
+        From: Bob
+        Sent: Monday...
+        To: Alice
+        Subject: Shipment
+
+        Pickup address...
+
+    becomes:
+
+        Howdy
+
+        Pickup address...
+    """
+    return _FORWARD_HEADER_BLOCK_RE.sub("\n", text)
+
 def _strip_quoted_plain(text: str) -> str:
-    match = _ON_WROTE_RE.search(text)
-    if match:
-        return text[: match.start()].strip()
-    return text
+    """
+    Remove reply-chain noise while preserving forwarded shipment/order
+    content. Forward headers (From/Sent/To/Subject) are stripped but
+    the forwarded body remains.
+    """
 
+    text = _strip_forward_header_blocks(text)
 
+    for pattern in (_ON_WROTE_RE, _ORIGINAL_MESSAGE_RE):
+        match = pattern.search(text)
+        if match:
+            text = text[: match.start()].strip()
+
+    return _strip_forward_header_prefix(text)
+    
 def normalize_email_body_for_llm(*, body: str | None = None) -> str:
-    """Plain email text for LLM input: strip HTML/quotes from ``body``."""
+    """Plain email text for LLM input: strip quote/header noise, keep load details."""
     raw = (body or "").strip()
     if not raw:
         return ""
@@ -48,8 +178,9 @@ def normalize_email_body_for_llm(*, body: str | None = None) -> str:
         raw = _strip_quoted_html(raw)
         text = _strip_html(raw)
     else:
-        text = _strip_quoted_plain(raw)
+        text = raw
 
+    text = _strip_quoted_plain(text)
     return _collapse_ws(text)
 
 
@@ -66,6 +197,34 @@ def format_email_thread_for_llm(bodies: list[str]) -> str:
     return "\n\n".join(parts)
 
 
+def _sender_for_llm_turn(row: dict[str, Any], meta: dict[str, Any]) -> str:
+    """Sender label for LLM thread headers; outbound system sends use ``ops_rep``."""
+    sender = str(meta.get("from") or "").strip()
+    if sender:
+        return sender
+    if str(row.get("direction") or "").strip().lower() == "outbound":
+        return _OUTBOUND_LLM_SENDER
+    return "unknown"
+
+
+def _turn_header(index: int, row: dict[str, Any]) -> str:
+    """Factual per-email header: direction + sender/recipients."""
+    meta = row.get("metadata")
+    meta = meta if isinstance(meta, dict) else {}
+    direction = str(row.get("direction") or "").strip() or "unknown"
+    sender = _sender_for_llm_turn(row, meta)
+    recipients = ", ".join(_recipient_identifiers(meta.get("to")))
+    return f"email {index} [{direction} | from: {sender} | to: {recipients}]"
+
+
+def format_labeled_email_thread_for_llm(turns: list[tuple[dict[str, Any], str]]) -> str:
+    """Format ``(row, normalized_body)`` pairs as labeled ``email N [...]`` blocks."""
+    parts: list[str] = []
+    for index, (row, body) in enumerate(turns, start=1):
+        parts.append(f"{_turn_header(index, row)}\n{body}")
+    return "\n\n".join(parts)
+
+
 def build_email_thread_llm_user_message(
     messages: list[dict[str, Any]],
     *,
@@ -75,19 +234,21 @@ def build_email_thread_llm_user_message(
     """
     Build chronological thread text from ``communications`` rows (``content`` field).
 
-    Falls back to a single normalized webhook body when no stored messages have text.
+    Each email is prefixed with a factual header (direction + from/to) so the LLM
+    can attribute statements to senders. Falls back to a single normalized webhook
+    body when no stored messages have text.
     """
     rows = list(messages)
     if max_messages is not None and max_messages > 0 and len(rows) > max_messages:
         rows = rows[-max_messages:]
 
-    bodies = [
-        normalize_email_body_for_llm(body=row.get("content"))
-        for row in rows
-    ]
-    bodies = [b for b in bodies if b]
-    if bodies:
-        return format_email_thread_for_llm(bodies)
+    turns: list[tuple[dict[str, Any], str]] = []
+    for row in rows:
+        body = normalize_email_body_for_llm(body=row.get("content"))
+        if body:
+            turns.append((row, body))
+    if turns:
+        return format_labeled_email_thread_for_llm(turns)
 
     return normalize_email_body_for_llm(body=fallback_body)
 

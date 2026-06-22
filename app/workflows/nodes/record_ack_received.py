@@ -161,12 +161,6 @@ def classify_carrier_ack(state):
     state.data["carrier_ack_decision"] = decision
     state.data["carrier_ack_reason"] = str(result.get("reason") or "")
     state.data["carrier_ack_llm"] = result
-    logger.info(
-        "classify_carrier_ack tender_id=%s decision=%s reason=%s",
-        state.data.get("tender_id"),
-        decision,
-        state.data["carrier_ack_reason"],
-    )
 
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tender_id = str(state.data.get("tender_id") or "").strip()

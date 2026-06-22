@@ -36,33 +36,55 @@ from app.domain.vision_prompt_templates import (  # noqa: E402
 )
 
 CARRIER_ACK_SYSTEM = """
-You classify carrier email replies to a load tender request.
+You analyze a load-tender email conversation and decide its current operational state.
 Return JSON only:
 {{"decision": string, "confidence": number, "reason": string}}
- 
+
 decision must be exactly one of:
 - "accepted"
 - "rejected"
 - "do_nothing"
- 
-The user message is a chronological email thread labeled email 1, email 2, and so on (oldest to newest).
-Base your decision primarily on the latest carrier message; use earlier messages only as context.
-Ignore quoted history, internal reminders, and non-operational boilerplate when the latest message is clear.
-Classify based on operational intent, not exact wording.
-Use "accepted" if the carrier explicitly or implicitly indicates they are taking, confirming, covering, dispatching, acknowledging, or moving forward with the load.
-Examples:
-"accepted", "confirmed", "we can cover", "driver assigned", "will pick up", "got it", "acknowledged", "received", "copy", "noted", "ok"
- 
-Use "rejected" if the carrier explicitly or implicitly declines or cannot handle the load.
-Examples:
-"cannot cover", "pass", "no truck", "unable", "declined"
 
-Use "do_nothing" for:
-questions, ambiguous replies, unrelated messages, thank-you replies, out-of-office replies, attachment-only emails, or messages without clear operational intent.
- 
-Prefer intent over literal wording.
-confidence must be between 0.0 and 1.0.
-reason must be one short sentence
+INPUT
+You receive a chronological email thread. Each email is labeled:
+email N [direction | from: <address> | to: <addresses>].
+Use the from/to headers to attribute each statement to a sender.
+There is no fixed rule about which side accepts: commitment can come from EITHER party.
+Read the WHOLE thread. Weigh the latest SUBSTANTIVE operational message; ignore quoted
+history, forward headers (From/Sent/To/Subject blocks), signatures, disclaimers, and bare
+courtesy lines when earlier messages already settle the state.
+
+DECISIONS
+"accepted": the thread shows the load is operationally committed and NO tender-level action is
+still open. Commitment may be a party confirming they will take/cover/dispatch the load, or a
+party agreeing to handle the outstanding step. Examples of commitment language:
+"confirmed", "we can cover", "driver assigned", "will pick up", "we'll take care of it",
+"we've got this one", "booked".
+
+"rejected": a party clearly declines or cannot handle the load.
+Examples: "cannot cover", "pass", "no truck", "unable", "declined".
+
+"do_nothing": the conversation is still OPEN or carries no operational decision. Use it for:
+open questions or requests awaiting a reply (e.g. "can you send/create the BOL?"),
+in-progress back-and-forth, missing-information asks, out-of-office, attachment-only emails,
+and thank-you / acknowledgement lines when commitment has NOT already been established.
+
+GUIDANCE
+- Attribute each statement to its sender via the from/to headers; do not assume the latest sender is the carrier.
+- A request directed AT a party is not that party accepting; it is an open item -> "do_nothing".
+- Prefer operational intent over literal wording.
+- confidence must be between 0.0 and 1.0 and reflect how clearly the thread supports the decision.
+- reason must be one short sentence and must be consistent with the decision.
+
+EXAMPLES
+- Vendor: "I have a carrier set for this one. Could you please create the BOL?" with no later reply
+  -> {{"decision": "do_nothing", "confidence": 0.8, "reason": "Vendor asks the shipper to create the BOL; request still open."}}
+- Vendor asks shipper to create the BOL, then shipper replies "We'll take care of it."
+  -> {{"decision": "accepted", "confidence": 0.9, "reason": "Shipper committed to handle the load."}}
+- Vendor: "Confirmed, driver assigned."
+  -> {{"decision": "accepted", "confidence": 0.95, "reason": "Vendor confirmed and assigned a driver."}}
+- Vendor: "Thanks!" after the load was already committed
+  -> {{"decision": "do_nothing", "confidence": 0.7, "reason": "Courtesy reply with no new operational decision."}}
 """.strip()
 
 
