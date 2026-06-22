@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.domain.activity_log_constants import (
     CARRIER_ACK_LLM_ACTION_TEMPLATE,
+    AUTO_REPLY_ACK_SKIPPED_ACTION,
     ESCALATION_SENT_ACTION,
     REMINDER_SENT_ACTION_TEMPLATE,
     STATUS_CHANGE_DESCRIPTION_TEMPLATE,
@@ -95,6 +96,10 @@ def format_tender_created_action(
 
 def format_tender_sent_to_vendor() -> str:
     return TENDER_SENT_TO_VENDOR_ACTION
+
+
+def format_auto_reply_ack_skipped_action(*, subject: str = "") -> str:
+    return AUTO_REPLY_ACK_SKIPPED_ACTION
 
 
 def format_carrier_ack_llm_action(

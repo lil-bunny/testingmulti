@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.tools.automatic_reply_detection import (
+from app.utils.automatic_reply_detection import (
     is_automatic_reply_email,
     is_outlook_automatic_reply,
     strip_automatic_reply_subject_prefix,
@@ -45,6 +45,15 @@ def test_gmail_same_subject_not_automatic() -> None:
         "subject": "Automatic reply: PICK UP REQUEST # 97061",
     }
     assert is_automatic_reply_email(email) is False
+
+
+def test_webhook_payload_without_type_detects_outlook_ooo() -> None:
+    email = {
+        "event": "mail_received",
+        "subject": "Automatic reply: Fw: PICK UP REQUEST # 97088 PO# 169-00",
+        "from_attendee": {"identifier": "ana.gelita.test@freightx.ai"},
+    }
+    assert is_automatic_reply_email(email) is True
 
 
 def test_strip_automatic_reply_subject_prefix() -> None:

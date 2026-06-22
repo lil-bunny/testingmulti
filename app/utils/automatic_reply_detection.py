@@ -26,21 +26,25 @@ def _normalize_subject_for_detection(subject: str) -> str:
     return text.lower()
 
 
-def is_outlook_automatic_reply(email: dict[str, Any]) -> bool:
-    """True when Unipile email is Outlook built-in Automatic Replies."""
-    provider = str(email.get("type") or "").strip().upper()
-    if provider != "OUTLOOK":
-        return False
-    normalized = _normalize_subject_for_detection(str(email.get("subject") or ""))
+def _subject_is_outlook_automatic_reply(subject: str) -> bool:
+    normalized = _normalize_subject_for_detection(subject)
     return any(
         normalized.startswith(prefix) for prefix in _OUTLOOK_AUTOMATIC_REPLY_SUBJECT_PREFIXES
     )
 
 
+def is_outlook_automatic_reply(email: dict[str, Any]) -> bool:
+    """True for Outlook built-in Automatic Replies (list_emails or webhook payload)."""
+    provider = str(email.get("type") or "").strip().upper()
+    if provider not in ("", "OUTLOOK"):
+        return False
+    return _subject_is_outlook_automatic_reply(str(email.get("subject") or ""))
+
+
 def is_automatic_reply_email(email: dict[str, Any]) -> bool:
     """Dispatch automatic-reply detection by provider (Outlook only for now)."""
     provider = str(email.get("type") or "").strip().upper()
-    if provider == "OUTLOOK":
+    if provider == "OUTLOOK" or not provider:
         return is_outlook_automatic_reply(email)
     return False
 

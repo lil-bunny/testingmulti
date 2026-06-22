@@ -18,6 +18,9 @@ TENDER_SENT_TO_VENDOR_ACTION = "Tender email sent to vendor"
 CARRIER_ACK_LLM_ACTION_TEMPLATE = (
     "Carrier ack LLM classified reply as {decision}{confidence_suffix}: {reason}"
 )
+AUTO_REPLY_ACK_SKIPPED_ACTION = (
+    "Skipped AI Classification due to automatic reply"
+)
 REMINDER_SENT_ACTION_TEMPLATE = "Reminder {step} sent to carrier"
 ESCALATION_SENT_ACTION = "Tender escalated to internal recipients"
 RATECON_RECEIVED_ACTION = "Ratecon email received"

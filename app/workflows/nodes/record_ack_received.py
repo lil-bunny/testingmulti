@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import format_carrier_ack_llm_action
+from app.domain.activity_log_descriptions import (
+    format_auto_reply_ack_skipped_action,
+    format_carrier_ack_llm_action,
+)
 from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
 from app.integrations.langsmith import (
@@ -17,12 +20,71 @@ from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.prompt_service import PromptService
+from app.utils.automatic_reply_detection import is_automatic_reply_email
 from app.tools.carrier_ack import (
     classify_carrier_acknowledgment,
     normalize_carrier_reply_body,
 )
 
 logger = get_logger(__name__)
+
+
+def guard_automatic_reply_ack(state):
+    """Record exception and skip LLM when inbound ack webhook is an automatic reply."""
+    if not is_automatic_reply_email(state.data):
+        return state
+
+    state.data["automatic_reply_skipped"] = True
+    logger.info(
+        "guard_automatic_reply_ack skipping carrier ack LLM tender_id=%s subject=%r",
+        state.data.get("tender_id"),
+        state.data.get("subject"),
+    )
+
+    wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
+    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
+    run_id = str(state.execution_id or state.data.get("execution_id") or "").strip()
+    tender_id = str(state.data.get("tender_id") or "").strip()
+    thread_id = str(state.data.get("thread_id") or "").strip()
+    communication_id = str(state.data.get("communication_id") or "").strip() or None
+
+    if not wl_id or not tenant_id or not run_id:
+        logger.warning(
+            "guard_automatic_reply_ack skipped activity log "
+            "wl_id=%r tenant_id=%r run_id=%r",
+            bool(wl_id),
+            bool(tenant_id),
+            bool(run_id),
+        )
+        return state
+
+    from_attendee = state.data.get("from_attendee") or {}
+    from_email = str(from_attendee.get("identifier") or "").strip() or None
+    metadata: dict[str, object] = {
+        "source": "guard_automatic_reply_ack",
+        "reason": "automatic_reply",
+        "email_id": state.data.get("email_id"),
+        "thread_id": thread_id or None,
+        "subject": state.data.get("subject"),
+        "from": from_email,
+        "provider": state.data.get("type"),
+    }
+    if tender_id:
+        metadata["tender_id"] = tender_id
+
+    activity_log_service = ActivityLogService()
+    activity_log_service.record_exception(
+        ActivityLogWrite(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            description=format_auto_reply_ack_skipped_action(),
+            communication_id=communication_id,
+            metadata=metadata,
+            actor_type=ActorType.SYSTEM,
+        )
+    )
+    return state
 
 
 def _fail_closed_carrier_ack(state, *, reason: str) -> object:

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
+from tests.fixtures.outlook_auto_reply_emails import ack_received_ooo_webhook_payload
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_ID = "11111111-1111-1111-1111-111111111111"
@@ -104,6 +105,39 @@ def test_ack_received_enqueues_when_lifecycle_not_completed(
     assert wp["communication_id"] == COMM_ID
     assert mock_enqueue.call_args.kwargs["communication_id"] == COMM_ID
     assert mock_enqueue.call_args.kwargs["thread_id"] == THREAD_ID
+
+
+@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_ack_received_enqueues_automatic_reply_for_worker_guard(
+    mock_enqueue: MagicMock,
+) -> None:
+    svc = GelitaInboundEmailService()
+    svc._lifecycle = MagicMock()
+    svc._communications = MagicMock()
+
+    svc._communications.resolve_lifecycle_id_for_thread.return_value = LIFECYCLE_ID
+    svc._lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "processing",
+        "sub_status": "tender_sent_to_carrier",
+        "tender_id": "22222222-2222-2222-2222-222222222222",
+    }
+    mock_enqueue.return_value = "exec-ooo-1"
+
+    response = svc._try_ack_received(
+        payload=ack_received_ooo_webhook_payload(thread_id=THREAD_ID),
+        tenant=_tenant(),
+        graph_slug="gelita",
+        communication_id=COMM_ID,
+    )
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == status.HTTP_200_OK
+    content = json.loads(response.body)
+    assert content["execution_id"] == "exec-ooo-1"
+    mock_enqueue.assert_called_once()
+    wp = mock_enqueue.call_args.kwargs["payload"]
+    assert wp["subject"].startswith("Automatic reply:")
 
 
 @patch.object(GelitaInboundEmailService, "__init__", lambda self: None)

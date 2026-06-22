@@ -41,9 +41,14 @@ def ack_received_ooo_webhook_payload(
         item for item in fixture["items"] if item["id"] == EMAIL_ID_OOO_CHRIS
     )
     payload = {
-        **ooo,
         "event": "mail_received",
         "email_id": ooo["id"],
+        "subject": ooo["subject"],
+        "from_attendee": ooo.get("from_attendee"),
+        "to_attendees": ooo.get("to_attendees"),
+        "cc_attendees": ooo.get("cc_attendees"),
+        "bcc_attendees": ooo.get("bcc_attendees"),
+        "account_id": fixture.get("account_id"),
         "in_reply_to": {"message_id": "<parent-reminder@example.com>"},
     }
     if thread_id is not None:
