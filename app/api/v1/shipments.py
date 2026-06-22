@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Security, UploadFile, status
+from pydantic import BaseModel, Field
 
 from app.api.deps import (
     get_current_user,
     get_tenant_slug_for_user,
     require_turvo_oauth_linked_for_slug,
 )
+from app.api.security import portal_bearer
 from app.core.logger import get_logger
 from app.domain.api_user import ApiUser
 from app.services.pod_manual_upload_ingress_service import (
@@ -23,38 +24,46 @@ from app.services.pod_tms_upload_service import (
     PodTmsUploadService,
 )
 
-router = APIRouter(prefix="/shipments", tags=["shipments-v1"])
+router = APIRouter(prefix="/shipments", tags=["shipments"])
 logger = get_logger(__name__)
 
 
 class PodUploadQueuedResponse(BaseModel):
-    success: bool = True
-    shipment_id: str
-    execution_id: str
-    workflow_lifecycle_id: str
-    message: str
-    object_key: str | None = None
-    document_id: str | None = None
-    source: Literal["upload", "stored"] | None = None
+    success: bool = Field(True, description="Whether the request was accepted")
+    shipment_id: str = Field(..., description="Shipment identifier")
+    execution_id: str = Field(..., description="Async job identifier")
+    workflow_lifecycle_id: str = Field(..., description="Workflow lifecycle identifier")
+    message: str = Field(..., description="Status message")
+    object_key: str | None = Field(None, description="Stored file reference, if applicable")
+    document_id: str | None = Field(None, description="Document identifier, if applicable")
+    source: Literal["upload", "stored"] | None = Field(
+        None,
+        description="Whether the POD came from the request upload or existing storage",
+    )
 
 
 @router.post(
     "/{shipment_id}/upload_pod",
     response_model=PodUploadQueuedResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Queue POD processing workflow for a shipment",
-    description=(
-        "``shipment_id`` is ``shipments.id`` (UUID primary key), not Turvo shipment number. "
-        "Send a multipart PDF in ``file``, or omit ``file`` to queue TMS upload using the "
-        "stored POD ``documents`` row for this shipment."
-    ),
+    summary="Queue POD upload",
+    dependencies=[Security(portal_bearer)],
+    responses={
+        401: {"description": "Unauthorized"},
+        404: {"description": "Not found"},
+        422: {"description": "Unprocessable entity"},
+        503: {"description": "Service unavailable"},
+    },
 )
 async def upload_pod(
-    shipment_id: str,
+    shipment_id: Annotated[str, Path(description="Shipment identifier (UUID)")],
     user: Annotated[ApiUser, Depends(get_current_user)],
     tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
     _: Annotated[str, Depends(require_turvo_oauth_linked_for_slug)],
-    file: UploadFile | None = File(default=None),
+    file: Annotated[
+        UploadFile | None,
+        File(description="PDF proof of delivery"),
+    ] = None,
 ) -> PodUploadQueuedResponse:
     pdf_bytes: bytes | None = None
     filename: str | None = None

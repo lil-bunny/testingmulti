@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Security, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
+from app.api.security import portal_bearer
 from app.core.logger import get_logger
 from app.domain.api_user import ApiUser
 from app.services.workflow_review_service import (
@@ -15,44 +16,48 @@ from app.services.workflow_review_service import (
     WorkflowReviewService,
 )
 
-router = APIRouter(prefix="/workflow-lifecycles", tags=["workflow-lifecycles-v1"])
+router = APIRouter(prefix="/workflow-lifecycles", tags=["workflow-lifecycles"])
 logger = get_logger(__name__)
 
 
 class ReviewCommentRequest(BaseModel):
-    comment: str = Field(..., min_length=1, max_length=4000)
+    comment: str = Field(..., min_length=1, max_length=4000, description="Review comment")
 
 
 class ReviewAcknowledgeResponse(BaseModel):
-    success: bool = True
-    workflow_lifecycle_id: str
-    workflow_name: str
-    activity_log_id: str
+    success: bool = Field(True, description="Whether the request succeeded")
+    workflow_lifecycle_id: str = Field(..., description="Workflow lifecycle identifier")
+    workflow_name: str = Field(..., description="Workflow name")
+    activity_log_id: str = Field(..., description="Activity log identifier")
 
 
 class ReviewResolveResponse(BaseModel):
-    success: bool = True
-    workflow_lifecycle_id: str
-    workflow_name: str
-    activity_log_ids: list[str]
-    to_status: str
-    to_sub_status: str
+    success: bool = Field(True, description="Whether the request succeeded")
+    workflow_lifecycle_id: str = Field(..., description="Workflow lifecycle identifier")
+    workflow_name: str = Field(..., description="Workflow name")
+    activity_log_ids: list[str] = Field(..., description="Activity log identifiers")
+    to_status: str = Field(..., description="Resulting status")
+    to_sub_status: str = Field(..., description="Resulting sub-status")
 
 
 @router.post(
     "/{workflow_lifecycle_id}/acknowledge",
     response_model=ReviewAcknowledgeResponse,
     status_code=status.HTTP_200_OK,
-    summary="Acknowledge a workflow lifecycle review",
-    description=(
-        "Records the user's comment to the audit trail. The lifecycle stays in "
-        "its current workflow state. ``workflow_lifecycle_id`` is "
-        "``workflow_lifecycles.id`` (UUID)."
-    ),
+    summary="Acknowledge review",
+    dependencies=[Security(portal_bearer)],
+    responses={
+        401: {"description": "Unauthorized"},
+        404: {"description": "Not found"},
+        422: {"description": "Unprocessable entity"},
+    },
 )
 async def acknowledge_review(
-    workflow_lifecycle_id: str,
-    body: ReviewCommentRequest,
+    workflow_lifecycle_id: Annotated[
+        str,
+        Path(description="Workflow lifecycle identifier (UUID)"),
+    ],
+    body: Annotated[ReviewCommentRequest, Body()],
     user: Annotated[ApiUser, Depends(get_current_user)],
 ) -> ReviewAcknowledgeResponse:
     workflow_review_service = WorkflowReviewService()
@@ -93,17 +98,20 @@ async def acknowledge_review(
     "/{workflow_lifecycle_id}/resolve",
     response_model=ReviewResolveResponse,
     status_code=status.HTTP_200_OK,
-    summary="Resolve a workflow lifecycle review",
-    description=(
-        "Records the user's comment and marks the workflow complete when the "
-        "issue was handled outside the portal (``completed`` / "
-        "``resolved_manually``). ``workflow_lifecycle_id`` is "
-        "``workflow_lifecycles.id`` (UUID)."
-    ),
+    summary="Resolve review",
+    dependencies=[Security(portal_bearer)],
+    responses={
+        401: {"description": "Unauthorized"},
+        404: {"description": "Not found"},
+        422: {"description": "Unprocessable entity"},
+    },
 )
 async def resolve_review(
-    workflow_lifecycle_id: str,
-    body: ReviewCommentRequest,
+    workflow_lifecycle_id: Annotated[
+        str,
+        Path(description="Workflow lifecycle identifier (UUID)"),
+    ],
+    body: Annotated[ReviewCommentRequest, Body()],
     user: Annotated[ApiUser, Depends(get_current_user)],
 ) -> ReviewResolveResponse:
     workflow_review_service = WorkflowReviewService()
