@@ -73,11 +73,11 @@
                     {
                         "step": 2,
                         "event_type": "reminder_due",
-                        "delay_hours": 0.1
+                        "delay_hours": 0.05
                     },
                     {
                         "event_type": "escalation_due",
-                        "delay_hours": 0.13
+                        "delay_hours": 0.06
                     }
                 ]
             },

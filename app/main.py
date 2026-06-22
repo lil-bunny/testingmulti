@@ -34,14 +34,6 @@ def create_app() -> FastAPI:
     )
     register_exception_handlers(app)
 
-    @app.get("/test")
-    async def aws_ecs_test():
-        logger.info("AWS ECS health check")
-        await asyncio.sleep(60)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"status": "OK"},
-        )
 
     @app.get("/health", summary="Health check (returns 'Running')")
     async def health():
@@ -54,8 +46,6 @@ def create_app() -> FastAPI:
     app.include_router(router, prefix="/api")
     app.include_router(user_turvo_router, prefix="/api")
     app.include_router(v1_router, prefix="/api/v1")
-
-    # configure_observability(app)
 
     @app.on_event("startup")
     async def startup():

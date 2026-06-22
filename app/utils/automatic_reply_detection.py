@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# Outlook built-in Automatic Replies use "Automatic reply: {original subject}" (en-US).
+# Outlook built-in Automatic Replies prefix subjects with "Automatic reply:".
 _OUTLOOK_AUTOMATIC_REPLY_SUBJECT_PREFIXES = (
     "automatic reply:",
 )
@@ -50,11 +50,7 @@ def is_automatic_reply_email(email: dict[str, Any]) -> bool:
 
 
 def strip_automatic_reply_subject_prefix(subject: str) -> str:
-    """
-    Remove Outlook automatic-reply subject prefix so replies use the original thread subject.
-
-    Example: ``Re: Automatic reply: PICK UP…`` → ``PICK UP…``
-    """
+    """Strip Outlook automatic-reply and Re:/Fw: prefixes from thread subjects."""
     text = (subject or "").strip()
     if not text:
         return text

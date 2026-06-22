@@ -5,7 +5,11 @@ from __future__ import annotations
 from app.models.status import StatusSubType
 
 POD_PROCESSING_COMPLETE_SUB_STATUSES = frozenset(
-    {StatusSubType.DOCUMENT_PROCESSED, StatusSubType.UPLOADED_TO_TMS}
+    {
+        StatusSubType.DOCUMENT_PROCESSED,
+        StatusSubType.UPLOADED_TO_TMS,
+        StatusSubType.RESOLVED_MANUALLY,
+    }
 )
 
 

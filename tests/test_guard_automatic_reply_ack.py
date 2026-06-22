@@ -69,7 +69,7 @@ def test_guard_automatic_reply_ack_records_exception(mock_svc_cls: MagicMock) ->
     assert write.workflow_run_id == RUN_UUID
     assert write.workflow_lifecycle_id == LIFECYCLE_UUID
     assert write.communication_id == COMM_UUID
-    assert "Auto-reply skipped" in (write.description or "")
+    assert "automatic reply" in (write.description or "").lower()
     assert write.metadata["reason"] == "automatic_reply"
     assert write.metadata["email_id"] == EMAIL_ID_OOO_CHRIS
 
