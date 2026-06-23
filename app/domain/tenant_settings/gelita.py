@@ -5,21 +5,13 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import (
     EmailRecipients,
     InboundRoutingEmails,
-    coerce_email_list,
 )
 from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
 from app.integrations.pgeocode.country_aliases import get_country_iso
-
-# Reusable list fields: required TO accepts str | list; optional CC/BCC default empty.
-RequiredEmailList = list[str]
-OptionalEmailList = list[str]
-
 
 class GelitaPickupAddress(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -29,7 +21,20 @@ class GelitaPickupAddress(BaseModel):
     state: str
     country: str
     address1: str
-    postal_code: str
+    postal_code: int
+
+    @field_validator("postal_code", mode="before")
+    @classmethod
+    def _coerce_postal_code(cls, value: Any) -> int:
+        if isinstance(value, bool):
+            raise ValueError("postal_code must be an integer")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.isdigit():
+                return int(stripped)
+        raise ValueError("postal_code must be an integer")
 
 
 class GelitaSendTenderEmailSettings(BaseModel):
@@ -37,28 +42,12 @@ class GelitaSendTenderEmailSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    vendor_email: RequiredEmailList = Field(min_length=1)
-    vendor_cc: OptionalEmailList = Field(default_factory=list)
-    vendor_bcc: OptionalEmailList = Field(default_factory=list)
+    emails: EmailRecipients
     email_subject: str
     email_template_html: str
 
-    @field_validator("vendor_email", mode="before")
-    @classmethod
-    def _vendor_email(cls, value: Any) -> list[str]:
-        return coerce_email_list(value, required=True)
-
-    @field_validator("vendor_cc", "vendor_bcc", mode="before")
-    @classmethod
-    def _vendor_cc_bcc(cls, value: Any) -> list[str]:
-        return coerce_email_list(value, required=False)
-
     def recipients(self) -> EmailRecipients:
-        return EmailRecipients(
-            to=self.vendor_email,
-            cc=self.vendor_cc,
-            bcc=self.vendor_bcc,
-        )
+        return self.emails
 
 
 class GelitaSendTenderReminderSettings(BaseModel):
@@ -74,28 +63,12 @@ class GelitaEscalateTenderSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    emails: EmailRecipients
     escalation_email_body: str
-    escalation_notify_email: RequiredEmailList = Field(min_length=1)
-    escalation_cc: OptionalEmailList = Field(default_factory=list)
-    escalation_bcc: OptionalEmailList = Field(default_factory=list)
     escalation_email_subject: str
 
-    @field_validator("escalation_notify_email", mode="before")
-    @classmethod
-    def _escalation_to(cls, value: Any) -> list[str]:
-        return coerce_email_list(value, required=True)
-
-    @field_validator("escalation_cc", "escalation_bcc", mode="before")
-    @classmethod
-    def _escalation_cc_bcc(cls, value: Any) -> list[str]:
-        return coerce_email_list(value, required=False)
-
     def recipients(self) -> EmailRecipients:
-        return EmailRecipients(
-            to=self.escalation_notify_email,
-            cc=self.escalation_cc,
-            bcc=self.escalation_bcc,
-        )
+        return self.emails
 
 
 class GelitaLoadTypeBranch(BaseModel):
@@ -188,6 +161,18 @@ class GelitaDomesticDeliverySettings(BaseModel):
         return iso not in frozenset(self.country_iso_codes)
 
 
+class GelitaLoadTenderingPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    carrier_ack: str
+
+
+class GelitaPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    load_tendering: GelitaLoadTenderingPrompts
+
+
 class GelitaLoadTenderingSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -211,17 +196,15 @@ class GelitaTenantSettings(BaseModel):
     enabledProcesses: list[str] = Field(default_factory=list)
     inbound_routing_emails: InboundRoutingEmails
     ana_at_gelita_account_id: str
-    prompts: dict[str, str]
+    prompts: GelitaPrompts
     load_tendering: GelitaLoadTenderingSettings
     workflow_error_alerts: WorkflowErrorAlertSettings | None = None
 
     @model_validator(mode="after")
     def _require_carrier_ack_prompt(self) -> GelitaTenantSettings:
-        ref = (self.prompts.get(LOAD_TENDERING_CARRIER_ACK) or "").strip()
+        ref = (self.prompts.load_tendering.carrier_ack or "").strip()
         if not ref:
-            raise ValueError(
-                f"prompts must include non-empty {LOAD_TENDERING_CARRIER_ACK!r}"
-            )
+            raise ValueError("prompts.load_tendering.carrier_ack must be non-empty")
         return self
 
     def branch_for_load_type(self, load_type: str | None) -> GelitaLoadTypeBranch:
