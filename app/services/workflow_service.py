@@ -9,6 +9,7 @@ from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.graph.routers import (
+    automatic_reply_ack_router,
     carrier_ack_router,
     event_type_router,
     tender_status_router,
@@ -46,6 +47,7 @@ ROUTER_REGISTRY = {
     "tender_status_router": tender_status_router,
     "domestic_delivery_router": domestic_delivery_router,
     "post_read_tender_router": post_read_tender_router,
+    "automatic_reply_ack_router": automatic_reply_ack_router,
     "carrier_ack_router": carrier_ack_router,
     "manual_tms_upload_router": manual_tms_upload_router,
     "driver_assignment_eligibility_router": driver_assignment_eligibility_router,

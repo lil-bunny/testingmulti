@@ -1,4 +1,4 @@
-"""Feature tests: POST /api/webhook/email L1 routing by inbound_routing_emails."""
+"""Feature tests: POST /api/v1/webhook/email L1 routing by inbound_routing_emails."""
 
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ def test_webhook_routes_gelita_by_recipient_email(
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
-        "/api/webhook/email",
+        "/api/v1/webhook/email",
         json=_gelita_xlsx_payload(_GELITA_EMAIL),
         headers=webhook_headers,
     )
@@ -203,7 +203,7 @@ def test_webhook_routes_t3ra_by_recipient_email(
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
-        "/api/webhook/email",
+        "/api/v1/webhook/email",
         json=_payload_with_to(_T3RA_EMAIL, subject="hello", has_attachments=False),
         headers=webhook_headers,
     )
@@ -218,7 +218,7 @@ def test_webhook_invalid_when_unknown_recipient(
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
-        "/api/webhook/email",
+        "/api/v1/webhook/email",
         json=_payload_with_to("unknown-routing@freightx.test"),
         headers=webhook_headers,
     )
@@ -251,7 +251,7 @@ def test_webhook_invalid_when_multiple_tenants_match(
         caplog.set_level("WARNING")
         client = TestClient(create_app())
         r = client.post(
-            "/api/webhook/email",
+            "/api/v1/webhook/email",
             json=_payload_with_to(_SHARED_EMAIL),
             headers=webhook_headers,
         )

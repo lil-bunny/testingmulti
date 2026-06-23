@@ -3,7 +3,9 @@ from typing import Annotated, Optional
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.api.security import portal_bearer
 from sqlalchemy.orm import Session
 
 from app.api.errors import http_error
@@ -29,7 +31,18 @@ from app.services.workflow_service import WorkflowService
 
 logger = get_logger(__name__)
 
-_bearer = HTTPBearer(auto_error=False)
+_TENANT_SLUG_HEADER = Header(
+    alias="X-Tenant-Slug",
+    description="Tenant identifier.",
+)
+_LEGACY_APP_USER_HEADER = Header(
+    alias="X-App-User-Id",
+    include_in_schema=False,
+)
+_TENANT_SLUG_OVERRIDE_HEADER = Header(
+    alias="X-Tenant-Slug",
+    description="Optional tenant override; must match the authenticated tenant when set.",
+)
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -48,8 +61,8 @@ def get_turvo_oauth_service() -> TurvoOAuthService:
 
 
 def get_tenant_slug(
-    x_tenant_slug: Annotated[Optional[str], Header(alias="X-Tenant-Slug")] = None,
-    x_app_user_id: Annotated[Optional[str], Header(alias="X-App-User-Id")] = None,
+    x_tenant_slug: Annotated[Optional[str], _TENANT_SLUG_HEADER] = None,
+    x_app_user_id: Annotated[Optional[str], _LEGACY_APP_USER_HEADER] = None,
 ) -> str:
     slug = (x_tenant_slug or "").strip()
     if slug:
@@ -72,7 +85,7 @@ def get_tenant_slug(
 
 async def get_current_user(
     request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(portal_bearer)],
     session: Annotated[Session, Depends(get_session)],
 ) -> ApiUser:
     if credentials is None or credentials.scheme.lower() != "bearer":
@@ -113,7 +126,7 @@ async def get_current_user(
 def get_tenant_slug_for_user(
     user: Annotated[ApiUser, Depends(get_current_user)],
     session: Annotated[Session, Depends(get_session)],
-    x_tenant_slug: Annotated[Optional[str], Header(alias="X-Tenant-Slug")] = None,
+    x_tenant_slug: Annotated[Optional[str], _TENANT_SLUG_OVERRIDE_HEADER] = None,
 ) -> str:
     if not user.tenant_id:
         raise ForbiddenError("No active tenant on token")

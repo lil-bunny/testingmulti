@@ -32,7 +32,7 @@ def test_load_carrier_ack_fallback_renders_thread_text() -> None:
         template,
         {"thread_text": "email 1\nWe accept the load."},
     )
-    assert "classify carrier email" in rendered.system.lower()
+    assert "load-tender email conversation" in rendered.system.lower()
     assert rendered.user == "email 1\nWe accept the load."
 
 

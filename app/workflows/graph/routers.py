@@ -150,6 +150,13 @@ def manual_tms_upload_router(state):
     return "stop"
 
 
+def automatic_reply_ack_router(state):
+    """Route ack_received past automatic-reply guard before carrier ack LLM."""
+    if state.data.get("automatic_reply_skipped"):
+        return "skipped"
+    return "continue"
+
+
 def carrier_ack_router(state):
     """Route ack_received LLM decision to graph branch keys."""
     decision = str(

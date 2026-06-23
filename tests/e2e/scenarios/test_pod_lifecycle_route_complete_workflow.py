@@ -488,7 +488,7 @@ async def test_live_put_sandbox_route_complete_and_listen_turvo_status_ack(monke
         m.id = "test-celery-task-id"
         return m
 
-    monkeypatch.setattr("app.api.routes.run_workflow_async.apply_async", _fake_apply_async)
+    monkeypatch.setattr("app.api.v1.webhooks.run_workflow_async.apply_async", _fake_apply_async)
 
     captured: dict = {}
 
@@ -560,7 +560,7 @@ def test_pod_lifecycle_route_complete_turvo_webhook(
 
     with TestClient(app) as client:
         post_resp = client.post(
-            "/api/webhook/turvo",
+            "/api/v1/webhook/turvo",
             json=webhook_body,
         )
 
