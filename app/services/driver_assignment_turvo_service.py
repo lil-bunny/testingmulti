@@ -10,7 +10,10 @@ from app.integrations.turvo.contacts import (
     create_driver_contact,
     search_carrier_driver_contacts,
 )
-from app.integrations.turvo.ui_accounts import search_carrier_driver_contacts_by_phone
+from app.integrations.turvo.ui_accounts import (
+    search_carrier_driver_contacts_by_name,
+    search_carrier_driver_contacts_by_phone,
+)
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     assign_driver_to_shipment,
@@ -30,7 +33,9 @@ from app.tools.driver_details import (
     contact_row_name_phone,
     driver_block_name_phone,
     is_tms_tracking_customer,
+    name_tokens_match,
     normalize_phone_digits,
+    pick_phone_duplicate_contact,
 )
 
 logger = get_logger(__name__)
@@ -296,27 +301,69 @@ class DriverAssignmentTurvoService:
         has_email = bool(email)
 
         if has_phone:
-            matches = await self._search_by_phone(
+            phone_matches = await self._search_by_phone(
                 tenant_slug,
                 phone=phone,
-                name=name if has_name else None,
+                name=None,
                 carrier_id=carrier_id,
                 carrier_name=carrier_name,
                 shipment_payload=shipment_payload,
             )
-            if has_name:
-                return await self._pick_or_create(
-                    tenant_slug,
-                    matches=matches,
+            match_by = "name_and_phone" if has_name else "phone"
+            phone_count = len(phone_matches)
+
+            if phone_count == 1:
+                return self._pick_only(
+                    matches=phone_matches,
+                    match_by=match_by,
                     driver=driver,
-                    match_by="name_and_phone",
                     carrier_id=carrier_id,
-                    carrier_name=carrier_name,
-                    allow_create=True,
                 )
+
+            if phone_count == 0:
+                if has_name:
+                    return await self._pick_or_create(
+                        tenant_slug,
+                        matches=phone_matches,
+                        driver=driver,
+                        match_by=match_by,
+                        carrier_id=carrier_id,
+                        carrier_name=carrier_name,
+                        allow_create=True,
+                    )
+                return self._pick_only(
+                    matches=phone_matches,
+                    match_by=match_by,
+                    driver=driver,
+                    carrier_id=carrier_id,
+                )
+
+            candidates = (
+                self._narrow_matches_by_name(phone_matches, name)
+                if has_name
+                else phone_matches
+            )
+            if has_name and not candidates:
+                return None, TmsDriverResolution(
+                    outcome="follow_up",
+                    tms_resolution="not_found",
+                    tms_follow_up_reason="not_found",
+                    tms_match_count=0,
+                    tms_search_match_by=match_by,
+                    tms_carrier_id=carrier_id,
+                )
+            if len(candidates) > 1:
+                picked = pick_phone_duplicate_contact(candidates)
+                if picked is not None:
+                    return self._pick_only(
+                        matches=[picked],
+                        match_by=match_by,
+                        driver=driver,
+                        carrier_id=carrier_id,
+                    )
             return self._pick_only(
-                matches=matches,
-                match_by="phone",
+                matches=candidates,
+                match_by=match_by,
                 driver=driver,
                 carrier_id=carrier_id,
             )
@@ -370,13 +417,21 @@ class DriverAssignmentTurvoService:
         carrier_name: str,
         shipment_payload: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        return await search_carrier_driver_contacts(
+        matches = await search_carrier_driver_contacts(
             tenant_slug,
             carrier_id=carrier_id,
             carrier_name=carrier_name,
             name=name,
             shipment_payload=shipment_payload,
         )
+        if not matches:
+            matches = await search_carrier_driver_contacts_by_name(
+                tenant_slug,
+                carrier_id=carrier_id,
+                carrier_name=carrier_name,
+                name=name,
+            )
+        return matches
 
     async def _search_by_email(
         self,
@@ -413,6 +468,18 @@ class DriverAssignmentTurvoService:
             phone=phone,
             name=name,
         )
+
+    @staticmethod
+    def _narrow_matches_by_name(
+        matches: list[dict[str, Any]],
+        name: str | None,
+    ) -> list[dict[str, Any]]:
+        cleaned = str(name or "").strip()
+        if not cleaned:
+            return matches
+        return [
+            row for row in matches if name_tokens_match(cleaned, row.get("name"))
+        ]
 
     def _pick_only(
         self,

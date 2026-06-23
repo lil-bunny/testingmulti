@@ -190,3 +190,25 @@ def test_driver_assigned_from_active_drivers_list() -> None:
         }
     }
     assert driver_assigned_from_payload(payload) is True
+
+
+def test_driver_assigned_from_context_only_driver_row() -> None:
+    """Turvo often stores id/name under context without top-level phone/email."""
+    payload = {
+        "details": {
+            "globalRoute": [],
+            "carrierOrder": [
+                {
+                    "deleted": False,
+                    "drivers": [
+                        {
+                            "deleted": False,
+                            "context": {"id": 604186, "name": "Alyssa Wolf"},
+                            "segmentId": "seg-1",
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    assert driver_assigned_from_payload(payload) is True

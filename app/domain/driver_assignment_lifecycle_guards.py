@@ -64,3 +64,17 @@ def blocks_driver_assignment_reminder(row: dict[str, Any] | None) -> bool:
     if status is not None and status != StatusType.PROCESSING:
         return True
     return False
+
+
+def blocks_driver_assignment_escalation(row: dict[str, Any] | None) -> bool:
+    """True when escalation must not run (cancelled, success terminal, or already escalated)."""
+    status, sub = _status_sub_from_row(row)
+    if is_driver_assignment_cancelled(status, sub):
+        return True
+    if is_driver_assignment_success_terminal(status, sub):
+        return True
+    if sub == StatusSubType.ESCALATED:
+        return True
+    if status == StatusType.COMPLETED:
+        return True
+    return False

@@ -37,12 +37,18 @@
           "step": 4,
           "event_type": "reminder_due",
           "delay_hours": 0.03333333333333333
+        },
+        {
+          "step": 5,
+          "event_type": "escalation_due",
+          "delay_hours": 0.016666666666666666
         }
       ],
       "expire_grace_hours": 2,
       "skip_sub_statuses": [
         "details_received",
-        "uploaded_to_tms"
+        "uploaded_to_tms",
+        "escalated"
       ],
       "email_template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Hi,</p><p>Kindly requesting you to please provide the driver's tracking details at the earliest to avoid the $100 tracking fee mentioned in the rate confirmation.</p><p>Please note that if we do not receive the driver details at least <strong>3 hours prior to pickup</strong>, we will be forced to recover the load, and in such a case, <strong>TONU will not be applicable.</strong></p><p>Additionally, if you still proceed to pick up the load after we've removed you from it, the <strong>TONU paid to the other carrier will be deducted from your rate confirmation.</strong></p><p>Appreciate your prompt attention to this.</p><br><p style=\"font-size:13px; color:#666;\"> Kindly note that this email is <strong>not monitored</strong>. Please always make sure to click <strong>“Reply All”</strong> when replying. </p><br><p>Best Regards,<br><strong>T3RA Logistics Team</strong></p><br><div id=\"x_Signature\"><table style=\"color:black;text-align:left;width:435pt;font-size:14px;\"><tbody><tr><td style=\"padding-right:10px;\"><img alt=\"Company Logo\" src=\"https://i.imgur.com/6074vKi.png\" width=\"80\"></td><td style=\"border-right:1.5pt solid #C2272D;padding:0 10px;\"><p style=\"margin:0;\"><b>Mikey</b></p><p style=\"margin:0;color:#28556A;\">Operations Specialist</p><br><a href=\"https://www.linkedin.com/company/t3ra-logistics/posts/?feedView=all\"><img alt=\"LinkedIn\" src=\"https://i.imgur.com/VFxXRbI.png\" width=\"20\"></a></td><td style=\"padding-left:10px;\"><p style=\"margin:0;\">📧 mikey@t3ralogistics.com</p><p style=\"margin:0;\">📞 (916) 458-5833</p><p style=\"margin:0;\">🌐 <a href=\"https://t3ralogistics.com/\">https://t3ralogistics.com/</a></p></td></tr></tbody></table></div></body></html>"
     },
@@ -54,6 +60,10 @@
       "default_template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Hi,</p><p>Thanks for the driver details.</p><p>We have sent the <strong>TURVO APP</strong> link to the driver, please advise him to download the app and accept the tracking <strong>2 hours before pickup.</strong></p><p><strong>Driver name:</strong><br>{driver_name}</p><p><strong>Driver phone:</strong><br>{driver_phone}</p><br><p style=\"font-size:13px; color:#666;\"> Kindly note that this email is <strong>not monitored</strong>. Please always make sure to click <strong>“Reply All”</strong> when replying. </p><br><p>Best Regards,<br><strong>T3RA Logistics Team</strong></p><br><div id=\"x_Signature\"><table style=\"color:black;text-align:left;width:435pt;font-size:14px;\"><tbody><tr><td style=\"padding-right:10px;\"><img alt=\"Company Logo\" src=\"https://i.imgur.com/6074vKi.png\" width=\"80\"></td><td style=\"border-right:1.5pt solid #C2272D;padding:0 10px;\"><p style=\"margin:0;\"><b>Mikey</b></p><p style=\"margin:0;color:#28556A;\">Operations Specialist</p><br><a href=\"https://www.linkedin.com/company/t3ra-logistics/posts/?feedView=all\"><img alt=\"LinkedIn\" src=\"https://i.imgur.com/VFxXRbI.png\" width=\"20\"></a></td><td style=\"padding-left:10px;\"><p style=\"margin:0;\">📧 mikey@t3ralogistics.com</p><p style=\"margin:0;\">📞 (916) 458-5833</p><p style=\"margin:0;\">🌐 <a href=\"https://t3ralogistics.com/\">t3ralogistics.com</a></p></td></tr></tbody></table></div></body></html>",
       "send_invite_for_tracking": false,
       "send_invite_for_default": true
+    },
+    "escalate_driver": {
+      "teams_webhook_url": "https://outlook.office.com/webhook/REPLACE_WITH_T3RA_TEAMS_INCOMING_WEBHOOK",
+      "message_title": "Driver details missing — Load {load_id}"
     }
   },
   "pod_lifecycle": {

@@ -363,10 +363,15 @@ def _stop_has_actual_pickup(stop: dict[str, Any]) -> bool:
 def _active_driver_entry(entry: dict[str, Any]) -> bool:
     if not isinstance(entry, dict) or entry.get("deleted"):
         return False
-    return any(
+    if any(
         str(entry.get(field) or "").strip()
         for field in ("id", "name", "phone", "email")
-    )
+    ):
+        return True
+    ctx = entry.get("context")
+    if isinstance(ctx, dict) and str(ctx.get("id") or ctx.get("name") or "").strip():
+        return True
+    return False
 
 
 def driver_assigned_from_payload(payload: dict[str, Any]) -> bool:

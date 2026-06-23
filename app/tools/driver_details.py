@@ -77,6 +77,66 @@ def names_match(a: str | None, b: str | None) -> bool:
     return bool(left) and left == right
 
 
+def _name_tokens(value: str | None) -> frozenset[str]:
+    return frozenset(
+        part.casefold()
+        for part in (value or "").split()
+        if part.strip()
+    )
+
+
+def name_tokens_match(inbound: str | None, tms_name: str | None) -> bool:
+    """True when every inbound name token appears as a full token in the TMS name."""
+    if names_match(inbound, tms_name):
+        return True
+    inbound_tokens = _name_tokens(inbound)
+    if not inbound_tokens:
+        return False
+    return inbound_tokens <= _name_tokens(tms_name)
+
+
+def _name_tokens_nested_compatible(a: str | None, b: str | None) -> bool:
+    left = _name_tokens(a)
+    right = _name_tokens(b)
+    if not left or not right:
+        return False
+    return left <= right or right <= left
+
+
+def phone_duplicate_names_compatible(rows: list[dict[str, Any]]) -> bool:
+    """True when every TMS name pair looks like nested duplicates (same person)."""
+    if len(rows) < 2:
+        return len(rows) == 1
+    names = [_clean_field(row.get("name")) for row in rows]
+    if not all(names):
+        return False
+    for i, left in enumerate(names):
+        for right in names[i + 1 :]:
+            if not _name_tokens_nested_compatible(left, right):
+                return False
+    return True
+
+
+def pick_phone_duplicate_contact(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Pick one row when same-phone hits are nested-name duplicates; else None."""
+    if len(rows) <= 1:
+        return rows[0] if rows else None
+    if not phone_duplicate_names_compatible(rows):
+        return None
+
+    # ponytail: nested-name heuristic only; true conflicts still need follow-up
+    def _sort_key(row: dict[str, Any]) -> tuple[int, int]:
+        token_count = -len(_name_tokens(_clean_field(row.get("name"))))
+        cid = row.get("id")
+        try:
+            contact_id = int(cid) if cid is not None else 2**63 - 1
+        except (TypeError, ValueError):
+            contact_id = 2**63 - 1
+        return token_count, contact_id
+
+    return min(rows, key=_sort_key)
+
+
 def emails_match(a: str | None, b: str | None) -> bool:
     left = _normalize_email(a)
     right = _normalize_email(b)

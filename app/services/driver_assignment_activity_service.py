@@ -17,6 +17,7 @@ from app.domain.activity_log_descriptions import (
     format_driver_assignment_started_action,
     format_driver_created_in_tms_action,
     format_driver_details_partial_follow_up_action,
+    format_driver_escalation_sent_action,
     format_driver_found_in_tms_action,
     format_driver_not_found_in_tms_action,
     format_driver_reminder_sent_action,
@@ -793,6 +794,73 @@ class DriverAssignmentActivityService:
             )
         )
         state.data["driver_details_recorded"] = True
+
+    def record_escalation_sent(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            logger.warning(
+                "record_escalation_sent skipped missing ids "
+                "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
+                bool(state.data.get("workflow_lifecycle_id")),
+                bool(state.tenant_id or state.data.get("tenant_id")),
+                bool(state.execution_id),
+            )
+            return
+
+        wl_id, tenant_id, run_id = scope
+        prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        skip = delayed_workflow_step_skip_reason(
+            prev,
+            skip_sub_statuses=self._skip_sub_statuses_from_state(state),
+        )
+        if skip:
+            logger.info(
+                "record_escalation_sent skipping lifecycle_id=%s reason=%s",
+                wl_id,
+                skip,
+            )
+            return
+        if sub_status_type_from_db((prev or {}).get("sub_status")) == StatusSubType.ESCALATED:
+            logger.info(
+                "record_escalation_sent skipping already escalated lifecycle_id=%s",
+                wl_id,
+            )
+            return
+
+        meta = self._base_metadata(state)
+        enrich = state.data.get("shipment_display_enrich")
+        if isinstance(enrich, dict):
+            for key in ("carrier_name", "customer_name", "delivery_date"):
+                val = enrich.get(key)
+                if val is not None and str(val).strip():
+                    meta[key] = str(val).strip()
+
+        current_status = status_type_from_db(prev.get("status")) if prev else None
+        from_sub = sub_status_type_from_db(prev.get("sub_status")) if prev else None
+        transition_step = ActivityLogStep(
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_sub_status=StatusSubType.ESCALATED,
+            from_sub_status=from_sub,
+            from_status=current_status,
+            to_status=current_status,
+            metadata=dict(meta),
+        )
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_driver_escalation_sent_action(),
+                        metadata=dict(meta),
+                    ),
+                    transition_step,
+                ),
+            )
+        )
 
 
 __all__ = ("DriverAssignmentActivityService",)

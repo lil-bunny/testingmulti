@@ -132,6 +132,8 @@ WORKFLOW_CONFIGS = {
             "get_shipment",
             "check_driver_assignment_eligibility",
             "check_driver_reminder_eligibility",
+            "check_driver_escalation_eligibility",
+            "route_driver_assignment_delayed_event",
             "resolve_workflow_lifecycle",
             "schedule_driver_reminders",
             "record_driver_assignment_started",
@@ -149,13 +151,15 @@ WORKFLOW_CONFIGS = {
             "route_driver_details_partial",
             "send_driver_details_partial_follow_up",
             "record_driver_details_email_received",
+            "escalate_driver_assignment",
             "end",
         ],
         "edges": [
             ["resolve_workflow_lifecycle", "schedule_driver_reminders"],
             ["schedule_driver_reminders", "record_driver_assignment_started"],
             ["record_driver_assignment_started", "end"],
-            ["get_shipment", "check_driver_reminder_eligibility"],
+            ["get_shipment", "route_driver_assignment_delayed_event"],
+            ["escalate_driver_assignment", "end"],
             ["send_driver_reminder", "record_driver_reminder_sent"],
             ["record_driver_reminder_sent", "end"],
             ["send_driver_details_partial_follow_up", "record_driver_reminder_sent"],
@@ -175,7 +179,15 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "ratecon_completed": "check_driver_assignment_eligibility",
                     "reminder_due": "get_shipment",
+                    "escalation_due": "get_shipment",
                     "driver_details_email_received": "classify_driver_details",
+                },
+            },
+            "route_driver_assignment_delayed_event": {
+                "router": "driver_assignment_delayed_event_router",
+                "map": {
+                    "reminder_due": "check_driver_reminder_eligibility",
+                    "escalation_due": "check_driver_escalation_eligibility",
                 },
             },
             "check_driver_assignment_eligibility": {
@@ -185,6 +197,10 @@ WORKFLOW_CONFIGS = {
             "check_driver_reminder_eligibility": {
                 "router": "driver_assignment_eligibility_router",
                 "map": {"eligible": "send_driver_reminder", "skip": "end"},
+            },
+            "check_driver_escalation_eligibility": {
+                "router": "driver_assignment_eligibility_router",
+                "map": {"eligible": "escalate_driver_assignment", "skip": "end"},
             },
             "classify_driver_details": {
                 "router": "driver_details_router",

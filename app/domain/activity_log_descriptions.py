@@ -35,6 +35,7 @@ from app.domain.activity_log_constants import (
     DRIVER_ASSIGN_TO_TMS_FAILED_TEMPLATE,
     DRIVER_CONFIRMATION_TRACKING_SENT_ACTION,
     DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION,
+    DRIVER_ESCALATION_SENT_ACTION,
     POD_ESCALATION_SENT_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
     POD_DOCUMENT_UPLOAD_FAILED_ACTION,
@@ -297,6 +298,10 @@ def format_driver_confirmation_tracking_sent_action() -> str:
 
 def format_driver_confirmation_default_sent_action() -> str:
     return DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION
+
+
+def format_driver_escalation_sent_action() -> str:
+    return DRIVER_ESCALATION_SENT_ACTION
 
 
 def format_pod_escalation_sent_action() -> str:

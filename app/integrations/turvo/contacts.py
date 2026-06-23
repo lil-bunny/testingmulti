@@ -8,7 +8,7 @@ from app.integrations.turvo.public_api_client import TurvoApiClient, TurvoApiErr
 from app.integrations.turvo.shipments import driver_contact_ids_from_shipment
 from app.tools.driver_details import (
     emails_match,
-    names_match,
+    name_tokens_match,
     normalize_phone_digits,
     phones_match,
 )
@@ -350,7 +350,7 @@ async def search_carrier_driver_contacts(
     )
     matches = pool
     if name and str(name).strip():
-        matches = [row for row in matches if names_match(name, row.get("name"))]
+        matches = [row for row in matches if name_tokens_match(name, row.get("name"))]
     if phone and normalize_phone_digits(phone):
         matches = [
             row

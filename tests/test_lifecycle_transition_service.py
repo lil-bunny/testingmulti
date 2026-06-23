@@ -486,6 +486,60 @@ def test_apply_sequence_action_then_status_in_one_transaction(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
+def test_apply_sequence_tendered_cancel_processing_to_completed(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "driver_assignment",
+    }
+    lifecycles.update_status.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert.side_effect = ["action-log-id", "status-log-id"]
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply_sequence(
+        _command(
+            activity_type=ActivityType.ACTION,
+            description="Driver assignment cancelled — shipment tendered in Turvo",
+            workflow_run_id=None,
+            update_lifecycle=False,
+            to_status=None,
+            to_sub_status=None,
+        ),
+        _command(
+            activity_type=ActivityType.STATUS_CHANGE,
+            workflow_run_id=None,
+            to_status=StatusType.COMPLETED,
+            to_sub_status=StatusSubType.CANCELLED,
+            description=None,
+        ),
+    )
+
+    assert result.lifecycle_updated is True
+    status_row = activity_logs.insert.call_args_list[1][0][0]
+    assert status_row["from_status"] == StatusType.PROCESSING.value
+    assert status_row["to_status"] == StatusType.COMPLETED.value
+    assert status_row["from_sub_status"] == StatusSubType.REMINDER_1_SENT.value
+    assert status_row["to_sub_status"] == StatusSubType.CANCELLED.value
+    assert status_row["description"] == "Status changed from Processing to Completed"
+    lifecycles.update_status.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
+        status=StatusType.COMPLETED,
+        sub_status=StatusSubType.CANCELLED,
+    )
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
 def test_apply_from_state_passes_communication_id_to_insert(
     _resolve_tenant: MagicMock,
 ) -> None:

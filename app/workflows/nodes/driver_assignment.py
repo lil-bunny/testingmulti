@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.services.driver_assignment_escalation_service import DriverAssignmentEscalationService
 from app.services.driver_assignment_activity_service import DriverAssignmentActivityService
 from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
 from app.services.driver_assignment_turvo_service import DriverAssignmentTurvoService
@@ -52,6 +53,47 @@ def check_driver_reminder_eligibility(state):
         )
     else:
         state.data["driver_assignment_eligible"] = True
+    return state
+
+
+def route_driver_assignment_delayed_event(state):
+    return state
+
+
+def check_driver_escalation_eligibility(state):
+    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
+    result = DriverAssignmentIngressService().check_escalation_eligibility(
+        tenant_id=tenant_id,
+        payload=state.data,
+    )
+    if result.skip_reason:
+        state.data["driver_assignment_skip_reason"] = result.skip_reason
+        state.data["driver_assignment_eligible"] = False
+        state.data["driver_escalation_skipped"] = result.skip_reason
+        logger.info(
+            "check_driver_escalation_eligibility skip reason=%s lifecycle_id=%s",
+            result.skip_reason,
+            state.data.get("workflow_lifecycle_id"),
+        )
+    else:
+        state.data["driver_assignment_eligible"] = True
+    return state
+
+
+def escalate_driver_assignment(state):
+    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
+    run_id = str(state.execution_id or state.data.get("execution_id") or "").strip() or None
+    result = DriverAssignmentEscalationService().escalate_from_payload(
+        tenant_id=tenant_id,
+        tenant_settings=state.data.get("tenant_settings") or {},
+        payload=state.data,
+        workflow_run_id=run_id,
+    )
+    state.data["driver_escalation_sent"] = result.sent
+    if result.skip_reason:
+        state.data["driver_escalation_skipped"] = result.skip_reason
+    if result.error:
+        state.data["driver_escalation_error"] = result.error
     return state
 
 

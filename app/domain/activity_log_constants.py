@@ -71,6 +71,7 @@ DRIVER_CONFIRMATION_TRACKING_SENT_ACTION = (
 DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION = (
     "Driver confirmation email sent"
 )
+DRIVER_ESCALATION_SENT_ACTION = "Driver details escalated to internal Teams channel"
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
 POD_DOCUMENT_UPLOAD_FAILED_ACTION = "POD document upload failed"

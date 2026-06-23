@@ -43,8 +43,10 @@ from app.workflows.nodes.enqueue_driver_assignment import (
 )
 from app.workflows.nodes.driver_assignment import (
     check_driver_assignment_eligibility,
+    check_driver_escalation_eligibility,
     check_driver_reminder_eligibility,
     classify_driver_details,
+    escalate_driver_assignment,
     record_driver_assignment_started,
     record_driver_assignment_completed,
     record_driver_details_confirmation_sent,
@@ -54,6 +56,7 @@ from app.workflows.nodes.driver_assignment import (
     record_tms_driver_not_resolved,
     record_tms_driver_success,
     resolve_turvo_driver,
+    route_driver_assignment_delayed_event,
     route_driver_details_partial,
     route_tms_searchable,
     schedule_driver_reminders,
@@ -115,6 +118,9 @@ NODE_REGISTRY = {
     "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
     "check_driver_assignment_eligibility": check_driver_assignment_eligibility,
     "check_driver_reminder_eligibility": check_driver_reminder_eligibility,
+    "route_driver_assignment_delayed_event": route_driver_assignment_delayed_event,
+    "check_driver_escalation_eligibility": check_driver_escalation_eligibility,
+    "escalate_driver_assignment": escalate_driver_assignment,
     "send_driver_reminder": send_driver_reminder,
     "record_driver_reminder_sent": record_driver_reminder_sent,
     "record_driver_assignment_started": record_driver_assignment_started,

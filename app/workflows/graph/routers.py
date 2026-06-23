@@ -104,6 +104,12 @@ def driver_assignment_eligibility_router(state):
     return "skip"
 
 
+def driver_assignment_delayed_event_router(state):
+    if state.data.get("event_type") == "escalation_due":
+        return "escalation_due"
+    return "reminder_due"
+
+
 def load_type_router(state):
     """
     Route by computed order load type from ``calculate_tender_params``.

@@ -20,7 +20,11 @@ from app.core.logger import get_logger
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 
 from app.domain.driver_assignment_lifecycle_guards import (
+    blocks_driver_assignment_escalation,
     blocks_driver_assignment_reminder,
+)
+from app.domain.driver_assignment_escalation import (
+    skip_sub_statuses_from_driver_assignment_settings,
 )
 
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
@@ -62,6 +66,8 @@ from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_runs_service import WorkflowRunsService
 
 from app.services.unipile_tenant_resolution import UnipileTenantContext
+
+from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 
 
 
@@ -1190,6 +1196,94 @@ class DriverAssignmentIngressService:
             if requested_step is not None and requested_step <= current_step:
 
                 return EligibilityResult(skip_reason="reminder_step_already_sent")
+
+
+
+        return EligibilityResult(skip_reason=None)
+
+
+
+    def check_escalation_eligibility(
+
+        self,
+
+        *,
+
+        tenant_id: str,
+
+        payload: dict[str, Any],
+
+    ) -> EligibilityResult:
+
+        """Escalation_due gate: Turvo + lifecycle; no carrier thread required."""
+
+        for key in ("load_id", "shipment_id", "shipments_row_id", "workflow_lifecycle_id"):
+
+            if not self._clean(payload.get(key)):
+
+                return EligibilityResult(skip_reason="missing_correlation_keys")
+
+
+
+        shipment = payload.get("shipment")
+
+        if isinstance(shipment, dict):
+
+            if driver_assigned_from_payload(shipment):
+
+                return EligibilityResult(skip_reason="driver_already_assigned")
+
+            eligibility_skip = self._driver_request_skip_reason(shipment)
+
+            if eligibility_skip:
+
+                return EligibilityResult(skip_reason=eligibility_skip)
+
+
+
+        wl_id = self._clean(payload.get("workflow_lifecycle_id"))
+
+        if wl_id:
+
+            row = self._lifecycle_service.read_lifecycle_row_by_id(wl_id)
+
+            if blocks_driver_assignment_escalation(row):
+
+                sub = sub_status_type_from_db((row or {}).get("sub_status"))
+
+                if sub == StatusSubType.ESCALATED:
+
+                    return EligibilityResult(skip_reason="already_escalated")
+
+                return EligibilityResult(skip_reason="already_completed")
+
+            tenant_settings = payload.get("tenant_settings")
+
+            skip_subs = skip_sub_statuses_from_driver_assignment_settings(
+
+                tenant_settings if isinstance(tenant_settings, dict) else None
+
+            )
+
+            skip = delayed_workflow_step_skip_reason(row, skip_sub_statuses=skip_subs)
+
+            if skip:
+
+                return EligibilityResult(skip_reason=skip)
+
+
+
+        shipments_row_id = self._clean(payload.get("shipments_row_id"))
+
+        if not wl_id and shipments_row_id and self._blocks_restart_for_shipment(
+
+            tenant_id=tenant_id,
+
+            shipments_row_id=shipments_row_id,
+
+        ):
+
+            return EligibilityResult(skip_reason="already_completed")
 
 
 
