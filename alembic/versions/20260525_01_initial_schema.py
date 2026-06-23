@@ -53,6 +53,11 @@ def upgrade() -> None:
             'do_nothing',
             'escalated',
             'reminder_3_sent',
+            'reminder_4_sent',
+            'driver_assignment_started',
+            'driver_details_email_received',
+            'details_received',
+            'cancelled',
             'pod_started',
             'ratecon_started',
             'document_uploaded',
@@ -85,7 +90,9 @@ def upgrade() -> None:
             'carrier_email_received',
             'ack_received',
             'escalation_due',
-            'manual_pod_upload'
+            'manual_pod_upload',
+            'ratecon_completed',
+            'driver_details_email_received'
         )
         """
     )

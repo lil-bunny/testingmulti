@@ -1,11 +1,20 @@
-"""Add driver-assignment lifecycle sub-statuses and workflow run event types."""
+"""Add driver-assignment lifecycle sub-statuses and workflow run event types.
+
+Revision ID: 20260619_01
+Revises: 20260618_01
+Create Date: 2026-06-19
+
+For databases that already ran ``20260525_01_initial_schema`` before these
+enum members existed. Fresh installs get the same values from the initial
+schema; ``IF NOT EXISTS`` keeps this idempotent.
+"""
 
 from __future__ import annotations
 
 from alembic import op
 
-revision = "20260616_01"
-down_revision = "20260525_01"
+revision = "20260619_01"
+down_revision = "20260618_01"
 branch_labels = None
 depends_on = None
 
