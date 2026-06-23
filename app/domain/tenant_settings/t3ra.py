@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.driver_assignment_confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,

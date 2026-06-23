@@ -20,7 +20,6 @@ from app.services.prompt_service import (
     resolve_pod_vs_ratecon_summary_prompts,
     resolve_ratecon_vision_prompts,
 )
-from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
 from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 

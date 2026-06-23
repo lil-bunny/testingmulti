@@ -11,7 +11,6 @@ from app.domain.prompt_step_keys import (
     RATECON_PAGE_EXTRACTION,
     resolve_prompt_ref,
 )
-from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
 from app.integrations.langsmith.fallback import (
     hub_id_from_tenant_prompt_ref,
     load_fallback_prompt,
@@ -81,7 +80,7 @@ def test_t3ra_fixture_prompt_refs_match_fallback_hub_ids() -> None:
         == "pod-vs-ratecon-semantic-match"
     )
     assert hub_id_from_tenant_prompt_ref(
-        tenant_prompt_ref(prompts, DRIVER_ASSIGNMENT_DRIVER_DETAILS)
+        resolve_prompt_ref(prompts, DRIVER_ASSIGNMENT_DRIVER_DETAILS)
     ) == (DRIVER_DETAILS_HUB_ID)
 
 

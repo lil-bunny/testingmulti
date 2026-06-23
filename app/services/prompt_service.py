@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
 from app.domain.prompt_step_keys import resolve_prompt_ref
 from app.domain.vision_prompt_templates import (
     render_inline_pod_prompts,
@@ -38,7 +37,7 @@ class PromptService:
             raise MissingTenantPromptRefError(
                 f"missing tenant prompt ref for step {prompt_step_key!r}"
             )
-        return self._prompt_client.load_and_render(ref, variables)
+        return self._prompt_client.load_and_render(tenant_prompt_ref, variables)
 
     def render_vision_step(
         self,
@@ -77,7 +76,7 @@ class PromptService:
             logger.warning(
                 "vision prompt hub unavailable step=%s ref=%s: %s; using inline fallback",
                 prompt_step_key,
-                ref,
+                tenant_prompt_ref,
                 exc,
             )
             system, user = inline_fallback
@@ -85,7 +84,7 @@ class PromptService:
                 RenderedPrompt(system=system, user=user),
                 PromptLoadMetadata(
                     source="fallback",
-                    tenant_prompt_ref=ref,
+                    tenant_prompt_ref=tenant_prompt_ref,
                     commit_hash=None,
                 ),
             )
