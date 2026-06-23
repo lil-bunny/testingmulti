@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
+from app.domain.prompt_step_keys import resolve_prompt_ref
 from app.domain.vision_prompt_templates import (
     render_inline_pod_prompts,
     render_inline_ratecon_prompts,
@@ -32,10 +33,8 @@ class PromptService:
         variables: dict[str, str],
     ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
         prompts = tenant_settings.get("prompts") or {}
-        if not isinstance(prompts, dict):
-            prompts = {}
-        ref = tenant_prompt_ref(prompts, prompt_step_key)
-        if not ref:
+        tenant_prompt_ref = resolve_prompt_ref(prompts, prompt_step_key)
+        if not tenant_prompt_ref:
             raise MissingTenantPromptRefError(
                 f"missing tenant prompt ref for step {prompt_step_key!r}"
             )
@@ -57,10 +56,8 @@ class PromptService:
         """
         settings_dict = tenant_settings if isinstance(tenant_settings, dict) else {}
         prompts = settings_dict.get("prompts") or {}
-        if not isinstance(prompts, dict):
-            prompts = {}
-        ref = tenant_prompt_ref(prompts, prompt_step_key)
-        if not ref:
+        tenant_prompt_ref = resolve_prompt_ref(prompts, prompt_step_key)
+        if not tenant_prompt_ref:
             system, user = inline_fallback
             logger.debug(
                 "vision prompt inline fallback step=%s (no tenant ref)",

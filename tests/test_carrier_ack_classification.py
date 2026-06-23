@@ -42,7 +42,9 @@ TEST_PROMPT_REF = "carrier-ack-classify:production"
 def _tenant_settings() -> dict:
     return {
         "prompts": {
-            LOAD_TENDERING_CARRIER_ACK: TEST_PROMPT_REF,
+            "load_tendering": {
+                "carrier_ack": TEST_PROMPT_REF,
+            }
         }
     }
 

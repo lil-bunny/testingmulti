@@ -20,7 +20,7 @@ from app.domain.prompt_step_keys import (
 from app.services.prompt_service import PromptService
 
 
-def test_render_step_resolves_ref_and_returns_metadata() -> None:
+def test_render_step_resolves_nested_prompt_ref() -> None:
     client = MagicMock()
     client.load_and_render.return_value = (
         RenderedPrompt(system="sys", user="usr"),
@@ -34,7 +34,9 @@ def test_render_step_resolves_ref_and_returns_metadata() -> None:
     rendered, metadata = prompt_service.render_step(
         tenant_settings={
             "prompts": {
-                LOAD_TENDERING_CARRIER_ACK: "carrier-ack-classify:production",
+                "load_tendering": {
+                    "carrier_ack": "carrier-ack-classify:production",
+                }
             }
         },
         prompt_step_key=LOAD_TENDERING_CARRIER_ACK,
