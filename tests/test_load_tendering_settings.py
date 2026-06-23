@@ -35,7 +35,7 @@ def test_action_settings_from_payload_dict() -> None:
     payload = {"tenant_settings": _gelita_tenant_settings()}
     esc = action_settings(payload, "escalate_tender", load_type="LTL")
     assert "LTL tender escalation" in esc["escalation_email_body"]
-    assert esc["escalation_notify_email"]
+    assert esc["emails"]["to"]
 
 
 def test_missing_action_returns_empty_dict() -> None:
@@ -78,10 +78,10 @@ def test_shared_unipile_accounts_merged_from_tenant_settings_root() -> None:
     assert ltl_rem["ana_at_gelita_account_id"] == account_id
     ftl_esc = action_settings(state, "escalate_tender", load_type="FTL")
     assert ftl_esc["ana_at_gelita_account_id"] == account_id
-    assert isinstance(ftl_esc["escalation_notify_email"], list)
-    assert len(ftl_esc["escalation_notify_email"]) >= 1
+    assert isinstance(ftl_esc["emails"]["to"], list)
+    assert len(ftl_esc["emails"]["to"]) >= 1
     ftl_vendor = action_settings(state, "send_tender_email", load_type="FTL")
-    assert isinstance(ftl_vendor["vendor_email"], list)
+    assert isinstance(ftl_vendor["emails"]["to"], list)
     assert "ana_at_gelita_account_id" not in _gelita_tenant_settings()["load_tendering"]["ftl"][
         "escalate_tender"
     ]

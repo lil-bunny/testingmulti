@@ -12,6 +12,7 @@ from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressServic
 def test_is_pod_processing_complete_sub_status():
     assert is_pod_processing_complete_sub_status(StatusSubType.DOCUMENT_PROCESSED)
     assert is_pod_processing_complete_sub_status(StatusSubType.UPLOADED_TO_TMS)
+    assert is_pod_processing_complete_sub_status(StatusSubType.RESOLVED_MANUALLY)
     assert not is_pod_processing_complete_sub_status(StatusSubType.DOCUMENT_UPLOADED)
     assert not is_pod_processing_complete_sub_status(None)
 

@@ -9,6 +9,7 @@ from app.domain.prompt_step_keys import (
     POD_VS_RATECON_SEMANTIC_MATCH,
     POD_VS_RATECON_SUMMARY,
     RATECON_PAGE_EXTRACTION,
+    resolve_prompt_ref,
 )
 from app.integrations.langsmith import PromptUnavailableError
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
@@ -36,6 +37,18 @@ def test_render_vision_step_uses_inline_when_no_tenant_ref() -> None:
     assert metadata.tenant_prompt_ref == "inline"
 
 
+_NESTED_T3RA_PROMPTS = {
+    "pod_lifecycle": {
+        "page_extraction": "pod-page-extraction:staging",
+        "vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
+        "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
+    },
+    "ratecon": {
+        "page_extraction": "ratecon-page-extraction:staging",
+    },
+}
+
+
 def test_render_vision_step_loads_from_hub_when_ref_configured() -> None:
     client = MagicMock()
     client.load_and_render.return_value = (
@@ -48,11 +61,7 @@ def test_render_vision_step_loads_from_hub_when_ref_configured() -> None:
     )
     prompt_service = PromptService(prompt_client=client)
     rendered, metadata = prompt_service.render_vision_step(
-        {
-            "prompts": {
-                POD_PAGE_EXTRACTION: "pod-page-extraction:staging",
-            }
-        },
+        {"prompts": _NESTED_T3RA_PROMPTS},
         POD_PAGE_EXTRACTION,
         {"broker_name": "", "broker_context": ""},
         inline_fallback=("inline-sys", "inline-usr"),
@@ -67,11 +76,7 @@ def test_render_vision_step_inline_when_hub_unavailable() -> None:
     client.load_and_render.side_effect = PromptUnavailableError("down")
     prompt_service = PromptService(prompt_client=client)
     rendered, metadata = prompt_service.render_vision_step(
-        {
-            "prompts": {
-                RATECON_PAGE_EXTRACTION: "ratecon-page-extraction:staging",
-            }
-        },
+        {"prompts": _NESTED_T3RA_PROMPTS},
         RATECON_PAGE_EXTRACTION,
         {},
         inline_fallback=("inline-sys", "inline-usr"),
@@ -88,7 +93,7 @@ def test_resolve_pod_vision_prompts_includes_broker_variables() -> None:
     )
     prompt_service = PromptService(prompt_client=client)
     resolve_pod_vision_prompts(
-        {"prompts": {POD_PAGE_EXTRACTION: "pod-page-extraction:staging"}},
+        {"prompts": _NESTED_T3RA_PROMPTS},
         "T3RA Logistics",
         prompt_service=prompt_service,
     )
@@ -99,10 +104,13 @@ def test_resolve_pod_vision_prompts_includes_broker_variables() -> None:
 
 def test_t3ra_fixture_has_pod_and_ratecon_prompt_refs() -> None:
     prompts = load_tenant_settings_dev("t3ra").get("prompts") or {}
-    assert prompts[POD_PAGE_EXTRACTION] == "pod-page-extraction:staging"
-    assert prompts[RATECON_PAGE_EXTRACTION] == "ratecon-page-extraction:staging"
-    assert prompts[POD_VS_RATECON_SUMMARY] == "pod-vs-ratecon-summary:staging"
-    assert prompts[POD_VS_RATECON_SEMANTIC_MATCH] == "pod-vs-ratecon-semantic-match:staging"
+    assert resolve_prompt_ref(prompts, POD_PAGE_EXTRACTION) == "pod-page-extraction:staging"
+    assert resolve_prompt_ref(prompts, RATECON_PAGE_EXTRACTION) == "ratecon-page-extraction:staging"
+    assert resolve_prompt_ref(prompts, POD_VS_RATECON_SUMMARY) == "pod-vs-ratecon-summary:staging"
+    assert (
+        resolve_prompt_ref(prompts, POD_VS_RATECON_SEMANTIC_MATCH)
+        == "pod-vs-ratecon-semantic-match:staging"
+    )
 
 
 def test_resolve_pod_vs_ratecon_summary_includes_validation_json() -> None:
@@ -120,7 +128,7 @@ def test_resolve_pod_vs_ratecon_summary_includes_validation_json() -> None:
         "delivery_confirmation_reasoning": "signed",
     }
     resolve_pod_vs_ratecon_summary_prompts(
-        {"prompts": {POD_VS_RATECON_SUMMARY: "pod-vs-ratecon-summary:staging"}},
+        {"prompts": _NESTED_T3RA_PROMPTS},
         cross,
         pod,
         prompt_service=prompt_service,
@@ -142,11 +150,7 @@ def test_resolve_pod_vs_ratecon_semantic_match_includes_field_values() -> None:
     )
     prompt_service = PromptService(prompt_client=client)
     resolve_pod_vs_ratecon_semantic_match_prompts(
-        {
-            "prompts": {
-                POD_VS_RATECON_SEMANTIC_MATCH: "pod-vs-ratecon-semantic-match:staging",
-            }
-        },
+        {"prompts": _NESTED_T3RA_PROMPTS},
         "pickup_address",
         "RIPON, CA 95366",
         "2151 River Plaza Dr, Sacramento, CA, 95833",

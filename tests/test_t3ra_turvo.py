@@ -191,13 +191,13 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
     }
 
     with (
-        patch("app.api.routes.ShipmentsService") as shipments_cls,
-        patch("app.api.routes.WorkflowLifecycleService") as lifecycle_cls,
-        patch("app.api.routes.CommunicationsService") as comm_cls,
-        patch("app.api.routes.PodLifecycleIngressService") as ingress_cls,
-        patch("app.api.routes.run_workflow_async") as celery_task,
+        patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
+        patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
+        patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
+        patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
+        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
         patch(
-            "app.api.routes.resolve_graph_tenant_to_uuid",
+            "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
         ),
     ):
@@ -213,7 +213,7 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         celery_task.apply_async.return_value = MagicMock(id="celery-task-1")
 
         client = TestClient(app)
-        resp = client.post("/api/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
+        resp = client.post("/api/v1/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
 
     assert resp.status_code == 200
     assert resp.json().get("execution_id")
@@ -243,13 +243,13 @@ def test_turvo_webhook_skips_duplicate_route_completed() -> None:
     pod_lifecycle_id = "22222222-3333-4444-5555-666666666666"
 
     with (
-        patch("app.api.routes.ShipmentsService") as shipments_cls,
-        patch("app.api.routes.WorkflowLifecycleService") as lifecycle_cls,
-        patch("app.api.routes.CommunicationsService") as comm_cls,
-        patch("app.api.routes.PodLifecycleIngressService") as ingress_cls,
-        patch("app.api.routes.run_workflow_async") as celery_task,
+        patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
+        patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
+        patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
+        patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
+        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
         patch(
-            "app.api.routes.resolve_graph_tenant_to_uuid",
+            "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
         ),
     ):
@@ -267,7 +267,7 @@ def test_turvo_webhook_skips_duplicate_route_completed() -> None:
         )
 
         client = TestClient(app)
-        resp = client.post("/api/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
+        resp = client.post("/api/v1/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
 
     assert resp.status_code == 200
     body = resp.json()

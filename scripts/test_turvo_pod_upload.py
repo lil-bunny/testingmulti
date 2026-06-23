@@ -180,7 +180,7 @@ async def _resolve_auth(tenant_slug: str) -> tuple[str, str, str]:
     if not tokens or not tokens.get("access_token"):
         raise SystemExit(
             f"No Turvo access token for tenant {tenant_slug!r}. "
-            "Link Turvo via /api/user/turvo/authenticate first."
+            "Link Turvo via /api/v1/user/turvo/authenticate first."
         )
     public_api_url = (tms.public_api_url or "").strip()
     if not public_api_url:

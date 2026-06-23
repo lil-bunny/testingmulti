@@ -1,25 +1,30 @@
-import uuid
-from typing import Any, Optional
+"""v1 inbound webhook endpoints (Unipile email, Turvo status)."""
 
-from fastapi import APIRouter, HTTPException, Request, status
+import uuid
+from typing import Annotated, Any, Optional
+
+from fastapi import APIRouter, Header, HTTPException, Request, Security, status
 from fastapi.responses import JSONResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.api.security import unipile_webhook_bearer
 
 from app.core.config import settings
 from app.core.logger import get_logger
-from app.models.tenants import TenantSlug
+from app.exceptions import TenantResolutionError
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
+from app.models.tenants import TenantSlug
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
 from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.shipments_service import ShipmentsService
 from app.services.t3ra_inbound_email_service import T3raInboundEmailService
-from app.exceptions import TenantResolutionError
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.workflows import run_workflow_async
 
-router = APIRouter()
+router = APIRouter(prefix="/webhook", tags=["webhooks"])
 logger = get_logger(__name__)
 
 TURVO_ROUTE_GATE_WORKFLOW = "ratecon"
@@ -41,18 +46,26 @@ def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
 
 
 @router.post(
-    "/webhook/email",
-    summary="Unipile email webhook events handler",
-    description=(
-        "Receives email webhook events after Bearer auth. "
-        "L1 resolves tenant from recipient addresses (to/cc/bcc) against "
-        "`tenants.settings.inbound_routing_emails`. "
-        "L2 routes by tenant slug and classifies domain `event_type` per tenant."
-    ),
+    "/email",
+    summary="Email webhook",
+    responses={
+        401: {"description": "Unauthorized"},
+        500: {"description": "Internal server error"},
+    },
 )
-async def webhook_email(request: Request):
+async def webhook_email(
+    request: Request,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Security(unipile_webhook_bearer),
+    ],
+):
     try:
-        if request.headers.get("Authorization") != f"Bearer {settings.UNIPILE_WEBHOOK_SECRET}":
+        if (
+            credentials is None
+            or credentials.scheme.lower() != "bearer"
+            or credentials.credentials != settings.UNIPILE_WEBHOOK_SECRET
+        ):
             raise HTTPException(status_code=401, detail="Unauthorized")
         payload = await request.json()
 
@@ -64,11 +77,12 @@ async def webhook_email(request: Request):
         if tenant is None:
             return {"message": "invalid webhook"}
 
-        # L2: route by resolved tenant slug to tenant ingress handler
         if tenant.tenant_slug == TenantSlug.GELITA:
-            return await GelitaInboundEmailService().handle(payload=payload, tenant=tenant)
+            gelita_inbound_email_service = GelitaInboundEmailService()
+            return await gelita_inbound_email_service.handle(payload=payload, tenant=tenant)
         if tenant.tenant_slug == TenantSlug.T3RA:
-            return await T3raInboundEmailService().handle(payload=payload, tenant=tenant)
+            t3ra_inbound_email_service = T3raInboundEmailService()
+            return await t3ra_inbound_email_service.handle(payload=payload, tenant=tenant)
 
         logger.warning(
             "unipile webhook: unsupported tenant_slug=%r",
@@ -83,30 +97,29 @@ async def webhook_email(request: Request):
 
 
 @router.post(
-    "/webhook/turvo",
-    summary="Turvo status webhook (no query params; see header + env for tenant)",
-    openapi_extra={
-        "parameters": [
-            {
-                "name": "X-Workflow-Tenant-Id",
-                "in": "header",
-                "required": False,
-                "schema": {"type": "string"},
-                "description": (
-                    "Optional workflow tenant key (e.g. t3ra). "
-                    "Else STUDIO_TENANT_SLUG, or t3ra."
-                ),
-            }
-        ]
+    "/turvo",
+    summary="Turvo webhook",
+    responses={
+        400: {"description": "Bad request"},
+        500: {"description": "Internal server error"},
     },
 )
-async def listen_turvo_status(request: Request) -> Response:
+async def listen_turvo_status(
+    request: Request,
+    x_workflow_tenant_id: Annotated[
+        str | None,
+        Header(
+            alias="X-Workflow-Tenant-Id",
+            description="Optional tenant identifier.",
+        ),
+    ] = None,
+) -> Response:
     try:
         body: dict[str, Any] = await request.json()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Request body must be valid JSON") from e
 
-    override = request.headers.get("X-Workflow-Tenant-Id")
+    override = x_workflow_tenant_id
     workflow_tenant = _resolve_workflow_tenant_id(override)
     payload = map_turvo_status_webhook_to_payload(body)
     if payload is None or not payload.get("shipment_id"):
@@ -117,7 +130,8 @@ async def listen_turvo_status(request: Request) -> Response:
     lifecycle_shipment_uuid: str | None = None
     tenant_uuid = resolve_graph_tenant_to_uuid(workflow_tenant)
     if tenant_uuid and external_shipment_number:
-        shipments_row = ShipmentsService().get_by_shipment_number(
+        shipments_service = ShipmentsService()
+        shipments_row = shipments_service.get_by_shipment_number(
             tenant_id=tenant_uuid,
             shipment_number=external_shipment_number,
         )
@@ -142,7 +156,8 @@ async def listen_turvo_status(request: Request) -> Response:
 
     lifecycle_id = str(lifecycle.get("lifecycle_id") or "").strip()
     if lifecycle_id and tenant_uuid:
-        thread = CommunicationsService().resolve_thread_for_lifecycle(
+        communications_service = CommunicationsService()
+        thread = communications_service.resolve_thread_for_lifecycle(
             tenant_id=tenant_uuid,
             workflow_lifecycle_id=lifecycle_id,
         )
@@ -157,7 +172,8 @@ async def listen_turvo_status(request: Request) -> Response:
             )
 
     if tenant_uuid:
-        duplicate = PodLifecycleIngressService().check_route_completed_duplicate(
+        pod_lifecycle_ingress_service = PodLifecycleIngressService()
+        duplicate = pod_lifecycle_ingress_service.check_route_completed_duplicate(
             tenant_id=tenant_uuid,
             payload={
                 **payload,

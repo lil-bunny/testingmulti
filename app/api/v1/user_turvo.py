@@ -1,10 +1,11 @@
-"""Per-tenant Turvo Public API OAuth: authenticate and status (no raw tokens in responses)."""
+"""v1 per-tenant Turvo Public API OAuth: authenticate and status (no raw tokens in responses)."""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from app.api.deps import (
     get_tenant_slug,
@@ -14,37 +15,39 @@ from app.api.deps import (
 from app.core.logger import get_logger
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError
 from app.services.turvo_oauth_service import TurvoOAuthService
-from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/user/turvo", tags=["user-turvo"])
+router = APIRouter(prefix="/user/turvo", tags=["turvo"])
 logger = get_logger(__name__)
 
 
 class TurvoAuthenticateBody(BaseModel):
-    """Per-user Turvo credentials (historical field names: client_id = username, client_secret = password)."""
-
-    client_id: str = Field(min_length=1, description="Turvo username (per user)")
-    client_secret: str = Field(min_length=1, description="Turvo password (per user)")
+    client_id: str = Field(min_length=1, description="Turvo username")
+    client_secret: str = Field(min_length=1, description="Turvo password")
 
 
 class TurvoAuthenticateResponse(BaseModel):
-    success: bool = True
-    expires_in: Optional[int] = None
-    token_type: Optional[str] = None
+    success: bool = Field(True, description="Whether the request succeeded")
+    expires_in: Optional[int] = Field(None, description="Token lifetime in seconds")
+    token_type: Optional[str] = Field(None, description="Token type")
 
 
 class TurvoStatusResponse(BaseModel):
-    linked: bool
+    linked: bool = Field(..., description="Whether a Turvo account is linked")
 
 
 @router.post(
     "/authenticate",
     response_model=TurvoAuthenticateResponse,
     dependencies=[Depends(require_turvo_public_api_config)],
-    summary="Link Turvo account (password grant) and store tokens server-side",
+    summary="Link Turvo account",
+    responses={
+        400: {"description": "Bad request"},
+        401: {"description": "Unauthorized"},
+        503: {"description": "Service unavailable"},
+    },
 )
 async def turvo_authenticate(
-    body: TurvoAuthenticateBody,
+    body: Annotated[TurvoAuthenticateBody, Body()],
     tenant_slug: str = Depends(get_tenant_slug),
     service: TurvoOAuthService = Depends(get_turvo_oauth_service),
 ) -> TurvoAuthenticateResponse:
@@ -76,7 +79,11 @@ async def turvo_authenticate(
 @router.get(
     "/status",
     response_model=TurvoStatusResponse,
-    summary="Whether this tenant has Turvo credentials stored (no secrets)",
+    summary="Turvo link status",
+    responses={
+        400: {"description": "Bad request"},
+        500: {"description": "Internal server error"},
+    },
 )
 async def turvo_status(
     tenant_slug: str = Depends(get_tenant_slug),

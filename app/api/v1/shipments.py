@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Security, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import (
@@ -12,71 +12,58 @@ from app.api.deps import (
     get_tenant_slug_for_user,
     require_turvo_oauth_linked_for_slug,
 )
+from app.api.security import portal_bearer
 from app.core.logger import get_logger
 from app.domain.api_user import ApiUser
 from app.services.pod_manual_upload_ingress_service import (
     PodLifecycleNotFoundError,
     PodManualUploadIngressService,
 )
-from app.services.pod_review_acknowledge_service import PodReviewAcknowledgeService
-from app.services.pod_review_resolve_service import PodReviewResolveService
 from app.services.pod_tms_upload_service import (
     PodDocumentNotFoundError,
     PodTmsUploadService,
 )
 
-router = APIRouter(prefix="/shipments", tags=["shipments-v1"])
+router = APIRouter(prefix="/shipments", tags=["shipments"])
 logger = get_logger(__name__)
 
 
 class PodUploadQueuedResponse(BaseModel):
-    success: bool = True
-    shipment_id: str
-    execution_id: str
-    workflow_lifecycle_id: str
-    message: str
-    object_key: str | None = None
-    document_id: str | None = None
-    source: Literal["upload", "stored"] | None = None
-
-
-class PodReviewCommentRequest(BaseModel):
-    comment: str = Field(..., min_length=1, max_length=4000)
-
-
-class PodReviewAcknowledgeResponse(BaseModel):
-    success: bool = True
-    shipment_id: str
-    workflow_lifecycle_id: str
-    activity_log_id: str
-
-
-class PodReviewResolveResponse(BaseModel):
-    success: bool = True
-    shipment_id: str
-    workflow_lifecycle_id: str
-    activity_log_ids: list[str]
-    to_status: str
-    to_sub_status: str
+    success: bool = Field(True, description="Whether the request was accepted")
+    shipment_id: str = Field(..., description="Shipment identifier")
+    execution_id: str = Field(..., description="Async job identifier")
+    workflow_lifecycle_id: str = Field(..., description="Workflow lifecycle identifier")
+    message: str = Field(..., description="Status message")
+    object_key: str | None = Field(None, description="Stored file reference, if applicable")
+    document_id: str | None = Field(None, description="Document identifier, if applicable")
+    source: Literal["upload", "stored"] | None = Field(
+        None,
+        description="Whether the POD came from the request upload or existing storage",
+    )
 
 
 @router.post(
     "/{shipment_id}/upload_pod",
     response_model=PodUploadQueuedResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Queue POD processing workflow for a shipment",
-    description=(
-        "``shipment_id`` is ``shipments.id`` (UUID primary key), not Turvo shipment number. "
-        "Send a multipart PDF in ``file``, or omit ``file`` to queue TMS upload using the "
-        "stored POD ``documents`` row for this shipment."
-    ),
+    summary="Queue POD upload",
+    dependencies=[Security(portal_bearer)],
+    responses={
+        401: {"description": "Unauthorized"},
+        404: {"description": "Not found"},
+        422: {"description": "Unprocessable entity"},
+        503: {"description": "Service unavailable"},
+    },
 )
 async def upload_pod(
-    shipment_id: str,
+    shipment_id: Annotated[str, Path(description="Shipment identifier (UUID)")],
     user: Annotated[ApiUser, Depends(get_current_user)],
     tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
     _: Annotated[str, Depends(require_turvo_oauth_linked_for_slug)],
-    file: UploadFile | None = File(default=None),
+    file: Annotated[
+        UploadFile | None,
+        File(description="PDF proof of delivery"),
+    ] = None,
 ) -> PodUploadQueuedResponse:
     pdf_bytes: bytes | None = None
     filename: str | None = None
@@ -139,105 +126,4 @@ async def upload_pod(
         object_key=result.object_key,
         document_id=result.document_id,
         source=result.source,
-    )
-
-
-@router.post(
-    "/{shipment_id}/pod/acknowledge",
-    response_model=PodReviewAcknowledgeResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Acknowledge PoD review for a shipment",
-    description=(
-        "``shipment_id`` is ``shipments.id`` (UUID primary key), not Turvo shipment number."
-    ),
-)
-async def acknowledge_pod_review(
-    shipment_id: str,
-    body: PodReviewCommentRequest,
-    user: Annotated[ApiUser, Depends(get_current_user)],
-    tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
-) -> PodReviewAcknowledgeResponse:
-    try:
-        result = PodReviewAcknowledgeService().acknowledge(
-            tenant_slug=tenant_slug,
-            shipment_id=shipment_id.strip(),
-            comment=body.comment,
-            user=user,
-        )
-    except PodLifecycleNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e) or "pod_lifecycle not found for shipment",
-        ) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
-    except RuntimeError as e:
-        logger.exception(
-            "pod_review_acknowledge failed shipment_id=%s",
-            shipment_id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        ) from e
-
-    return PodReviewAcknowledgeResponse(
-        shipment_id=result.shipment_id,
-        workflow_lifecycle_id=result.workflow_lifecycle_id,
-        activity_log_id=result.activity_log_id,
-    )
-
-
-@router.post(
-    "/{shipment_id}/pod/resolve",
-    response_model=PodReviewResolveResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Resolve PoD review for a shipment",
-    description=(
-        "Marks PoD complete when uploaded outside the portal. "
-        "``shipment_id`` is ``shipments.id`` (UUID primary key), not Turvo shipment number."
-    ),
-)
-async def resolve_pod_review(
-    shipment_id: str,
-    body: PodReviewCommentRequest,
-    user: Annotated[ApiUser, Depends(get_current_user)],
-    tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
-) -> PodReviewResolveResponse:
-    try:
-        result = PodReviewResolveService().resolve(
-            tenant_slug=tenant_slug,
-            shipment_id=shipment_id.strip(),
-            comment=body.comment,
-            user=user,
-        )
-    except PodLifecycleNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e) or "pod_lifecycle not found for shipment",
-        ) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
-    except RuntimeError as e:
-        logger.exception(
-            "pod_review_resolve failed shipment_id=%s",
-            shipment_id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
-        ) from e
-
-    return PodReviewResolveResponse(
-        shipment_id=result.shipment_id,
-        workflow_lifecycle_id=result.workflow_lifecycle_id,
-        activity_log_ids=result.activity_log_ids,
-        to_status=result.to_status,
-        to_sub_status=result.to_sub_status,
     )

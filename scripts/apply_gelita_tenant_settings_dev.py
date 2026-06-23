@@ -4,8 +4,8 @@ Usage:
   uv run python scripts/apply_gelita_tenant_settings_dev.py
   uv run python scripts/apply_gelita_tenant_settings_dev.py --vendor-email you+test@example.com
 
-By default, vendor_email values come from the JSON fixture. Pass --vendor-email to
-override LTL and FTL send_tender_email vendor_email (repeatable for multiple addresses).
+By default, send_tender_email recipient values come from the JSON fixture. Pass --vendor-email to
+override LTL and FTL send_tender_email emails.to (repeatable for multiple addresses).
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=None,
         metavar="EMAIL",
-        help="Override LTL/FTL vendor_email (repeatable). Omit to keep fixture values.",
+        help="Override LTL/FTL send_tender_email emails.to (repeatable). Omit to keep fixture values.",
     )
     return parser.parse_args()
 
@@ -50,10 +50,10 @@ def main() -> None:
 
     vendor_overridden = bool(args.vendor_email)
     if vendor_overridden:
-        fixture["load_tendering"]["ltl"]["send_tender_email"]["vendor_email"] = (
+        fixture["load_tendering"]["ltl"]["send_tender_email"]["emails"]["to"] = (
             args.vendor_email
         )
-        fixture["load_tendering"]["ftl"]["send_tender_email"]["vendor_email"] = (
+        fixture["load_tendering"]["ftl"]["send_tender_email"]["emails"]["to"] = (
             args.vendor_email
         )
 
@@ -81,16 +81,16 @@ def main() -> None:
 
         print(f"DATABASE: {settings.DATABASE_NAME}")
         print(
-            "vendor_email source:",
+            "send_tender_email.to source:",
             "CLI override" if vendor_overridden else "fixture (no --vendor-email)",
         )
         print(
-            "vendor_email LTL:",
-            updated["load_tendering"]["ltl"]["send_tender_email"]["vendor_email"],
+            "send_tender_email.to LTL:",
+            updated["load_tendering"]["ltl"]["send_tender_email"]["emails"]["to"],
         )
         print(
-            "vendor_email FTL:",
-            updated["load_tendering"]["ftl"]["send_tender_email"]["vendor_email"],
+            "send_tender_email.to FTL:",
+            updated["load_tendering"]["ftl"]["send_tender_email"]["emails"]["to"],
         )
         print("has prompts:", "prompts" in updated)
         print(
