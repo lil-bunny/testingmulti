@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain.delivery_address import (
+    CUSTOMER_NAME_PLACEHOLDER,
+    CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
+    CUSTOMER_NAME_SOURCE_UNKNOWN,
     delivery_address_from_location_row,
+    is_unresolved_customer_name,
     resolve_delivery_address,
 )
 from app.domain.delivery_locations import DeliveryLocationsIndex
@@ -138,3 +144,40 @@ def test_resolve_delivery_address_threads_state_resolver_through() -> None:
     )
     assert out is not None
     assert out["state"] == "IA"
+
+
+@pytest.mark.parametrize(
+    ("tender", "expected"),
+    [
+        (
+            {
+                "customer_name": CUSTOMER_NAME_PLACEHOLDER,
+                "metadata": {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN},
+            },
+            True,
+        ),
+        (
+            {
+                "customer_name": CUSTOMER_NAME_PLACEHOLDER,
+                "metadata": {},
+            },
+            True,
+        ),
+        (
+            {
+                "customer_name": "MERICAL",
+                "metadata": {"customer_name_source": CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION},
+            },
+            False,
+        ),
+        (
+            {
+                "customer_name": "MERICAL",
+                "metadata": {"customer_name_source": CUSTOMER_NAME_SOURCE_UNKNOWN},
+            },
+            True,
+        ),
+    ],
+)
+def test_is_unresolved_customer_name(tender: dict, expected: bool) -> None:
+    assert is_unresolved_customer_name(tender) is expected

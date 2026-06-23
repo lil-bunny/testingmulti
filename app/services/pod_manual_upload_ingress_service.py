@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from app.core.logger import get_logger
 from app.models.tenants import TenantSlug
@@ -25,6 +25,7 @@ class PodManualUploadEnqueueResult:
     object_key: str
     document_id: str | None
     celery_task_id: str | None
+    source: Literal["upload", "stored"]
 
 
 class PodManualUploadIngressService:
@@ -40,7 +41,7 @@ class PodManualUploadIngressService:
         *,
         tenant_slug: str,
         shipment_id: str,
-        pdf_bytes: bytes,
+        pdf_bytes: bytes | None = None,
         filename: str | None = None,
         uploaded_by: str | None = None,
         uploaded_by_user_id: str | None = None,
@@ -49,12 +50,23 @@ class PodManualUploadIngressService:
             tenant_slug=tenant_slug,
             shipment_id=shipment_id,
         )
-        staged = self._staging.stage_pod_attachment(
-            pdf_bytes=pdf_bytes,
-            shipment_id=resolution.shipment_number,
-            shipments_row_id=resolution.shipments_row_id,
-            filename=filename,
-        )
+        if pdf_bytes is not None:
+            staged = self._staging.stage_pod_attachment(
+                pdf_bytes=pdf_bytes,
+                shipment_id=resolution.shipment_number,
+                shipments_row_id=resolution.shipments_row_id,
+                filename=filename,
+            )
+            object_key = staged.object_key
+            document_id = staged.document_id
+            source: Literal["upload", "stored"] = "upload"
+        else:
+            stored = self._staging.resolve_stored_pod_document(
+                shipments_row_id=resolution.shipments_row_id,
+            )
+            object_key = stored.storage_key
+            document_id = stored.document_id
+            source = "stored"
 
         execution_id = str(uuid.uuid4())
         payload: dict[str, Any] = {
@@ -63,15 +75,15 @@ class PodManualUploadIngressService:
             "shipment_id": resolution.shipment_number,
             "shipments_row_id": resolution.shipments_row_id,
             "workflow_lifecycle_id": resolution.workflow_lifecycle_id,
-            "pod_object_keys": [staged.object_key],
+            "pod_object_keys": [object_key],
             "execution_id": execution_id,
         }
         if uploaded_by:
             payload["uploaded_by"] = uploaded_by
         if uploaded_by_user_id:
             payload["uploaded_by_user_id"] = uploaded_by_user_id
-        if staged.document_id:
-            payload["manual_pod_document_id"] = staged.document_id
+        if document_id:
+            payload["manual_pod_document_id"] = document_id
 
         from app.tasks.workflows import run_workflow_async
 
@@ -93,9 +105,10 @@ class PodManualUploadIngressService:
             execution_id=execution_id,
             workflow_lifecycle_id=resolution.workflow_lifecycle_id,
             shipment_id=resolution.shipments_row_id,
-            object_key=staged.object_key,
-            document_id=staged.document_id,
+            object_key=object_key,
+            document_id=document_id,
             celery_task_id=task.id,
+            source=source,
         )
 
 

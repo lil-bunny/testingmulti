@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.core.logger import get_logger
 from app.domain.error_catalog import BusinessError
 from app.domain.load_tendering_settings import (
@@ -11,24 +9,31 @@ from app.domain.load_tendering_settings import (
     gelita_send_tender_email_settings,
     is_ftl_load_type,
 )
-from app.domain.load_tendering_state import get_tender, get_tender_products, load_type_from_data
-from app.exceptions import WorkflowException
+from app.domain.ingest_source_fields import delivery_gap_context
+from app.domain.load_tendering_state import (
+    get_tender,
+    get_tender_products,
+    load_type_from_data,
+)
+from app.domain.load_tendering_tender_rows import parse_tender_date
+from app.domain.tender_business_warnings import (
+    format_reason_for_failure_html,
+    get_tender_business_warnings,
+)
 from app.tools.email import send_email
 from app.tools.tender_email import (
     build_ftl_tender_email_from_tender,
     build_ltl_tender_email_from_tender,
+    is_missing_address_value,
 )
 from app.workflows.utils.decorators import safe_node
+from app.workflows.utils.gelita_soft_fail import record_business_gap_or_raise
 
 logger = get_logger(__name__)
 
 
 class SendTenderEmailError(Exception):
     """``send_tender_email`` failed; raised to terminate the workflow run."""
-
-
-def _missing_address(value: Any) -> bool:
-    return not str(value or "").strip()
 
 
 @safe_node
@@ -44,17 +49,27 @@ def send_tender_email(state):
         raise SendTenderEmailError(msg)
 
     merged = action_settings(state, "send_tender_email", load_type=load_type)
-    account_id = str(merged.get("ana_gelita_at_freightx_ai_account_id") or "").strip()
+    account_id = str(merged.get("ana_at_gelita_account_id") or "").strip()
     if not account_id:
         msg = "missing_sender_account_id"
         logger.error("send_tender_email: %s", msg)
         raise SendTenderEmailError(msg)
 
     tender = dict(get_tender(state.data) or {})
-    if _missing_address(tender.get("pickup_address")):
-        raise WorkflowException(BusinessError.MISSING_PICKUP_ADDRESS)
-    if _missing_address(tender.get("delivery_address")):
-        raise WorkflowException(BusinessError.MISSING_DELIVERY_ADDRESS)
+    if parse_tender_date(tender.get("delivery_date")) is None:
+        record_business_gap_or_raise(state.data, BusinessError.MISSING_DELIVERY_DATE)
+        tender["delivery_date"] = "Missing delivery date"
+    if is_missing_address_value(tender.get("pickup_address")):
+        record_business_gap_or_raise(state.data, BusinessError.MISSING_PICKUP_ADDRESS)
+        tender["pickup_address"] = ""
+    if is_missing_address_value(tender.get("delivery_address")):
+        delivery_ctx = delivery_gap_context(tender, state.data)
+        record_business_gap_or_raise(
+            state.data,
+            BusinessError.MISSING_DELIVERY_ADDRESS,
+            **delivery_ctx,
+        )
+        tender["delivery_address"] = ""
 
     if not get_tender_products(tender):
         msg = f"missing tender_products for tender_id={state.data.get('tender_id')}"
@@ -77,11 +92,25 @@ def send_tender_email(state):
         logger.error("send_tender_email: %s", msg)
         raise SendTenderEmailError(msg)
 
+    reason_for_failure = format_reason_for_failure_html(
+        get_tender_business_warnings(state.data)
+    )
+
     recipients = email_cfg.recipients()
     if ftl:
-        built = build_ftl_tender_email_from_tender(tender, template, subject_template)
+        built = build_ftl_tender_email_from_tender(
+            tender,
+            template,
+            subject_template,
+            reason_for_failure=reason_for_failure,
+        )
     else:
-        built = build_ltl_tender_email_from_tender(tender, template, subject_template)
+        built = build_ltl_tender_email_from_tender(
+            tender,
+            template,
+            subject_template,
+            reason_for_failure=reason_for_failure,
+        )
 
     run_id = str(state.execution_id or "").strip() or None
     result = send_email(

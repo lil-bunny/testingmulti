@@ -387,7 +387,6 @@ def _integration_skip(msg: str) -> None:
 def _default_workflow_tenant_id() -> str:
     """Match ``listen_turvo_status`` when ``X-Workflow-Tenant-Id`` is omitted."""
     for candidate in (
-        (settings.TURVO_WEBHOOK_WORKFLOW_TENANT_ID or "").strip() or None,
         (settings.STUDIO_TENANT_SLUG or "").strip() or None,
     ):
         if candidate:

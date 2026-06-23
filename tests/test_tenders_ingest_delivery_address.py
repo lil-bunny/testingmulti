@@ -78,6 +78,8 @@ def test_ingest_attaches_delivery_address_from_projected_code(
     assert batch[0]["delivery_address"]["city"] == "SIOUX CITY"
     assert batch[0]["delivery_address"]["postal_code"] == "51105"
     assert batch[0]["delivery_address"]["state"] == "IA"
+    assert batch[0]["metadata"]["source"] == {"delivery_address_code": "41000100"}
+    assert batch[0]["metadata"]["customer_name_source"] == "unknown"
 
 
 def test_ingest_delivery_address_state_falls_back_to_empty_when_lookup_returns_none(
@@ -151,3 +153,4 @@ def test_ingest_delivery_address_null_when_index_unavailable() -> None:
     )
     batch = repo.insert_batch.call_args[0][0]
     assert batch[0]["delivery_address"] is None
+    assert batch[0]["metadata"]["source"] == {"delivery_address_code": "41000100"}

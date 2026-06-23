@@ -102,8 +102,8 @@
     "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
     "driver_assignment.driver_details": "driver-details-extract:staging"
   },
-  "mikey_account_id": "oizK1OAzTyqJJJ6VySWEDw",
+  "mikey_account_id": "W7Xyw8gLT2mvog37VsGHZQ",
   "inbound_routing_emails": [
-    ""
+    "deb@freightx.ai"
   ]
 }

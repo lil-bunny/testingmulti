@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
+from app.domain.ingest_source_fields import source_pack_code
 
 
 class TenderProductsRepository:
@@ -98,6 +99,7 @@ class TenderProductsRepository:
                     "price_per_unit": self._to_decimal(row[4]),
                     "pack_code_id": str(row[5]) if row[5] else None,
                     "metadata": metadata,
+                    "source_pack_code": source_pack_code({"metadata": metadata}),
                     "pack_code": row[7] or "",
                     "pack_code_description": desc,
                     "pack_code_name": desc,

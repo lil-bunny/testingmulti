@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.config import settings
+from app.core.db import db_scope
 from app.core.logger import get_logger
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.attachment_normalizer import pod_individual_attachment_filename
@@ -23,6 +24,16 @@ MAX_POD_PDF_BYTES = 25 * 1024 * 1024
 
 class PodLifecycleNotFoundError(Exception):
     """Raised when no ``pod_lifecycle`` row exists for the shipment."""
+
+
+class PodDocumentNotFoundError(Exception):
+    """Raised when no ``documents`` POD row exists for the shipment."""
+
+
+@dataclass(frozen=True)
+class StoredPodDocument:
+    storage_key: str
+    document_id: str
 
 
 @dataclass(frozen=True)
@@ -112,6 +123,34 @@ class PodTmsUploadService:
             shipment_number=shipment_number,
             shipments_row_id=ship_uuid,
             workflow_lifecycle_id=str(lc["lifecycle_id"]),
+        )
+
+    def resolve_stored_pod_document(
+        self,
+        *,
+        shipments_row_id: str,
+    ) -> StoredPodDocument:
+        """Load the latest ``documents`` POD row for ``shipments.id``."""
+        ship_uuid = self._clean(shipments_row_id)
+        if not ship_uuid:
+            raise ValueError("shipments_row_id is required")
+
+        with db_scope() as repos:
+            row = repos.documents.find_latest_by_shipment_and_type(
+                shipment_id=ship_uuid,
+                doc_type="pod",
+            )
+        if not row:
+            raise PodDocumentNotFoundError("No POD document on file for shipment")
+
+        storage_key = self._clean(row.get("storage_key"))
+        document_id = self._clean(row.get("id"))
+        if not storage_key or not document_id:
+            raise PodDocumentNotFoundError("No POD document on file for shipment")
+
+        return StoredPodDocument(
+            storage_key=storage_key,
+            document_id=document_id,
         )
 
     def stage_pod_attachment(

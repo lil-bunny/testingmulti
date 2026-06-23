@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.domain.tenant_settings.gelita import (
+    GelitaDomesticDeliverySettings,
     GelitaEscalateTenderSettings,
     GelitaSendTenderEmailSettings,
     GelitaTenderCalculateSettings,
@@ -18,13 +19,8 @@ from app.domain.state import workflow_state_data
 LOAD_TENDERING_SETTINGS_KEY = "load_tendering"
 _LOAD_TYPE_BUCKETS = frozenset({"ltl", "ftl"})
 
-# Fixed Unipile senders for Gelita — live at ``tenants.settings`` root (not per ltl/ftl).
-_SHARED_UNIPILE_ACCOUNT_KEYS = frozenset(
-    {
-        "ana_at_gelita_account_id",
-        "ana_gelita_at_freightx_ai_account_id",
-    }
-)
+# Fixed Unipile sender for Gelita — lives at ``tenants.settings`` root (not per ltl/ftl).
+_SHARED_UNIPILE_ACCOUNT_KEYS = frozenset({"ana_at_gelita_account_id"})
 
 
 def tenant_settings_root(state_or_data: Any) -> dict[str, Any]:
@@ -57,7 +53,7 @@ def load_tendering_settings_root(state_or_data: Any) -> dict[str, Any]:
 
 def shared_unipile_account_settings(state_or_data: Any) -> dict[str, Any]:
     """
-    Gelita-wide Unipile account ids (two fixed senders).
+    Gelita-wide Unipile account id.
 
     Read from ``tenants.settings`` root, with optional override under
     ``load_tendering`` for the same keys.
@@ -228,5 +224,16 @@ def gelita_tender_calculate_settings(
     cfg = action_settings(state_or_data, "tender_calculate")
     try:
         return GelitaTenderCalculateSettings.model_validate(cfg)
+    except ValidationError:
+        return None
+
+
+def gelita_domestic_delivery_settings(
+    state_or_data: Any,
+) -> GelitaDomesticDeliverySettings | None:
+    """Parse ``domestic_delivery`` block for Gelita; ``None`` if validation fails."""
+    block = load_tendering_settings_root(state_or_data).get("domestic_delivery")
+    try:
+        return GelitaDomesticDeliverySettings.model_validate(block)
     except ValidationError:
         return None

@@ -22,7 +22,21 @@ def _row(*, order_number: str, order_position: int, product_name: str = "Widget"
     }
 
 
+def _ingest_service(repo: MagicMock, products: MagicMock) -> TendersIngestService:
+    locations = MagicMock()
+    locations.index_for_ingest_run.return_value = {}
+    pack_codes = MagicMock()
+    pack_codes.active_pack_code_id_index.return_value = {}
+    return TendersIngestService(
+        repository=repo,
+        tender_products_repository=products,
+        delivery_locations=locations,
+        pack_codes_repository=pack_codes,
+    )
+
+
 def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id() -> None:
+    """Two lines with the same order number in one file share one insert and tender id."""
     repo = MagicMock()
     products = MagicMock()
     products.existing_line_keys.return_value = set()
@@ -34,17 +48,7 @@ def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id() -> N
         ),
     ]
 
-    locations = MagicMock()
-    locations.index_for_ingest_run.return_value = {}
-    pack_codes = MagicMock()
-    pack_codes.active_pack_code_id_index.return_value = {}
-
-    svc = TendersIngestService(
-        repository=repo,
-        tender_products_repository=products,
-        delivery_locations=locations,
-        pack_codes_repository=pack_codes,
-    )
+    svc = _ingest_service(repo, products)
     ids = svc.persist_from_projected_rows(
         tenant_id=TENANT_UUID,
         data_import_id=DATA_IMPORT_UUID,
@@ -63,29 +67,20 @@ def test_duplicate_order_numbers_in_import_share_one_insert_and_tender_id() -> N
     assert len(products.insert_batch.call_args[0][0]) == 3
 
 
-def test_existing_order_in_tenders_returns_none_for_workflow_enqueue() -> None:
+def test_order_rollover_enqueues_workflow_when_order_number_reappears() -> None:
+    """Re-imported order numbers return tender ids for workflow enqueue (no skip-on-existing)."""
     repo = MagicMock()
     products = MagicMock()
     products.existing_line_keys.return_value = set()
     repo.insert_batch.return_value = [
-        TenderInsertResult(tender_id=TENDER_UUID, created=False),
+        TenderInsertResult(tender_id=TENDER_UUID, created=True),
         TenderInsertResult(
             tender_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
             created=True,
         ),
     ]
 
-    locations = MagicMock()
-    locations.index_for_ingest_run.return_value = {}
-    pack_codes = MagicMock()
-    pack_codes.active_pack_code_id_index.return_value = {}
-
-    svc = TendersIngestService(
-        repository=repo,
-        tender_products_repository=products,
-        delivery_locations=locations,
-        pack_codes_repository=pack_codes,
-    )
+    svc = _ingest_service(repo, products)
     ids = svc.persist_from_projected_rows(
         tenant_id=TENANT_UUID,
         data_import_id=DATA_IMPORT_UUID,
@@ -95,4 +90,4 @@ def test_existing_order_in_tenders_returns_none_for_workflow_enqueue() -> None:
         ],
     )
 
-    assert ids == [None, "dddddddd-dddd-dddd-dddd-dddddddddddd"]
+    assert ids == [TENDER_UUID, "dddddddd-dddd-dddd-dddd-dddddddddddd"]

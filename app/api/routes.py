@@ -30,7 +30,6 @@ from app.tasks.workflows import run_workflow_async
 router = APIRouter()
 logger = get_logger(__name__)
 
-WEBHOOK_HANDLER_VERSION = "v2-request-no-query-tenant"
 TURVO_ROUTE_GATE_WORKFLOW = "ratecon"
 LISTEN_TURVO_WORKFLOW_NAME = "pod_lifecycle"
 
@@ -38,11 +37,10 @@ LISTEN_TURVO_WORKFLOW_NAME = "pod_lifecycle"
 def _resolve_workflow_tenant_id(override: Optional[str]) -> str:
     """
     Webhooks (e.g. Turvo) often cannot send custom query params. Precedence: optional
-    X-Workflow-Tenant-Id header, then TURVO_WEBHOOK_WORKFLOW_TENANT_ID, then STUDIO_TENANT_SLUG.
+    X-Workflow-Tenant-Id header, then STUDIO_TENANT_SLUG.
     """
     for candidate in (
         (override or "").strip() or None,
-        (settings.TURVO_WEBHOOK_WORKFLOW_TENANT_ID or "").strip() or None,
         (settings.STUDIO_TENANT_SLUG or "").strip() or None,
     ):
         if candidate:
@@ -104,7 +102,7 @@ async def webhook_email(request: Request):
                 "schema": {"type": "string"},
                 "description": (
                     "Optional workflow tenant key (e.g. t3ra). "
-                    "Else TURVO_WEBHOOK_WORKFLOW_TENANT_ID, STUDIO_TENANT_SLUG, or t3ra."
+                    "Else STUDIO_TENANT_SLUG, or t3ra."
                 ),
             }
         ]
@@ -221,17 +219,7 @@ async def listen_turvo_status(request: Request) -> Response:
                 "payload": queued_payload,
             }
         )
-        logger.info(
-            "Turvo webhook queued task_id=%s execution_id=%s workflow_name=%s "
-            "tenant_slug=%s shipment_id=%s shipments_row_id=%s thread_id=%s",
-            task.id,
-            execution_id,
-            LISTEN_TURVO_WORKFLOW_NAME,
-            workflow_tenant,
-            payload.get("shipment_id"),
-            lifecycle_shipment_uuid,
-            payload.get("thread_id"),
-        )
+        logger.info("Turvo webhook queued task_id=%s", task.id)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"execution_id": execution_id},

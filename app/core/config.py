@@ -51,7 +51,6 @@ class Settings(BaseSettings):
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
     STUDIO_TENANT_SLUG: str = TenantSlug.T3RA
-    TURVO_WEBHOOK_WORKFLOW_TENANT_ID: Optional[str] = None
 
     # Turvo
     TURVO_X_API_KEY: Optional[str] = None

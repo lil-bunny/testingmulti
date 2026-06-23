@@ -23,6 +23,15 @@ class ReminderVariantSteps(BaseModel):
     steps: list[ReminderStepSpec] = Field(min_length=1)
 
 
+class DeliveryCutoffSpec(BaseModel):
+    """Skip reminder/escalation runs on or after this wall time on ``tenders.delivery_date``."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    local_time: str = "13:00"
+    timezone: str = "America/Chicago"
+
+
 class WorkflowRemindersConfig(BaseModel):
     """
     ``tenant_settings.<workflow_subkey>.reminders`` — schedule + optional email copy.
@@ -47,6 +56,7 @@ class WorkflowRemindersConfig(BaseModel):
     default_body: str | None = None
     subject_templates: dict[str, str] | None = None
     payload_keys: list[str] | None = None
+    delivery_cutoff: DeliveryCutoffSpec | None = None
 
     def resolve_email_body(self) -> str | None:
         """HTML/plain body for reminder emails; ``email_template_html`` wins over ``default_body``."""

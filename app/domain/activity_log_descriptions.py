@@ -50,7 +50,6 @@ from app.domain.activity_log_constants import (
     POD_ALREADY_ON_TMS_ACTION,
     POD_REVIEW_ACKNOWLEDGED_ACTION,
 )
-from app.domain.error_catalog import error_description
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 
@@ -80,7 +79,7 @@ def generate_activity_log_description(
 
     ``STATUS_CHANGE``: status line only (sub-status columns may still differ).
     ``SUB_STATUS_CHANGE``: sub-status line only.
-    ``ACTION``: no template — callers supply narrative text.
+    ``ACTION`` / ``EXCEPTION``: no template — callers supply narrative text.
     """
     if activity_type == ActivityType.STATUS_CHANGE:
         if from_status == to_status:
@@ -153,14 +152,6 @@ def format_reminder_sent_action(*, step: int) -> str:
 
 def format_escalation_sent_action() -> str:
     return ESCALATION_SENT_ACTION
-
-
-def format_workflow_error_alert_sent_action(*, error_code: str) -> str:
-    """Human-readable action text for one successful error alert delivery."""
-    catalog_text = error_description(error_code)
-    if catalog_text:
-        return catalog_text
-    return (error_code or "unknown").replace("_", " ").strip().title()
 
 
 def format_ratecon_received_action() -> str:

@@ -9,12 +9,21 @@ from typing import Any
 
 from app.models.weight_unit import WeightUnit
 
+_MISSING_LABEL_STYLE = "color: red;"
+
+
+def _field_label(label: str, *, missing: bool) -> str:
+    if missing:
+        return f'<span style="{_MISSING_LABEL_STYLE}">{escape(label)}</span>'
+    return escape(label)
+
 __all__ = [
     "TenderEmailBuildInput",
     "build_tender_email_input_from_tender",
     "format_tender_email_subject",
     "build_ltl_tender_email_from_tender",
     "build_ftl_tender_email_from_tender",
+    "is_missing_address_value",
 ]
 
 
@@ -28,7 +37,7 @@ class TenderEmailProductLine:
     qty_per_unit: str
     weight_unit: str
     pallets_count: str
-    pallet_dims: str
+    unit_dims: str
     gross_weight_lbs: str
     price: str
 
@@ -67,6 +76,26 @@ def _html_address_block(text: str) -> str:
     )
 
 
+def is_missing_address_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, dict):
+        return not any(
+            str(value.get(key) or "").strip()
+            for key in ("name", "address1", "city", "postal_code")
+        )
+    text = str(value).strip()
+    if not text:
+        return True
+    return text.lower().startswith("missing ")
+
+
+def _address_html(value: Any) -> str:
+    if is_missing_address_value(value):
+        return ""
+    return _html_address_block(value or "")
+
+
 def _str_field(data: dict[str, Any], key: str) -> str:
     raw = data.get(key)
     if raw is None:
@@ -96,7 +125,7 @@ def _product_lines_from_payload(
                 qty_per_unit=_str_field(row, "qty_per_unit"),
                 weight_unit=_str_field(row, "weight_unit") or WeightUnit.KG.value,
                 pallets_count=_str_field(row, "pallets_count"),
-                pallet_dims=_str_field(row, "pallet_dims"),
+                unit_dims=_str_field(row, "unit_dims"),
                 gross_weight_lbs=_str_field(row, "gross_weight_lbs"),
                 price=_format_price(row.get("product_value")),
             )
@@ -125,8 +154,8 @@ def build_tender_email_input_from_tender(tender: dict[str, Any]) -> TenderEmailB
         ship_date=_str_field(tender, "ship_date"),
         delivery_date=_str_field(tender, "delivery_date"),
         order_value=order_value,
-        pickup_address=_html_address_block(tender.get("pickup_address") or ""),
-        delivery_address=_html_address_block(tender.get("delivery_address") or ""),
+        pickup_address=_address_html(tender.get("pickup_address")),
+        delivery_address=_address_html(tender.get("delivery_address")),
         pieces_count=pieces,
         pallets_count=pallets,
         gross_weight_lbs=gross,
@@ -193,14 +222,14 @@ def _ceil_weight_display(value: str) -> str:
 def _format_gross_weight_lbs(value: str) -> str:
     weight = _ceil_weight_display(value)
     if not weight:
-        return ""
+        return f"{_field_label('Gross weight:', missing=True)} "
     return f"Gross weight: ~{weight} pounds"
 
 
 def _format_order_value(value: str) -> str:
     raw = value.strip()
     if not raw:
-        return ""
+        return f"{_field_label('Value:', missing=True)} "
     parsed = _parse_numeric_field(raw)
     if parsed is not None:
         return f"Value: {parsed:,.2f}"
@@ -218,12 +247,15 @@ def _combined_order_value_line(
 
 
 def _format_bags_line(line: TenderEmailProductLine) -> str:
-    if not line.pieces_count:
-        return ""
+    pieces_missing = not line.pieces_count
+    qty_missing = not line.qty_per_unit.strip()
+    label = _field_label("Pieces:", missing=pieces_missing or qty_missing)
+    if pieces_missing:
+        return f"{label} "
     unit = WeightUnit.parse(line.weight_unit) or WeightUnit.KG
     qty_raw = line.qty_per_unit.strip()
     if not qty_raw:
-        return f"Pieces: {line.pieces_count} bags"
+        return f"{label} {line.pieces_count} bags @ "
     try:
         qty_dec = Decimal(qty_raw.replace(",", ""))
         qty_str = (
@@ -237,13 +269,19 @@ def _format_bags_line(line: TenderEmailProductLine) -> str:
 
 
 def _format_pallets_line(line: TenderEmailProductLine) -> str:
-    if not line.pallets_count:
-        return ""
+    pallets_missing = not line.pallets_count
+    dims_missing = not line.unit_dims.strip()
+    label = _field_label(
+        "Number of pallets:",
+        missing=pallets_missing or dims_missing,
+    )
+    if pallets_missing:
+        return f"{label} "
     count = line.pallets_count.strip()
-    dims = line.pallet_dims.strip()
+    dims = line.unit_dims.strip()
     if dims:
         return f"Number of pallets: {count} pallets ~ {escape(dims)}"
-    return f"Number of pallets: {count}"
+    return f"{label} {count} pallets ~ "
 
 
 def _combined_gross_weight_line(
@@ -255,6 +293,8 @@ def _combined_gross_weight_line(
     gross = order_gross_weight_lbs.strip() or _sum_product_field(
         products, "gross_weight_lbs"
     )
+    if products and any(not line.gross_weight_lbs for line in products):
+        gross = ""
     return _format_gross_weight_lbs(gross)
 
 
@@ -273,7 +313,7 @@ def _product_block_lines(
         rows.append(pallets_line)
     if line.product_name:
         rows.append(f"Product: {escape(line.product_name)}")
-    if include_value and line.price:
+    if include_value:
         rows.append(f"Value: {line.price}")
     return "<br />".join(rows)
 
@@ -291,6 +331,12 @@ def _combine_product_lines(
         if summed:
             return summed
         return getattr(lines[0], field)
+
+    def first_unless_any_missing(lines: list[TenderEmailProductLine], field: str) -> str:
+        values = [str(getattr(line, field) or "").strip() for line in lines]
+        if any(not value for value in values):
+            return ""
+        return values[0]
 
     combined: list[TenderEmailProductLine] = []
     groups: dict[str, list[TenderEmailProductLine]] = {}
@@ -313,10 +359,10 @@ def _combine_product_lines(
             product_name=first.product_name,
             pack_code=first.pack_code,
             pieces_count=sum_field(groups[key], "pieces_count"),
-            qty_per_unit=first.qty_per_unit,
+            qty_per_unit=first_unless_any_missing(groups[key], "qty_per_unit"),
             weight_unit=first.weight_unit,
             pallets_count=sum_field(groups[key], "pallets_count"),
-            pallet_dims=first.pallet_dims,
+            unit_dims=first_unless_any_missing(groups[key], "unit_dims"),
             gross_weight_lbs=sum_field(groups[key], "gross_weight_lbs"),
             price=sum_field(groups[key], "price", money=True),
         )
@@ -406,10 +452,24 @@ def format_tender_email_subject(subject_template: str, ctx: TenderEmailBuildInpu
     return subject_template.format(**data)
 
 
+def _address_headers(tender: dict[str, Any]) -> dict[str, str]:
+    def header(label: str, field: str) -> str:
+        if is_missing_address_value(tender.get(field)):
+            return _field_label(label, missing=True)
+        return f"<strong>{escape(label)}</strong>"
+
+    return {
+        "pickup_address_header": header("Pickup address:", "pickup_address"),
+        "delivery_to_header": header("Deliver to:", "delivery_address"),
+    }
+
+
 def build_ltl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
     subject_template: str,
+    *,
+    reason_for_failure: str = "",
 ) -> dict[str, str]:
     """Fill LTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -422,9 +482,11 @@ def build_ltl_tender_email_from_tender(
         order_number=ctx.order_number,
         customer_po=ctx.customer_po,
         ship_date=ctx.ship_date,
+        **_address_headers(tender),
         pickup_address=ctx.pickup_address,
         delivery_address=ctx.delivery_address,
         products_block=products_block,
+        reason_for_failure=reason_for_failure,
     )
 
     subject = format_tender_email_subject(subject_template, ctx)
@@ -435,6 +497,8 @@ def build_ftl_tender_email_from_tender(
     tender: dict[str, Any],
     template: str,
     subject_template: str,
+    *,
+    reason_for_failure: str = "",
 ) -> dict[str, str]:
     """Fill FTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -444,13 +508,16 @@ def build_ftl_tender_email_from_tender(
         order_value=ctx.order_value,
     )
 
+    headers = _address_headers(tender)
     body_html = template.format(
         order_number=ctx.order_number,
         customer_po=ctx.customer_po,
         ship_date=ctx.ship_date,
         delivery_date=ctx.delivery_date,
+        delivery_to_header=headers["delivery_to_header"],
         delivery_address=ctx.delivery_address,
         products_block=products_block,
+        reason_for_failure=reason_for_failure,
     )
 
     subject = format_tender_email_subject(subject_template, ctx)

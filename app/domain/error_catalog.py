@@ -52,33 +52,54 @@ class BusinessError(_CatalogError):
 
     CATEGORY = ErrorCategory.BUSINESS
 
-    MISSING_TENANT_ID = ("missing_tenant_id", "Tenant id is missing")
-    MISSING_TENDER_ID = ("missing_tender_id", "Tender id is missing")
-    TENDER_NOT_FOUND = ("tender_not_found", "Tender not found")
-    MISSING_PRODUCT_LINES = ("missing_product_lines", "No Tender Products Founds")
-    MISSING_PACK_CODE = ("missing_pack_code", "Product pack code is required")
+    MISSING_TENANT_ID = ("missing_tenant_id", "Tenant ID is missing.")
+    MISSING_TENDER_ID = ("missing_tender_id", "Tender ID is missing.")
+    TENDER_NOT_FOUND = ("tender_not_found", "Tender not found.")
+    MISSING_PRODUCT_LINES = ("missing_product_lines", "No tender products found.")
+    MISSING_PACK_CODE = (
+        "missing_pack_code",
+        "Product Pack code {pack_code} is not found in sheet.",
+    )
     MISSING_DELIVERY_ADDRESS = (
         "missing_delivery_address",
-        "Delivery address could not be resolved from delivery location code",
+        "Delivery address is not found for delivery location code {del_code}.",
     )
-    MISSING_QTY_PER_UNIT = ("missing_qty_per_unit", "PackCode Qty Per Unit is missing")
-    MISSING_TOTAL_QTY = ("missing_total_qty", "PackCode Total Quantity is missing")
-    MISSING_PALLET_DIMS = ("missing_pallet_dims", "PackCode Pallet Dimension is missing")
-    MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required")
+    MISSING_CUSTOMER_NAME = (
+        "missing_customer_name",
+        "Customer name is not found from delivery location code {del_code}.",
+    )
+    MISSING_QTY_PER_UNIT = (
+        "missing_qty_per_unit",
+        "Pack code {pack_code} quantity per unit is missing.",
+    )
+    MISSING_TOTAL_QTY = (
+        "missing_total_qty",
+        "Pack code {pack_code} total quantity is missing.",
+    )
+    MISSING_UNIT_DIMS = (
+        "missing_unit_dims",
+        "Pack code {pack_code} unit dimensions are missing.",
+    )
+    MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required.")
     # POD lifecycle
     POD_ATTACHMENT_UPLOAD_FAILED = (
         "pod_attachment_upload_failed",
-        "POD attachment normalization did not produce a merged PDF",
+        "POD attachment normalization did not produce a merged PDF.",
     )
     POD_EXTRACTION_EMPTY = (
         "pod_extraction_empty",
-        "POD LLM extraction returned no usable data",
+        "POD LLM extraction returned no usable data.",
     )
     RATECON_EXTRACTION_EMPTY = (
         "ratecon_extraction_empty",
-        "Ratecon LLM extraction returned no usable data",
+        "Ratecon LLM extraction returned no usable data.",
     )
-    MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required")
+    MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required.")
+    MISSING_DELIVERY_DATE = ("missing_delivery_date", "Delivery date is required.")
+    INTERNATIONAL_DELIVERY_SKIPPED = (
+        "international_delivery_skipped",
+        "International (overseas) shipments are skipped",
+    )
 
 
 class IntegrationError(_CatalogError):
@@ -86,17 +107,17 @@ class IntegrationError(_CatalogError):
 
     CATEGORY = ErrorCategory.INTEGRATION
 
-    VENDOR_API_TIMEOUT = ("vendor_api_timeout", "API request timed out")
-    VENDOR_API_ERROR = ("vendor_api_error", "API request failed")
-    EMAIL_SEND_FAILED = ("email_send_failed", "Failed to send email")
+    VENDOR_API_TIMEOUT = ("vendor_api_timeout", "API request timed out.")
+    VENDOR_API_ERROR = ("vendor_api_error", "API request failed.")
+    EMAIL_SEND_FAILED = ("email_send_failed", "Failed to send email.")
     # POD lifecycle
     POD_S3_DOWNLOAD_FAILED = (
         "pod_s3_download_failed",
-        "S3 download failed during POD or ratecon PDF fetch",
+        "PDF download failed during POD or Ratecon PDF fetch.",
     )
     TMS_POD_UPLOAD_FAILED = (
         "tms_pod_upload_failed",
-        "Turvo POD upload failed",
+        "Turvo POD upload failed.",
     )
 
 
@@ -107,24 +128,28 @@ class SystemError(_CatalogError):
 
     MISSING_TENANT_SETTINGS_PALLET_PROFILES = (
         "missing_tenant_settings_pallet_profiles",
-        "Tenant setting pallet_profiles is required",
+        "Pallet Profiles is missing from config.",
+    )
+    MISSING_TENANT_SETTINGS_DOMESTIC_DELIVERY = (
+        "missing_tenant_settings_domestic_delivery",
+        "Tenant setting 'domestic_delivery' is required.",
     )
     UNKNOWN_PACK_CODE_PALLET_TYPE = (
         "unknown_pack_code_pallet_type",
-        "pack_codes.pallet_type is missing or not configured in tenant pallet_profiles",
+        "Pallet type {pallet_type} is missing in pack code {pack_code}.",
     )
     MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS = (
         "missing_tenant_settings_gelita_pickup_address",
-        "Tenant setting gelita_pickup_address is required",
+        "Tenant setting 'gelita_pickup_address' is required.",
     )
     UNEXPECTED_NODE_FAILURE = (
         "unexpected_node_failure",
-        "An unexpected error occurred while running the workflow node",
+        "An unexpected error occurred while running the workflow.",
     )
     # POD lifecycle
     MISSING_SHIPMENT_ID = (
         "missing_shipment_id",
-        "Shipment ID could not be resolved",
+        "Shipment ID could not be resolved.",
     )
 
 
@@ -140,6 +165,16 @@ _ERROR_BY_CODE: dict[str, ErrorCode] = {
 def resolve_error_code(code: str) -> ErrorCode | None:
     """Map a persisted wire code back to its catalog entry."""
     return _ERROR_BY_CODE.get(code)
+
+
+def format_error_message(error: _CatalogError, **values: str) -> str:
+    """Format a catalog description; missing keys become empty strings."""
+
+    class _SafeFormatMap(dict[str, str]):
+        def __missing__(self, key: str) -> str:
+            return ""
+
+    return error.description.format_map(_SafeFormatMap(values))
 
 
 def error_description(code: ErrorCode | str) -> str | None:
