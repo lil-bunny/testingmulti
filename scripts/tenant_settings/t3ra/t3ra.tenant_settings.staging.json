@@ -96,11 +96,17 @@
     "load_tendering"
   ],
   "prompts": {
-    "pod_lifecycle.page_extraction": "pod-page-extraction:staging",
-    "ratecon.page_extraction": "ratecon-page-extraction:staging",
-    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
-    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
-    "driver_assignment.driver_details": "driver-details-extract:staging"
+    "pod_lifecycle": {
+      "page_extraction": "pod-page-extraction:staging",
+      "vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
+      "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
+    },
+    "ratecon": {
+      "page_extraction": "ratecon-page-extraction:staging"
+    },
+    "driver_assignment": {
+      "driver_details": "driver-details-extract:staging"
+    }
   },
   "mikey_account_id": "W7Xyw8gLT2mvog37VsGHZQ",
   "inbound_routing_emails": [

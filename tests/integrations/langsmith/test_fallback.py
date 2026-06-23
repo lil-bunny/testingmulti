@@ -10,6 +10,7 @@ from app.domain.prompt_step_keys import (
     POD_VS_RATECON_SUMMARY,
     RATECON_PAGE_EXTRACTION,
 )
+from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
 from app.integrations.langsmith.fallback import (
     hub_id_from_tenant_prompt_ref,
     load_fallback_prompt,
@@ -61,16 +62,22 @@ def test_t3ra_fixture_prompt_refs_match_fallback_hub_ids() -> None:
     from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
     prompts = load_tenant_settings_dev("t3ra").get("prompts") or {}
-    assert hub_id_from_tenant_prompt_ref(prompts[POD_PAGE_EXTRACTION]) == "pod-page-extraction"
-    assert hub_id_from_tenant_prompt_ref(prompts[RATECON_PAGE_EXTRACTION]) == "ratecon-page-extraction"
-    assert hub_id_from_tenant_prompt_ref(prompts[POD_VS_RATECON_SUMMARY]) == "pod-vs-ratecon-summary"
+    assert hub_id_from_tenant_prompt_ref(tenant_prompt_ref(prompts, POD_PAGE_EXTRACTION)) == (
+        "pod-page-extraction"
+    )
+    assert hub_id_from_tenant_prompt_ref(tenant_prompt_ref(prompts, RATECON_PAGE_EXTRACTION)) == (
+        "ratecon-page-extraction"
+    )
+    assert hub_id_from_tenant_prompt_ref(tenant_prompt_ref(prompts, POD_VS_RATECON_SUMMARY)) == (
+        "pod-vs-ratecon-summary"
+    )
     assert (
-        hub_id_from_tenant_prompt_ref(prompts[POD_VS_RATECON_SEMANTIC_MATCH])
+        hub_id_from_tenant_prompt_ref(tenant_prompt_ref(prompts, POD_VS_RATECON_SEMANTIC_MATCH))
         == "pod-vs-ratecon-semantic-match"
     )
-    assert hub_id_from_tenant_prompt_ref(prompts[DRIVER_ASSIGNMENT_DRIVER_DETAILS]) == (
-        DRIVER_DETAILS_HUB_ID
-    )
+    assert hub_id_from_tenant_prompt_ref(
+        tenant_prompt_ref(prompts, DRIVER_ASSIGNMENT_DRIVER_DETAILS)
+    ) == (DRIVER_DETAILS_HUB_ID)
 
 
 def test_load_pod_vs_ratecon_summary_fallback_renders_variables() -> None:

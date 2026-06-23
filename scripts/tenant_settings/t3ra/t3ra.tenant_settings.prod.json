@@ -41,10 +41,14 @@
     "pod_collection"
   ],
   "prompts": {
-    "pod_lifecycle.page_extraction": "pod-page-extraction:production",
-    "ratecon.page_extraction": "ratecon-page-extraction:production",
-    "pod_lifecycle.vs_ratecon_summary": "pod-vs-ratecon-summary:production",
-    "pod_lifecycle.vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:production"
+    "pod_lifecycle": {
+      "page_extraction": "pod-page-extraction:production",
+      "vs_ratecon_summary": "pod-vs-ratecon-summary:production",
+      "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:production"
+    },
+    "ratecon": {
+      "page_extraction": "ratecon-page-extraction:production"
+    }
   },
   "mikey_account_id": "",
   "inbound_routing_emails": [

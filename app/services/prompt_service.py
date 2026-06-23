@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
 from app.domain.vision_prompt_templates import (
     render_inline_pod_prompts,
     render_inline_ratecon_prompts,
@@ -33,12 +34,12 @@ class PromptService:
         prompts = tenant_settings.get("prompts") or {}
         if not isinstance(prompts, dict):
             prompts = {}
-        tenant_prompt_ref = str(prompts.get(prompt_step_key) or "").strip()
-        if not tenant_prompt_ref:
+        ref = tenant_prompt_ref(prompts, prompt_step_key)
+        if not ref:
             raise MissingTenantPromptRefError(
                 f"missing tenant prompt ref for step {prompt_step_key!r}"
             )
-        return self._prompt_client.load_and_render(tenant_prompt_ref, variables)
+        return self._prompt_client.load_and_render(ref, variables)
 
     def render_vision_step(
         self,
@@ -58,8 +59,8 @@ class PromptService:
         prompts = settings_dict.get("prompts") or {}
         if not isinstance(prompts, dict):
             prompts = {}
-        tenant_prompt_ref = str(prompts.get(prompt_step_key) or "").strip()
-        if not tenant_prompt_ref:
+        ref = tenant_prompt_ref(prompts, prompt_step_key)
+        if not ref:
             system, user = inline_fallback
             logger.debug(
                 "vision prompt inline fallback step=%s (no tenant ref)",
@@ -79,7 +80,7 @@ class PromptService:
             logger.warning(
                 "vision prompt hub unavailable step=%s ref=%s: %s; using inline fallback",
                 prompt_step_key,
-                tenant_prompt_ref,
+                ref,
                 exc,
             )
             system, user = inline_fallback
@@ -87,7 +88,7 @@ class PromptService:
                 RenderedPrompt(system=system, user=user),
                 PromptLoadMetadata(
                     source="fallback",
-                    tenant_prompt_ref=tenant_prompt_ref,
+                    tenant_prompt_ref=ref,
                     commit_hash=None,
                 ),
             )

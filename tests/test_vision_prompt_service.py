@@ -19,6 +19,7 @@ from app.services.prompt_service import (
     resolve_pod_vs_ratecon_summary_prompts,
     resolve_ratecon_vision_prompts,
 )
+from app.domain.tenant_settings.prompt_refs import tenant_prompt_ref
 from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 
@@ -99,10 +100,13 @@ def test_resolve_pod_vision_prompts_includes_broker_variables() -> None:
 
 def test_t3ra_fixture_has_pod_and_ratecon_prompt_refs() -> None:
     prompts = load_tenant_settings_dev("t3ra").get("prompts") or {}
-    assert prompts[POD_PAGE_EXTRACTION] == "pod-page-extraction:staging"
-    assert prompts[RATECON_PAGE_EXTRACTION] == "ratecon-page-extraction:staging"
-    assert prompts[POD_VS_RATECON_SUMMARY] == "pod-vs-ratecon-summary:staging"
-    assert prompts[POD_VS_RATECON_SEMANTIC_MATCH] == "pod-vs-ratecon-semantic-match:staging"
+    assert tenant_prompt_ref(prompts, POD_PAGE_EXTRACTION) == "pod-page-extraction:staging"
+    assert tenant_prompt_ref(prompts, RATECON_PAGE_EXTRACTION) == "ratecon-page-extraction:staging"
+    assert tenant_prompt_ref(prompts, POD_VS_RATECON_SUMMARY) == "pod-vs-ratecon-summary:staging"
+    assert (
+        tenant_prompt_ref(prompts, POD_VS_RATECON_SEMANTIC_MATCH)
+        == "pod-vs-ratecon-semantic-match:staging"
+    )
 
 
 def test_resolve_pod_vs_ratecon_summary_includes_validation_json() -> None:

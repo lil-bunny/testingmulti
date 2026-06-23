@@ -27,6 +27,34 @@ class T3raDriverAssignmentSettings(BaseModel):
     escalate_driver: DriverAssignmentEscalateSettings | None = None
 
 
+class T3raPodLifecyclePrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    page_extraction: str
+    vs_ratecon_summary: str
+    vs_ratecon_semantic_match: str
+
+
+class T3raRateconPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    page_extraction: str
+
+
+class T3raDriverAssignmentPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    driver_details: str
+
+
+class T3raPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    pod_lifecycle: T3raPodLifecyclePrompts
+    ratecon: T3raRateconPrompts
+    driver_assignment: T3raDriverAssignmentPrompts | None = None
+
+
 class T3raTenantSettings(BaseModel):
     """
     Root ``tenants.settings`` JSON for t3ra.
@@ -40,6 +68,6 @@ class T3raTenantSettings(BaseModel):
     inbound_routing_emails: InboundRoutingEmails
     mikey_account_id: str
     tms: TmsSettings
-    prompts: dict[str, str] = Field(default_factory=dict)
+    prompts: T3raPrompts
     pod_lifecycle: T3raPodLifecycleSettings
     driver_assignment: T3raDriverAssignmentSettings | None = None

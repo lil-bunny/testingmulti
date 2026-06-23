@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.email_body_for_llm import normalize_email_body_for_llm
+from app.services.communications._mapper import normalize_email_body_for_llm
 
 HAS_DETAILS = "has_details"
 INSUFFICIENT = "insufficient"

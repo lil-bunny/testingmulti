@@ -6,7 +6,6 @@ from html import unescape
 import re
 from typing import Any
 
-# from app.domain.email_body_for_llm import normalize_email_body_for_llm
 from app.domain.unipile_email import attachments_metadata_from_payload
 
 _QUOTE_HTML_RE = re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from app.domain.prompt_step_keys import DRIVER_ASSIGNMENT_DRIVER_DETAILS
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.driver_details_classification_service import (
     DriverDetailsClassificationService,
@@ -20,7 +19,9 @@ _THREAD = "thread-1"
 def _tenant_settings() -> dict:
     return {
         "prompts": {
-            DRIVER_ASSIGNMENT_DRIVER_DETAILS: "driver-details-extract:staging",
+            "driver_assignment": {
+                "driver_details": "driver-details-extract:staging",
+            }
         }
     }
 
