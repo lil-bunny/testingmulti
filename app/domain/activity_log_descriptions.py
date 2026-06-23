@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.domain.activity_log_constants import (
     CARRIER_ACK_LLM_ACTION_TEMPLATE,
+    AUTO_REPLY_ACK_SKIPPED_ACTION,
     ESCALATION_SENT_ACTION,
     REMINDER_SENT_ACTION_TEMPLATE,
     STATUS_CHANGE_DESCRIPTION_TEMPLATE,
@@ -29,7 +30,8 @@ from app.domain.activity_log_constants import (
     POD_UPLOADED_TO_TMS_ACTION,
     POD_UPLOAD_TO_TMS_FAILED_ACTION,
     POD_ALREADY_ON_TMS_ACTION,
-    POD_REVIEW_ACKNOWLEDGED_ACTION,
+    WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION,
+    WORKFLOW_REVIEW_RESOLVED_ACTION,
 )
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -95,6 +97,11 @@ def format_tender_created_action(
 
 def format_tender_sent_to_vendor() -> str:
     return TENDER_SENT_TO_VENDOR_ACTION
+
+
+def format_auto_reply_ack_skipped_action() -> str:
+    """ACTION text when carrier ack LLM is skipped for an automatic reply."""
+    return AUTO_REPLY_ACK_SKIPPED_ACTION
 
 
 def format_carrier_ack_llm_action(
@@ -216,5 +223,11 @@ def format_pod_already_on_tms_action() -> str:
     return POD_ALREADY_ON_TMS_ACTION
 
 
-def format_pod_review_acknowledged_action() -> str:
-    return POD_REVIEW_ACKNOWLEDGED_ACTION
+def format_workflow_review_acknowledged_action() -> str:
+    """ACTION text for portal acknowledge; used by ``WorkflowReviewService.acknowledge``."""
+    return WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION
+
+
+def format_workflow_review_resolved_action() -> str:
+    """ACTION text for portal resolve; used by ``WorkflowReviewService.resolve``."""
+    return WORKFLOW_REVIEW_RESOLVED_ACTION

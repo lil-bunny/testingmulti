@@ -33,6 +33,7 @@ class TenderEmailProductLine:
 
     product_name: str
     pack_code: str
+    pack_code_description: str
     pieces_count: str
     qty_per_unit: str
     weight_unit: str
@@ -121,6 +122,7 @@ def _product_lines_from_payload(
             TenderEmailProductLine(
                 product_name=_str_field(row, "product_name"),
                 pack_code=_str_field(row, "pack_code"),
+                pack_code_description=_str_field(row, "pack_code_description"),
                 pieces_count=_str_field(row, "pieces_count"),
                 qty_per_unit=_str_field(row, "qty_per_unit"),
                 weight_unit=_str_field(row, "weight_unit") or WeightUnit.KG.value,
@@ -246,16 +248,27 @@ def _combined_order_value_line(
     return _format_order_value(value)
 
 
+def container_noun_from_pack_description(description: str) -> str:
+    """Return ``bags`` or ``drums`` from ``pack_codes.description`` prefix."""
+    text = (description or "").strip().lower()
+    if text.startswith("drum") or text.startswith("drums"):
+        return "drums"
+    if text.startswith("bag"):
+        return "bags"
+    return "bags"
+
+
 def _format_bags_line(line: TenderEmailProductLine) -> str:
     pieces_missing = not line.pieces_count
     qty_missing = not line.qty_per_unit.strip()
     label = _field_label("Pieces:", missing=pieces_missing or qty_missing)
     if pieces_missing:
         return f"{label} "
+    container = container_noun_from_pack_description(line.pack_code_description)
     unit = WeightUnit.parse(line.weight_unit) or WeightUnit.KG
     qty_raw = line.qty_per_unit.strip()
     if not qty_raw:
-        return f"{label} {line.pieces_count} bags @ "
+        return f"{label} {line.pieces_count} {container} @ "
     try:
         qty_dec = Decimal(qty_raw.replace(",", ""))
         qty_str = (
@@ -265,7 +278,7 @@ def _format_bags_line(line: TenderEmailProductLine) -> str:
         )
     except Exception:
         qty_str = qty_raw
-    return f"Pieces: {line.pieces_count} bags @ {qty_str}{unit.value} each"
+    return f"Pieces: {line.pieces_count} {container} @ {qty_str}{unit.value} each"
 
 
 def _format_pallets_line(line: TenderEmailProductLine) -> str:
@@ -358,6 +371,7 @@ def _combine_product_lines(
         combined[positions[key]] = TenderEmailProductLine(
             product_name=first.product_name,
             pack_code=first.pack_code,
+            pack_code_description=first.pack_code_description,
             pieces_count=sum_field(groups[key], "pieces_count"),
             qty_per_unit=first_unless_any_missing(groups[key], "qty_per_unit"),
             weight_unit=first.weight_unit,

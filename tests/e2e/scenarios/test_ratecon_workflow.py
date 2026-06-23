@@ -1,8 +1,8 @@
 """
-HTTP-level tests for ``POST /api/webhook/email`` (ratecon full-stack integration).
+HTTP-level tests for ``POST /api/v1/webhook/email`` (ratecon full-stack integration).
 
 Uses the real FastAPI app and route handler (including ``WorkflowClassifierService`` logic
-via ``app.api.routes.unipile_mail_thread_capture``). Default tests override
+via ``app.api.v1.webhooks.unipile_mail_thread_capture``). Default tests override
 ``WorkflowService`` so CI stays offline.
 
 **Full stack (real workflow):** set ``UNIPILE_WEBHOOK_FULL_STACK_TEST=1`` and run
@@ -256,7 +256,7 @@ def test_ratecon_email_received_unipile_webhook(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(
-        "app.api.routes.resolve_unipile_tenant",
+        "app.api.v1.webhooks.resolve_unipile_tenant",
         lambda **_kwargs: UnipileTenantContext(
             tenant_uuid="aadc75f4-3f79-45d7-84c3-aa778e226e93",
             tenant_slug="t3ra",
@@ -273,7 +273,7 @@ def test_ratecon_email_received_unipile_webhook(
 
     with TestClient(app) as client:
         r = client.post(
-            "/api/webhook/email",
+            "/api/v1/webhook/email",
             json=RATECON_WEBHOOK_PAYLOAD,
             headers=_auth_headers(),
         )

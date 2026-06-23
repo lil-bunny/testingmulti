@@ -53,7 +53,7 @@ def ingest_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 @pytest.fixture
 def gelita_tenant_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "app.api.routes.resolve_unipile_tenant",
+        "app.api.v1.webhooks.resolve_unipile_tenant",
         lambda payload: UnipileTenantContext(
             tenant_uuid="aadc75f4-3f79-45d7-84c3-aa778e226e93",
             tenant_slug="gelita",
@@ -76,7 +76,7 @@ def test_gelita_xlsx_webhook_returns_accepted_and_queues_ingest(
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
-        "/api/webhook/email",
+        "/api/v1/webhook/email",
         json=_load_tender_payload(),
         headers=webhook_headers,
     )

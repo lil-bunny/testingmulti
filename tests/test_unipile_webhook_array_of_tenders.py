@@ -16,7 +16,7 @@ from app.services.workflow_classifier_service import WorkflowClassifierService
 @pytest.fixture(autouse=True)
 def stub_unipile_tenant_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "app.api.routes.resolve_unipile_tenant",
+        "app.api.v1.webhooks.resolve_unipile_tenant",
         lambda payload: UnipileTenantContext(
             tenant_uuid="aadc75f4-3f79-45d7-84c3-aa778e226e93",
             tenant_slug="t3ra",
@@ -74,7 +74,7 @@ def test_unipile_webhook_omits_import_keys_when_no_import_id(
     ):
         client = TestClient(create_app())
         r = client.post(
-            "/api/webhook/email",
+            "/api/v1/webhook/email",
             json=RATECON_WEBHOOK_PAYLOAD,
             headers=webhook_headers,
         )
@@ -103,7 +103,7 @@ def test_unipile_webhook_pod_carries_import_id_but_not_array_of_tenders(
     ):
         client = TestClient(create_app())
         r = client.post(
-            "/api/webhook/email",
+            "/api/v1/webhook/email",
             json=RATECON_WEBHOOK_PAYLOAD,
             headers=webhook_headers,
         )
@@ -127,7 +127,7 @@ def test_unipile_webhook_ratecon_carries_event_type_email_received(
     )
     client = TestClient(create_app())
     r = client.post(
-        "/api/webhook/email",
+        "/api/v1/webhook/email",
         json=RATECON_WEBHOOK_PAYLOAD,
         headers=webhook_headers,
     )

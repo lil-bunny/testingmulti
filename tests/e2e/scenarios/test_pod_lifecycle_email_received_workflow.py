@@ -194,7 +194,7 @@ def test_pod_lifecycle_email_received_unipile_webhook(
 
     resp = post_json(
         base_url=base_url,
-        path="/api/webhook/unipile",
+        path="/api/v1/webhook/email",
         json_body=payload,
         headers={"Authorization": f"Bearer {secret}"},
     )

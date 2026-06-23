@@ -1,0 +1,106 @@
+{
+  "thread_id": "sample-thread-outlook-ooo-001",
+  "account_id": "sample-unipile-account-001",
+  "agent_email": "ana.bot@freightx.example.com",
+  "pickup_subject": "PICK UP REQUEST # 97061 _ PO# 26111855 OP _ JUNE 22",
+  "items": [
+    {
+      "id": "email-reminder-1",
+      "type": "OUTLOOK",
+      "date": "2026-06-19T19:08:55.000Z",
+      "role": "sent",
+      "from_attendee": {
+        "display_name": "Ana Bot",
+        "identifier": "ana.bot@freightx.example.com",
+        "identifier_type": "EMAIL_ADDRESS"
+      },
+      "to_attendees": [
+        {
+          "display_name": "Tonya Jackson",
+          "identifier": "tonya.jackson@shipper.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        },
+        {
+          "display_name": "Blaine Kitchen",
+          "identifier": "blaine.kitchen@carrier.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        }
+      ],
+      "cc_attendees": [
+        {
+          "display_name": "Taylor Hudson",
+          "identifier": "taylor.hudson@shipper.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        },
+        {
+          "display_name": "Chris Alter",
+          "identifier": "chris.alter@shipper.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        }
+      ],
+      "bcc_attendees": [],
+      "subject": "RE: PICK UP REQUEST # 97061 _ PO# 26111855 OP _ JUNE 22",
+      "thread_id": "sample-thread-outlook-ooo-001"
+    },
+    {
+      "id": "email-ooo-chris",
+      "type": "OUTLOOK",
+      "date": "2026-06-19T19:08:58.000Z",
+      "role": "inbox",
+      "from_attendee": {
+        "display_name": "Chris Alter",
+        "identifier": "chris.alter@shipper.example.com",
+        "identifier_type": "EMAIL_ADDRESS"
+      },
+      "to_attendees": [
+        {
+          "display_name": "Ana Bot",
+          "identifier": "ana.bot@freightx.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        }
+      ],
+      "cc_attendees": [],
+      "bcc_attendees": [],
+      "subject": "Automatic reply: PICK UP REQUEST # 97061 _ PO# 26111855 OP _ JUNE 22",
+      "thread_id": "sample-thread-outlook-ooo-001"
+    },
+    {
+      "id": "email-carrier-reply",
+      "type": "OUTLOOK",
+      "date": "2026-06-19T14:35:18.000Z",
+      "role": "inbox",
+      "from_attendee": {
+        "display_name": "Blaine Kitchen",
+        "identifier": "blaine.kitchen@carrier.example.com",
+        "identifier_type": "EMAIL_ADDRESS"
+      },
+      "to_attendees": [
+        {
+          "display_name": "Tonya Jackson",
+          "identifier": "tonya.jackson@shipper.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        },
+        {
+          "display_name": "Ana Bot",
+          "identifier": "ana.bot@freightx.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        }
+      ],
+      "cc_attendees": [
+        {
+          "display_name": "Taylor Hudson",
+          "identifier": "taylor.hudson@shipper.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        },
+        {
+          "display_name": "Chris Alter",
+          "identifier": "chris.alter@shipper.example.com",
+          "identifier_type": "EMAIL_ADDRESS"
+        }
+      ],
+      "bcc_attendees": [],
+      "subject": "RE: PICK UP REQUEST # 97061 _ PO# 26111855 OP _ JUNE 22",
+      "thread_id": "sample-thread-outlook-ooo-001"
+    }
+  ]
+}

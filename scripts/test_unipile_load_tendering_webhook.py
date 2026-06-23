@@ -1,5 +1,5 @@
 """
-POST /api/webhook/email with a sample Unipile payload shaped for Gelita load_tendering (xlsx).
+POST /api/v1/webhook/email with a sample Unipile payload shaped for Gelita load_tendering (xlsx).
 
 Prerequisites (local server must match):
   - UNIPILE_WEBHOOK_SECRET — same as ``--token`` below
@@ -22,7 +22,7 @@ import httpx
 from app.core.config import settings
 
 DEFAULT_BASE = "http://127.0.0.1:8001"
-WEBHOOK_PATH = "/api/webhook/email"
+WEBHOOK_PATH = "/api/v1/webhook/email"
 DEFAULT_TOKEN = "123456"
 
 SAMPLE_LOAD_TENDERING_PAYLOAD = {

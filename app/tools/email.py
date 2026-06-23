@@ -8,6 +8,10 @@ from app.domain.tenant_settings.email_recipients import (
     unipile_recipients_from_addresses,
 )
 from app.services.unipile_service import Unipile, UnipileException
+from app.utils.automatic_reply_detection import (
+    is_automatic_reply_email,
+    strip_automatic_reply_subject_prefix,
+)
 
 logger = get_logger(__name__)
 
@@ -210,6 +214,33 @@ def _merge_cc(
     return merged or None
 
 
+def _select_reply_anchor_email(
+    emails: list[Dict],
+    *,
+    handle_auto_reply: bool,
+) -> tuple[Dict, int]:
+    """
+    Pick the message to anchor reply-all recipients and subject on.
+
+    When ``handle_auto_reply`` is true, skip automatic replies (newest first).
+    """
+    if not emails:
+        raise UnipileException("No emails in thread to select reply anchor")
+
+    sorted_emails = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
+    if not handle_auto_reply:
+        return sorted_emails[0], 0
+
+    skipped = 0
+    for email in sorted_emails:
+        if is_automatic_reply_email(email):
+            skipped += 1
+            continue
+        return email, skipped
+
+    raise UnipileException("thread contains only automatic replies")
+
+
 # Public tools
 
 
@@ -218,6 +249,8 @@ def send_unipile_thread_reply(
     account_id: str,
     subject: str,
     body: str,
+    *,
+    handle_auto_reply: bool = True,
 ) -> bool:
     """In-thread reply via Unipile (wraps ``reply_to_thread``; returns False on failure)."""
     try:
@@ -226,6 +259,7 @@ def send_unipile_thread_reply(
             body=body,
             account_id=account_id,
             subject=subject or None,
+            handle_auto_reply=handle_auto_reply,
         )
         return True
     except UnipileException as e:
@@ -247,6 +281,7 @@ def send_email(
     cc: Any = None,
     bcc: Any = None,
     workflow_run_id: Optional[str] = None,
+    handle_auto_reply: bool = True,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
@@ -290,6 +325,7 @@ def send_email(
             tenant_id=tenant_id,
             communication_metadata=communication_metadata,
             workflow_run_id=workflow_run_id,
+            handle_auto_reply=handle_auto_reply,
         )
 
     try:
@@ -346,16 +382,18 @@ def reply_to_thread(
     tenant_id: Optional[str] = None,
     communication_metadata: Optional[dict[str, Any]] = None,
     workflow_run_id: Optional[str] = None,
+    handle_auto_reply: bool = True,
 ):
     """
     Orchestrates a thread reply (reply-all):
     1. Resolve our email (to exclude from recipients)
     2. Fetch thread emails
-    3. Resolve parent message id for Unipile reply_to
-    4. Auto-resolve subject from latest message (unless overridden)
-    5. Build reply-all TO + CC lists
-    6. Merge any upstream CC, deduplicate
-    7. Send via Unipile
+    3. Select anchor message (skip automatic replies when handle_auto_reply)
+    4. Resolve parent message id for Unipile reply_to
+    5. Auto-resolve subject from anchor message (unless overridden)
+    6. Build reply-all TO + CC lists
+    7. Merge any upstream CC, deduplicate
+    8. Send via Unipile
     """
     if not thread_id:
         raise UnipileException("thread_id is required to reply to a thread")
@@ -371,24 +409,23 @@ def reply_to_thread(
     if not emails:
         raise UnipileException(f"No emails found for thread_id={thread_id}")
 
-    sorted_emails = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
-    latest_email = sorted_emails[0]
-
-    role_counts: Dict[str, int] = {}
-    for e in emails:
-        r = str(e.get("role") or "?")
-        role_counts[r] = role_counts.get(r, 0) + 1
+    anchor_email, skipped_auto_replies = _select_reply_anchor_email(
+        emails,
+        handle_auto_reply=handle_auto_reply,
+    )
 
     # 3) Resolve parent message id
-    reply_to_id = _resolve_parent_id(unipile, latest_email, reply_to_message_id, account_id)
+    reply_to_id = _resolve_parent_id(unipile, anchor_email, reply_to_message_id, account_id)
     logger.info("reply_to_thread: resolved reply_to_id=%s", reply_to_id)
 
-    # 4) Subject: use latest email's subject unless upstream overrides
-    original_subject = (latest_email.get("subject") or "").strip()
+    # 4) Subject: use anchor email's subject unless upstream overrides
+    original_subject = strip_automatic_reply_subject_prefix(
+        str(anchor_email.get("subject") or "")
+    )
     effective_subject = _build_reply_subject(original_subject, subject)
 
-    # 5) Reply-all: build TO and CC from latest email
-    to_list, thread_cc = _build_recipients(latest_email, exclude_email)
+    # 5) Reply-all: build TO and CC from anchor email
+    to_list, thread_cc = _build_recipients(anchor_email, exclude_email)
     if not to_list:
         raise UnipileException("Could not determine reply recipients from the thread")
 
@@ -407,6 +444,8 @@ def reply_to_thread(
 
     result.setdefault("thread_id", thread_id)
     result.setdefault("reply_to_message_id", reply_to_id)
+    if handle_auto_reply and skipped_auto_replies:
+        result["skipped_auto_replies"] = skipped_auto_replies
     if not result.get("success", True):
         logger.warning(
             "reply_to_thread: Unipile send failed thread_id=%s reply_to_id=%s err=%s details=%s",
