@@ -44,5 +44,74 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # PostgreSQL does not support removing enum values safely.
-    pass
+    # PostgreSQL cannot drop a single enum value. Recreate the types only if no
+    # rows reference the driver-assignment values (otherwise downgrade will fail).
+    op.execute(
+        """
+        CREATE TYPE lifecycle_sub_status_prev AS ENUM (
+            'none',
+            'tender_created',
+            'tender_sent_to_tenant',
+            'tender_sent_to_carrier',
+            'reminder_1_sent',
+            'reminder_2_sent',
+            'accepted',
+            'rejected',
+            'do_nothing',
+            'escalated',
+            'reminder_3_sent',
+            'pod_started',
+            'ratecon_started',
+            'document_uploaded',
+            'document_processed',
+            'uploaded_to_tms',
+            'resolved_manually'
+        )
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE workflow_lifecycles
+            ALTER COLUMN sub_status TYPE lifecycle_sub_status_prev
+            USING sub_status::text::lifecycle_sub_status_prev
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE activity_logs
+            ALTER COLUMN from_sub_status TYPE lifecycle_sub_status_prev
+            USING from_sub_status::text::lifecycle_sub_status_prev,
+            ALTER COLUMN to_sub_status TYPE lifecycle_sub_status_prev
+            USING to_sub_status::text::lifecycle_sub_status_prev
+        """
+    )
+    op.execute("DROP TYPE lifecycle_sub_status")
+    op.execute(
+        "ALTER TYPE lifecycle_sub_status_prev RENAME TO lifecycle_sub_status"
+    )
+
+    op.execute(
+        """
+        CREATE TYPE workflow_run_event_type_prev AS ENUM (
+            'route_completed',
+            'email_received',
+            'reminder_due',
+            'tender_created',
+            'carrier_email_received',
+            'ack_received',
+            'escalation_due',
+            'manual_pod_upload'
+        )
+        """
+    )
+    op.execute(
+        """
+        ALTER TABLE workflow_runs
+            ALTER COLUMN event_type TYPE workflow_run_event_type_prev
+            USING event_type::text::workflow_run_event_type_prev
+        """
+    )
+    op.execute("DROP TYPE workflow_run_event_type")
+    op.execute(
+        "ALTER TYPE workflow_run_event_type_prev RENAME TO workflow_run_event_type"
+    )
