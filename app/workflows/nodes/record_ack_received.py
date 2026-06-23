@@ -19,12 +19,14 @@ from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.services.prompt_service import PromptService
 from app.utils.automatic_reply_detection import is_automatic_reply_email
 from app.tools.carrier_ack import (
     classify_carrier_acknowledgment,
     normalize_carrier_reply_body,
 )
+import dataclasses
 
 logger = get_logger(__name__)
 
@@ -233,10 +235,6 @@ def record_ack_received(state):
         return state
 
     if decision == StatusSubType.DO_NOTHING.value:
-        logger.info(
-            "record_ack_received skipped lifecycle update decision=do_nothing tender_id=%s",
-            tender_id,
-        )
         return state
 
     if decision not in (
@@ -253,7 +251,7 @@ def record_ack_received(state):
     to_sub = StatusSubType(decision)
 
     lifecycle_transition_service = LifecycleTransitionService()
-    lifecycle_transition_service.apply_from_state(
+    command = LifecycleTransitionCommand.from_workflow_state(
         state,
         to_status=StatusType.COMPLETED,
         to_sub_status=to_sub,
@@ -261,6 +259,8 @@ def record_ack_received(state):
         actor_type=ActorType.SYSTEM,
         metadata={"tender_id": tender_id, "carrier_ack_decision": decision},
     )
+    command = dataclasses.replace(command, communication_id=None)
+    lifecycle_transition_service.apply(command)
 
     state.data["ack_recorded"] = True
     state.data["tender_status"] = StatusType.COMPLETED.value
