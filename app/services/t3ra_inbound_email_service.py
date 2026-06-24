@@ -12,7 +12,7 @@ from app.core.logger import get_logger
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.models.tenants import TenantSlug
 from app.services.communications.service import CommunicationsService
-from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )

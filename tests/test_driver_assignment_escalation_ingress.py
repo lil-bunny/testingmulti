@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from tests.test_turvo_driver_request_eligibility import _eligible_payload
 
 

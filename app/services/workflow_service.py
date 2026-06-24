@@ -3,7 +3,7 @@ from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
 from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
-from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph

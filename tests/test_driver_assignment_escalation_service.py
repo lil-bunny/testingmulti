@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.driver_assignment_escalation_service import DriverAssignmentEscalationService
-from app.services.driver_assignment_ingress_service import EligibilityResult
+from app.services.driver_assignment.escalation_service import DriverAssignmentEscalationService
+from app.services.driver_assignment.ingress_service import EligibilityResult
 from tests.test_turvo_driver_request_eligibility import _eligible_payload
 
 
@@ -66,7 +66,7 @@ def test_escalate_posts_teams_and_records_activity() -> None:
     )
 
     with patch(
-        "app.services.driver_assignment_escalation_service.post_message_card",
+        "app.services.driver_assignment.escalation_service.post_message_card",
         new_callable=AsyncMock,
     ) as post_mock:
         result = svc.escalate_from_payload(
@@ -98,7 +98,7 @@ def test_escalate_returns_error_when_teams_fails() -> None:
     )
 
     with patch(
-        "app.services.driver_assignment_escalation_service.post_message_card",
+        "app.services.driver_assignment.escalation_service.post_message_card",
         new_callable=AsyncMock,
         side_effect=TeamsWebhookError("fail", status_code=500),
     ):

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
-from app.services.driver_assignment_activity_service import DriverAssignmentActivityService
+from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
 
 
 def _state(**data_overrides):

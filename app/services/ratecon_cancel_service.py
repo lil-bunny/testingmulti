@@ -9,7 +9,7 @@ from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_ratecon_superseded_action
 from app.domain.workflow_cancel_trigger import WorkflowCancelTrigger
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-from app.services.driver_assignment_cancel_service import WorkflowCancelAdapterResult
+from app.services.driver_assignment.cancel_service import WorkflowCancelAdapterResult
 from app.services.workflow_lifecycle_cancel_service import (
     WorkflowCancelResult,
     WorkflowLifecycleCancelService,

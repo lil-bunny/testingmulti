@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.services.driver_assignment_escalation_service import DriverAssignmentEscalationService
-from app.services.driver_assignment_activity_service import DriverAssignmentActivityService
-from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
-from app.services.driver_assignment_turvo_service import DriverAssignmentTurvoService
-from app.services.driver_details_classification_service import (
+from app.services.driver_assignment.escalation_service import DriverAssignmentEscalationService
+from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
+from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment.turvo_service import DriverAssignmentTurvoService
+from app.services.driver_assignment.classification_service import (
     DriverDetailsClassificationService,
 )
 from app.services.workflow_reminder_service import WorkflowReminderService

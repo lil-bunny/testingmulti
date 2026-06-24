@@ -24,7 +24,7 @@ from app.integrations.turvo.shipments import (
     get_shipment,
     segment_id_from_order,
 )
-from app.domain.driver_assignment_confirmation_email import (
+from app.domain.driver_assignment.confirmation_email import (
     parse_driver_assignment_confirmation_email,
 )
 from app.models.tenants import TenantSlug

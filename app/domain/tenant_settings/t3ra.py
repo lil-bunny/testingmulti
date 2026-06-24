@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.driver_assignment_confirmation_email import (
+from app.domain.driver_assignment.confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,
 )
-from app.domain.driver_assignment_escalation import DriverAssignmentEscalateSettings
+from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import InboundRoutingEmails
 from app.domain.tenant_settings.tms import TmsSettings

@@ -51,7 +51,7 @@ from app.workflows.nodes.record_ratecon_activity import (
 from app.workflows.nodes.enqueue_driver_assignment import (
     enqueue_driver_assignment_on_ratecon_complete,
 )
-from app.workflows.nodes.driver_assignment import (
+from app.workflows.nodes.driver_assignment.nodes import (
     check_driver_assignment_eligibility,
     check_driver_escalation_eligibility,
     check_driver_reminder_eligibility,

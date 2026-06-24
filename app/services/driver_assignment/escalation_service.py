@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.driver_assignment_escalation import (
+from app.domain.driver_assignment.escalation import (
     DriverEscalationDisplayFields,
     driver_escalation_facts,
     format_driver_escalation_body,
@@ -16,15 +16,15 @@ from app.domain.driver_assignment_escalation import (
     parse_driver_assignment_escalate_settings,
     skip_sub_statuses_from_driver_assignment_settings,
 )
-from app.domain.driver_assignment_lifecycle_guards import blocks_driver_assignment_escalation
+from app.domain.driver_assignment.guards import blocks_driver_assignment_escalation
 from app.integrations.teams.webhook import TeamsWebhookError, post_message_card
 from app.integrations.turvo.shipments import (
     driver_assigned_from_payload,
     pickup_appointment_from_payload,
     shipment_display_fields_from_payload,
 )
-from app.services.driver_assignment_activity_service import DriverAssignmentActivityService
-from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
+from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 

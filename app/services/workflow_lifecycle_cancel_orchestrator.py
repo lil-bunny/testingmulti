@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from app.configs.workflow_cancellation_policies import CANCEL_TRIGGER_POLICIES
 from app.core.logger import get_logger
 from app.domain.workflow_cancel_trigger import WorkflowCancelTrigger
-from app.services.driver_assignment_cancel_service import (
+from app.services.driver_assignment.cancel_service import (
     DriverAssignmentCancelService,
     WorkflowCancelAdapterResult,
 )

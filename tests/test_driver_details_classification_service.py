@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
-from app.services.driver_details_classification_service import (
+from app.services.driver_assignment.classification_service import (
     DriverDetailsClassificationService,
 )
 from app.tools.driver_details import DO_NOTHING, HAS_DETAILS
@@ -61,7 +61,7 @@ def test_classify_from_payload_has_details() -> None:
         "driver": {"name": "John", "phone": "555-0100", "email": None},
     }
     with patch(
-        "app.services.driver_details_classification_service.chat_json",
+        "app.services.driver_assignment.classification_service.chat_json",
         return_value=llm_raw,
     ):
         result = svc.classify_from_payload(
@@ -102,7 +102,7 @@ def test_classify_from_payload_llm_error_fail_closed() -> None:
 
     svc = _service()
     with patch(
-        "app.services.driver_details_classification_service.chat_json",
+        "app.services.driver_assignment.classification_service.chat_json",
         side_effect=LLMClientError("timeout"),
     ):
         result = svc.classify_from_payload(

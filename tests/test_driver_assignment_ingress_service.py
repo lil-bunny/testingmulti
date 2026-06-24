@@ -9,7 +9,7 @@ import pytest
 
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.services.driver_assignment_ingress_service import DriverAssignmentIngressService
+from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 
 _TENANT_ID = "tenant-uuid-1"
 _SHIPMENTS_ROW_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -562,7 +562,7 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment_ingress_service.TenantsService"
+            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -612,7 +612,7 @@ def test_try_driver_details_email_received_re_subject_fallback_enqueues():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment_ingress_service.TenantsService"
+            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -664,7 +664,7 @@ def test_try_driver_details_email_received_resolves_lifecycle_via_shipment_on_th
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment_ingress_service.TenantsService"
+            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -709,7 +709,7 @@ def test_try_driver_details_email_received_shipment_fallback_no_driver_lifecycle
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
     with patch(
-        "app.services.driver_assignment_ingress_service.TenantsService"
+        "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
     ) as tenants:
         tenants.return_value.get_by_slug.return_value = {
             "settings": _enabled_settings(),
@@ -752,7 +752,7 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment_ingress_service.TenantsService"
+            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {

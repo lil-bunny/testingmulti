@@ -9,7 +9,7 @@ from app.domain.workflow_cancel_trigger import (
     SHIPMENT_TENDERED_TRIGGER,
     WorkflowCancelTrigger,
 )
-from app.services.driver_assignment_cancel_service import WorkflowCancelAdapterResult
+from app.services.driver_assignment.cancel_service import WorkflowCancelAdapterResult
 from app.services.workflow_lifecycle_cancel_orchestrator import (
     WorkflowLifecycleCancelOrchestrator,
 )

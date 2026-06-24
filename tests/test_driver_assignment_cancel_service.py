@@ -8,7 +8,7 @@ from app.domain.workflow_cancel_trigger import (
     SHIPMENT_TENDERED_TRIGGER,
     WorkflowCancelTrigger,
 )
-from app.services.driver_assignment_cancel_service import DriverAssignmentCancelService
+from app.services.driver_assignment.cancel_service import DriverAssignmentCancelService
 from app.services.workflow_lifecycle_cancel_service import WorkflowCancelResult
 
 _TENANT_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -49,7 +49,7 @@ def test_cancel_for_trigger_delegates_to_shared_cancel() -> None:
     svc = _service(cancel_service=cancel, shipments_service=shipments)
 
     with patch(
-        "app.services.driver_assignment_cancel_service.resolve_graph_tenant_to_uuid",
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
         return_value=_TENANT_ID,
     ):
         result = svc.cancel_for_trigger(_trigger())
@@ -73,7 +73,7 @@ def test_cancel_for_trigger_maps_not_found_to_no_active_lifecycle() -> None:
     svc = _service(cancel_service=cancel, shipments_service=shipments)
 
     with patch(
-        "app.services.driver_assignment_cancel_service.resolve_graph_tenant_to_uuid",
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
         return_value=_TENANT_ID,
     ):
         result = svc.cancel_for_trigger(_trigger())
@@ -92,7 +92,7 @@ def test_cancel_for_trigger_uses_shipments_row_id_when_set() -> None:
     svc = _service(cancel_service=cancel, shipments_service=shipments)
 
     with patch(
-        "app.services.driver_assignment_cancel_service.resolve_graph_tenant_to_uuid",
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
         return_value=_TENANT_ID,
     ):
         result = svc.cancel_for_trigger(
@@ -110,7 +110,7 @@ def test_cancel_for_trigger_no_shipment() -> None:
     svc = _service(shipments_service=shipments)
 
     with patch(
-        "app.services.driver_assignment_cancel_service.resolve_graph_tenant_to_uuid",
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
         return_value=_TENANT_ID,
     ):
         result = svc.cancel_for_trigger(_trigger())
@@ -138,7 +138,7 @@ def test_cancel_for_trigger_success_terminal_skip() -> None:
     svc = _service(cancel_service=cancel, shipments_service=shipments)
 
     with patch(
-        "app.services.driver_assignment_cancel_service.resolve_graph_tenant_to_uuid",
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
         return_value=_TENANT_ID,
     ):
         result = svc.cancel_for_trigger(_trigger())

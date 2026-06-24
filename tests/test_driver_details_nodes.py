@@ -11,7 +11,7 @@ from app.workflows.graph.routers import (
     driver_details_router,
     event_type_router,
 )
-from app.workflows.nodes.driver_assignment import (
+from app.workflows.nodes.driver_assignment.nodes import (
     classify_driver_details,
     record_driver_details_email_received,
     send_driver_details_partial_follow_up,
@@ -42,7 +42,7 @@ def test_classify_driver_details_delegates_to_service() -> None:
         "driver_details_reason": "ok",
     }
     with patch(
-        "app.workflows.nodes.driver_assignment.DriverDetailsClassificationService"
+        "app.workflows.nodes.driver_assignment.nodes.DriverDetailsClassificationService"
     ) as svc_cls:
         svc_cls.return_value.classify_from_state.return_value = mock_result
         out = classify_driver_details(state)
@@ -77,7 +77,7 @@ def test_send_driver_details_partial_follow_up_delegates_to_ingress() -> None:
     mock_result.communication_id = "comm-1"
     mock_result.reminder_step = 2
     with patch(
-        "app.workflows.nodes.driver_assignment.DriverAssignmentIngressService"
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentIngressService"
     ) as svc_cls:
         svc_cls.return_value.send_partial_details_follow_up_email.return_value = mock_result
         out = send_driver_details_partial_follow_up(state)
@@ -102,7 +102,7 @@ def test_send_driver_details_partial_follow_up_sets_skip_bump_at_cap() -> None:
     mock_result.reminder_step = 4
     mock_result.skip_sub_status_bump = True
     with patch(
-        "app.workflows.nodes.driver_assignment.DriverAssignmentIngressService"
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentIngressService"
     ) as svc_cls:
         svc_cls.return_value.send_partial_details_follow_up_email.return_value = mock_result
         send_driver_details_partial_follow_up(state)
@@ -117,7 +117,7 @@ def test_record_driver_details_email_received_delegates_to_activity_service() ->
         data={"driver_details_decision": HAS_DETAILS},
     )
     with patch(
-        "app.workflows.nodes.driver_assignment.DriverAssignmentActivityService"
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentActivityService"
     ) as svc_cls:
         record_driver_details_email_received(state)
     svc_cls.return_value.record_driver_details_email_received.assert_called_once_with(
@@ -131,7 +131,7 @@ def test_record_driver_details_skipped_at_node_when_insufficient() -> None:
         data={"driver_details_decision": INSUFFICIENT},
     )
     with patch(
-        "app.workflows.nodes.driver_assignment.DriverAssignmentActivityService"
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentActivityService"
     ) as svc_cls:
         record_driver_details_email_received(state)
     svc_cls.return_value.record_driver_details_email_received.assert_called_once_with(

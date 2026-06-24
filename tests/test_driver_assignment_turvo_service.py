@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.driver_assignment_turvo_service import (
+from app.services.driver_assignment.turvo_service import (
     DriverAssignmentTurvoService,
     TmsDriverResolution,
 )
@@ -54,19 +54,19 @@ async def test_name_only_single_match_assigns() -> None:
     search_mock = AsyncMock(return_value=[{"id": 99, "phones": [], "emails": [], "raw": {"context": [{"id": "848297", "type": "CARRIER"}]}}])
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             search_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             new=AsyncMock(return_value={"Status": "SUCCESS"}),
         ),
     ):
@@ -89,19 +89,19 @@ async def test_name_only_finds_virat_via_search_when_list_empty() -> None:
     shipment = _shipment(carrier_name="Turvo Test Carrier")
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=shipment),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             search_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -153,15 +153,15 @@ async def test_phone_only_not_found_follow_up() -> None:
     svc = DriverAssignmentTurvoService()
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             new=AsyncMock(return_value=[]),
         ),
     ):
@@ -180,23 +180,23 @@ async def test_name_and_phone_not_found_creates_and_assigns() -> None:
     svc = DriverAssignmentTurvoService()
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.create_driver_contact",
+            "app.services.driver_assignment.turvo_service.create_driver_contact",
             new=AsyncMock(return_value=640535),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             new=AsyncMock(return_value={"Status": "SUCCESS"}),
         ),
     ):
@@ -217,19 +217,19 @@ async def test_non_uscs_customer_send_invite_true() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment(customer_name="DIAMOND PET FOODS")),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             new=AsyncMock(return_value=[{"id": 99, "phones": [], "emails": [], "raw": {"context": [{"id": "848297", "type": "CARRIER"}]}}]),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -251,19 +251,19 @@ async def test_uscs_customer_send_invite_false() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment(customer_name="USCS CSC")),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             new=AsyncMock(return_value=[{"id": 99, "phones": [], "emails": [], "raw": {"context": [{"id": "848297", "type": "CARRIER"}]}}]),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -325,19 +325,19 @@ async def test_phone_partial_name_single_hit_assigns() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             phone_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -368,15 +368,15 @@ async def test_phone_multiple_hits_same_first_name_ambiguous() -> None:
     )
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             phone_mock,
         ),
     ):
@@ -398,19 +398,19 @@ async def test_phone_duplicate_nested_names_picks_richest() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             phone_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -433,19 +433,19 @@ async def test_phone_duplicate_no_name_picks_nested() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             phone_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -472,19 +472,19 @@ async def test_phone_hit_name_mismatch_not_found_no_create() -> None:
     create_mock = AsyncMock(return_value=999)
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_phone",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             phone_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.create_driver_contact",
+            "app.services.driver_assignment.turvo_service.create_driver_contact",
             create_mock,
         ),
     ):
@@ -505,19 +505,19 @@ async def test_name_only_partial_token_match_assigns() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             search_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -547,23 +547,23 @@ async def test_name_only_fallback_contacts_tab_finds_wolf() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             pub_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_name",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_name",
             ui_name_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):
@@ -592,19 +592,19 @@ async def test_name_only_fallback_ambiguous_two_matches() -> None:
     )
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             pub_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_name",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_name",
             ui_name_mock,
         ),
     ):
@@ -627,23 +627,23 @@ async def test_name_only_skips_fallback_when_public_api_hits() -> None:
     assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
     with (
         patch(
-            "app.services.driver_assignment_turvo_service.get_shipment",
+            "app.services.driver_assignment.turvo_service.get_shipment",
             new=AsyncMock(return_value=_shipment()),
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.driver_assigned_from_payload",
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
             pub_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.search_carrier_driver_contacts_by_name",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_name",
             ui_name_mock,
         ),
         patch(
-            "app.services.driver_assignment_turvo_service.assign_driver_to_shipment",
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
             assign_mock,
         ),
     ):

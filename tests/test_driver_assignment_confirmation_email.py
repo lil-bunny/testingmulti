@@ -1,6 +1,6 @@
 """Tests for generic driver_assignment.confirmation_email tenant config."""
 
-from app.domain.driver_assignment_confirmation_email import (
+from app.domain.driver_assignment.confirmation_email import (
     parse_driver_assignment_confirmation_email,
 )
 

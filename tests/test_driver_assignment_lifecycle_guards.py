@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.domain.driver_assignment_lifecycle_guards import (
+from app.domain.driver_assignment.guards import (
     blocks_driver_assignment_escalation,
     blocks_driver_assignment_reminder,
     is_driver_assignment_active,
