@@ -9,19 +9,23 @@ from app.domain.driver_assignment.confirmation_email import (
 )
 from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
-from app.domain.tenant_settings.email_recipients import InboundRoutingEmails
+from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
 from app.domain.tenant_settings.tms import TmsSettings
 
 
 class T3raPodLifecycleSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    shadow_mode: bool = False
+    shadow_emails: EmailRecipients | None = None
     reminders: WorkflowRemindersConfig
 
 
 class T3raDriverAssignmentSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    shadow_mode: bool = False
+    shadow_emails: EmailRecipients | None = None
     reminders: WorkflowRemindersConfig
     confirmation_email: DriverAssignmentConfirmationEmailConfig | None = None
     escalate_driver: DriverAssignmentEscalateSettings | None = None

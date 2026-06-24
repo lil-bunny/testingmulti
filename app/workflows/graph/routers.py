@@ -179,15 +179,6 @@ def driver_details_router(state):
     return DO_NOTHING
 
 
-def driver_details_partial_router(state):
-    """Route insufficient replies: partial fields → follow-up, else end."""
-    extraction = state.data.get("driver_details_extraction") or {}
-    driver = extraction.get("driver") if isinstance(extraction, dict) else {}
-    if isinstance(driver, dict) and has_partial_driver_fields(driver):
-        return "partial_fields"
-    return "no_partial_fields"
-
-
 def tms_searchable_router(state):
     """Insufficient branch: TMS search when name/phone present, else follow-up or end."""
     extraction = state.data.get("driver_details_extraction") or {}

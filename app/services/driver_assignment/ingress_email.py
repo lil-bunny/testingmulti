@@ -6,12 +6,17 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.driver_assignment.confirmation_email import parse_driver_assignment_confirmation_email
+from app.domain.tenant_settings.workflow_shadow_mode import (
+    parse_shadow_mail_recipients,
+    workflow_shadow_active,
+)
 from app.tools.driver_details import render_driver_confirmation_html
 from app.services.driver_assignment.ingress_types import (
     DEFAULT_PARTIAL_DRIVER_DETAILS_FOLLOW_UP_HTML,
     SendReminderResult,
 )
 from app.services.unipile_service import UnipileException
+from app.services.workflow_shadow_mail_service import WorkflowShadowMailService
 
 logger = get_logger(__name__)
 
@@ -46,10 +51,6 @@ class IngressEmailMixin:
 
             )
 
-        if not thread_id:
-
-            return SendReminderResult(sent=False, error="missing_thread_id")
-
         settings = tenant_settings or {}
 
         account_id = self._clean(settings.get("mikey_account_id"))
@@ -57,6 +58,18 @@ class IngressEmailMixin:
         if not account_id:
 
             return SendReminderResult(sent=False, error="missing_mikey_account_id")
+
+        if not thread_id:
+
+            if not workflow_shadow_active(
+                settings,
+                payload,
+                workflow_name="driver_assignment",
+            ) or parse_shadow_mail_recipients(
+                settings,
+                workflow_name="driver_assignment",
+            ) is None:
+                return SendReminderResult(sent=False, error="missing_thread_id")
 
         reminder_step = payload.get("reminder_step")
 
@@ -73,6 +86,60 @@ class IngressEmailMixin:
             "Please provide driver name and contact information for this load."
 
         )
+
+        email_source = (
+            self._clean(payload.get("reminder_email_source"))
+            or "driver_assignment_reminder"
+        )
+
+        if workflow_shadow_active(
+            settings,
+            payload,
+            workflow_name="driver_assignment",
+        ):
+            redirect = parse_shadow_mail_recipients(
+                settings,
+                workflow_name="driver_assignment",
+            )
+            if redirect is None:
+                logger.info(
+                    "send_reminder_email shadow_mode skipped outbound email lifecycle_id=%s shipment_id=%s",
+                    payload.get("workflow_lifecycle_id"),
+                    payload.get("shipment_id"),
+                )
+                return SendReminderResult(sent=True)
+            try:
+                result = WorkflowShadowMailService().send_redirect_email(
+                    tenant_id=tenant_id,
+                    recipients=redirect,
+                    subject=subject,
+                    body=body,
+                    account_id=account_id,
+                    workflow_run_id=workflow_run_id,
+                    communication_metadata={
+                        "source": email_source,
+                        "workflow_lifecycle_id": payload.get("workflow_lifecycle_id"),
+                        "shipment_id": payload.get("shipment_id"),
+                        "reminder_step": reminder_step,
+                        "original_thread_id": thread_id,
+                    },
+                )
+            except UnipileException as exc:
+                logger.warning(
+                    "send_reminder_email shadow redirect Unipile error lifecycle_id=%s shipment_id=%s: %s",
+                    payload.get("workflow_lifecycle_id"),
+                    payload.get("shipment_id"),
+                    exc,
+                )
+                return SendReminderResult(sent=False, error=str(exc))
+            except Exception:
+                logger.exception(
+                    "send_reminder_email shadow redirect unexpected error lifecycle_id=%s shipment_id=%s",
+                    payload.get("workflow_lifecycle_id"),
+                    payload.get("shipment_id"),
+                )
+                return SendReminderResult(sent=False, error="unexpected_error")
+            return self._reminder_result_from_send(result)
 
         try:
 
@@ -92,9 +159,7 @@ class IngressEmailMixin:
 
                 communication_metadata={
 
-                    "source": self._clean(payload.get("reminder_email_source"))
-
-                    or "driver_assignment_reminder",
+                    "source": email_source,
 
                     "thread_id": thread_id,
 
@@ -138,26 +203,25 @@ class IngressEmailMixin:
 
             return SendReminderResult(sent=False, error="unexpected_error")
 
+        return self._reminder_result_from_send(result)
+
+    @staticmethod
+    def _reminder_result_from_send(result: Any) -> SendReminderResult:
+        if result is None:
+            return SendReminderResult(sent=False, error="send_skipped_or_no_result")
         success = True
-
         if isinstance(result, dict):
-
             success = bool(result.get("success", True))
-
         elif result is False:
-
             success = False
-
         if not success:
-
-            return SendReminderResult(sent=False, error="send_failed")
-
+            err = (result or {}).get("error") if isinstance(result, dict) else None
+            return SendReminderResult(sent=False, error=str(err or "send_failed"))
         comm_id = None
-
         if isinstance(result, dict):
-
-            comm_id = self._clean(result.get("communication_id"))
-
+            raw = result.get("communication_id")
+            if raw is not None and str(raw).strip():
+                comm_id = str(raw).strip()
         return SendReminderResult(sent=True, error=None, communication_id=comm_id)
 
     def send_partial_details_follow_up_email(

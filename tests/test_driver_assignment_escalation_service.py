@@ -78,6 +78,47 @@ def test_escalate_posts_teams_and_records_activity() -> None:
 
     assert result.sent is True
     post_mock.assert_awaited_once()
+    _args, kwargs = post_mock.await_args
+    fact_labels = [label for label, _ in kwargs["facts"]]
+    assert "Shipments row ID" not in fact_labels
+    assert "Lifecycle ID" not in fact_labels
+    assert "Current sub-status" not in fact_labels
+    activity.record_escalation_sent.assert_called_once()
+
+
+def test_escalate_shadow_still_posts_teams() -> None:
+    ingress = MagicMock()
+    ingress.check_escalation_eligibility.return_value = EligibilityResult(skip_reason=None)
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "processing",
+        "sub_status": "reminder_4_sent",
+    }
+    activity = MagicMock()
+    payload = {
+        **_BASE_PAYLOAD,
+        "workflow_shadow_mode": True,
+    }
+
+    svc = DriverAssignmentEscalationService(
+        ingress_service=ingress,
+        activity_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.driver_assignment.escalation_service.post_message_card",
+        new_callable=AsyncMock,
+    ) as post_mock:
+        result = svc.escalate_from_payload(
+            tenant_id="tenant-1",
+            tenant_settings=_TENANT_SETTINGS,
+            payload=payload,
+            workflow_run_id="run-1",
+        )
+
+    assert result.sent is True
+    post_mock.assert_awaited_once()
     activity.record_escalation_sent.assert_called_once()
 
 

@@ -3,91 +3,25 @@ from typing import Any, Dict, List
 
 from app.core.config import settings
 from app.domain.pod_lifecycle_settings import resolve_pod_sender_account_id
-from app.services.unipile_service import UnipileException
+from app.services.attachment_normalizer import pod_individual_attachment_filename
+from app.services.pod_lifecycle.email_service import PodLifecycleEmailService
+from app.services.s3bucket_service import bucket
 from app.tools.communication_metadata import stash_communication_id
 from app.tools.email import detect_attachment_bytes_type
-from app.tools.email import get_email_attachments as get_email_attachments_tool, send_email as send_email_tool
-from app.services.s3bucket_service import bucket
-from app.services.attachment_normalizer import pod_individual_attachment_filename
-from app.workflows.shipment_resolver import (
-    resolve_shipment_id,
-)
+from app.tools.email import get_email_attachments as get_email_attachments_tool
+from app.workflows.shipment_resolver import resolve_shipment_id
 
 logger = logging.getLogger(__name__)
 
 
 def send_email(state):
-    tenant_raw = getattr(state, "tenant_id", None) or state.data.get("tenant_id")
-    run_id = str(state.execution_id or "").strip() or None
-    sender_account_id = resolve_pod_sender_account_id(state)
-    if not sender_account_id:
-        logger.error(
-            "send_email: mikey_account_id not configured lifecycle_id=%s shipment_id=%s",
-            state.data.get("workflow_lifecycle_id"),
-            state.data.get("shipment_id"),
-        )
-        state.data["pod_reminder_error"] = "missing_mikey_account_id"
-        state.data["pod_reminder_sent"] = False
-        return state
-
-    send_result = None
-    try:
-        send_result = send_email_tool(
-            state.data.get("to"),
-            state.data.get("subject", "POD Request"),
-            state.data.get("body", ""),
-            thread_id=state.data.get("thread_id"),
-            account_id=sender_account_id,
-            tenant_id=tenant_raw,
-            workflow_run_id=run_id,
-            communication_metadata={
-                "source": "pod_send_email",
-                "thread_id": state.data.get("thread_id"),
-                "email_id": state.data.get("email_id"),
-                "workflow_lifecycle_id": state.data.get("workflow_lifecycle_id"),
-                "shipment_id": state.data.get("shipment_id"),
-            },
-        )
-    except UnipileException as exc:
-        logger.warning(
-            "send_email Unipile error lifecycle_id=%s shipment_id=%s: %s",
-            state.data.get("workflow_lifecycle_id"),
-            state.data.get("shipment_id"),
-            exc,
-        )
-        state.data["pod_reminder_result"] = send_result
-        state.data["pod_reminder_error"] = str(exc)
-        state.data["pod_reminder_sent"] = False
-        return state
-    except Exception:
-        logger.exception(
-            "send_email unexpected error lifecycle_id=%s shipment_id=%s",
-            state.data.get("workflow_lifecycle_id"),
-            state.data.get("shipment_id"),
-        )
-        state.data["pod_reminder_result"] = send_result
-        state.data["pod_reminder_error"] = "unexpected_error"
-        state.data["pod_reminder_sent"] = False
-        return state
-
-    if send_result is None:
-        state.data["pod_reminder_error"] = "send_skipped_or_no_result"
-        state.data["pod_reminder_sent"] = False
-        return state
-
-    stash_communication_id(
-        state,
-        send_result if isinstance(send_result, dict) else None,
-    )
-    state.data["pod_reminder_result"] = send_result
-    success = True
-    if isinstance(send_result, dict):
-        success = bool(send_result.get("success", True))
-    state.data["pod_reminder_sent"] = success
-    if not success:
-        state.data["pod_reminder_error"] = (
-            (send_result or {}).get("error") if isinstance(send_result, dict) else None
-        ) or "unipile_send_failed"
+    result = PodLifecycleEmailService().send_pod_reminder_from_state(state)
+    patch = result.to_state_patch()
+    if result.send_result:
+        stash_communication_id(state, result.send_result)
+    elif result.communication_id:
+        state.data["communication_id"] = result.communication_id
+    state.data.update(patch)
     return state
 
 

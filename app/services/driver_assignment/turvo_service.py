@@ -28,6 +28,7 @@ from app.domain.driver_assignment.confirmation_email import (
     parse_driver_assignment_confirmation_email,
 )
 from app.models.tenants import TenantSlug
+from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_active
 from app.tools.driver_details import (
     can_create_tms_driver_contact,
     contact_row_name_phone,
@@ -119,6 +120,7 @@ class DriverAssignmentTurvoService:
                 shipment_id=shipment_id,
                 driver=driver,
                 tenant_settings=(state.data or {}).get("tenant_settings"),
+                state_data=state.data or {},
             )
         )
         patch = result.to_state_patch()
@@ -142,12 +144,18 @@ class DriverAssignmentTurvoService:
         shipment_id: str,
         driver: dict[str, str | None],
         tenant_settings: dict[str, Any] | None = None,
+        state_data: dict[str, Any] | None = None,
     ) -> TmsDriverResolution:
         slug = (tenant_slug or "").strip()
         sid = str(shipment_id or "").strip()
         name = (driver.get("name") or "").strip() or None
         phone = (driver.get("phone") or "").strip() or None
         email = (driver.get("email") or "").strip() or None
+        shadow = workflow_shadow_active(
+            tenant_settings if isinstance(tenant_settings, dict) else None,
+            state_data,
+            workflow_name="driver_assignment",
+        )
 
         if not slug or not sid:
             return TmsDriverResolution(
@@ -222,6 +230,7 @@ class DriverAssignmentTurvoService:
                 carrier_id=carrier_id,
                 carrier_name=carrier_name,
                 shipment_payload=shipment,
+                shadow=shadow,
             )
         except TurvoApiError as e:
             logger.warning(
@@ -238,7 +247,49 @@ class DriverAssignmentTurvoService:
             )
 
         if contact_id is None:
+            if (
+                shadow
+                and resolution.tms_resolution == "not_found"
+                and can_create_tms_driver_contact(driver)
+            ):
+                matched_name, matched_phone = driver_block_name_phone(driver)
+                return TmsDriverResolution(
+                    outcome="assigned",
+                    tms_resolution="created",
+                    tms_created_contact=True,
+                    tms_shipment_id=sid,
+                    tms_carrier_id=carrier_id,
+                    tms_matched_driver_name=matched_name,
+                    tms_matched_driver_phone=matched_phone,
+                    tms_customer_name=customer_name,
+                    tms_is_tracking_customer=is_tracking,
+                )
             return resolution  # type: ignore[return-value]
+
+        if shadow:
+            logger.info(
+                "shadow_mode skipped TMS assign driver shipment_id=%s contact_id=%s",
+                sid,
+                contact_id,
+            )
+            return TmsDriverResolution(
+                outcome="assigned",
+                tms_resolution=(
+                    "created"
+                    if resolution.tms_created_contact
+                    else ("found" if resolution.tms_resolution == "found" else "assigned")
+                ),
+                tms_shipment_id=sid,
+                tms_carrier_id=carrier_id,
+                tms_contact_id=contact_id,
+                tms_match_count=resolution.tms_match_count,
+                tms_search_match_by=resolution.tms_search_match_by,
+                tms_created_contact=resolution.tms_created_contact,
+                tms_customer_name=customer_name,
+                tms_is_tracking_customer=is_tracking,
+                tms_matched_driver_name=resolution.tms_matched_driver_name,
+                tms_matched_driver_phone=resolution.tms_matched_driver_phone,
+            )
 
         try:
             await assign_driver_to_shipment(
@@ -292,6 +343,7 @@ class DriverAssignmentTurvoService:
         carrier_id: int,
         carrier_name: str,
         shipment_payload: dict[str, Any] | None = None,
+        shadow: bool = False,
     ) -> tuple[int | None, TmsDriverResolution]:
         name = driver.get("name")
         phone = driver.get("phone")
@@ -330,6 +382,7 @@ class DriverAssignmentTurvoService:
                         carrier_id=carrier_id,
                         carrier_name=carrier_name,
                         allow_create=True,
+                        shadow=shadow,
                     )
                 return self._pick_only(
                     matches=phone_matches,
@@ -399,6 +452,7 @@ class DriverAssignmentTurvoService:
                 carrier_id=carrier_id,
                 carrier_name=carrier_name,
                 allow_create=can_create_tms_driver_contact(driver),
+                shadow=shadow,
             )
 
         return None, TmsDriverResolution(
@@ -528,6 +582,7 @@ class DriverAssignmentTurvoService:
         carrier_id: int,
         carrier_name: str,
         allow_create: bool,
+        shadow: bool = False,
     ) -> tuple[int | None, TmsDriverResolution]:
         count = len(matches)
         base = dict(
@@ -552,6 +607,13 @@ class DriverAssignmentTurvoService:
                 **base,
             )
         if not allow_create:
+            return None, TmsDriverResolution(
+                outcome="follow_up",
+                tms_resolution="not_found",
+                tms_follow_up_reason="not_found",
+                **base,
+            )
+        if shadow:
             return None, TmsDriverResolution(
                 outcome="follow_up",
                 tms_resolution="not_found",

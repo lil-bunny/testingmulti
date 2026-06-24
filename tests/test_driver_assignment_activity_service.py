@@ -224,7 +224,7 @@ def test_record_reminder_sent_partial_follow_up_action_template():
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
 
 
-def test_record_driver_details_email_received_pending_review_details_received():
+def test_record_tms_driver_success_found_marks_details_received():
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -236,21 +236,32 @@ def test_record_driver_details_email_received_pending_review_details_received():
         lifecycle_service=lifecycle,
     )
     state = _state(
-        driver_details_decision="has_details",
+        tms_resolution="found",
+        tms_contact_id=123,
+        tms_search_match_by="phone",
+        tms_driver_outcome="assigned",
         driver_details_extraction={
             "driver": {"name": "John Doe", "phone": "555-0100", "email": None},
         },
     )
 
-    svc.record_driver_details_email_received(state)
+    svc.record_tms_driver_success(state)
 
     sequence = activity.record_sequence.call_args.args[0]
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert "details received" in sequence.steps[0].description.lower()
-    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
-    assert sequence.steps[1].to_sub_status == StatusSubType.DETAILS_RECEIVED
-    assert sequence.steps[1].to_status is None
+    descriptions = [
+        step.description.lower()
+        for step in sequence.steps
+        if step.description
+    ]
+    sub_statuses = [
+        step.to_sub_status
+        for step in sequence.steps
+        if step.activity_type == ActivityType.SUB_STATUS_CHANGE
+    ]
+    assert any("found in tms" in d for d in descriptions)
+    assert any("details received" in d for d in descriptions)
+    assert StatusSubType.DETAILS_RECEIVED in sub_statuses
+    assert StatusSubType.UPLOADED_TO_TMS in sub_statuses
     assert state.data["driver_details_recorded"] is True
 
 

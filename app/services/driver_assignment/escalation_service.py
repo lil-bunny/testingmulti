@@ -89,6 +89,7 @@ class DriverAssignmentEscalationService:
         body = format_driver_escalation_body(settings.message_body, fields=fields)
         facts = driver_escalation_facts(fields)
 
+        # ponytail: Teams stays live in workflow shadow_mode (email/Turvo are gated elsewhere)
         try:
             asyncio.run(
                 post_message_card(

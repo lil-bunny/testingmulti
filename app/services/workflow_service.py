@@ -1,4 +1,5 @@
 from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
+from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_mode_enabled
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
@@ -25,7 +26,6 @@ from app.workflows.graph.routers import (
     driver_assignment_eligibility_router,
     driver_assignment_delayed_event_router,
     driver_details_router,
-    driver_details_partial_router,
     tms_searchable_router,
     tms_driver_router,
 )
@@ -53,7 +53,6 @@ ROUTER_REGISTRY = {
     "driver_assignment_eligibility_router": driver_assignment_eligibility_router,
     "driver_assignment_delayed_event_router": driver_assignment_delayed_event_router,
     "driver_details_router": driver_details_router,
-    "driver_details_partial_router": driver_details_partial_router,
     "tms_searchable_router": tms_searchable_router,
     "tms_driver_router": tms_driver_router,
 }
@@ -130,6 +129,11 @@ class WorkflowService:
             tenant_slug,
             tenant_row.get("settings") or {},
         )
+        if workflow_shadow_mode_enabled(
+            payload["tenant_settings"],
+            workflow_name=workflow_name,
+        ):
+            payload["workflow_shadow_mode"] = True
 
         if workflow_name == "ratecon":
             payload = await self._ratecon_ingress.prepare_payload(

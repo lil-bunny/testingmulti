@@ -10,6 +10,7 @@ import pytest
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
+from app.services.workflow_shadow_mail_service import WorkflowShadowMailService
 
 _TENANT_ID = "tenant-uuid-1"
 _SHIPMENTS_ROW_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -415,6 +416,108 @@ def test_send_reminder_email_success():
     comms.send_thread_reply.assert_called_once()
     call_kwargs = comms.send_thread_reply.call_args.kwargs
     assert call_kwargs["thread_id"] == "thread-1"
+
+
+def test_send_reminder_email_shadow_blocks_without_redirect():
+    comms = MagicMock()
+    svc = DriverAssignmentIngressService(communications_service=comms)
+    settings = {
+        "mikey_account_id": "acct-1",
+        "driver_assignment": {"shadow_mode": True},
+    }
+
+    result = svc.send_reminder_email(
+        tenant_id=_TENANT_ID,
+        tenant_settings=settings,
+        payload=_base_payload(
+            event_type="reminder_due",
+            reminder_step=1,
+            body="Please send driver info",
+            thread_id="thread-1",
+            workflow_shadow_mode=True,
+        ),
+        workflow_run_id="run-1",
+    )
+
+    assert result.sent is True
+    assert result.error is None
+    assert result.communication_id is None
+    comms.send_thread_reply.assert_not_called()
+
+
+def test_send_reminder_email_shadow_redirects_without_thread_reply():
+    comms = MagicMock()
+    svc = DriverAssignmentIngressService(communications_service=comms)
+    settings = {
+        "mikey_account_id": "acct-1",
+        "driver_assignment": {
+            "shadow_mode": True,
+            "shadow_emails": {"to": ["test@freightx.ai"]},
+        },
+    }
+
+    with patch.object(
+        WorkflowShadowMailService,
+        "send_redirect_email",
+        return_value={"success": True, "communication_id": "comm-shadow-1"},
+    ) as redirect_mock:
+        result = svc.send_reminder_email(
+            tenant_id=_TENANT_ID,
+            tenant_settings=settings,
+            payload=_base_payload(
+                event_type="reminder_due",
+                reminder_step=1,
+                body="Please send driver info",
+                thread_id="thread-1",
+                workflow_shadow_mode=True,
+            ),
+            workflow_run_id="run-1",
+        )
+
+    assert result.sent is True
+    assert result.communication_id == "comm-shadow-1"
+    comms.send_thread_reply.assert_not_called()
+    redirect_mock.assert_called_once()
+    call_kwargs = redirect_mock.call_args.kwargs
+    assert call_kwargs["recipients"].to == ["test@freightx.ai"]
+    assert call_kwargs["communication_metadata"]["original_thread_id"] == "thread-1"
+
+
+def test_send_reminder_email_shadow_redirect_without_thread_id():
+    comms = MagicMock()
+    svc = DriverAssignmentIngressService(communications_service=comms)
+    settings = {
+        "mikey_account_id": "acct-1",
+        "driver_assignment": {
+            "shadow_mode": True,
+            "shadow_emails": {"to": ["test@freightx.ai"]},
+        },
+    }
+
+    with patch.object(
+        WorkflowShadowMailService,
+        "send_redirect_email",
+        return_value={"success": True, "communication_id": "comm-shadow-2"},
+    ) as redirect_mock:
+        result = svc.send_reminder_email(
+            tenant_id=_TENANT_ID,
+            tenant_settings=settings,
+            payload=_base_payload(
+                event_type="reminder_due",
+                reminder_step=1,
+                body="Please send driver info",
+                thread_id=None,
+                ratecon_workflow_lifecycle_id=None,
+                workflow_shadow_mode=True,
+            ),
+            workflow_run_id="run-1",
+        )
+
+    assert result.sent is True
+    assert result.communication_id == "comm-shadow-2"
+    comms.send_thread_reply.assert_not_called()
+    comms.resolve_thread_for_lifecycle.assert_not_called()
+    redirect_mock.assert_called_once()
 
 
 def test_send_partial_details_follow_up_email_bumps_reminder_step():

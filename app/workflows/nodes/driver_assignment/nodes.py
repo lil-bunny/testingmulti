@@ -149,10 +149,6 @@ def classify_driver_details(state):
     return state
 
 
-def route_driver_details_partial(state):
-    return state
-
-
 def route_tms_searchable(state):
     return state
 
@@ -176,11 +172,6 @@ def send_driver_details_partial_follow_up(state):
         state.data["driver_reminder_error"] = result.error
     if result.communication_id:
         state.data["communication_id"] = result.communication_id
-    return state
-
-
-def record_driver_details_email_received(state):
-    DriverAssignmentActivityService().record_driver_details_email_received(state)
     return state
 
 

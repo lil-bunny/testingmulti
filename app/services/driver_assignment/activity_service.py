@@ -26,11 +26,12 @@ from app.domain.activity_log_descriptions import (
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType
+from app.domain.tenant_settings.workflow_shadow_mode import shadow_metadata_patch
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_service import parse_reminders_for_workflow
-from app.tools.driver_details import HAS_DETAILS, normalize_phone_digits
+from app.tools.driver_details import normalize_phone_digits
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 
 logger = get_logger(__name__)
@@ -83,6 +84,7 @@ class DriverAssignmentActivityService:
         wl_id = state.data.get("workflow_lifecycle_id")
         if wl_id is not None and str(wl_id).strip():
             meta["workflow_lifecycle_id"] = str(wl_id).strip()
+        meta.update(shadow_metadata_patch(state.data))
         return meta
 
     @staticmethod
@@ -731,69 +733,6 @@ class DriverAssignmentActivityService:
                 steps=(completed,),
             )
         )
-
-    def record_driver_details_email_received(self, state) -> None:
-        scope = self._scope_ids(state)
-        decision = str(state.data.get("driver_details_decision") or "").strip()
-
-        if scope is None:
-            logger.warning(
-                "record_driver_details_email_received missing workflow_lifecycle_id or tenant_id"
-            )
-            return
-
-        if decision != HAS_DETAILS:
-            logger.info(
-                "record_driver_details_email_received skipped decision=%s lifecycle_id=%s",
-                decision,
-                scope[0],
-            )
-            return
-
-        wl_id, tenant_id, run_id = scope
-        extraction = state.data.get("driver_details_extraction") or {}
-        driver = extraction.get("driver") if isinstance(extraction, dict) else {}
-        if not isinstance(driver, dict):
-            driver = {}
-
-        meta = self._base_metadata(state)
-        meta["driver_details_decision"] = decision
-        if driver.get("name"):
-            meta["driver_name"] = driver["name"]
-        if driver.get("phone"):
-            meta["driver_phone"] = driver["phone"]
-        if driver.get("email"):
-            meta["driver_email"] = driver["email"]
-
-        prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
-        current_status = status_type_from_db(prev.get("status")) if prev else None
-        transition_step = self._build_reminder_transition_step(
-            current_status=current_status,
-            new_sub=StatusSubType.DETAILS_RECEIVED,
-            metadata=meta,
-        )
-
-        self._activity.record_sequence(
-            ActivityLogSequence(
-                tenant_id=tenant_id,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
-                steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_details_received_from_email_action(
-                            name=driver.get("name"),
-                            phone=driver.get("phone"),
-                            email=driver.get("email"),
-                        ),
-                        metadata=dict(meta),
-                        communication_id=self._communication_id(state),
-                    ),
-                    transition_step,
-                ),
-            )
-        )
-        state.data["driver_details_recorded"] = True
 
     def record_escalation_sent(self, state) -> None:
         scope = self._scope_ids(state)

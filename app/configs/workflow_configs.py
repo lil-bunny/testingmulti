@@ -148,9 +148,7 @@ WORKFLOW_CONFIGS = {
             "send_driver_details_confirmation",
             "record_driver_details_confirmation_sent",
             "record_driver_assignment_completed",
-            "route_driver_details_partial",
             "send_driver_details_partial_follow_up",
-            "record_driver_details_email_received",
             "escalate_driver_assignment",
             "end",
         ],
@@ -224,13 +222,6 @@ WORKFLOW_CONFIGS = {
                     "assigned": "record_tms_driver_success",
                     "follow_up": "record_tms_driver_not_resolved",
                     "error": "record_tms_driver_error",
-                },
-            },
-            "route_driver_details_partial": {
-                "router": "driver_details_partial_router",
-                "map": {
-                    "partial_fields": "send_driver_details_partial_follow_up",
-                    "no_partial_fields": "end",
                 },
             },
         },

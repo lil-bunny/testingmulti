@@ -104,14 +104,11 @@ def driver_escalation_facts(
     return [
         ("Load ID", fields.load_id or "—"),
         ("Turvo shipment ID", fields.shipment_id or "—"),
-        ("Shipments row ID", fields.shipments_row_id or "—"),
-        ("Lifecycle ID", fields.workflow_lifecycle_id or "—"),
         ("Carrier", fields.carrier_name or "—"),
         ("Customer", fields.customer_name or "—"),
         ("Pickup", fields.pickup_at or "—"),
         ("Pickup timezone", fields.pickup_timezone or "—"),
         ("Delivery date", fields.delivery_date or "—"),
-        ("Current sub-status", fields.current_sub_status or "—"),
     ]
 
 
