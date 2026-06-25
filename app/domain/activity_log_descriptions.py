@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.domain.activity_log_constants import (
     CARRIER_ACK_LLM_ACTION_TEMPLATE,
+    DRIVER_DETAILS_LLM_ACTION_TEMPLATE,
     AUTO_REPLY_ACK_SKIPPED_ACTION,
     ESCALATION_SENT_ACTION,
     REMINDER_SENT_ACTION_TEMPLATE,
@@ -12,12 +13,30 @@ from app.domain.activity_log_constants import (
     TENDER_CREATED_ACTION_TEMPLATE,
     TENDER_SENT_TO_VENDOR_ACTION,
     RATECON_RECEIVED_ACTION,
+    RATECON_SUPERSEDED_ACTION,
     RATECON_DOCUMENT_UPLOADED_ACTION,
     RATECON_DOCUMENT_UPLOAD_FAILED_ACTION,
     RATECON_DOCUMENT_PROCESSED_ACTION,
     RATECON_DOCUMENT_PROCESSING_FAILED_ACTION,
     RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE,
     POD_STARTED_ACTION,
+    DRIVER_ASSIGNMENT_STARTED_ACTION,
+    DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE,
+    DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION,
+    DRIVER_REMINDERS_SCHEDULED_ACTION,
+    DRIVER_REMINDER_SENT_TEMPLATE,
+    DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE,
+    DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE,
+    DRIVER_FOUND_IN_TMS_TEMPLATE,
+    DRIVER_NOT_FOUND_IN_TMS_TEMPLATE,
+    DRIVER_AMBIGUOUS_IN_TMS_TEMPLATE,
+    DRIVER_CREATED_IN_TMS_TEMPLATE,
+    DRIVER_ASSIGNED_IN_TMS_ACTION,
+    DRIVER_ALREADY_ASSIGNED_IN_TMS_ACTION,
+    DRIVER_ASSIGN_TO_TMS_FAILED_TEMPLATE,
+    DRIVER_CONFIRMATION_TRACKING_SENT_ACTION,
+    DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION,
+    DRIVER_ESCALATION_SENT_ACTION,
     POD_ESCALATION_SENT_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
     POD_DOCUMENT_UPLOAD_FAILED_ACTION,
@@ -119,6 +138,21 @@ def format_carrier_ack_llm_action(
     )
 
 
+def format_driver_details_llm_action(
+    *,
+    decision: str,
+    reason: str,
+    confidence: float | None = None,
+) -> str:
+    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
+    reason_s = (reason or "").strip() or "no reason"
+    return DRIVER_DETAILS_LLM_ACTION_TEMPLATE.format(
+        decision=decision,
+        confidence_suffix=conf,
+        reason=reason_s,
+    )
+
+
 def format_reminder_sent_action(*, step: int) -> str:
     return REMINDER_SENT_ACTION_TEMPLATE.format(step=step)
 
@@ -129,6 +163,10 @@ def format_escalation_sent_action() -> str:
 
 def format_ratecon_received_action() -> str:
     return RATECON_RECEIVED_ACTION
+
+
+def format_ratecon_superseded_action() -> str:
+    return RATECON_SUPERSEDED_ACTION
 
 
 def format_ratecon_document_uploaded_action() -> str:
@@ -159,6 +197,109 @@ def format_ratecon_document_processed_with_llm_action(
 
 def format_pod_started_action() -> str:
     return POD_STARTED_ACTION
+
+
+def format_driver_assignment_started_action() -> str:
+    return DRIVER_ASSIGNMENT_STARTED_ACTION
+
+
+def format_driver_assignment_not_started_action(*, reason: str) -> str:
+    return DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE.format(reason=reason)
+
+
+def format_driver_assignment_cancelled_tendered_action() -> str:
+    return DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION
+
+
+def format_driver_reminders_scheduled_action() -> str:
+    return DRIVER_REMINDERS_SCHEDULED_ACTION
+
+
+def format_driver_reminder_sent_action(*, step: int | None = None) -> str:
+    label = str(step) if step is not None else "?"
+    return DRIVER_REMINDER_SENT_TEMPLATE.format(step=label)
+
+
+def format_details_received_from_email_action(
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+    email: str | None = None,
+) -> str:
+    contact_parts: list[str] = []
+    if phone:
+        contact_parts.append(f"phone={phone}")
+    if email:
+        contact_parts.append(f"email={email}")
+    contact_suffix = f", {', '.join(contact_parts)}" if contact_parts else ""
+    name_label = (name or "").strip() or "unknown"
+    return DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE.format(
+        name=name_label,
+        contact_suffix=contact_suffix,
+    )
+
+
+def format_driver_details_partial_follow_up_action(*, step: int | None = None) -> str:
+    label = str(step) if step is not None else "?"
+    return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE.format(step=label)
+
+
+def format_driver_found_in_tms_action(
+    *,
+    match_by: str,
+    match_value: str,
+    contact_id: int | str,
+) -> str:
+    return DRIVER_FOUND_IN_TMS_TEMPLATE.format(
+        match_by=match_by,
+        match_value=match_value,
+        contact_id=contact_id,
+    )
+
+
+def format_driver_not_found_in_tms_action(*, match_by: str, match_value: str) -> str:
+    return DRIVER_NOT_FOUND_IN_TMS_TEMPLATE.format(
+        match_by=match_by,
+        match_value=match_value,
+    )
+
+
+def format_driver_ambiguous_in_tms_action(
+    *, match_by: str, match_value: str, count: int
+) -> str:
+    return DRIVER_AMBIGUOUS_IN_TMS_TEMPLATE.format(
+        match_by=match_by,
+        match_value=match_value,
+        count=count,
+    )
+
+
+def format_driver_created_in_tms_action(*, name: str, contact_id: int | str) -> str:
+    return DRIVER_CREATED_IN_TMS_TEMPLATE.format(name=name, contact_id=contact_id)
+
+
+def format_driver_assigned_in_tms_action() -> str:
+    return DRIVER_ASSIGNED_IN_TMS_ACTION
+
+
+def format_driver_already_assigned_in_tms_action() -> str:
+    return DRIVER_ALREADY_ASSIGNED_IN_TMS_ACTION
+
+
+def format_driver_assign_to_tms_failed_action(*, reason: str) -> str:
+    return DRIVER_ASSIGN_TO_TMS_FAILED_TEMPLATE.format(reason=reason)
+
+
+def format_driver_confirmation_tracking_sent_action() -> str:
+    return DRIVER_CONFIRMATION_TRACKING_SENT_ACTION
+
+
+def format_driver_confirmation_default_sent_action() -> str:
+    return DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION
+
+
+def format_driver_escalation_sent_action() -> str:
+    return DRIVER_ESCALATION_SENT_ACTION
 
 
 def format_pod_escalation_sent_action() -> str:

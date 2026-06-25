@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import re
 from html import unescape
+import re
 from typing import Any
 
 from app.domain.unipile_email import attachments_metadata_from_payload

@@ -5,10 +5,14 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from app.core.service_db import run_with_repos
+from app.core.logger import get_logger
+from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 from app.models.status import StatusSubType, StatusType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
 from app.services.shipments_service import ShipmentsService
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -350,6 +354,16 @@ class WorkflowLifecycleService:
             return self._lifecycles_repo.read_row_by_id(lid)
         return run_with_repos(lambda repos: self._repo(repos).read_row_by_id(lid))
 
+    def read_correlation_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            return None
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.read_correlation_by_id(lid)
+        return run_with_repos(
+            lambda repos: self._repo(repos).read_correlation_by_id(lid)
+        )
+
     def find_lifecycle_row_by_tender_id(
         self,
         *,
@@ -424,3 +438,149 @@ class WorkflowLifecycleService:
                 new_sub_status=new_sub_status,
             )
         )
+
+    def find_in_progress_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        policy: WorkflowCancellationPolicy,
+        shipment_id: str,
+    ) -> str | None:
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipment_id)
+        if not tid or not sid:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_in_progress_lifecycle_id(
+                tenant_id=tid,
+                workflow_name=policy.workflow_name,
+                shipment_id=sid,
+                in_progress_statuses=policy.in_progress_status_values(),
+                excluded_sub_statuses=policy.excluded_sub_status_values(),
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def find_latest_non_cancelled_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        policy: WorkflowCancellationPolicy,
+        shipment_id: str,
+    ) -> str | None:
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipment_id)
+        if not tid or not sid:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_latest_non_cancelled_lifecycle_id(
+                tenant_id=tid,
+                workflow_name=policy.workflow_name,
+                shipment_id=sid,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def find_active_driver_assignment_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+    ) -> str | None:
+        from app.configs.workflow_cancellation_policies import (
+            DRIVER_ASSIGNMENT_CANCEL_POLICY,
+        )
+
+        return self.find_in_progress_lifecycle_id(
+            tenant_id=tenant_id,
+            policy=DRIVER_ASSIGNMENT_CANCEL_POLICY,
+            shipment_id=shipment_id,
+        )
+
+    def has_success_terminal_driver_assignment_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+    ) -> bool:
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipment_id)
+        if not tid or not sid:
+            return False
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> bool:
+            return repo.has_success_terminal_driver_assignment_lifecycle(
+                tenant_id=tid,
+                shipment_id=sid,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def resolve_driver_assignment_cycle(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict[str, Any],
+    ) -> LifecycleResolution:
+        tenant_id_clean = self._clean(tenant_id)
+        if not tenant_id_clean:
+            raise ValueError("tenant_id is required")
+
+        db_tenant_id = resolve_graph_tenant_to_uuid(tenant_id_clean)
+        if not db_tenant_id:
+            raise ValueError(
+                f"No matching tenants row for tenant_id={tenant_id_clean!r}"
+            )
+
+        workflow_lifecycle_id = self._clean(payload.get("workflow_lifecycle_id"))
+        if workflow_lifecycle_id:
+            try:
+                uuid.UUID(workflow_lifecycle_id)
+            except (ValueError, AttributeError):
+                pass
+            else:
+                return LifecycleResolution(
+                    workflow_lifecycle_id=workflow_lifecycle_id,
+                    existed=True,
+                )
+
+        shipment_id = self._extract_db_shipment_id(payload)
+        if not shipment_id:
+            raise ValueError("shipments_row_id required for driver_assignment cycle")
+
+        active_id = self.find_active_driver_assignment_lifecycle_id(
+            tenant_id=tenant_id_clean,
+            shipment_id=shipment_id,
+        )
+        if active_id:
+            logger.warning(
+                "resolve_driver_assignment_cycle refused insert: active lifecycle_id=%s shipment_id=%s",
+                active_id,
+                shipment_id,
+            )
+            return LifecycleResolution(
+                workflow_lifecycle_id=active_id,
+                existed=True,
+            )
+
+        def _insert(repo: WorkflowLifecyclesRepository) -> LifecycleResolution:
+            new_id = repo.insert_driver_assignment_lifecycle(
+                tenant_id=db_tenant_id,
+                shipment_id=shipment_id,
+            )
+            return LifecycleResolution(
+                workflow_lifecycle_id=new_id,
+                existed=False,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _insert(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _insert(self._repo(repos)))

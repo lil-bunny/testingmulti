@@ -20,6 +20,7 @@ load_dotenv(_REPO_ROOT / ".env", override=False)
 from app.core.config import settings  # noqa: E402
 from app.domain.prompt_hub_refs import (  # noqa: E402
     CARRIER_ACK_CLASSIFY_PROMPT,
+    DRIVER_DETAILS_EXTRACT_PROMPT,
     POD_PAGE_EXTRACTION_PROMPT,
     POD_VS_RATECON_SEMANTIC_MATCH_PROMPT,
     POD_VS_RATECON_SUMMARY_PROMPT,
@@ -97,6 +98,41 @@ def build_carrier_ack_seed_prompt() -> ChatPromptTemplate:
     )
 
 
+DRIVER_DETAILS_SYSTEM = """
+You extract driver contact details from carrier email replies to a driver assignment request.
+Return JSON only:
+{{"decision": string, "confidence": number, "reason": string, "driver": {{"name": string|null, "phone": string|null, "email": string|null}}}}
+
+decision must be exactly one of:
+- "has_details"
+- "insufficient"
+- "do_nothing"
+
+The user message is a chronological email thread labeled email 1, email 2, and so on (oldest to newest).
+Base your extraction primarily on the latest carrier message; use earlier messages only as context.
+Ignore quoted history, internal reminders, signatures, and non-operational boilerplate when the latest message is clear.
+
+Use "has_details" when the latest carrier message clearly provides a driver name and at least one contact method (phone or email) with intent to assign or confirm the driver for the load.
+
+Use "insufficient" when only a name or only contact is given, details are ambiguous, or the carrier says they will send later.
+
+Use "do_nothing" for questions, unrelated messages, thank-you only, out-of-office, attachment-only with no usable text, or no driver assignment intent.
+
+Use JSON null for missing driver fields, not the string "null".
+confidence must be between 0.0 and 1.0.
+reason must be one short sentence.
+""".strip()
+
+
+def build_driver_details_seed_prompt() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", DRIVER_DETAILS_SYSTEM),
+            ("human", "{thread_text}"),
+        ]
+    )
+
+
 def _langsmith_client() -> Client:
     api_key = (settings.LANGSMITH_API_KEY or "").strip()
     if not api_key:
@@ -135,6 +171,7 @@ def main() -> None:
         "--prompt",
         choices=[
             "carrier-ack",
+            "driver-details",
             "pod",
             "ratecon",
             "pod-vs-ratecon",
@@ -150,6 +187,8 @@ def main() -> None:
     targets: list[tuple[str, ChatPromptTemplate]] = []
     if args.prompt in ("carrier-ack", "all"):
         targets.append((CARRIER_ACK_CLASSIFY_PROMPT, build_carrier_ack_seed_prompt()))
+    if args.prompt in ("driver-details", "all"):
+        targets.append((DRIVER_DETAILS_EXTRACT_PROMPT, build_driver_details_seed_prompt()))
     if args.prompt in ("pod", "all"):
         targets.append((POD_PAGE_EXTRACTION_PROMPT, build_pod_page_seed_prompt()))
     if args.prompt in ("ratecon", "all"):

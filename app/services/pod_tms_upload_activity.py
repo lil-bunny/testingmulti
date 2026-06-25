@@ -16,6 +16,7 @@ from app.domain.activity_log_write import (
     ActivityLogStep,
 )
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
+from app.domain.tenant_settings.workflow_shadow_mode import shadow_metadata_patch
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
@@ -50,7 +51,6 @@ def _metadata(
     if extra:
         meta.update(extra)
     return meta
-
 
 def _completed_transition_step(
     *,
@@ -119,12 +119,15 @@ def record_pod_tms_upload_activity(
     shipment_id: str,
     outcome: PodTmsUploadOutcome,
     extra_metadata: dict[str, Any] | None = None,
+    shadow_state_data: dict[str, Any] | None = None,
     actor_type: ActorType | None = None,
     actor_id: str | None = None,
     activity_log_service: ActivityLogService | None = None,
 ) -> ActivityLogSequenceResult | None:
     """Write activity log + lifecycle transition for POD TMS upload outcome."""
     svc = activity_log_service or ActivityLogService()
+    merged_extra = dict(extra_metadata or {})
+    merged_extra.update(shadow_metadata_patch(shadow_state_data))
 
     if outcome in ("uploaded", "skipped"):
         action_description = (
@@ -137,14 +140,14 @@ def record_pod_tms_upload_activity(
             outcome=outcome,
             scope=scope,
             action_description=action_description,
-            extra=extra_metadata,
+            extra=merged_extra or None,
         )
     else:
         meta = _metadata(
             shipment_id=shipment_id,
             outcome=outcome,
             scope=scope,
-            extra=extra_metadata,
+            extra=merged_extra or None,
         )
         steps = (
             ActivityLogStep(

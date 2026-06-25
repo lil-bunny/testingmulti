@@ -63,6 +63,41 @@ class CommunicationsRepository:
             )
         return out
 
+    def find_active_lifecycle_id_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_name: str = "driver_assignment",
+    ) -> str | None:
+        """Latest non-terminal lifecycle on a thread (newest ``workflow_lifecycles.updated_at``)."""
+        lifecycle_id = execute_scalar(
+            self._session,
+            f"""
+            SELECT wl.id::text
+            FROM {self.TABLE_NAME} c
+            JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+            JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+            WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+              AND c.thread_id = :thread_id
+              AND c.workflow_run_id IS NOT NULL
+              AND wl.workflow_name = :workflow_name
+              AND wl.sub_status::text NOT IN (
+                  'details_received', 'driver_details_email_received', 'uploaded_to_tms', 'cancelled'
+              )
+            ORDER BY wl.updated_at DESC
+            LIMIT 1
+            """,
+            {
+                "tenant_id": tenant_id,
+                "thread_id": thread_id,
+                "workflow_name": workflow_name,
+            },
+        )
+        if not lifecycle_id:
+            return None
+        return str(lifecycle_id).strip() or None
+
     def insert(self, row: dict[str, Any]) -> str | None:
         """
         Insert one communication row; return ``communications.id``.
@@ -384,3 +419,22 @@ class CommunicationsRepository:
         if not thread_id:
             return None
         return str(thread_id).strip() or None
+
+    def is_communication_linked_to_run(self, *, communication_id: str) -> bool:
+        """True when inbound comm already has a ``workflow_run_id`` (Celery retry guard)."""
+        comm_id = str(communication_id or "").strip()
+        if not comm_id:
+            return False
+        linked = execute_scalar(
+            self._session,
+            f"""
+            SELECT EXISTS (
+                SELECT 1
+                FROM {self.TABLE_NAME}
+                WHERE id = CAST(:communication_id AS uuid)
+                  AND workflow_run_id IS NOT NULL
+            )
+            """,
+            {"communication_id": comm_id},
+        )
+        return bool(linked)

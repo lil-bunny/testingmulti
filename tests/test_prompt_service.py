@@ -12,7 +12,11 @@ from app.integrations.langsmith.types import (
     PromptTraceMetadata,
     RenderedPrompt,
 )
-from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
+from app.domain.prompt_step_keys import (
+    DRIVER_ASSIGNMENT_DRIVER_DETAILS,
+    LOAD_TENDERING_CARRIER_ACK,
+    POD_PAGE_EXTRACTION,
+)
 from app.services.prompt_service import PromptService
 
 
@@ -71,3 +75,33 @@ def test_render_step_missing_ref_raises() -> None:
             prompt_step_key=LOAD_TENDERING_CARRIER_ACK,
             variables={"thread_text": "x"},
         )
+
+
+def test_render_step_nested_t3ra_prompt_ref() -> None:
+    client = MagicMock()
+    client.load_and_render.return_value = (
+        RenderedPrompt(system="sys", user="usr"),
+        PromptLoadMetadata(
+            source="hub",
+            tenant_prompt_ref="driver-details-extract:staging",
+            commit_hash="abc123",
+        ),
+    )
+    prompt_service = PromptService(prompt_client=client)
+    rendered, metadata = prompt_service.render_step(
+        tenant_settings={
+            "prompts": {
+                "driver_assignment": {
+                    "driver_details": "driver-details-extract:staging",
+                }
+            }
+        },
+        prompt_step_key=DRIVER_ASSIGNMENT_DRIVER_DETAILS,
+        variables={"thread_text": "Driver John 555-0100"},
+    )
+    assert rendered.system == "sys"
+    assert metadata.tenant_prompt_ref == "driver-details-extract:staging"
+    client.load_and_render.assert_called_once_with(
+        "driver-details-extract:staging",
+        {"thread_text": "Driver John 555-0100"},
+    )

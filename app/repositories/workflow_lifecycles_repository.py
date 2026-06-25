@@ -185,11 +185,40 @@ class WorkflowLifecyclesRepository:
         """ratecon / pod_lifecycle: ``shipment_id`` FK (UUID) only."""
         if not shipment_id:
             return None
+        extra_predicate = "AND shipment_id = CAST(:shipment_id AS uuid)"
+        extra_params: dict[str, Any] = {"shipment_id": shipment_id}
+        if workflow_name == "ratecon":
+            extra_predicate += (
+                " AND sub_status != CAST(:cancelled AS lifecycle_sub_status)"
+            )
+            extra_params["cancelled"] = StatusSubType.CANCELLED.value
         return self._fetch_lifecycle_id(
             tenant_id=tenant_id,
             workflow_name=workflow_name,
-            extra_predicate="AND shipment_id = CAST(:shipment_id AS uuid)",
-            extra_params={"shipment_id": shipment_id},
+            extra_predicate=extra_predicate,
+            extra_params=extra_params,
+        )
+
+    def find_latest_non_cancelled_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_id: str,
+    ) -> str | None:
+        if not shipment_id:
+            return None
+        return self._fetch_lifecycle_id(
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            extra_predicate=(
+                "AND shipment_id = CAST(:shipment_id AS uuid)"
+                " AND sub_status != CAST(:cancelled AS lifecycle_sub_status)"
+            ),
+            extra_params={
+                "shipment_id": shipment_id,
+                "cancelled": StatusSubType.CANCELLED.value,
+            },
         )
 
     def find_existing_lifecycle_id(
@@ -443,3 +472,92 @@ class WorkflowLifecyclesRepository:
             },
         )
         return result.rowcount > 0
+
+    def find_in_progress_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_id: str,
+        in_progress_statuses: tuple[str, ...],
+        excluded_sub_statuses: tuple[str, ...],
+    ) -> str | None:
+        if not shipment_id or not in_progress_statuses:
+            return None
+        status_slots = ", ".join(
+            f"CAST(:status_{i} AS lifecycle_status)"
+            for i in range(len(in_progress_statuses))
+        )
+        extra_params: dict[str, Any] = {
+            "shipment_id": shipment_id,
+        }
+        for i, val in enumerate(in_progress_statuses):
+            extra_params[f"status_{i}"] = val
+
+        sub_filter = ""
+        if excluded_sub_statuses:
+            sub_slots = ", ".join(
+                f"CAST(:excluded_sub_{i} AS lifecycle_sub_status)"
+                for i in range(len(excluded_sub_statuses))
+            )
+            sub_filter = f" AND sub_status NOT IN ({sub_slots})"
+            for i, val in enumerate(excluded_sub_statuses):
+                extra_params[f"excluded_sub_{i}"] = val
+
+        return self._fetch_lifecycle_id(
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            extra_predicate=(
+                "AND shipment_id = CAST(:shipment_id AS uuid)"
+                f" AND status IN ({status_slots})"
+                f"{sub_filter}"
+            ),
+            extra_params=extra_params,
+        )
+
+    def has_success_terminal_driver_assignment_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+    ) -> bool:
+        if not shipment_id:
+            return False
+        row = self._session.execute(
+            text(
+                f"""
+                SELECT 1
+                FROM {self.TABLE_NAME}
+                {_WHERE_TENANT_WORKFLOW}
+                  AND shipment_id = CAST(:shipment_id AS uuid)
+                  AND sub_status IN (
+                      CAST(:uploaded AS lifecycle_sub_status),
+                      CAST(:details_received AS lifecycle_sub_status)
+                  )
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": "driver_assignment",
+                "shipment_id": shipment_id,
+                "uploaded": StatusSubType.UPLOADED_TO_TMS.value,
+                "details_received": StatusSubType.DETAILS_RECEIVED.value,
+            },
+        ).first()
+        return row is not None
+
+    def insert_driver_assignment_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+    ) -> str:
+        new_id = str(uuid.uuid4())
+        self.insert_lifecycle(
+            lifecycle_id=new_id,
+            tenant_id=tenant_id,
+            workflow_name="driver_assignment",
+            shipment_id=shipment_id,
+        )
+        return new_id

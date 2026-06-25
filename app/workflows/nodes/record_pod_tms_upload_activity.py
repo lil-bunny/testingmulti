@@ -96,6 +96,7 @@ def record_pod_tms_upload_activity(state):
         shipment_id=shipment_id,
         outcome=outcome,
         extra_metadata=extra or None,
+        shadow_state_data=state.data,
         actor_type=actor_type,
         actor_id=actor_id,
     )

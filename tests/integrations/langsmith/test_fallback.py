@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.domain.prompt_step_keys import (
+    DRIVER_ASSIGNMENT_DRIVER_DETAILS,
     LOAD_TENDERING_CARRIER_ACK,
     POD_PAGE_EXTRACTION,
     POD_VS_RATECON_SEMANTIC_MATCH,
@@ -18,6 +19,8 @@ from app.integrations.langsmith.render import render_system_user
 
 CARRIER_ACK_HUB_ID = "carrier-ack-classify"
 CARRIER_ACK_REF = f"{CARRIER_ACK_HUB_ID}:production"
+DRIVER_DETAILS_HUB_ID = "driver-details-extract"
+DRIVER_DETAILS_REF = f"{DRIVER_DETAILS_HUB_ID}:staging"
 
 
 def test_hub_id_strips_tag() -> None:
@@ -32,6 +35,17 @@ def test_load_carrier_ack_fallback_renders_thread_text() -> None:
     )
     assert "load-tender email conversation" in rendered.system.lower()
     assert rendered.user == "email 1\nWe accept the load."
+
+
+def test_load_driver_details_fallback_renders_thread_text() -> None:
+    template = load_fallback_prompt(DRIVER_DETAILS_HUB_ID)
+    rendered = render_system_user(
+        template,
+        {"thread_text": "email 1\nDriver John 555-0100"},
+    )
+    assert "driver contact details" in rendered.system.lower()
+    assert "has_details" in rendered.system
+    assert rendered.user == "email 1\nDriver John 555-0100"
 
 
 def test_gelita_fixture_prompt_ref_matches_fallback_hub_id() -> None:
@@ -65,6 +79,9 @@ def test_t3ra_fixture_prompt_refs_match_fallback_hub_ids() -> None:
         )
         == "pod-vs-ratecon-semantic-match"
     )
+    assert hub_id_from_tenant_prompt_ref(
+        resolve_prompt_ref(prompts, DRIVER_ASSIGNMENT_DRIVER_DETAILS)
+    ) == (DRIVER_DETAILS_HUB_ID)
 
 
 def test_load_pod_vs_ratecon_summary_fallback_renders_variables() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
@@ -30,7 +31,50 @@ def test_find_existing_lifecycle_id_ratecon_shipment_first(monkeypatch) -> None:
     )
     assert found == "lc-ship"
     assert any("shipment_id" in p for p in predicates)
+    assert any("cancelled" in p for p in predicates)
     assert not any("load_id" in p for p in predicates)
+
+
+def test_find_existing_lifecycle_id_ratecon_skips_cancelled_predicate_only_for_ratecon(
+    monkeypatch,
+) -> None:
+    repo = WorkflowLifecyclesRepository(MagicMock())
+    predicates: list[tuple[str, str]] = []
+
+    def fake_fetch(**kwargs):
+        predicates.append(
+            (kwargs.get("workflow_name", ""), kwargs.get("extra_predicate", ""))
+        )
+        return "lc-pod"
+
+    monkeypatch.setattr(repo, "_fetch_lifecycle_id", fake_fetch)
+
+    repo.find_existing_lifecycle_id(
+        tenant_id="tenant-uuid",
+        workflow_name="pod_lifecycle",
+        shipment_id=_ROW_UUID,
+    )
+    assert "cancelled" not in predicates[0][1]
+
+
+def test_find_latest_non_cancelled_lifecycle_id(monkeypatch) -> None:
+    repo = WorkflowLifecyclesRepository(MagicMock())
+    captured: dict[str, Any] = {}
+
+    def fake_fetch(**kwargs):
+        captured.update(kwargs)
+        return "lc-active"
+
+    monkeypatch.setattr(repo, "_fetch_lifecycle_id", fake_fetch)
+
+    found = repo.find_latest_non_cancelled_lifecycle_id(
+        tenant_id="tenant-uuid",
+        workflow_name="ratecon",
+        shipment_id=_ROW_UUID,
+    )
+    assert found == "lc-active"
+    assert "cancelled" in captured.get("extra_predicate", "")
+    assert captured.get("extra_params", {}).get("shipment_id") == _ROW_UUID
 
 
 def test_find_existing_lifecycle_id_pod_lifecycle_shipment_first(monkeypatch) -> None:

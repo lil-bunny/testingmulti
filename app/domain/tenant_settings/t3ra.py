@@ -2,11 +2,33 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.driver_assignment.confirmation_email import (
+    DriverAssignmentConfirmationEmailConfig,
+)
+from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
-from app.domain.tenant_settings.email_recipients import InboundRoutingEmails
+from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
 from app.domain.tenant_settings.tms import TmsSettings
+
+
+class T3raPodLifecycleSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    shadow_mode: bool = False
+    shadow_emails: EmailRecipients | None = None
+    reminders: WorkflowRemindersConfig
+
+
+class T3raDriverAssignmentSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    shadow_mode: bool = False
+    shadow_emails: EmailRecipients | None = None
+    reminders: WorkflowRemindersConfig
+    confirmation_email: DriverAssignmentConfirmationEmailConfig | None = None
+    escalate_driver: DriverAssignmentEscalateSettings | None = None
 
 
 class T3raPodLifecyclePrompts(BaseModel):
@@ -23,17 +45,18 @@ class T3raRateconPrompts(BaseModel):
     page_extraction: str
 
 
+class T3raDriverAssignmentPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    driver_details: str
+
+
 class T3raPrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     pod_lifecycle: T3raPodLifecyclePrompts
     ratecon: T3raRateconPrompts
-
-
-class T3raPodLifecycleSettings(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    reminders: WorkflowRemindersConfig
+    driver_assignment: T3raDriverAssignmentPrompts | None = None
 
 
 class T3raTenantSettings(BaseModel):
@@ -45,8 +68,10 @@ class T3raTenantSettings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    enabledProcesses: list[str] = Field(default_factory=list)
     inbound_routing_emails: InboundRoutingEmails
     mikey_account_id: str
     tms: TmsSettings
     prompts: T3raPrompts
     pod_lifecycle: T3raPodLifecycleSettings
+    driver_assignment: T3raDriverAssignmentSettings | None = None

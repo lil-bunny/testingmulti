@@ -5,13 +5,20 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.shipments_service import ShipmentsService
+from app.services.ratecon_supersede_service import RateconSupersedeService
 
 
 class RateconIngressService:
     """Resolve Turvo load to shipment row before lifecycle correlation."""
 
-    def __init__(self, *, shipments_service: ShipmentsService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        shipments_service: ShipmentsService | None = None,
+        supersede_service: RateconSupersedeService | None = None,
+    ) -> None:
         self._shipments = shipments_service or ShipmentsService()
+        self._supersede = supersede_service or RateconSupersedeService()
 
     @staticmethod
     def _clean(value: Any) -> str | None:
@@ -58,4 +65,14 @@ class RateconIngressService:
         out = dict(payload)
         out["shipment_id"] = turvo_shipment_id
         out["shipments_row_id"] = str(persist["shipments_row_id"])
+
+        self._supersede.supersede_before_run(
+            tenant_id=tenant_id,
+            tenant_slug=tenant_slug,
+            shipments_row_id=out["shipments_row_id"],
+            load_id=load_id,
+            shipment_id=turvo_shipment_id or None,
+            communication_id=self._clean(payload.get("communication_id")),
+        )
+
         return out
