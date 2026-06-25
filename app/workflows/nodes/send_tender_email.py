@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.error_catalog import BusinessError
+from app.domain.error_catalog import BusinessError, format_error_message
+from app.domain.gelita.routing_guide_lifecycle import gelita_current_routing_guide_attempt
 from app.domain.load_tendering_settings import (
     action_settings,
     gelita_send_tender_email_settings,
@@ -17,8 +18,13 @@ from app.domain.load_tendering_state import (
 )
 from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.domain.tender_business_warnings import (
+    append_tender_business_warning,
     format_reason_for_failure_html,
     get_tender_business_warnings,
+)
+from app.tools.routing_guide_carrier import (
+    build_carrier_note_from_resolution,
+    resolve_carrier_for_tender,
 )
 from app.tools.email import send_email
 from app.tools.tender_email import (
@@ -92,6 +98,39 @@ def send_tender_email(state):
         logger.error("send_tender_email: %s", msg)
         raise SendTenderEmailError(msg)
 
+    carrier_note = ""
+    if ftl:
+        attempt = gelita_current_routing_guide_attempt(tender)
+        tenant_id = str(getattr(state, "tenant_id", None) or state.data.get("tenant_id") or "").strip()
+        tenant_slug = str(
+            getattr(state, "tenant_slug", None) or state.data.get("tenant_slug") or ""
+        ).strip() or None
+        resolution = resolve_carrier_for_tender(
+            tenant_id=tenant_id,
+            tenant_slug=tenant_slug,
+            tender=tender,
+            attempt=attempt,
+        )
+        if resolution.lane_miss:
+            append_tender_business_warning(
+                state.data,
+                code=BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND.value,
+                message=format_error_message(BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND),
+            )
+        elif resolution.missing_carrier_email:
+            append_tender_business_warning(
+                state.data,
+                code=BusinessError.MISSING_ROUTING_GUIDE_CARRIER_EMAIL.value,
+                message=format_error_message(
+                    BusinessError.MISSING_ROUTING_GUIDE_CARRIER_EMAIL,
+                    plan_carrier=resolution.plan_carrier_name or f"attempt {attempt}",
+                ),
+            )
+        carrier_note = build_carrier_note_from_resolution(
+            attempt=attempt,
+            resolution=resolution,
+        )
+
     reason_for_failure = format_reason_for_failure_html(
         get_tender_business_warnings(state.data)
     )
@@ -103,6 +142,7 @@ def send_tender_email(state):
             template,
             subject_template,
             reason_for_failure=reason_for_failure,
+            carrier_note=carrier_note,
         )
     else:
         built = build_ltl_tender_email_from_tender(

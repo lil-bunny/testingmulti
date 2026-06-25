@@ -33,6 +33,7 @@ _DEFAULT_PAYLOAD_KEYS: tuple[str, ...] = (
     "to",
     "subject",
     "body",
+    "routing_guide_attempt",
 )
 
 _REQUIRED_SCHEDULE_KEYS: tuple[str, ...] = (

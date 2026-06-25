@@ -515,6 +515,7 @@ def build_ftl_tender_email_from_tender(
     subject_template: str,
     *,
     reason_for_failure: str = "",
+    carrier_note: str = "",
 ) -> dict[str, str]:
     """Fill FTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -534,6 +535,7 @@ def build_ftl_tender_email_from_tender(
         delivery_address=ctx.delivery_address,
         products_block=products_block,
         reason_for_failure=reason_for_failure,
+        carrier_note=carrier_note,
     )
 
     subject = format_tender_email_subject(subject_template, ctx)

@@ -9,9 +9,11 @@ from app.domain.activity_log_write import (
     ActivityLogStep,
     ActivityLogWrite,
 )
+from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.routing_guide_lifecycle_service import RoutingGuideLifecycleService
 
 logger = get_logger(__name__)
 
@@ -39,6 +41,11 @@ def log_tender_activity(state):
             logger.warning(
                 "log_tender_activity success path skipped: missing execution_id"
             )
+            return state
+
+        if is_ftl_load_type(resolve_load_type(state)):
+            routing_guide_lifecycle_service = RoutingGuideLifecycleService()
+            routing_guide_lifecycle_service.record_tenant_sent(state)
             return state
 
         activity_log_service.record_sequence(

@@ -49,12 +49,21 @@ def tender_metadata_source_patch(
     delivery_address: dict[str, Any] | None,
     customer_name_source: str | None,
 ) -> dict[str, Any]:
+    source_patch: dict[str, Any] = {}
     code = _normalized_delivery_code_text(row)
-    if not code:
+    if code and (
+        delivery_address is None
+        or customer_name_source == CUSTOMER_NAME_SOURCE_UNKNOWN
+    ):
+        source_patch["delivery_address_code"] = code
+
+    liefmatch = str(row.get("liefmatch") or "").strip()
+    if liefmatch:
+        source_patch["liefmatch"] = liefmatch
+
+    if not source_patch:
         return {}
-    if delivery_address is not None and customer_name_source != CUSTOMER_NAME_SOURCE_UNKNOWN:
-        return {}
-    return {SOURCE_KEY: {"delivery_address_code": code}}
+    return {SOURCE_KEY: source_patch}
 
 
 def merge_metadata(base: dict[str, Any] | None, patch: dict[str, Any]) -> dict[str, Any]:
@@ -86,6 +95,10 @@ def source_delivery_address_code(tender: dict[str, Any]) -> str:
     if source:
         return source
     return str(tender.get("delivery_address_code") or "").strip()
+
+
+def source_liefmatch(tender: dict[str, Any]) -> str:
+    return str(_source_dict(tender.get("metadata")).get("liefmatch") or "").strip()
 
 
 def pack_code_for_product_gap(product: dict[str, Any]) -> str:

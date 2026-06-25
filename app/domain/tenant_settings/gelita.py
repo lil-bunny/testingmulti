@@ -76,6 +76,7 @@ class GelitaLoadTypeBranch(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    max_attempts: int | None = None
     send_tender_email: GelitaSendTenderEmailSettings
     send_tender_reminder: GelitaSendTenderReminderSettings
     escalate_tender: GelitaEscalateTenderSettings

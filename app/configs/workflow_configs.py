@@ -263,6 +263,9 @@ WORKFLOW_CONFIGS = {
             "send_tender_reminder",
             "update_reminder_status",
             "escalate_tender",
+            "evaluate_reject_routing_guide",
+            "evaluate_timeout_routing_guide",
+            "advance_carrier_routing_guide",
             "end",
         ],
         "edges": [
@@ -278,6 +281,7 @@ WORKFLOW_CONFIGS = {
             ["send_tender_reminder", "update_reminder_status"],
             ["update_reminder_status", "end"],
             ["escalate_tender", "end"],
+            ["advance_carrier_routing_guide", "send_tender_email"],
         ],
         "routers": {
             "route_event": {
@@ -305,7 +309,7 @@ WORKFLOW_CONFIGS = {
                     "domestic": "calculate_tender_params",
                     "completed": "end",
                     "reminder_due": "send_tender_reminder",
-                    "escalation_due": "escalate_tender",
+                    "escalation_due": "evaluate_timeout_routing_guide",
                     "missing": "end",
                 },
             },
@@ -320,8 +324,24 @@ WORKFLOW_CONFIGS = {
                 "router": "carrier_ack_router",
                 "map": {
                     "accepted": "record_ack_received",
-                    "rejected": "record_ack_received",
+                    "rejected": "evaluate_reject_routing_guide",
                     "do_nothing": "end",
+                },
+            },
+            "evaluate_reject_routing_guide": {
+                "router": "routing_guide_router",
+                "map": {
+                    "advance": "advance_carrier_routing_guide",
+                    "exhausted": "escalate_tender",
+                    "ltl_terminal": "record_ack_received",
+                },
+            },
+            "evaluate_timeout_routing_guide": {
+                "router": "routing_guide_router",
+                "map": {
+                    "advance": "advance_carrier_routing_guide",
+                    "exhausted": "escalate_tender",
+                    "ltl_terminal": "escalate_tender",
                 },
             },
         },
