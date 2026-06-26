@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.load_tendering_settings import action_settings, resolve_load_type
+from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
+from app.domain.load_tendering_settings import action_settings, is_ftl_load_type, resolve_load_type
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import UnipileException
@@ -46,11 +47,28 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
+    if state.data.get("stale_routing_guide_reminder") and is_ftl_load_type(
+        resolve_load_type(state)
+    ):
+        logger.info(
+            "send_tender_reminder skipping stale routing-guide reminder lifecycle_id=%s",
+            workflow_lifecycle_id_str,
+        )
+        state.data["tender_reminder_skipped"] = "stale_routing_guide_reminder"
+        state.data["tender_reminder_sent"] = False
+        return state
+
+    attempt = (
+        routing_guide_attempt_from_state(state.data)
+        if is_ftl_load_type(resolve_load_type(state))
+        else None
+    )
     communications_service = CommunicationsService()
     lifecycle_email_thread_id = communications_service.resolve_thread_for_lifecycle(
         tenant_id=state.tenant_id or "",
         workflow_lifecycle_id=workflow_lifecycle_id_str,
         anchor_event_type=WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt=attempt,
     )
 
     if not lifecycle_email_thread_id:

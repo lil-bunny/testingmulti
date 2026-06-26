@@ -17,10 +17,14 @@ from tests.fixtures.tenant_settings import load_tenant_settings_dev
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 
-def test_load_tendering_advance_path_runs_calculate_before_send() -> None:
+def test_load_tendering_advance_path_hydrates_tender_before_calculate() -> None:
     edges = WORKFLOW_CONFIGS["load_tendering"]["edges"]
-    assert ["advance_carrier_routing_guide", "calculate_tender_params"] in edges
+    routers = WORKFLOW_CONFIGS["load_tendering"]["routers"]
+    assert ["advance_carrier_routing_guide", "read_tender_row"] in edges
+    assert ["advance_carrier_routing_guide", "calculate_tender_params"] not in edges
     assert ["advance_carrier_routing_guide", "send_tender_email"] not in edges
+    read_tender_map = routers["read_tender_row"]["map"]
+    assert read_tender_map["routing_guide_failover"] == "calculate_tender_params"
 
 
 def test_gelita_ftl_reminders_single_followup_before_escalation() -> None:

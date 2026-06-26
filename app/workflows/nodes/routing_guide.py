@@ -17,4 +17,5 @@ def advance_carrier_routing_guide(state):
     reason = str(state.data.get("routing_guide_reason") or "").strip()
     routing_guide_lifecycle_service = RoutingGuideLifecycleService()
     routing_guide_lifecycle_service.advance(state, reason=reason)
+    state.data["routing_guide_failover"] = True
     return state

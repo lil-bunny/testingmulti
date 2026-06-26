@@ -5,10 +5,11 @@ from app.domain.error_catalog import BusinessError, SystemError
 from app.domain.ingest_source_fields import pack_code_for_product_gap
 from app.domain.gelita.routing_guide_lifecycle import (
     routing_guide_attempt_from_metadata,
+    routing_guide_attempt_is_stale,
     routing_guide_has_attempt,
     sync_routing_guide_attempt_to_state,
 )
-from app.domain.load_tendering_settings import (gelita_domestic_delivery_settings, gelita_skipped_pack_codes_settings)
+from app.domain.load_tendering_settings import (gelita_domestic_delivery_settings, gelita_skipped_pack_codes_settings), is_ftl_load_type, resolve_load_type
 from app.domain.load_tendering_state import (get_tender, get_tender_products, set_tender, tender_from_read_order)
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
@@ -84,30 +85,25 @@ def read_tender_row(state):
 
     if event_type in ("reminder_due", "escalation_due"):
         payload_attempt = scheduled_routing_guide_attempt
-        if payload_attempt is not None and lifecycle is not None:
+        if (
+            payload_attempt is not None
+            and lifecycle is not None
+            and is_ftl_load_type(resolve_load_type(state))
+        ):
             live_attempt = routing_guide_attempt_from_metadata(
                 lifecycle.get("metadata")
             )
-            try:
-                payload_int = int(payload_attempt)
-            except (TypeError, ValueError):
-                logger.warning(
-                    "read_tender_row invalid routing_guide_attempt=%r tender_id=%s",
+            if routing_guide_attempt_is_stale(payload_attempt, live_attempt):
+                logger.info(
+                    "read_tender_row skipping stale routing-guide reminder "
+                    "event_type=%s payload_attempt=%s live_attempt=%s tender_id=%s",
+                    event_type,
                     payload_attempt,
+                    live_attempt,
                     tender_id,
                 )
-            else:
-                if payload_int != live_attempt:
-                    logger.info(
-                        "read_tender_row skipping stale routing-guide reminder "
-                        "event_type=%s payload_attempt=%s live_attempt=%s tender_id=%s",
-                        event_type,
-                        payload_attempt,
-                        live_attempt,
-                        tender_id,
-                    )
-                    state.data["stale_routing_guide_reminder"] = True
-                    return state
+                state.data["stale_routing_guide_reminder"] = True
+                return state
 
     if is_tender_created:
         domestic_cfg = gelita_domestic_delivery_settings(state)

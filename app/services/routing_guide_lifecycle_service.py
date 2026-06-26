@@ -11,6 +11,7 @@ from app.domain.activity_log_descriptions import (
     format_tender_sent_to_vendor,
 )
 from app.domain.gelita.routing_guide_lifecycle import (
+    mark_routing_guide_reminders_scheduled_for_attempt,
     routing_guide_attempt_from_metadata,
     routing_guide_attempt_from_state,
     routing_guide_has_attempt,
@@ -18,7 +19,11 @@ from app.domain.gelita.routing_guide_lifecycle import (
     sync_routing_guide_attempt_to_state,
 )
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
-from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
+from app.domain.load_tendering_settings import (
+    is_ftl_load_type,
+    resolve_load_type,
+    routing_guide_max_attempts,
+)
 from app.models.activity_type import ActivityType, ActorType, is_snapshot_activity_type
 from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -140,6 +145,29 @@ class RoutingGuideLifecycleService:
         sync_routing_guide_attempt_to_state(data, attempt=attempt)
         return True
 
+    def mark_reminders_scheduled_for_attempt(self, state: Any, *, attempt: int) -> bool:
+        """Persist per-attempt reminder schedule idempotency on lifecycle metadata (C2)."""
+        scope = _workflow_scope(state)
+        if scope is None:
+            return False
+        wl_id, _tenant_id, _tender_id, _run_id, data = scope
+        patch = mark_routing_guide_reminders_scheduled_for_attempt(attempt=attempt)
+
+        def _persist(repos: Any) -> bool:
+            return repos.workflow_lifecycles.patch_metadata(
+                lifecycle_id=wl_id,
+                metadata_patch=patch,
+            )
+
+        if not run_with_repos(_persist):
+            return False
+        lifecycle_meta = data.get("workflow_lifecycle_metadata")
+        if not isinstance(lifecycle_meta, dict):
+            lifecycle_meta = {}
+            data["workflow_lifecycle_metadata"] = lifecycle_meta
+        lifecycle_meta.update(patch)
+        return True
+
     def advance(self, state: Any, *, reason: str) -> int:
         """Increment waterfall attempt after carrier reject or timeout."""
         scope = _workflow_scope(state)
@@ -148,17 +176,21 @@ class RoutingGuideLifecycleService:
             return routing_guide_attempt_from_state(getattr(state, "data", None))
 
         wl_id, tenant_id, tender_id, run_id, data = scope
-        prior = routing_guide_attempt_from_state(data)
-        next_attempt = prior + 1
-        clean_reason = str(reason or "").strip() or "routing_guide_failover"
-        transition_meta: dict[str, Any] = {
-            "tender_id": tender_id,
-            "routing_guide_attempt": next_attempt,
-            "routing_guide_reason": clean_reason,
-            "prior_attempt": prior,
-        }
+        state_prior = routing_guide_attempt_from_state(data)
+        max_attempts = routing_guide_max_attempts(state)
 
         def _persist(repos: Any) -> int:
+            lifecycle_row = repos.workflow_lifecycles.read_row_by_id(wl_id)
+            lifecycle_meta = (
+                lifecycle_row.get("metadata") if isinstance(lifecycle_row, dict) else {}
+            )
+            live = routing_guide_attempt_from_metadata(lifecycle_meta)
+            if live > state_prior:
+                return live
+            if live >= max_attempts:
+                return live
+            prior = max(live, state_prior)
+            next_attempt = prior + 1
             if not repos.workflow_lifecycles.set_routing_guide_attempt(
                 lifecycle_id=wl_id,
                 attempt=next_attempt,
@@ -169,6 +201,13 @@ class RoutingGuideLifecycleService:
                     wl_id,
                     next_attempt,
                 )
+            clean_reason = str(reason or "").strip() or "routing_guide_failover"
+            transition_meta: dict[str, Any] = {
+                "tender_id": tender_id,
+                "routing_guide_attempt": next_attempt,
+                "routing_guide_reason": clean_reason,
+                "prior_attempt": prior,
+            }
             lifecycle_transition_service = LifecycleTransitionService(
                 lifecycles_repo=repos.workflow_lifecycles,
                 activity_logs_repo=repos.activity_logs,

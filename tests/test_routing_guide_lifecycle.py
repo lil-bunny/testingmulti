@@ -6,8 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.domain.gelita.routing_guide_lifecycle import (
+    mark_routing_guide_reminders_scheduled_for_attempt,
     routing_guide_attempt_from_metadata,
     routing_guide_attempt_from_state,
+    routing_guide_attempt_is_stale,
+    routing_guide_order_matches_lifecycle,
+    routing_guide_reminders_scheduled_for_attempt,
+    routing_guide_same_attempt_thread_conflict,
+    routing_guide_thread_is_retired,
     gelita_routing_guide_sub_status_for,
     sync_routing_guide_attempt_to_state,
 )
@@ -128,11 +134,15 @@ def test_advance_carrier_routing_guide_delegates_to_service(mock_service_cls):
     mock_service.advance.assert_called_once_with(
         state, reason="carrier_rejected"
     )
+    assert state.data["routing_guide_failover"] is True
 
 
 @patch("app.services.routing_guide_lifecycle_service.run_with_repos")
 def test_routing_guide_lifecycle_service_advance_increments(mock_run):
     repos = MagicMock()
+    repos.workflow_lifecycles.read_row_by_id.return_value = {
+        "metadata": {"routing_guide_attempt": 1},
+    }
 
     def _fake_run(fn):
         return fn(repos)
@@ -209,3 +219,86 @@ def test_sync_routing_guide_attempt_to_state():
     data: dict = {}
     sync_routing_guide_attempt_to_state(data, attempt=2)
     assert data["routing_guide_attempt"] == 2
+
+
+def test_routing_guide_attempt_is_stale_behind_and_ahead():
+    assert routing_guide_attempt_is_stale(1, 2) is True
+    assert routing_guide_attempt_is_stale(3, 2) is True
+    assert routing_guide_attempt_is_stale(2, 2) is False
+    assert routing_guide_attempt_is_stale("bad", 2) is False
+
+
+def test_routing_guide_thread_is_retired():
+    assert routing_guide_thread_is_retired(1, 2) is True
+    assert routing_guide_thread_is_retired(2, 2) is False
+    assert routing_guide_thread_is_retired(3, 2) is False
+
+
+def test_routing_guide_same_attempt_thread_conflict():
+    assert routing_guide_same_attempt_thread_conflict(
+        linked_thread="thread-a",
+        incoming_thread="thread-b",
+    )
+    assert not routing_guide_same_attempt_thread_conflict(
+        linked_thread="thread-a",
+        incoming_thread="thread-a",
+    )
+    assert not routing_guide_same_attempt_thread_conflict(
+        linked_thread=None,
+        incoming_thread="thread-a",
+    )
+
+
+def test_routing_guide_order_matches_lifecycle():
+    assert routing_guide_order_matches_lifecycle("t1", "t1")
+    assert not routing_guide_order_matches_lifecycle("t1", "t2")
+
+
+def test_routing_guide_reminders_scheduled_for_attempt():
+    meta = mark_routing_guide_reminders_scheduled_for_attempt(attempt=2)
+    assert routing_guide_reminders_scheduled_for_attempt(meta, 2)
+    assert not routing_guide_reminders_scheduled_for_attempt(meta, 1)
+
+
+@patch("app.services.routing_guide_lifecycle_service.run_with_repos")
+def test_routing_guide_advance_noop_when_live_ahead(mock_run):
+    repos = MagicMock()
+    repos.workflow_lifecycles.read_row_by_id.return_value = {
+        "metadata": {"routing_guide_attempt": 2},
+    }
+
+    def _fake_run(fn):
+        return fn(repos)
+
+    mock_run.side_effect = _fake_run
+
+    state = _state(attempt=1)
+    service = RoutingGuideLifecycleService()
+    new_attempt = service.advance(state, reason="carrier_timeout")
+
+    assert new_attempt == 2
+    repos.workflow_lifecycles.set_routing_guide_attempt.assert_not_called()
+    assert state.data["routing_guide_attempt"] == 2
+
+
+@patch("app.services.routing_guide_lifecycle_service.run_with_repos")
+def test_routing_guide_advance_race_single_increment(mock_run):
+    repos = MagicMock()
+    repos.workflow_lifecycles.read_row_by_id.return_value = {
+        "metadata": {"routing_guide_attempt": 1},
+    }
+
+    def _fake_run(fn):
+        return fn(repos)
+
+    mock_run.side_effect = _fake_run
+
+    state = _state(attempt=1)
+    service = RoutingGuideLifecycleService()
+    new_attempt = service.advance(state, reason="carrier_rejected")
+
+    assert new_attempt == 2
+    repos.workflow_lifecycles.set_routing_guide_attempt.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
+        attempt=2,
+    )

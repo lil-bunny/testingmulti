@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.db import parse_json
+from app.core.db import jsonb_param, parse_json
 from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
 
@@ -337,6 +337,27 @@ class WorkflowLifecyclesRepository:
                 """
             ),
             {"attempt": value, "lifecycle_id": lid},
+        )
+        return result.rowcount > 0
+
+    def patch_metadata(self, *, lifecycle_id: str, metadata_patch: dict[str, Any]) -> bool:
+        """Merge keys into ``workflow_lifecycles.metadata``."""
+        lid = str(lifecycle_id or "").strip()
+        if not lid or not metadata_patch:
+            return False
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb),
+                    updated_at = NOW()
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {
+                "lifecycle_id": lid,
+                "metadata_patch": jsonb_param(metadata_patch),
+            },
         )
         return result.rowcount > 0
 

@@ -10,6 +10,7 @@ from app.models.status import StatusSubType
 GELITA_ROUTING_GUIDE_ATTEMPT_CEILING = GELITA_MAX_CARRIER_ATTEMPTS
 
 ROUTING_GUIDE_ATTEMPT_METADATA_KEY = "routing_guide_attempt"
+REMINDERS_SCHEDULED_FOR_ATTEMPT_KEY = "reminders_scheduled_for_attempt"
 
 RoutingGuidePhase = Literal["tenant", "carrier"]
 
@@ -64,6 +65,75 @@ def routing_guide_attempt_from_state(data: dict[str, Any] | None) -> int:
         return parsed
     wl_meta = data.get("workflow_lifecycle_metadata")
     return routing_guide_attempt_from_metadata(wl_meta)
+
+
+def routing_guide_attempt_is_stale(
+    payload_attempt: Any,
+    live_attempt: Any,
+) -> bool:
+    """True when scheduled payload attempt differs from live lifecycle attempt (C1/C3)."""
+    try:
+        payload = int(payload_attempt)
+        live = int(live_attempt)
+    except (TypeError, ValueError):
+        return False
+    return payload != live
+
+
+def routing_guide_thread_is_retired(
+    thread_attempt: Any,
+    live_attempt: Any,
+) -> bool:
+    """True when inbound thread belongs to a prior routing-guide attempt (D1/E1)."""
+    try:
+        thread = int(thread_attempt)
+        live = int(live_attempt)
+    except (TypeError, ValueError):
+        return False
+    return thread < live
+
+
+def routing_guide_same_attempt_thread_conflict(
+    *,
+    linked_thread: str | None,
+    incoming_thread: str,
+) -> bool:
+    """True when this attempt already has a different carrier thread (B1)."""
+    linked = str(linked_thread or "").strip()
+    incoming = str(incoming_thread or "").strip()
+    if not linked or not incoming:
+        return False
+    return linked != incoming
+
+
+def routing_guide_order_matches_lifecycle(
+    resolved_tender_id: Any,
+    lifecycle_tender_id: Any,
+) -> bool:
+    """True when ingress tender matches lifecycle binding (A2.1 rollover guard)."""
+    return str(resolved_tender_id or "").strip() == str(lifecycle_tender_id or "").strip()
+
+
+def routing_guide_reminders_scheduled_for_attempt(
+    metadata: Any,
+    attempt: int,
+) -> bool:
+    """True when lifecycle metadata records reminders scheduled for this attempt (C2)."""
+    if not isinstance(metadata, dict):
+        return False
+    try:
+        scheduled = int(metadata.get(REMINDERS_SCHEDULED_FOR_ATTEMPT_KEY))
+        return scheduled == int(attempt)
+    except (TypeError, ValueError):
+        return False
+
+
+def mark_routing_guide_reminders_scheduled_for_attempt(
+    *,
+    attempt: int,
+) -> dict[str, int]:
+    """Metadata patch to record per-attempt reminder schedule idempotency (C2)."""
+    return {REMINDERS_SCHEDULED_FOR_ATTEMPT_KEY: max(1, int(attempt))}
 
 
 def gelita_routing_guide_sub_status_for(

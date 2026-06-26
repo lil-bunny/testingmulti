@@ -8,6 +8,8 @@ from app.domain.activity_log_descriptions import (
     format_carrier_ack_llm_action,
 )
 from app.domain.activity_log_write import ActivityLogWrite
+from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_metadata
+from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
 from app.domain.prompt_step_keys import LOAD_TENDERING_CARRIER_ACK
 from app.integrations.langsmith import (
     MissingTenantPromptRefError,
@@ -15,10 +17,12 @@ from app.integrations.langsmith import (
     PromptUnavailableError,
 )
 from app.models.activity_type import ActivityType, ActorType
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.services.prompt_service import PromptService
 from app.utils.automatic_reply_detection import is_automatic_reply_email
@@ -31,8 +35,45 @@ import dataclasses
 logger = get_logger(__name__)
 
 
+def _guard_retired_carrier_thread_ack(state) -> bool:
+    """Defense in depth: skip ack LLM when reply is on a prior carrier thread (FTL)."""
+    wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
+    thread_id = str(state.data.get("thread_id") or "").strip()
+    tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
+    if not wl_id or not thread_id or not tenant_id:
+        return False
+    if not is_ftl_load_type(resolve_load_type(state)):
+        return False
+
+    workflow_lifecycle_service = WorkflowLifecycleService()
+    lifecycle_row = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id) or {}
+    live_attempt = routing_guide_attempt_from_metadata(lifecycle_row.get("metadata"))
+
+    communications_service = CommunicationsService()
+    if communications_service.is_retired_carrier_thread(
+        tenant_id=tenant_id,
+        thread_id=thread_id,
+        workflow_lifecycle_id=wl_id,
+        live_attempt=live_attempt,
+        anchor_event_type=WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ):
+        state.data["retired_carrier_thread_ack"] = True
+        logger.info(
+            "guard_automatic_reply_ack skipping retired carrier thread "
+            "lifecycle_id=%s thread_id=%s live_attempt=%s",
+            wl_id,
+            thread_id,
+            live_attempt,
+        )
+        return True
+    return False
+
+
 def guard_automatic_reply_ack(state):
     """Record exception and skip LLM when inbound ack webhook is an automatic reply."""
+    if _guard_retired_carrier_thread_ack(state):
+        return state
+
     if not is_automatic_reply_email(state.data):
         return state
 

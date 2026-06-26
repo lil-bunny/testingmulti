@@ -71,6 +71,92 @@ def test_find_linked_thread_for_lifecycle_returns_thread() -> None:
     assert out == "other-thread"
 
 
+def test_find_inbound_thread_for_lifecycle_with_attempt_filter() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value="thread-2",
+    ) as scalar:
+        out = repo.find_inbound_thread_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+            anchor_event_type=WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+            routing_guide_attempt=2,
+        )
+    assert out == "thread-2"
+    sql = scalar.call_args[0][1]
+    params = scalar.call_args[0][2]
+    assert "routing_guide_attempt" in sql
+    assert params["routing_guide_attempt"] == 2
+
+
+def test_find_inbound_thread_for_lifecycle_without_attempt_unchanged() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value="thread-1",
+    ) as scalar:
+        repo.find_inbound_thread_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+        )
+    sql = scalar.call_args[0][1]
+    assert "routing_guide_attempt" not in sql
+
+
+def test_find_inbound_thread_for_lifecycle_falls_back_without_attempt_metadata() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        side_effect=[None, "legacy-thread"],
+    ) as scalar:
+        out = repo.find_inbound_thread_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+            anchor_event_type=WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+            routing_guide_attempt=1,
+        )
+    assert out == "legacy-thread"
+    assert scalar.call_count == 2
+    first_sql = scalar.call_args_list[0][0][1]
+    second_sql = scalar.call_args_list[1][0][1]
+    assert "routing_guide_attempt" in first_sql
+    assert "routing_guide_attempt' IS NULL" in second_sql
+
+
+def test_patch_communication_metadata_merges_json() -> None:
+    session = MagicMock()
+    session.execute.return_value.rowcount = 1
+    repo = CommunicationsRepository(session)
+    assert repo.patch_communication_metadata(
+        communication_id="33333333-3333-3333-3333-333333333333",
+        metadata_patch={"routing_guide_attempt": 2},
+    )
+    sql = str(session.execute.call_args[0][0])
+    assert "metadata" in sql
+
+
+def test_thread_attempt_for_lifecycle_infers_ordinal_without_metadata() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value=1,
+    ) as scalar:
+        out = repo.thread_attempt_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            thread_id="legacy-carrier-1-thread",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+        )
+    assert out == 1
+    sql = scalar.call_args[0][1]
+    assert "ordinal_attempt" in sql
+    assert "COALESCE(stamped_attempt, ordinal_attempt)" in sql
+
+
 def test_link_workflow_run_idempotent_when_already_linked() -> None:
     session = MagicMock()
     repo = CommunicationsRepository(session)

@@ -45,11 +45,27 @@ class ExecutionService:
         )
 
         communication_id = payload.get("communication_id")
+        event_type = str(payload.get("event_type") or "").strip()
         if communication_id:
-            self._communications.link_inbound_to_workflow_run(
-                communication_id=str(communication_id),
-                workflow_run_id=execution_id,
-            )
+            comm_id = str(communication_id)
+            if event_type == "carrier_email_received":
+                attempt_raw = payload.get("routing_guide_attempt")
+                routing_guide_attempt = None
+                if attempt_raw is not None:
+                    try:
+                        routing_guide_attempt = int(attempt_raw)
+                    except (TypeError, ValueError):
+                        routing_guide_attempt = None
+                self._communications.link_carrier_email_received_communication(
+                    communication_id=comm_id,
+                    workflow_run_id=execution_id,
+                    routing_guide_attempt=routing_guide_attempt,
+                )
+            else:
+                self._communications.link_inbound_to_workflow_run(
+                    communication_id=comm_id,
+                    workflow_run_id=execution_id,
+                )
 
         config = {"configurable": {"thread_id": workflow_lifecycle_id}}
         result = await asyncio.to_thread(graph.invoke, state, config)

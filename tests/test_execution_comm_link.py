@@ -76,3 +76,39 @@ async def test_execute_skips_comm_link_without_communication_id() -> None:
         )
 
     svc._communications.link_inbound_to_workflow_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_carrier_email_received_stamps_routing_guide_attempt() -> None:
+    graph = MagicMock()
+    graph.invoke.return_value = {"data": {}}
+
+    with (
+        patch.object(ExecutionService, "__init__", lambda self: None),
+        patch("app.services.execution_service.WorkflowRunsService") as runs_cls,
+        patch("app.services.execution_service.CommunicationsService") as comm_cls,
+    ):
+        svc = ExecutionService()
+        svc.runs_service = runs_cls.return_value
+        svc._communications = comm_cls.return_value
+
+        payload = {
+            "event_type": "carrier_email_received",
+            "communication_id": _COMM_UUID,
+            "routing_guide_attempt": 2,
+        }
+        await svc.execute(
+            graph=graph,
+            tenant_id=_TENANT_UUID,
+            tenant_slug="gelita",
+            workflow_lifecycle_id=_LIFECYCLE_UUID,
+            payload=payload,
+            execution_id=_RUN_UUID,
+        )
+
+    svc._communications.link_carrier_email_received_communication.assert_called_once_with(
+        communication_id=_COMM_UUID,
+        workflow_run_id=_RUN_UUID,
+        routing_guide_attempt=2,
+    )
+    svc._communications.link_inbound_to_workflow_run.assert_not_called()

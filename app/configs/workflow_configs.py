@@ -281,14 +281,14 @@ WORKFLOW_CONFIGS = {
             ["send_tender_reminder", "update_reminder_status"],
             ["update_reminder_status", "end"],
             ["escalate_tender", "end"],
-            ["advance_carrier_routing_guide", "calculate_tender_params"],
+            ["advance_carrier_routing_guide", "read_tender_row"],
         ],
         "routers": {
             "route_event": {
                 "router": "event_type",
                 "map": {
                     "tender_created": "record_tender_created_activity",
-                    "carrier_email_received": "record_tender_sent_to_carrier",
+                    "carrier_email_received": "read_tender_row",
                     "ack_received": "guard_automatic_reply_ack",
                     "reminder_due": "read_tender_row",
                     "escalation_due": "read_tender_row",
@@ -308,8 +308,10 @@ WORKFLOW_CONFIGS = {
                     "pack_code_skipped": "resolve_pack_code_skip",
                     "domestic": "calculate_tender_params",
                     "completed": "end",
+                    "carrier_email_received": "record_tender_sent_to_carrier",
                     "reminder_due": "send_tender_reminder",
                     "escalation_due": "evaluate_timeout_routing_guide",
+                    "routing_guide_failover": "calculate_tender_params",
                     "missing": "end",
                 },
             },

@@ -69,19 +69,57 @@ def test_ack_received_skips_enqueue_when_lifecycle_completed(
 
 @patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
 @patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_ack_received_skips_retired_carrier_thread(mock_enqueue: MagicMock) -> None:
+    svc = GelitaInboundEmailService()
+    svc._lifecycle = MagicMock()
+    svc._communications = MagicMock()
+    svc._tender_service = MagicMock()
+
+    svc._communications.resolve_lifecycle_id_for_thread.return_value = LIFECYCLE_ID
+    svc._lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "processing",
+        "tender_id": "22222222-2222-2222-2222-222222222222",
+        "metadata": {"routing_guide_attempt": 3},
+    }
+    svc._tender_service.read_order.return_value = {
+        "tender": {"load_type": "FTL"},
+        "products": [],
+    }
+    svc._communications.is_retired_carrier_thread.return_value = True
+
+    response = svc._try_ack_received(
+        payload=_reply_payload(),
+        tenant=_tenant(),
+        graph_slug="gelita",
+    )
+
+    content = json.loads(response.body)
+    assert content["reason"] == "retired_carrier_thread"
+    mock_enqueue.assert_not_called()
+
+
+@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
 def test_ack_received_enqueues_when_lifecycle_not_completed(
     mock_enqueue: MagicMock,
 ) -> None:
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
+    svc._tender_service = MagicMock()
 
     svc._communications.resolve_lifecycle_id_for_thread.return_value = LIFECYCLE_ID
     svc._lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": "processing",
         "sub_status": "tender_sent_to_carrier",
         "tender_id": "22222222-2222-2222-2222-222222222222",
+        "metadata": {"routing_guide_attempt": 1},
     }
+    svc._tender_service.read_order.return_value = {
+        "tender": {"load_type": "LTL"},
+        "products": [],
+    }
+    svc._communications.is_communication_linked_to_run.return_value = False
 
     mock_enqueue.return_value = "exec-ack-1"
 
@@ -115,13 +153,20 @@ def test_ack_received_enqueues_automatic_reply_for_worker_guard(
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
+    svc._tender_service = MagicMock()
 
     svc._communications.resolve_lifecycle_id_for_thread.return_value = LIFECYCLE_ID
     svc._lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": "processing",
         "sub_status": "tender_sent_to_carrier",
         "tender_id": "22222222-2222-2222-2222-222222222222",
+        "metadata": {"routing_guide_attempt": 1},
     }
+    svc._tender_service.read_order.return_value = {
+        "tender": {"load_type": "LTL"},
+        "products": [],
+    }
+    svc._communications.is_communication_linked_to_run.return_value = False
     mock_enqueue.return_value = "exec-ooo-1"
 
     response = svc._try_ack_received(

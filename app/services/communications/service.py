@@ -18,6 +18,7 @@ from app.services.communications._mapper import (
     outbound_row_from_send,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.domain.gelita.routing_guide_lifecycle import routing_guide_thread_is_retired
 from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.domain.email_thread_reply import (
@@ -170,6 +171,39 @@ class CommunicationsService:
             )
         return existing_id
 
+    def link_carrier_email_received_communication(
+        self,
+        *,
+        communication_id: str,
+        workflow_run_id: str,
+        routing_guide_attempt: int | None = None,
+    ) -> bool:
+        """
+        Link inbound carrier forward to a workflow run and stamp attempt metadata.
+
+        Always patches ``routing_guide_attempt`` when provided, even when the run
+        link is already idempotent — reminders resolve threads via that metadata key.
+        """
+        linked = self.link_inbound_to_workflow_run(
+            communication_id=communication_id,
+            workflow_run_id=workflow_run_id,
+        )
+        if routing_guide_attempt is not None:
+            patched = self.patch_communication_metadata(
+                communication_id=communication_id,
+                metadata_patch={
+                    "routing_guide_attempt": max(1, int(routing_guide_attempt)),
+                },
+            )
+            if not patched:
+                logger.warning(
+                    "communications carrier ingress metadata patch failed comm_id=%s "
+                    "routing_guide_attempt=%s",
+                    communication_id,
+                    routing_guide_attempt,
+                )
+        return linked
+
     def link_inbound_to_workflow_run(
         self,
         *,
@@ -237,6 +271,7 @@ class CommunicationsService:
         tenant_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> str | None:
         """Resolve email thread from communications linked to lifecycle inbound runs."""
         tid = self._tenant_uuid_or_none(tenant_id)
@@ -249,6 +284,7 @@ class CommunicationsService:
                     tenant_id=tid,
                     workflow_lifecycle_id=lid,
                     anchor_event_type=anchor_event_type,
+                    routing_guide_attempt=routing_guide_attempt,
                 )
             else:
                 thread = run_with_repos(
@@ -256,6 +292,7 @@ class CommunicationsService:
                         tenant_id=tid,
                         workflow_lifecycle_id=lid,
                         anchor_event_type=anchor_event_type,
+                        routing_guide_attempt=routing_guide_attempt,
                     )
                 )
             if not thread:
@@ -382,6 +419,7 @@ class CommunicationsService:
         thread_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> bool:
         tid = self._tenant_uuid_or_none(tenant_id)
         th = self._clean(thread_id)
@@ -395,6 +433,7 @@ class CommunicationsService:
                     thread_id=th,
                     workflow_lifecycle_id=lid,
                     anchor_event_type=anchor_event_type,
+                    routing_guide_attempt=routing_guide_attempt,
                 )
             return run_with_repos(
                 lambda repos: repos.communications.is_thread_linked_to_lifecycle(
@@ -402,6 +441,7 @@ class CommunicationsService:
                     thread_id=th,
                     workflow_lifecycle_id=lid,
                     anchor_event_type=anchor_event_type,
+                    routing_guide_attempt=routing_guide_attempt,
                 )
             )
         except Exception:
@@ -418,6 +458,7 @@ class CommunicationsService:
         tenant_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> str | None:
         tid = self._tenant_uuid_or_none(tenant_id)
         lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
@@ -429,6 +470,7 @@ class CommunicationsService:
                     tenant_id=tid,
                     workflow_lifecycle_id=lid,
                     anchor_event_type=anchor_event_type,
+                    routing_guide_attempt=routing_guide_attempt,
                 )
             else:
                 thread = run_with_repos(
@@ -436,6 +478,7 @@ class CommunicationsService:
                         tenant_id=tid,
                         workflow_lifecycle_id=lid,
                         anchor_event_type=anchor_event_type,
+                        routing_guide_attempt=routing_guide_attempt,
                     )
                 )
             if not thread:
@@ -448,6 +491,91 @@ class CommunicationsService:
                 lid,
             )
             return None
+
+    def patch_communication_metadata(
+        self,
+        *,
+        communication_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
+        if not comm_id or not metadata_patch:
+            return False
+        try:
+            if self._repository is not None:
+                return self._repository.patch_communication_metadata(
+                    communication_id=comm_id,
+                    metadata_patch=metadata_patch,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.patch_communication_metadata(
+                    communication_id=comm_id,
+                    metadata_patch=metadata_patch,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications patch_communication_metadata failed comm_id=%s",
+                comm_id,
+            )
+            return False
+
+    def thread_attempt_for_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_lifecycle_id: str,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ) -> int | None:
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        if not tid or not th or not lid:
+            return None
+        try:
+            if self._repository is not None:
+                return self._repository.thread_attempt_for_lifecycle(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_lifecycle_id=lid,
+                    anchor_event_type=anchor_event_type,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.thread_attempt_for_lifecycle(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_lifecycle_id=lid,
+                    anchor_event_type=anchor_event_type,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications thread_attempt_for_lifecycle failed tenant_id=%s thread_id=%s",
+                tid,
+                th,
+            )
+            return None
+
+    def is_retired_carrier_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_lifecycle_id: str,
+        live_attempt: int,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ) -> bool:
+        """True when thread anchor attempt is behind live lifecycle attempt (FTL guard)."""
+        thread_attempt = self.thread_attempt_for_lifecycle(
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            workflow_lifecycle_id=workflow_lifecycle_id,
+            anchor_event_type=anchor_event_type,
+        )
+        if thread_attempt is None:
+            return False
+        return routing_guide_thread_is_retired(thread_attempt, live_attempt)
 
     def link_workflow_run_to_thread(
         self,

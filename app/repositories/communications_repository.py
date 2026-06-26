@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.db import execute_scalar, fetchall_dicts, jsonb_param
 from app.models.workflow_run_event_type import WorkflowRunEventType
 
+_ROUTING_GUIDE_ATTEMPT_FILTER = (
+    "AND (c.metadata->>'routing_guide_attempt')::int = :routing_guide_attempt"
+)
+
 
 class CommunicationsRepository:
     TABLE_NAME = "communications"
@@ -266,11 +270,22 @@ class CommunicationsRepository:
         tenant_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> str | None:
         """``communications.thread_id`` from the latest linked run for ``anchor_event_type``."""
+        attempt_filter = (
+            _ROUTING_GUIDE_ATTEMPT_FILTER if routing_guide_attempt is not None else ""
+        )
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+            "anchor_event_type": anchor_event_type,
+        }
+        if routing_guide_attempt is not None:
+            params["routing_guide_attempt"] = routing_guide_attempt
         thread_id = execute_scalar(
             self._session,
-            """
+            f"""
             SELECT c.thread_id
             FROM communications c
             JOIN workflow_runs wr ON wr.id = c.workflow_run_id
@@ -279,15 +294,38 @@ class CommunicationsRepository:
               AND wr.event_type = :anchor_event_type
               AND c.thread_id IS NOT NULL
               AND TRIM(c.thread_id) <> ''
+              {attempt_filter}
             ORDER BY c.created_at DESC
             LIMIT 1
             """,
-            {
-                "tenant_id": tenant_id,
-                "workflow_lifecycle_id": workflow_lifecycle_id,
-                "anchor_event_type": anchor_event_type,
-            },
+            params,
         )
+        if not thread_id and routing_guide_attempt is not None:
+            # Backward compat: rows linked before attempt metadata was stamped.
+            thread_id = execute_scalar(
+                self._session,
+                f"""
+                SELECT c.thread_id
+                FROM communications c
+                JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+                WHERE wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+                  AND wr.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wr.event_type = :anchor_event_type
+                  AND c.thread_id IS NOT NULL
+                  AND TRIM(c.thread_id) <> ''
+                  AND (
+                    c.metadata->>'routing_guide_attempt' IS NULL
+                    OR TRIM(c.metadata->>'routing_guide_attempt') = ''
+                  )
+                ORDER BY c.created_at DESC
+                LIMIT 1
+                """,
+                {
+                    "tenant_id": tenant_id,
+                    "workflow_lifecycle_id": workflow_lifecycle_id,
+                    "anchor_event_type": anchor_event_type,
+                },
+            )
         if not thread_id:
             return None
         return str(thread_id).strip() or None
@@ -364,11 +402,23 @@ class CommunicationsRepository:
         thread_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> bool:
         """True when this thread already has a patched comm for the lifecycle (idempotency)."""
+        attempt_filter = (
+            _ROUTING_GUIDE_ATTEMPT_FILTER if routing_guide_attempt is not None else ""
+        )
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "thread_id": thread_id,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+            "anchor_event_type": anchor_event_type,
+        }
+        if routing_guide_attempt is not None:
+            params["routing_guide_attempt"] = routing_guide_attempt
         linked = execute_scalar(
             self._session,
-            """
+            f"""
             SELECT EXISTS (
                 SELECT 1
                 FROM communications c
@@ -377,14 +427,10 @@ class CommunicationsRepository:
                   AND c.thread_id = :thread_id
                   AND wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
                   AND wr.event_type = :anchor_event_type
+                  {attempt_filter}
             )
             """,
-            {
-                "tenant_id": tenant_id,
-                "thread_id": thread_id,
-                "workflow_lifecycle_id": workflow_lifecycle_id,
-                "anchor_event_type": anchor_event_type,
-            },
+            params,
         )
         return bool(linked)
 
@@ -394,11 +440,22 @@ class CommunicationsRepository:
         tenant_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> str | None:
         """Thread id already linked to lifecycle via ``anchor_event_type`` run (conflict guard)."""
+        attempt_filter = (
+            _ROUTING_GUIDE_ATTEMPT_FILTER if routing_guide_attempt is not None else ""
+        )
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+            "anchor_event_type": anchor_event_type,
+        }
+        if routing_guide_attempt is not None:
+            params["routing_guide_attempt"] = routing_guide_attempt
         thread_id = execute_scalar(
             self._session,
-            """
+            f"""
             SELECT c.thread_id
             FROM communications c
             JOIN workflow_runs wr ON wr.id = c.workflow_run_id
@@ -407,18 +464,100 @@ class CommunicationsRepository:
               AND wr.event_type = :anchor_event_type
               AND c.thread_id IS NOT NULL
               AND TRIM(c.thread_id) <> ''
+              {attempt_filter}
             ORDER BY c.created_at ASC
             LIMIT 1
             """,
-            {
-                "tenant_id": tenant_id,
-                "workflow_lifecycle_id": workflow_lifecycle_id,
-                "anchor_event_type": anchor_event_type,
-            },
+            params,
         )
         if not thread_id:
             return None
         return str(thread_id).strip() or None
+
+    def patch_communication_metadata(
+        self,
+        *,
+        communication_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """Merge ``metadata_patch`` into ``communications.metadata``."""
+        comm_id = str(communication_id or "").strip()
+        if not comm_id or not metadata_patch:
+            return False
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb)
+                WHERE id = CAST(:communication_id AS uuid)
+                """
+            ),
+            {
+                "communication_id": comm_id,
+                "metadata_patch": jsonb_param(metadata_patch),
+            },
+        )
+        return int(result.rowcount or 0) > 0
+
+    def thread_attempt_for_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_lifecycle_id: str,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ) -> int | None:
+        """
+        Resolve routing-guide attempt for a carrier thread on this lifecycle.
+
+        Uses stamped ``communications.metadata.routing_guide_attempt`` when present;
+        otherwise infers ordinal from anchor order (legacy rows default to attempt 1).
+        """
+        raw = execute_scalar(
+            self._session,
+            f"""
+            WITH thread_anchors AS (
+                SELECT DISTINCT ON (c.thread_id)
+                       c.thread_id,
+                       c.created_at AS anchored_at,
+                       CASE
+                           WHEN c.metadata ? 'routing_guide_attempt'
+                           THEN (c.metadata->>'routing_guide_attempt')::int
+                           ELSE NULL
+                       END AS stamped_attempt
+                FROM {self.TABLE_NAME} c
+                JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+                WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+                  AND wr.event_type = :anchor_event_type
+                  AND c.thread_id IS NOT NULL
+                  AND TRIM(c.thread_id) <> ''
+                ORDER BY c.thread_id, c.created_at ASC
+            ),
+            ranked AS (
+                SELECT thread_id,
+                       stamped_attempt,
+                       ROW_NUMBER() OVER (ORDER BY anchored_at ASC)::int AS ordinal_attempt
+                FROM thread_anchors
+            )
+            SELECT COALESCE(stamped_attempt, ordinal_attempt)
+            FROM ranked
+            WHERE thread_id = :thread_id
+            """,
+            {
+                "tenant_id": tenant_id,
+                "thread_id": thread_id,
+                "workflow_lifecycle_id": workflow_lifecycle_id,
+                "anchor_event_type": anchor_event_type,
+            },
+        )
+        if raw is None:
+            return None
+        try:
+            attempt = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return attempt if attempt >= 1 else None
 
     def is_communication_linked_to_run(self, *, communication_id: str) -> bool:
         """True when inbound comm already has a ``workflow_run_id`` (Celery retry guard)."""

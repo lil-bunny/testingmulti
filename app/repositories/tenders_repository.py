@@ -99,7 +99,7 @@ class TendersRepository:
     def get_by_order_number(
         self, *, tenant_id: str, order_number: str
     ) -> dict[str, Any] | None:
-        """Latest ``{id, order_number}`` for ``(tenant_id, order_number)`` (``created_at DESC``), or ``None``."""
+        """Latest ``{id, order_number, load_type}`` for ``(tenant_id, order_number)`` (``created_at DESC``), or ``None``."""
         tid = self._clean(tenant_id)
         order = self._clean(order_number)
         if not tid or not order:
@@ -108,7 +108,7 @@ class TendersRepository:
         row = self._session.execute(
             text(
                 f"""
-                SELECT id::text, order_number
+                SELECT id::text, order_number, load_type::text
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_ORDER}
                 ORDER BY created_at DESC
@@ -119,7 +119,11 @@ class TendersRepository:
         ).first()
         if not row:
             return None
-        return {"id": str(row[0]), "order_number": row[1] or ""}
+        return {
+            "id": str(row[0]),
+            "order_number": row[1] or "",
+            "load_type": row[2] or "",
+        }
 
     def update_load_type(
         self, *, tenant_id: str, tender_id: str, load_type: str

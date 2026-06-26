@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_reminder_sent_action
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
+from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
 from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
@@ -40,6 +41,16 @@ def update_reminder_status(state):
             wl_id,
         )
         state.data["reminder_status_skipped"] = "reminder_not_sent"
+        return state
+
+    if state.data.get("stale_routing_guide_reminder") and is_ftl_load_type(
+        resolve_load_type(state)
+    ):
+        logger.info(
+            "update_reminder_status skipping stale routing-guide reminder lifecycle_id=%s",
+            wl_id,
+        )
+        state.data["reminder_status_skipped"] = "stale_routing_guide_reminder"
         return state
 
     raw_step = state.data.get("reminder_step")
