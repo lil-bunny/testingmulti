@@ -68,6 +68,46 @@ def _series_field(row: Any, key: str) -> str | None:
     return s or None
 
 
+def lookup_state_display_name(
+    country_name: str | None,
+    postal_code: object,
+    *,
+    state_code_fallback: str | None = None,
+) -> str | None:
+    """Return full state name when pgeocode has it, else state code, else ``state_code_fallback``."""
+    iso2 = get_country_iso(country_name)
+    if iso2 is None:
+        fb = (state_code_fallback or "").strip()
+        return fb or None
+
+    nomi = _get_nominatim(iso2)
+    if nomi is None:
+        fb = (state_code_fallback or "").strip()
+        return fb or None
+
+    for postal in _postal_query_candidates(postal_code):
+        try:
+            row = nomi.query_postal_code(postal)
+        except Exception:
+            logger.warning(
+                "pgeocode: query failed iso2=%s postal=%s",
+                iso2,
+                postal,
+                exc_info=True,
+            )
+            continue
+
+        name = _series_field(row, "state_name")
+        if name:
+            return name
+        code = _series_field(row, "state_code")
+        if code:
+            return code
+
+    fb = (state_code_fallback or "").strip()
+    return fb or None
+
+
 def lookup_state(country_name: str | None, postal_code: object) -> str | None:
     """Return ``state_code`` (preferred) or ``state_name`` for (country, postal_code).
 

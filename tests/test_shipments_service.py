@@ -181,3 +181,27 @@ def test_get_by_id_returns_none_for_invalid_uuid():
 
     assert svc.get_by_id(tenant_id=_TENANT_UUID, shipment_id="1000324895") is None
     svc._shipments.get_by_tenant_and_id_tx.assert_not_called()
+
+
+def test_clear_driver_details_delegates_to_repo():
+    repo = MagicMock()
+    repo.clear_driver_details_tx.return_value = True
+    svc = ShipmentsService(shipments_repository=repo)
+
+    ok = svc.clear_driver_details(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+    )
+
+    assert ok is True
+    repo.clear_driver_details_tx.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+    )
+
+
+def test_clear_driver_details_returns_false_for_invalid_ids():
+    svc = ShipmentsService(shipments_repository=MagicMock())
+
+    assert svc.clear_driver_details(tenant_id="", shipment_row_id=_SHIPMENTS_ROW_UUID) is False
+    svc._shipments.clear_driver_details_tx.assert_not_called()

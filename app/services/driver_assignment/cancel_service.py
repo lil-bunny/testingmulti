@@ -5,12 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.configs.workflow_cancellation_policies import DRIVER_ASSIGNMENT_CANCEL_POLICY
+from app.configs.workflow_cancellation_policies import (
+    DRIVER_ASSIGNMENT_CANCEL_POLICY,
+    DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
+)
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
+    format_driver_assignment_cancelled_ratecon_superseded_action,
     format_driver_assignment_cancelled_tendered_action,
 )
-from app.domain.workflow_cancel_trigger import WorkflowCancelTrigger
+from app.domain.workflow_cancel_trigger import (
+    RATECON_SUPERSEDED_TRIGGER,
+    WorkflowCancelTrigger,
+)
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.shipments_service import ShipmentsService
 from app.services.workflow_lifecycle_cancel_service import (
@@ -103,6 +110,34 @@ class DriverAssignmentCancelService:
             meta.setdefault("shipment_number", shipment_number)
         if trigger.load_id:
             meta.setdefault("load_id", trigger.load_id)
+
+        if trigger.trigger == RATECON_SUPERSEDED_TRIGGER:
+            result = self._cancel.supersede_by_shipment(
+                tenant_id=trigger.tenant_id,
+                shipment_row_id=shipments_row_id,
+                policy=DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
+                description=format_driver_assignment_cancelled_ratecon_superseded_action(),
+                metadata=meta,
+            )
+            if result.cancelled:
+                self._shipments.clear_driver_details(
+                    tenant_id=tenant_uuid,
+                    shipment_row_id=shipments_row_id,
+                )
+                logger.info(
+                    "driver_assignment supersede lifecycle_id=%s tenant=%s shipment=%s",
+                    result.lifecycle_id,
+                    trigger.tenant_slug,
+                    shipment_number,
+                )
+            elif result.skip_reason == "not_found":
+                logger.info(
+                    "driver_assignment supersede no-op tenant=%s shipment=%s load_id=%s",
+                    trigger.tenant_slug,
+                    shipment_number,
+                    trigger.load_id,
+                )
+            return WorkflowCancelAdapterResult.from_workflow_result(result)
 
         result = self._cancel.cancel_by_shipment(
             tenant_id=trigger.tenant_id,

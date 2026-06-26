@@ -285,3 +285,33 @@ class ShipmentsRepository:
             raise RuntimeError(
                 f"shipments driver_details update affected {result.rowcount} rows"
             )
+
+    def clear_driver_details_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+    ) -> bool:
+        tid = self._clean(tenant_id)
+        row_id = self._clean(shipment_row_id)
+        if not tid or not row_id:
+            raise ValueError("tenant_id and shipment_row_id are required")
+
+        empty_driver_details = {"name": None, "phone": None}
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET driver_details = CAST(:driver_details AS jsonb),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_row_id": row_id,
+                "driver_details": jsonb_param(empty_driver_details),
+            },
+        )
+        return result.rowcount == 1

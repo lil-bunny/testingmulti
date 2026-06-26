@@ -44,3 +44,15 @@ def build_turvo_ui_base_url(public_api_url: str) -> str:
     if "://publicapi." in base:
         return base.replace("://publicapi.", "://app.", 1)
     return base
+
+
+def resolve_turvo_ui_base_url(
+    *,
+    ui_base_url: str | None,
+    public_api_url: str,
+) -> str:
+    """Prefer explicit tenant UI host; else derive from public API URL."""
+    explicit = normalize_turvo_publicapi_url(ui_base_url or "")
+    if explicit:
+        return explicit
+    return build_turvo_ui_base_url(public_api_url)

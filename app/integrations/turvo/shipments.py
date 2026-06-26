@@ -19,7 +19,11 @@ from app.domain.shipment_route_locations import (
     last_active_route_stop,
 )
 from app.domain.spreadsheet_cells import clean_cell_value
-from app.integrations.pgeocode.state_lookup import lookup_state
+from app.integrations.pgeocode.state_lookup import (
+    lookup_postal,
+    lookup_state,
+    lookup_state_display_name,
+)
 from app.integrations.turvo.documents import check_pod_by_shipment_id
 from app.integrations.turvo.public_api_client import TurvoApiClient
 
@@ -105,6 +109,52 @@ def postal_from_customer_order_route(
         postal = _postal_from_address(address)
         return postal if postal else None
     return None
+
+
+def location_insert_row_from_route_stop(
+    stop: dict[str, Any],
+    shipment_details: dict[str, Any] | None = None,
+) -> dict[str, str | None] | None:
+    """
+    Build ``locations`` insert fields from one Turvo ``globalRoute`` stop.
+
+    Uses stop ``address``, then ``customerOrder.route`` zip, then pgeocode.
+    Returns ``None`` when city or state code is missing.
+    """
+    if not isinstance(stop, dict):
+        return None
+    address = stop.get("address")
+    if not isinstance(address, dict):
+        address = {}
+
+    city = _required_str(address.get("city"))
+    state_code = _required_str(address.get("state"))
+    if not city or not state_code:
+        return None
+
+    country = _required_str(
+        address.get("countryCode") or address.get("country") or address.get("countryName")
+    ) or "US"
+
+    postal = _postal_from_address(address) or None
+    if not postal and isinstance(shipment_details, dict):
+        postal = postal_from_customer_order_route(shipment_details, stop) or None
+    if not postal:
+        postal = lookup_postal(country, city, state_code) or None
+
+    state = lookup_state_display_name(
+        country,
+        postal,
+        state_code_fallback=state_code,
+    )
+
+    return {
+        "city": city,
+        "state": state,
+        "state_code": state_code,
+        "postal_code": postal,
+        "country": country,
+    }
 
 
 def delivery_address_from_global_route_stop(stop: dict[str, Any]) -> dict[str, Any] | None:

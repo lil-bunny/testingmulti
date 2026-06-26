@@ -90,13 +90,17 @@ class IngressGatesMixin:
 
         turvo_payload: Any,
 
+        *,
+
+        ignore_driver_assigned: bool = False,
+
         ) -> tuple[str | None, dict[str, Any]]:
 
         if not isinstance(turvo_payload, dict):
 
             return "shipment_not_in_state", {}
 
-        if driver_assigned_from_payload(turvo_payload):
+        if not ignore_driver_assigned and driver_assigned_from_payload(turvo_payload):
 
             return "driver_already_assigned", {}
 

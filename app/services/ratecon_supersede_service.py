@@ -86,4 +86,19 @@ class RateconSupersedeService:
                 tenant_slug,
                 trigger.load_id,
             )
+        da = results.get("driver_assignment")
+        if da and da.cancelled:
+            logger.info(
+                "driver_assignment supersede cancelled prior lifecycle_id=%s tenant=%s load_id=%s",
+                da.lifecycle_id,
+                tenant_slug,
+                trigger.load_id,
+            )
+        elif da and da.skip_reason and da.skip_reason not in ("not_found", "no_active_lifecycle"):
+            logger.info(
+                "driver_assignment supersede skipped reason=%s tenant=%s load_id=%s",
+                da.skip_reason,
+                tenant_slug,
+                trigger.load_id,
+            )
         return results

@@ -17,6 +17,7 @@ from app.domain.shipment_route_locations import (
 from app.integrations.turvo.shipments import (
     delivery_address_from_global_route_stop,
     global_route_stops_from_payload,
+    location_insert_row_from_route_stop,
     postal_from_customer_order_route,
 )
 from app.services.shipment_location_link_service import (
@@ -32,14 +33,18 @@ def _stop(
     state: str,
     country_code: str = "US",
     deleted: bool = False,
+    zip_code: str | None = None,
 ) -> dict:
+    address: dict = {
+        "city": city,
+        "state": state,
+        "countryCode": country_code,
+    }
+    if zip_code:
+        address["zip"] = zip_code
     return {
         "deleted": deleted,
-        "address": {
-            "city": city,
-            "state": state,
-            "countryCode": country_code,
-        },
+        "address": address,
     }
 
 
@@ -170,6 +175,30 @@ class TestEndpointsFromRouteStops:
     def test_missing_city_raises(self) -> None:
         with pytest.raises(ShipmentLocationLinkError, match="missing city or state"):
             endpoints_from_route_stops([{"address": {"state": "CA"}}])
+
+
+class TestLocationInsertRowFromRouteStop:
+    def test_maps_zip_on_stop(self) -> None:
+        stop = _stop(city="Hanover", state="MD", zip_code="21076")
+        row = location_insert_row_from_route_stop(stop)
+        assert row is not None
+        assert row["city"] == "Hanover"
+        assert row["state_code"] == "MD"
+        assert row["postal_code"] == "21076"
+        assert row["country"] == "US"
+
+    def test_uses_customer_order_zip_when_global_route_omits_it(self) -> None:
+        row = location_insert_row_from_route_stop(
+            RENO_STOP_NO_ZIP,
+            SHIPMENT_DETAILS_CO_ZIP,
+        )
+        assert row is not None
+        assert row["postal_code"] == "89502"
+        assert row["city"] == "RENO"
+        assert row["state_code"] == "NV"
+
+    def test_missing_city_returns_none(self) -> None:
+        assert location_insert_row_from_route_stop({"address": {"state": "MD"}}) is None
 
 
 class TestGlobalRouteStopsFromPayload:
@@ -318,9 +347,10 @@ class TestShipmentLocationLinkService:
         with pytest.raises(ShipmentLocationLinkError, match="missing shipments_row_id"):
             svc.link_from_route_stops(THREE_STOP_ROUTE, shipments_row_id=None)
 
-    def test_location_not_found_raises(self) -> None:
+    def test_location_not_found_raises_when_insert_fails(self) -> None:
         locations = MagicMock()
         locations.find_id_by_city_state_country_tx.return_value = None
+        locations.insert_location_tx.return_value = None
         svc = ShipmentLocationLinkService(
             locations_repository=locations,
             shipments_repository=MagicMock(),
@@ -330,6 +360,30 @@ class TestShipmentLocationLinkService:
                 THREE_STOP_ROUTE,
                 shipments_row_id="ship-row-1",
             )
+
+    def test_creates_location_on_miss_from_route_stop(self) -> None:
+        locations = MagicMock()
+        locations.find_id_by_city_state_country_tx.side_effect = [None, None]
+        locations.insert_location_tx.side_effect = [
+            "pickup-uuid",
+            "delivery-uuid",
+        ]
+        shipments = MagicMock()
+        svc = ShipmentLocationLinkService(
+            locations_repository=locations,
+            shipments_repository=shipments,
+        )
+        route = [
+            _stop(city="Hanover", state="MD", zip_code="21076"),
+            _stop(city="RENO", state="NV", zip_code="89502"),
+        ]
+        result = svc.link_from_route_stops(
+            route,
+            shipments_row_id="ship-row-1",
+        )
+        assert result.pickup_location_id == "pickup-uuid"
+        assert result.delivery_location_id == "delivery-uuid"
+        assert locations.insert_location_tx.call_count == 2
 
 
 class TestLinkShipmentLocationsNode:

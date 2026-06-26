@@ -120,6 +120,7 @@ class IngressEmailMixin:
                         "source": email_source,
                         "workflow_lifecycle_id": payload.get("workflow_lifecycle_id"),
                         "shipment_id": payload.get("shipment_id"),
+                        "load_id": payload.get("load_id"),
                         "reminder_step": reminder_step,
                         "original_thread_id": thread_id,
                     },

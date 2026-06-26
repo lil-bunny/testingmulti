@@ -23,6 +23,7 @@ from app.domain.activity_log_constants import (
     DRIVER_ASSIGNMENT_STARTED_ACTION,
     DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE,
     DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION,
+    DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION,
     DRIVER_REMINDERS_SCHEDULED_ACTION,
     DRIVER_REMINDER_SENT_TEMPLATE,
     DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE,
@@ -209,6 +210,10 @@ def format_driver_assignment_not_started_action(*, reason: str) -> str:
 
 def format_driver_assignment_cancelled_tendered_action() -> str:
     return DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION
+
+
+def format_driver_assignment_cancelled_ratecon_superseded_action() -> str:
+    return DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION
 
 
 def format_driver_reminders_scheduled_action() -> str:

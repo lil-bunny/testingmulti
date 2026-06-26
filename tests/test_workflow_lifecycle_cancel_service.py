@@ -157,6 +157,37 @@ def test_supersede_by_shipment_completed_document_processed() -> None:
     activity.record_sequence.assert_called_once()
 
 
+def test_supersede_by_shipment_completed_uploaded_to_tms_da_policy() -> None:
+    from app.configs.workflow_cancellation_policies import (
+        DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
+    )
+
+    lifecycle = MagicMock()
+    lifecycle.find_latest_non_cancelled_lifecycle_id.return_value = "da-lc-1"
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.COMPLETED.value,
+        "sub_status": StatusSubType.UPLOADED_TO_TMS.value,
+    }
+    activity = MagicMock()
+    svc = _service(lifecycle_service=lifecycle, activity_service=activity)
+
+    with patch(
+        "app.services.workflow_lifecycle_cancel_service.resolve_graph_tenant_to_uuid",
+        return_value=_TENANT_ID,
+    ):
+        result = svc.supersede_by_shipment(
+            tenant_id=_TENANT_ID,
+            shipment_row_id=_SHIPMENTS_ROW_ID,
+            policy=DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
+            description="Driver assignment cancelled — superseded by new inbound ratecon email",
+            metadata={"load_id": "30389"},
+        )
+
+    assert result.cancelled is True
+    assert result.lifecycle_id == "da-lc-1"
+    activity.record_sequence.assert_called_once()
+
+
 def test_supersede_by_shipment_not_found() -> None:
     from app.configs.workflow_cancellation_policies import RATECON_SUPERSEDE_POLICY
 

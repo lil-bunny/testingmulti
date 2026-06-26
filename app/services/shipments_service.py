@@ -332,3 +332,27 @@ class ShipmentsService:
                 )
             )
         return True
+
+    def clear_driver_details(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+    ) -> bool:
+        """Clear ``shipments.driver_details``; returns False when row missing."""
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid:
+            return False
+
+        if self._shipments is not None:
+            return self._shipments.clear_driver_details_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).clear_driver_details_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+            )
+        )

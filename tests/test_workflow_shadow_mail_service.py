@@ -33,3 +33,33 @@ def test_send_redirect_email_prefixes_subject_and_omits_thread_id() -> None:
     assert call_kwargs["communication_metadata"]["shadow_mail_redirect"] is True
     assert call_kwargs["communication_metadata"]["shadow_mail_to"] == ["test@freightx.ai"]
     assert call_kwargs["communication_metadata"]["source"] == "driver_assignment_reminder"
+
+
+def test_send_redirect_email_includes_load_id_in_subject() -> None:
+    recipients = EmailRecipients(to=["test@freightx.ai"])
+    with patch("app.services.workflow_shadow_mail_service.send_email_tool") as send_mock:
+        send_mock.return_value = {"success": True}
+        WorkflowShadowMailService().send_redirect_email(
+            tenant_id="tenant-1",
+            recipients=recipients,
+            subject="Driver reminder",
+            body="body",
+            account_id="acct-1",
+            load_id="62369",
+        )
+    assert send_mock.call_args.kwargs["subject"] == "[SHADOW] 62369 Driver reminder"
+
+
+def test_send_redirect_email_load_id_from_metadata() -> None:
+    recipients = EmailRecipients(to=["test@freightx.ai"])
+    with patch("app.services.workflow_shadow_mail_service.send_email_tool") as send_mock:
+        send_mock.return_value = {"success": True}
+        WorkflowShadowMailService().send_redirect_email(
+            tenant_id="tenant-1",
+            recipients=recipients,
+            subject="POD Request",
+            body="body",
+            account_id="acct-1",
+            communication_metadata={"load_id": "61913"},
+        )
+    assert send_mock.call_args.kwargs["subject"] == "[SHADOW] 61913 POD Request"
