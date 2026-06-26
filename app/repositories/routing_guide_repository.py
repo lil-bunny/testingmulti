@@ -48,6 +48,8 @@ class RoutingGuideRepository:
                     id::text,
                     customer_name,
                     zipcode,
+                    city,
+                    state,
                     metadata,
                     customer_aliases,
                     carriers
@@ -62,7 +64,7 @@ class RoutingGuideRepository:
 
         out: list[RoutingGuideRow] = []
         for row in rows:
-            metadata = parse_json(row[3])
+            metadata = parse_json(row[5])
             if not isinstance(metadata, dict):
                 metadata = {}
             out.append(
@@ -70,9 +72,11 @@ class RoutingGuideRepository:
                     id=str(row[0]),
                     customer_name=str(row[1] or "").strip(),
                     zipcode=str(row[2] or "").strip(),
+                    city=str(row[3] or "").strip(),
+                    state=str(row[4] or "").strip(),
                     metadata=metadata,
-                    customer_aliases=customer_aliases_from_value(parse_json(row[4])),
-                    carriers=normalize_plan_carriers(parse_json(row[5])),
+                    customer_aliases=customer_aliases_from_value(parse_json(row[5])),
+                    carriers=normalize_plan_carriers(parse_json(row[6])),
                 )
             )
         return out
@@ -98,6 +102,8 @@ class RoutingGuideRepository:
             if not isinstance(metadata, dict):
                 metadata = {}
             aliases = customer_aliases_from_value(row.get("customer_aliases"))
+            city = self._clean(row.get("city")) or ""
+            state = self._clean(row.get("state")) or ""
             carriers = normalize_plan_carriers(row.get("carriers"))
             result = self._session.execute(
                 text(
@@ -106,6 +112,8 @@ class RoutingGuideRepository:
                         tenant_id,
                         customer_name,
                         zipcode,
+                        city,
+                        state,
                         metadata,
                         customer_aliases,
                         carriers
@@ -114,6 +122,8 @@ class RoutingGuideRepository:
                         CAST(:tenant_id AS uuid),
                         :customer_name,
                         :zipcode,
+                        :city,
+                        :state,
                         CAST(:metadata AS jsonb),
                         CAST(:customer_aliases AS jsonb),
                         CAST(:carriers AS jsonb)
@@ -126,6 +136,8 @@ class RoutingGuideRepository:
                     "tenant_id": tid,
                     "customer_name": customer_name,
                     "zipcode": zipcode,
+                    "city": city,
+                    "state": state,
                     "metadata": jsonb_param(metadata),
                     "customer_aliases": jsonb_param(aliases),
                     "carriers": jsonb_param(plan_carriers_to_json(carriers)),

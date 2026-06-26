@@ -18,16 +18,17 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 
 def gelita_normalize_lane_zip(value: Any) -> str:
-    """Normalize US postal codes for Gelita zip-first lane lookup."""
+    """Normalize postal codes for Gelita zip-first lane lookup."""
     text = str(value or "").strip().upper()
     if not text:
         return ""
-    compact = "".join(ch for ch in text if ch.isalnum())
-    if not compact:
-        return ""
-    if compact.isdigit() and len(compact) >= 5:
-        return compact[:5]
-    return compact
+    if "-" in text:
+        prefix = text.split("-", 1)[0].strip()
+        if prefix.isdigit() and len(prefix) >= 5:
+            return prefix[:5]
+    if text.isdigit() and len(text) >= 5:
+        return text[:5]
+    return " ".join(text.split())
 
 
 def gelita_normalize_partner_label(value: Any) -> str:

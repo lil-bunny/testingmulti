@@ -19,9 +19,11 @@ _SAMPLE_CARRIERS = {
 
 
 def test_gelita_normalize_lane_zip_five_digit_and_zip_plus_four() -> None:
+    assert gelita_normalize_lane_zip("29607-4197") == "29607"
     assert gelita_normalize_lane_zip("83402-1234") == "83402"
     assert gelita_normalize_lane_zip(" 83402 ") == "83402"
-    assert gelita_normalize_lane_zip("H9P 2Y1") == "H9P2Y1"
+    assert gelita_normalize_lane_zip("H9P 2Y1") == "H9P 2Y1"
+    assert gelita_normalize_lane_zip("N7G 3H8") == "N7G 3H8"
 
 
 def test_gelita_partner_matches_source_label_exact_and_alias() -> None:
@@ -41,6 +43,8 @@ def test_gelita_select_lane_unique_zip_skips_partner_check() -> None:
         id="1",
         customer_name="Catalent",
         zipcode="46168",
+        city="",
+        state="",
         metadata={},
         customer_aliases=[],
         carriers=_SAMPLE_CARRIERS,
@@ -54,6 +58,8 @@ def test_gelita_select_lane_multi_zip_requires_partner_match() -> None:
             id="1",
             customer_name="Catalent USA",
             zipcode="46168",
+            city="",
+            state="",
             metadata={},
             customer_aliases=[],
             carriers={},
@@ -62,6 +68,8 @@ def test_gelita_select_lane_multi_zip_requires_partner_match() -> None:
             id="2",
             customer_name="Lonza",
             zipcode="46168",
+            city="",
+            state="",
             metadata={},
             customer_aliases=[],
             carriers={},

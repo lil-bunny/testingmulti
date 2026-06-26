@@ -29,6 +29,8 @@ class RoutingGuideRow:
     id: str
     customer_name: str
     zipcode: str
+    city: str
+    state: str
     metadata: dict[str, Any]
     customer_aliases: list[str]
     carriers: PlanCarriers

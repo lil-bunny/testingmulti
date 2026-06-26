@@ -1,13 +1,14 @@
 """Routing guide: lifecycle sub-status ladder and master lookup table.
 
-Revision ID: 20260625_01
+Revision ID: 20260626_01
 Revises: 20260623_01
-Create Date: 2026-06-25
+Create Date: 2026-06-26
 
 Appends six ``lifecycle_sub_status`` values for capped per-carrier display:
 ``tender_sent_to_tenant_for_carrier_{1..3}`` and ``tender_sent_to_carrier_{1..3}``.
 
 Creates ``routing_guide`` for zip-first lane lookup (tenant + customer_name + zipcode).
+``city`` / ``state``: lane location from seed CSV; not used in lookup.
 ``customer_aliases``: LIEFMATCH strings; ``carriers``: ``{a|b|c: {name, email}}``.
 
 Routing attempt counter lives in ``tenders.metadata.ftl.routing_guide.attempt`` (JSONB;
@@ -20,7 +21,7 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "20260625_01"
+revision: str = "20260626_01"
 down_revision: Union[str, Sequence[str], None] = "20260623_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -119,6 +120,8 @@ def _create_routing_guide_table() -> None:
                 REFERENCES tenants(id) ON DELETE CASCADE,
             customer_name TEXT NOT NULL,
             zipcode TEXT NOT NULL,
+            city TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT '',
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             customer_aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
             carriers JSONB NOT NULL DEFAULT '{}'::jsonb,
