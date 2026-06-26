@@ -8,7 +8,7 @@ from app.core.logger import get_logger
 from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.error_catalog import BusinessError
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusType, StatusSubType
 from app.services.activity_log_service import ActivityLogService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 

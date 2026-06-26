@@ -11,33 +11,19 @@ from app.domain.activity_log_descriptions import (
     format_tender_sent_to_vendor,
 )
 from app.domain.gelita.routing_guide_lifecycle import (
-    gelita_current_routing_guide_attempt,
-    gelita_has_routing_guide_attempt,
+    routing_guide_attempt_from_metadata,
+    routing_guide_attempt_from_state,
+    routing_guide_has_attempt,
     gelita_routing_guide_sub_status_for,
+    sync_routing_guide_attempt_to_state,
 )
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
-from app.domain.load_tendering_state import get_tender, set_tender
 from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
 from app.models.activity_type import ActivityType, ActorType, is_snapshot_activity_type
 from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 
 logger = get_logger(__name__)
-
-
-def _sync_tender_attempt_in_state(state: Any, *, attempt: int) -> None:
-    data = getattr(state, "data", None)
-    if not isinstance(data, dict):
-        return
-    tender = dict(get_tender(data) or {})
-    metadata = dict(tender.get("metadata") or {})
-    ftl = dict(metadata.get("ftl") or {})
-    routing_guide = dict(ftl.get("routing_guide") or {})
-    routing_guide["attempt"] = attempt
-    ftl["routing_guide"] = routing_guide
-    metadata["ftl"] = ftl
-    tender["metadata"] = metadata
-    set_tender(data, tender)
 
 
 def _lifecycle_command(
@@ -51,6 +37,7 @@ def _lifecycle_command(
     to_sub_status: StatusSubType | None = None,
     communication_id: str | None = None,
 ) -> LifecycleTransitionCommand:
+    """Build a system lifecycle transition for routing-guide activity logging."""
     return LifecycleTransitionCommand(
         tenant_id=tenant_id,
         workflow_lifecycle_id=workflow_lifecycle_id,
@@ -66,6 +53,7 @@ def _lifecycle_command(
 
 
 def _workflow_scope(state: Any) -> tuple[str, str, str, str, dict[str, Any]] | None:
+    """Extract lifecycle scope ids from graph state; required by persist helpers."""
     data = getattr(state, "data", None) or {}
     wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = str(
@@ -79,7 +67,10 @@ def _workflow_scope(state: Any) -> tuple[str, str, str, str, dict[str, Any]] | N
 
 
 class RoutingGuideLifecycleService:
+    """Persist routing-guide attempt counters and lifecycle sub-status transitions."""
+
     def record_tenant_sent(self, state: Any) -> bool:
+        """Initialize or reaffirm attempt 1 when the tenant email is sent."""
         if not is_ftl_load_type(resolve_load_type(state)):
             return False
 
@@ -91,25 +82,36 @@ class RoutingGuideLifecycleService:
         wl_id, tenant_id, tender_id, run_id, data = scope
         communication_id = str(data.get("communication_id") or "").strip() or None
 
-        tender = dict(get_tender(data) or {})
-        attempt = gelita_current_routing_guide_attempt(tender)
-        needs_init = not gelita_has_routing_guide_attempt(tender)
-        if needs_init:
-            attempt = 1
-
-        to_sub = gelita_routing_guide_sub_status_for(attempt, "tenant")
-        transition_meta: dict[str, Any] = {
-            "tender_id": tender_id,
-            "routing_guide_attempt": attempt,
-        }
+        attempt = routing_guide_attempt_from_state(data)
 
         def _persist(repos: Any) -> None:
+            nonlocal attempt
+            lifecycle_row = repos.workflow_lifecycles.read_row_by_id(wl_id)
+            lifecycle_meta = (
+                lifecycle_row.get("metadata") if isinstance(lifecycle_row, dict) else {}
+            )
+            needs_init = not routing_guide_has_attempt(lifecycle_meta)
             if needs_init:
-                repos.tenders.set_routing_guide_attempt(
-                    tenant_id=tenant_id,
-                    tender_id=tender_id,
+                attempt = 1
+                if not repos.workflow_lifecycles.set_routing_guide_attempt(
+                    lifecycle_id=wl_id,
                     attempt=attempt,
-                )
+                ):
+                    logger.warning(
+                        "routing_guide record_tenant_sent failed to persist attempt "
+                        "workflow_lifecycle_id=%s attempt=%s",
+                        wl_id,
+                        attempt,
+                    )
+            else:
+                attempt = routing_guide_attempt_from_metadata(lifecycle_meta)
+
+            to_sub = gelita_routing_guide_sub_status_for(attempt, "tenant")
+            transition_meta: dict[str, Any] = {
+                "tender_id": tender_id,
+                "routing_guide_attempt": attempt,
+            }
+
             lifecycle_transition_service = LifecycleTransitionService(
                 lifecycles_repo=repos.workflow_lifecycles,
                 activity_logs_repo=repos.activity_logs,
@@ -135,19 +137,18 @@ class RoutingGuideLifecycleService:
             )
 
         run_with_repos(_persist)
-        _sync_tender_attempt_in_state(state, attempt=attempt)
+        sync_routing_guide_attempt_to_state(data, attempt=attempt)
         return True
 
     def advance(self, state: Any, *, reason: str) -> int:
+        """Increment waterfall attempt after carrier reject or timeout."""
         scope = _workflow_scope(state)
         if scope is None:
             logger.warning("routing_guide advance skipped missing scope")
-            tender = get_tender(getattr(state, "data", None) or {})
-            return gelita_current_routing_guide_attempt(tender)
+            return routing_guide_attempt_from_state(getattr(state, "data", None))
 
         wl_id, tenant_id, tender_id, run_id, data = scope
-        tender = dict(get_tender(data) or {})
-        prior = gelita_current_routing_guide_attempt(tender)
+        prior = routing_guide_attempt_from_state(data)
         next_attempt = prior + 1
         clean_reason = str(reason or "").strip() or "routing_guide_failover"
         transition_meta: dict[str, Any] = {
@@ -158,11 +159,16 @@ class RoutingGuideLifecycleService:
         }
 
         def _persist(repos: Any) -> int:
-            repos.tenders.set_routing_guide_attempt(
-                tenant_id=tenant_id,
-                tender_id=tender_id,
+            if not repos.workflow_lifecycles.set_routing_guide_attempt(
+                lifecycle_id=wl_id,
                 attempt=next_attempt,
-            )
+            ):
+                logger.warning(
+                    "routing_guide advance failed to persist attempt "
+                    "workflow_lifecycle_id=%s attempt=%s",
+                    wl_id,
+                    next_attempt,
+                )
             lifecycle_transition_service = LifecycleTransitionService(
                 lifecycles_repo=repos.workflow_lifecycles,
                 activity_logs_repo=repos.activity_logs,
@@ -184,5 +190,5 @@ class RoutingGuideLifecycleService:
             return next_attempt
 
         new_attempt = run_with_repos(_persist)
-        _sync_tender_attempt_in_state(state, attempt=new_attempt)
+        sync_routing_guide_attempt_to_state(data, attempt=new_attempt)
         return new_attempt

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from app.core.logger import get_logger
 from app.domain.error_catalog import BusinessError, format_error_message
-from app.domain.gelita.routing_guide_lifecycle import gelita_current_routing_guide_attempt
+from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
 from app.domain.load_tendering_settings import (
     action_settings,
     gelita_send_tender_email_settings,
@@ -100,7 +100,7 @@ def send_tender_email(state):
 
     carrier_note = ""
     if ftl:
-        attempt = gelita_current_routing_guide_attempt(tender)
+        attempt = routing_guide_attempt_from_state(state.data)
         tenant_id = str(getattr(state, "tenant_id", None) or state.data.get("tenant_id") or "").strip()
         tenant_slug = str(
             getattr(state, "tenant_slug", None) or state.data.get("tenant_slug") or ""

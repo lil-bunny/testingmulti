@@ -9,11 +9,12 @@ from app.domain.gelita.routing_guide import (
     gelita_select_lane,
 )
 from app.domain.routing_guide import RoutingGuideRow
+from app.domain.routing_guide.types import PlanCarrierSlot
 
 _SAMPLE_CARRIERS = {
-    "a": {"Schneider": "carrier@example.com"},
-    "b": {"Axle": "axle@example.com"},
-    "c": {"J.B. Hunt": "jb@example.com"},
+    "a": PlanCarrierSlot(name="Schneider", email="carrier@example.com"),
+    "b": PlanCarrierSlot(name="Axle", email="axle@example.com"),
+    "c": PlanCarrierSlot(name="J.B. Hunt", email="jb@example.com"),
 }
 
 

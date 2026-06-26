@@ -96,6 +96,7 @@ def gelita_plan_carrier_for_attempt(
     attempt: int,
 ) -> tuple[str, str]:
     """Return carrier name and email for a Gelita waterfall attempt."""
-    slot_map = carriers.get(gelita_plan_slot_for_attempt(attempt), {})
-    name, email = next(iter(slot_map.items()), ("", ""))
-    return str(name).strip(), str(email).strip()
+    slot = carriers.get(gelita_plan_slot_for_attempt(attempt))
+    if slot is None:
+        return "", ""
+    return slot.name, slot.email

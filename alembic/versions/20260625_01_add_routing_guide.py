@@ -8,7 +8,7 @@ Appends six ``lifecycle_sub_status`` values for capped per-carrier display:
 ``tender_sent_to_tenant_for_carrier_{1..3}`` and ``tender_sent_to_carrier_{1..3}``.
 
 Creates ``routing_guide`` for zip-first lane lookup (tenant + customer_name + zipcode).
-``customer_aliases``: LIEFMATCH strings; ``carriers``: ``{a|b|c: {name: email}}``.
+``customer_aliases``: LIEFMATCH strings; ``carriers``: ``{a|b|c: {name, email}}``.
 
 Routing attempt counter lives in ``tenders.metadata.ftl.routing_guide.attempt`` (JSONB;
 no column change). Application guards must compare by value, not enum sort order.

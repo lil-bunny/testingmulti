@@ -5,12 +5,14 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.domain.routing_guide import RoutingGuideRow, routing_guide_policy_for
+from app.domain.routing_guide.types import PlanCarrierSlot
 from app.models.tenants import TenantSlug
 from app.services.routing_guide_lookup_service import RoutingGuideLookupService
 from app.tools.routing_guide_carrier import (
     build_carrier_note,
     build_carrier_note_from_resolution,
 )
+from app.tools.tender_email import build_tender_email_input_from_tender
 
 
 @patch("app.services.routing_guide_lookup_service.run_with_repos")
@@ -21,7 +23,7 @@ def test_lookup_service_unique_zip(mock_run: MagicMock) -> None:
         zipcode="83402",
         metadata={},
         customer_aliases=[],
-        carriers={"a": {"Schneider": "carrier@example.com"}},
+        carriers={"a": PlanCarrierSlot(name="Schneider", email="carrier@example.com")},
     )
     mock_run.return_value = [row]
 
@@ -35,6 +37,45 @@ def test_lookup_service_unique_zip(mock_run: MagicMock) -> None:
 
 
 @patch("app.services.routing_guide_lookup_service.run_with_repos")
+def test_lookup_service_reads_zip_from_structured_delivery_address(mock_run: MagicMock) -> None:
+    row = RoutingGuideRow(
+        id="guide-1",
+        customer_name="Pharmavite",
+        zipcode="43031",
+        metadata={},
+        customer_aliases=[],
+        carriers={"a": PlanCarrierSlot(name="Schuster", email="carrier@example.com")},
+    )
+    mock_run.return_value = [row]
+
+    tender = {
+        "delivery_address": {
+            "name": "PHARMAVITE",
+            "address1": "13700 JUG STREET NW",
+            "city": "NEW ALBANY",
+            "state": "OH",
+            "postal_code": "43031",
+            "country": "U.S.A.",
+        },
+        "delivery_address_formatted": (
+            "PHARMAVITE\n13700 JUG STREET NW\nNEW ALBANY OH 43031"
+        ),
+    }
+
+    service = RoutingGuideLookupService()
+    lane = service.lookup_lane(
+        tenant_id="tenant-1",
+        tenant_slug=TenantSlug.GELITA,
+        tender=tender,
+    )
+    assert lane == row
+
+    ctx = build_tender_email_input_from_tender(tender)
+    assert "PHARMAVITE" in ctx.delivery_address
+    assert "43031" in ctx.delivery_address
+
+
+@patch("app.services.routing_guide_lookup_service.run_with_repos")
 def test_resolve_carrier_uses_row_carriers(mock_run: MagicMock) -> None:
     row = RoutingGuideRow(
         id="guide-1",
@@ -42,7 +83,7 @@ def test_resolve_carrier_uses_row_carriers(mock_run: MagicMock) -> None:
         zipcode="83402",
         metadata={},
         customer_aliases=[],
-        carriers={"a": {"Schneider": "lane@schneider.example"}},
+        carriers={"a": PlanCarrierSlot(name="Schneider", email="lane@schneider.example")},
     )
     mock_run.return_value = [row]
 

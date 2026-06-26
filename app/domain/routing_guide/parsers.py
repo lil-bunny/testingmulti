@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.routing_guide.types import PlanCarriers
+from pydantic import ValidationError
+
+from app.domain.routing_guide.types import PlanCarrierSlot, PlanCarriers
 
 
 def customer_aliases_from_value(value: Any) -> list[str]:
@@ -15,7 +17,7 @@ def customer_aliases_from_value(value: Any) -> list[str]:
 
 
 def normalize_plan_carriers(value: Any) -> PlanCarriers:
-    """Parse ``carriers`` JSON ``{slot: {name: email}, ...}`` for lookup and seed."""
+    """Parse ``carriers`` JSON ``{slot: {name, email}, ...}`` for lookup and seed."""
     if not isinstance(value, dict):
         return {}
     out: PlanCarriers = {}
@@ -23,12 +25,10 @@ def normalize_plan_carriers(value: Any) -> PlanCarriers:
         slot = str(slot_key or "").strip()
         if not slot or not isinstance(raw_slot, dict):
             continue
-        slot_map: dict[str, str] = {}
-        for name, email in raw_slot.items():
-            clean_name = str(name or "").strip()
-            clean_email = str(email or "").strip()
-            if clean_name and clean_email:
-                slot_map[clean_name] = clean_email
-        if slot_map:
-            out[slot] = slot_map
+        try:
+            parsed = PlanCarrierSlot.model_validate(raw_slot)
+        except ValidationError:
+            continue
+        if parsed.name and parsed.email:
+            out[slot] = parsed
     return out

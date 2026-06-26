@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.db import parse_json
 from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
 
@@ -303,6 +304,7 @@ class WorkflowLifecyclesRepository:
         )
 
     def _row_dict_from_select(self, row: Any) -> dict[str, Any]:
+        metadata = parse_json(row[6]) if len(row) > 6 else {}
         return {
             "id": row[0],
             "tenant_id": row[1],
@@ -310,7 +312,33 @@ class WorkflowLifecyclesRepository:
             "status": row[3],
             "sub_status": row[4],
             "tender_id": row[5] or "",
+            "metadata": metadata,
         }
+
+    def set_routing_guide_attempt(self, *, lifecycle_id: str, attempt: int) -> bool:
+        """Persist waterfall depth on ``workflow_lifecycles.metadata``."""
+        lid = str(lifecycle_id or "").strip()
+        try:
+            value = int(attempt)
+        except (TypeError, ValueError):
+            return False
+        if not lid or value < 1:
+            return False
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || jsonb_build_object(
+                        'routing_guide_attempt', to_jsonb(CAST(:attempt AS integer))
+                    ),
+                    updated_at = NOW()
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {"attempt": value, "lifecycle_id": lid},
+        )
+        return result.rowcount > 0
 
     def read_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
         """Return lifecycle row fields for a PK."""
@@ -318,7 +346,7 @@ class WorkflowLifecyclesRepository:
             text(
                 f"""
                 SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
-                       tender_id::text
+                       tender_id::text, metadata
                 FROM {self.TABLE_NAME}
                 {_WHERE_LIFECYCLE_ID}
                 """
@@ -341,7 +369,7 @@ class WorkflowLifecyclesRepository:
             text(
                 f"""
                 SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
-                       tender_id::text
+                       tender_id::text, metadata
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_WORKFLOW}
                   AND tender_id = CAST(:tender_id AS uuid)

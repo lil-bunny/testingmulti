@@ -143,40 +143,6 @@ class TendersRepository:
         )
         return result.rowcount > 0
 
-    def set_routing_guide_attempt(
-        self, *, tenant_id: str, tender_id: str, attempt: int
-    ) -> bool:
-        tid = self._clean(tenant_id)
-        tr = self._clean(tender_id)
-        try:
-            value = int(attempt)
-        except (TypeError, ValueError):
-            return False
-        if not tid or not tr or value < 1:
-            return False
-
-        result = self._session.execute(
-            text(
-                f"""
-                UPDATE {self.TABLE_NAME}
-                SET metadata = jsonb_set(
-                        COALESCE(metadata, '{{}}'::jsonb),
-                        '{{ftl,routing_guide,attempt}}',
-                        CAST(:attempt_json AS jsonb),
-                        true
-                    ),
-                    updated_at = NOW()
-                {_WHERE_TENANT_TENDER_PK}
-                """
-            ),
-            {
-                "attempt_json": jsonb_param(value),
-                "tender_id": tr,
-                "tenant_id": tid,
-            },
-        )
-        return result.rowcount > 0
-
     def insert_batch(self, rows: list[dict[str, Any]]) -> list[TenderInsertResult]:
         """Insert one tender row per input dict; duplicate order numbers are allowed (order rollover)."""
         if not rows:

@@ -6,8 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.domain.gelita.routing_guide_lifecycle import (
-    gelita_current_routing_guide_attempt,
+    routing_guide_attempt_from_metadata,
+    routing_guide_attempt_from_state,
     gelita_routing_guide_sub_status_for,
+    sync_routing_guide_attempt_to_state,
 )
 from app.domain.load_tendering_settings import routing_guide_max_attempts
 from app.models.status import StatusSubType
@@ -37,15 +39,15 @@ def _state(
     attempt: int | None = None,
     **data_extra,
 ):
-    tender: dict = {"load_type": load_type, "metadata": {}}
-    if attempt is not None:
-        tender["metadata"] = {"ftl": {"routing_guide": {"attempt": attempt}}}
     data = {
         "workflow_lifecycle_id": LIFECYCLE_UUID,
         "tender_id": TENDER_UUID,
         "tenant_settings": _tenant_settings(),
-        "tender": tender,
+        "tender": {"load_type": load_type},
     }
+    if attempt is not None:
+        data["routing_guide_attempt"] = attempt
+        data["workflow_lifecycle_metadata"] = {"routing_guide_attempt": attempt}
     data.update(data_extra)
     return SimpleNamespace(tenant_id=TENANT_UUID, execution_id=RUN_UUID, data=data)
 
@@ -65,15 +67,15 @@ def test_sub_status_mapper_tenant_and_carrier():
     )
 
 
-def test_current_routing_guide_attempt_defaults_to_one():
-    assert gelita_current_routing_guide_attempt({}) == 1
-    assert gelita_current_routing_guide_attempt({"metadata": {}}) == 1
-    assert (
-        gelita_current_routing_guide_attempt(
-            {"metadata": {"ftl": {"routing_guide": {"attempt": 2}}}}
-        )
-        == 2
-    )
+def test_routing_guide_attempt_from_metadata_defaults_to_one():
+    assert routing_guide_attempt_from_metadata({}) == 1
+    assert routing_guide_attempt_from_metadata(None) == 1
+    assert routing_guide_attempt_from_metadata({"routing_guide_attempt": 2}) == 2
+
+
+def test_routing_guide_attempt_from_state_prefers_top_level_key():
+    data = {"routing_guide_attempt": 3, "workflow_lifecycle_metadata": {"routing_guide_attempt": 1}}
+    assert routing_guide_attempt_from_state(data) == 3
 
 
 def test_routing_guide_max_attempts_reads_gelita_fixture():
@@ -142,12 +144,11 @@ def test_routing_guide_lifecycle_service_advance_increments(mock_run):
     new_attempt = service.advance(state, reason="carrier_rejected")
 
     assert new_attempt == 2
-    repos.tenders.set_routing_guide_attempt.assert_called_once_with(
-        tenant_id=TENANT_UUID,
-        tender_id=TENDER_UUID,
+    repos.workflow_lifecycles.set_routing_guide_attempt.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
         attempt=2,
     )
-    assert state.data["tender"]["metadata"]["ftl"]["routing_guide"]["attempt"] == 2
+    assert state.data["routing_guide_attempt"] == 2
 
 
 def test_carrier_note_first_and_subsequent_attempts():
@@ -177,18 +178,34 @@ def test_read_tender_row_stale_routing_guide_skip():
     tender_bundle = {
         "tender": {
             "delivery_date": "2026-06-25",
-            "metadata": {"ftl": {"routing_guide": {"attempt": 2}}},
+            "metadata": {"po_number": "347892"},
         },
         "products": [],
+    }
+    lifecycle_row = {
+        "status": "processing",
+        "metadata": {"routing_guide_attempt": 2},
     }
 
     with patch(
         "app.workflows.nodes.tenders.TenderService"
-    ) as mock_tender_service_cls:
+    ) as mock_tender_service_cls, patch(
+        "app.workflows.nodes.tenders.WorkflowLifecycleService"
+    ) as mock_lifecycle_service_cls:
         mock_tender_service = MagicMock()
         mock_tender_service.read_order.return_value = tender_bundle
         mock_tender_service_cls.return_value = mock_tender_service
 
+        mock_lifecycle_service = MagicMock()
+        mock_lifecycle_service.read_lifecycle_row_by_id.return_value = lifecycle_row
+        mock_lifecycle_service_cls.return_value = mock_lifecycle_service
+
         read_tender_row(state)
 
     assert state.data.get("stale_routing_guide_reminder") is True
+
+
+def test_sync_routing_guide_attempt_to_state():
+    data: dict = {}
+    sync_routing_guide_attempt_to_state(data, attempt=2)
+    assert data["routing_guide_attempt"] == 2

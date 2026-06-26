@@ -1,6 +1,6 @@
 from app.core.logger import get_logger
 from app.domain.ingest_source_fields import pack_code_for_product_gap
-from app.domain.gelita.routing_guide_lifecycle import gelita_current_routing_guide_attempt
+from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
 from app.domain.load_tendering_settings import (
     is_ftl_load_type,
     resolve_load_type,
@@ -205,7 +205,7 @@ def routing_guide_router(state):
     """Route reject/timeout to advance, exhausted, or LTL terminal."""
     if not is_ftl_load_type(resolve_load_type(state)):
         return "ltl_terminal"
-    attempt = gelita_current_routing_guide_attempt(get_tender(state.data))
+    attempt = routing_guide_attempt_from_state(state.data)
     if attempt < routing_guide_max_attempts(state):
         return "advance"
     return "exhausted"

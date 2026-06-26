@@ -281,7 +281,7 @@ WORKFLOW_CONFIGS = {
             ["send_tender_reminder", "update_reminder_status"],
             ["update_reminder_status", "end"],
             ["escalate_tender", "end"],
-            ["advance_carrier_routing_guide", "send_tender_email"],
+            ["advance_carrier_routing_guide", "calculate_tender_params"],
         ],
         "routers": {
             "route_event": {

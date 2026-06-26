@@ -12,6 +12,7 @@ from app.domain.routing_guide import (
     RoutingGuideRow,
     customer_aliases_from_value,
     normalize_plan_carriers,
+    plan_carriers_to_json,
 )
 
 
@@ -127,7 +128,7 @@ class RoutingGuideRepository:
                     "zipcode": zipcode,
                     "metadata": jsonb_param(metadata),
                     "customer_aliases": jsonb_param(aliases),
-                    "carriers": jsonb_param(carriers),
+                    "carriers": jsonb_param(plan_carriers_to_json(carriers)),
                 },
             )
             inserted += int(result.rowcount or 0)

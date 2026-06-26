@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from app.core.logger import get_logger
 from app.domain.gelita.routing_guide_lifecycle import (
-    gelita_current_routing_guide_attempt,
+    routing_guide_attempt_from_state,
     gelita_routing_guide_sub_status_for,
 )
 from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
-from app.domain.load_tendering_state import get_tender
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
@@ -38,7 +37,7 @@ def record_tender_sent_to_carrier(state):
 
     lifecycle_transition_service = LifecycleTransitionService()
     if is_ftl_load_type(resolve_load_type(state)):
-        attempt = gelita_current_routing_guide_attempt(get_tender(state.data))
+        attempt = routing_guide_attempt_from_state(state.data)
         to_sub = gelita_routing_guide_sub_status_for(attempt, "carrier")
     else:
         to_sub = StatusSubType.TENDER_SENT_TO_CARRIER
