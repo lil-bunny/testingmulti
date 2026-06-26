@@ -18,7 +18,8 @@ _SELECT_SHIPMENT_COLUMNS = """
     delivery_address,
     delivery_date,
     carrier_name,
-    customer_name
+    customer_name,
+    driver_details
 """
 
 
@@ -69,6 +70,16 @@ class ShipmentsRepository:
         else:
             delivery_date = None
 
+        driver_details_raw = row[7]
+        if isinstance(driver_details_raw, dict):
+            driver_details = driver_details_raw
+        elif driver_details_raw in (None, ""):
+            driver_details = None
+        else:
+            driver_details = parse_json(driver_details_raw)
+            if not driver_details:
+                driver_details = None
+
         return {
             "id": str(row[0]),
             "shipment_number": row[1] or "",
@@ -77,6 +88,7 @@ class ShipmentsRepository:
             "delivery_date": delivery_date,
             "carrier_name": row[5] or None,
             "customer_name": row[6] or None,
+            "driver_details": driver_details,
         }
 
     def upsert_by_tenant_and_shipment_number_tx(
@@ -239,4 +251,37 @@ class ShipmentsRepository:
         if result.rowcount != 1:
             raise RuntimeError(
                 f"shipments location update affected {result.rowcount} rows"
+            )
+
+    def merge_driver_details_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        driver_details: dict[str, Any],
+    ) -> None:
+        tid = self._clean(tenant_id)
+        row_id = self._clean(shipment_row_id)
+        if not tid or not row_id:
+            raise ValueError("tenant_id and shipment_row_id are required")
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET driver_details = CAST(:driver_details AS jsonb),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_row_id": row_id,
+                "driver_details": jsonb_param(driver_details),
+            },
+        )
+        if result.rowcount != 1:
+            raise RuntimeError(
+                f"shipments driver_details update affected {result.rowcount} rows"
             )

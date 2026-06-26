@@ -12,6 +12,7 @@ from app.tools.driver_details import (
     emails_match,
     has_partial_driver_fields,
     has_tms_searchable_fields,
+    merge_driver_details_fields,
     names_match,
     name_tokens_match,
     normalize_driver_details_decision,
@@ -168,3 +169,30 @@ def test_build_driver_details_result_accepts_full_driver() -> None:
     )
     assert result["decision"] == HAS_DETAILS
     assert result["driver"]["email"] == "jane@carrier.com"
+
+
+def test_merge_driver_details_fields_name_only() -> None:
+    assert merge_driver_details_fields(None, name="John") == {
+        "name": "John",
+        "phone": None,
+    }
+
+
+def test_merge_driver_details_fields_phone_only() -> None:
+    assert merge_driver_details_fields({"name": "John", "phone": None}, phone="555") == {
+        "name": "John",
+        "phone": "555",
+    }
+
+
+def test_merge_driver_details_fields_preserves_existing_when_incoming_empty() -> None:
+    existing = {"name": "John", "phone": "555-0100"}
+    assert merge_driver_details_fields(existing, name=None, phone=None) == existing
+
+
+def test_merge_driver_details_fields_overwrites_both() -> None:
+    assert merge_driver_details_fields(
+        {"name": "Old", "phone": "111"},
+        name="New",
+        phone="222",
+    ) == {"name": "New", "phone": "222"}
