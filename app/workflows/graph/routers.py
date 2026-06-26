@@ -156,15 +156,6 @@ def tender_status_router(state):
     event_type = state.data.get("event_type")
     if event_type in ("reminder_due", "escalation_due"):
         if is_past_delivery_cutoff(state.data):
-            tender = get_tender(state.data) or {}
-            logger.info(
-                "tender_status_router skipping past delivery cutoff "
-                "event_type=%s tender_id=%s delivery_date=%s lifecycle_id=%s",
-                event_type,
-                state.data.get("tender_id"),
-                tender.get("delivery_date"),
-                state.data.get("workflow_lifecycle_id"),
-            )
             return "completed"
         return event_type
     return "missing"

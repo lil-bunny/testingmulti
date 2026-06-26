@@ -21,6 +21,9 @@ def test_routing_guide_row_from_csv_row_us_zip_and_location() -> None:
     assert payload["city"] == "New Albany"
     assert payload["state"] == "OH"
     assert payload["zipcode"] == "43031"
+    assert payload["carriers"] == {
+        "a": {"name": "Fitzmark", "email": "fitz@example.com"},
+    }
 
 
 def test_routing_guide_row_from_csv_row_canadian_zip_preserves_space() -> None:

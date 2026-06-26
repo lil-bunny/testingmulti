@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import text
@@ -28,6 +29,19 @@ class RoutingGuideRepository:
             return None
         s = str(value).strip()
         return s if s else None
+
+    @staticmethod
+    def _parse_jsonb_value(raw: Any) -> Any:
+        if raw is None:
+            return None
+        if isinstance(raw, (dict, list)):
+            return raw
+        if isinstance(raw, str) and raw.strip():
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return None
+        return None
 
     def list_by_tenant_zipcode(
         self,
@@ -75,8 +89,10 @@ class RoutingGuideRepository:
                     city=str(row[3] or "").strip(),
                     state=str(row[4] or "").strip(),
                     metadata=metadata,
-                    customer_aliases=customer_aliases_from_value(parse_json(row[5])),
-                    carriers=normalize_plan_carriers(parse_json(row[6])),
+                    customer_aliases=customer_aliases_from_value(
+                        self._parse_jsonb_value(row[6])
+                    ),
+                    carriers=normalize_plan_carriers(self._parse_jsonb_value(row[7])),
                 )
             )
         return out
