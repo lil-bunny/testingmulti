@@ -2,6 +2,7 @@ import uuid
 import asyncio
 
 from app.domain.state import WorkflowState
+from app.domain.gelita.routing_guide_lifecycle import optional_routing_guide_attempt
 from app.services.communications.service import CommunicationsService
 from app.services.workflow_runs_service import WorkflowRunsService
 
@@ -49,17 +50,12 @@ class ExecutionService:
         if communication_id:
             comm_id = str(communication_id)
             if event_type == "carrier_email_received":
-                attempt_raw = payload.get("routing_guide_attempt")
-                routing_guide_attempt = None
-                if attempt_raw is not None:
-                    try:
-                        routing_guide_attempt = int(attempt_raw)
-                    except (TypeError, ValueError):
-                        routing_guide_attempt = None
                 self._communications.link_carrier_email_received_communication(
                     communication_id=comm_id,
                     workflow_run_id=execution_id,
-                    routing_guide_attempt=routing_guide_attempt,
+                    routing_guide_attempt=optional_routing_guide_attempt(
+                        payload.get("routing_guide_attempt")
+                    ),
                 )
             else:
                 self._communications.link_inbound_to_workflow_run(

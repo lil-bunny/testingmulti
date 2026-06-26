@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from app.domain.gelita.routing_guide_lifecycle import (
     mark_routing_guide_reminders_scheduled_for_attempt,
+    mark_stale_routing_guide_reminder_if_needed,
+    optional_routing_guide_attempt,
     routing_guide_attempt_from_metadata,
     routing_guide_attempt_from_state,
     routing_guide_attempt_is_stale,
@@ -258,6 +260,31 @@ def test_routing_guide_reminders_scheduled_for_attempt():
     meta = mark_routing_guide_reminders_scheduled_for_attempt(attempt=2)
     assert routing_guide_reminders_scheduled_for_attempt(meta, 2)
     assert not routing_guide_reminders_scheduled_for_attempt(meta, 1)
+
+
+def test_optional_routing_guide_attempt():
+    assert optional_routing_guide_attempt(None) is None
+    assert optional_routing_guide_attempt("bad") is None
+    assert optional_routing_guide_attempt(2) == 2
+
+
+def test_mark_stale_routing_guide_reminder_if_needed():
+    data: dict = {}
+    assert not mark_stale_routing_guide_reminder_if_needed(
+        data=data,
+        event_type="tender_created",
+        payload_attempt=1,
+        lifecycle_metadata={"routing_guide_attempt": 2},
+        is_ftl=True,
+    )
+    assert mark_stale_routing_guide_reminder_if_needed(
+        data=data,
+        event_type="reminder_due",
+        payload_attempt=1,
+        lifecycle_metadata={"routing_guide_attempt": 2},
+        is_ftl=True,
+    )
+    assert data["stale_routing_guide_reminder"] is True
 
 
 @patch("app.services.routing_guide_lifecycle_service.run_with_repos")

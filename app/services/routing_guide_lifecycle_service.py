@@ -146,7 +146,7 @@ class RoutingGuideLifecycleService:
         return True
 
     def mark_reminders_scheduled_for_attempt(self, state: Any, *, attempt: int) -> bool:
-        """Persist per-attempt reminder schedule idempotency on lifecycle metadata (C2)."""
+        """Persist per-attempt reminder schedule idempotency on lifecycle metadata."""
         scope = _workflow_scope(state)
         if scope is None:
             return False

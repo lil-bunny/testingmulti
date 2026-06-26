@@ -36,6 +36,37 @@ def _parse_attempt(raw: Any) -> int | None:
     return max(1, attempt) if attempt >= 1 else None
 
 
+def optional_routing_guide_attempt(raw: Any) -> int | None:
+    """Parse attempt from webhook or Celery payload; ``None`` when absent or invalid."""
+    if raw is None:
+        return None
+    return _parse_attempt(raw)
+
+
+def mark_stale_routing_guide_reminder_if_needed(
+    *,
+    data: dict[str, Any],
+    event_type: str,
+    payload_attempt: Any,
+    lifecycle_metadata: Any,
+    is_ftl: bool,
+) -> bool:
+    """
+    Set ``stale_routing_guide_reminder`` when an FTL reminder payload is behind live attempt.
+
+    Returns ``True`` when the flag was set (caller should stop graph work for this run).
+    """
+    if event_type not in ("reminder_due", "escalation_due"):
+        return False
+    if payload_attempt is None or not is_ftl:
+        return False
+    live_attempt = routing_guide_attempt_from_metadata(lifecycle_metadata)
+    if not routing_guide_attempt_is_stale(payload_attempt, live_attempt):
+        return False
+    data["stale_routing_guide_reminder"] = True
+    return True
+
+
 def routing_guide_attempt_from_metadata(metadata: Any) -> int:
     """Read waterfall depth from ``workflow_lifecycles.metadata``."""
     if not isinstance(metadata, dict):
@@ -71,11 +102,10 @@ def routing_guide_attempt_is_stale(
     payload_attempt: Any,
     live_attempt: Any,
 ) -> bool:
-    """True when scheduled payload attempt differs from live lifecycle attempt (C1/C3)."""
-    try:
-        payload = int(payload_attempt)
-        live = int(live_attempt)
-    except (TypeError, ValueError):
+    """True when a scheduled Celery payload attempt differs from the live lifecycle attempt."""
+    payload = _parse_attempt(payload_attempt)
+    live = _parse_attempt(live_attempt)
+    if payload is None or live is None:
         return False
     return payload != live
 
@@ -84,11 +114,10 @@ def routing_guide_thread_is_retired(
     thread_attempt: Any,
     live_attempt: Any,
 ) -> bool:
-    """True when inbound thread belongs to a prior routing-guide attempt (D1/E1)."""
-    try:
-        thread = int(thread_attempt)
-        live = int(live_attempt)
-    except (TypeError, ValueError):
+    """True when an inbound thread belongs to a prior routing-guide attempt."""
+    thread = _parse_attempt(thread_attempt)
+    live = _parse_attempt(live_attempt)
+    if thread is None or live is None:
         return False
     return thread < live
 
@@ -98,7 +127,7 @@ def routing_guide_same_attempt_thread_conflict(
     linked_thread: str | None,
     incoming_thread: str,
 ) -> bool:
-    """True when this attempt already has a different carrier thread (B1)."""
+    """True when this attempt already has a different carrier thread linked."""
     linked = str(linked_thread or "").strip()
     incoming = str(incoming_thread or "").strip()
     if not linked or not incoming:
@@ -110,7 +139,7 @@ def routing_guide_order_matches_lifecycle(
     resolved_tender_id: Any,
     lifecycle_tender_id: Any,
 ) -> bool:
-    """True when ingress tender matches lifecycle binding (A2.1 rollover guard)."""
+    """True when ingress tender id matches the lifecycle's bound tender (order rollover guard)."""
     return str(resolved_tender_id or "").strip() == str(lifecycle_tender_id or "").strip()
 
 
@@ -118,7 +147,7 @@ def routing_guide_reminders_scheduled_for_attempt(
     metadata: Any,
     attempt: int,
 ) -> bool:
-    """True when lifecycle metadata records reminders scheduled for this attempt (C2)."""
+    """True when lifecycle metadata records reminders already scheduled for this attempt."""
     if not isinstance(metadata, dict):
         return False
     try:
@@ -132,7 +161,7 @@ def mark_routing_guide_reminders_scheduled_for_attempt(
     *,
     attempt: int,
 ) -> dict[str, int]:
-    """Metadata patch to record per-attempt reminder schedule idempotency (C2)."""
+    """Metadata patch marking per-attempt reminder schedule idempotency; used by lifecycle service."""
     return {REMINDERS_SCHEDULED_FOR_ATTEMPT_KEY: max(1, int(attempt))}
 
 

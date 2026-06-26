@@ -15,6 +15,17 @@ _ROUTING_GUIDE_ATTEMPT_FILTER = (
 )
 
 
+def _routing_guide_attempt_bind(
+    routing_guide_attempt: int | None,
+) -> tuple[str, dict[str, int]]:
+    """SQL fragment and bind params for optional attempt-scoped comms queries."""
+    if routing_guide_attempt is None:
+        return "", {}
+    return _ROUTING_GUIDE_ATTEMPT_FILTER, {
+        "routing_guide_attempt": routing_guide_attempt,
+    }
+
+
 class CommunicationsRepository:
     TABLE_NAME = "communications"
 
@@ -273,16 +284,13 @@ class CommunicationsRepository:
         routing_guide_attempt: int | None = None,
     ) -> str | None:
         """``communications.thread_id`` from the latest linked run for ``anchor_event_type``."""
-        attempt_filter = (
-            _ROUTING_GUIDE_ATTEMPT_FILTER if routing_guide_attempt is not None else ""
-        )
+        attempt_filter, attempt_params = _routing_guide_attempt_bind(routing_guide_attempt)
         params: dict[str, Any] = {
             "tenant_id": tenant_id,
             "workflow_lifecycle_id": workflow_lifecycle_id,
             "anchor_event_type": anchor_event_type,
+            **attempt_params,
         }
-        if routing_guide_attempt is not None:
-            params["routing_guide_attempt"] = routing_guide_attempt
         thread_id = execute_scalar(
             self._session,
             f"""
@@ -405,17 +413,14 @@ class CommunicationsRepository:
         routing_guide_attempt: int | None = None,
     ) -> bool:
         """True when this thread already has a patched comm for the lifecycle (idempotency)."""
-        attempt_filter = (
-            _ROUTING_GUIDE_ATTEMPT_FILTER if routing_guide_attempt is not None else ""
-        )
+        attempt_filter, attempt_params = _routing_guide_attempt_bind(routing_guide_attempt)
         params: dict[str, Any] = {
             "tenant_id": tenant_id,
             "thread_id": thread_id,
             "workflow_lifecycle_id": workflow_lifecycle_id,
             "anchor_event_type": anchor_event_type,
+            **attempt_params,
         }
-        if routing_guide_attempt is not None:
-            params["routing_guide_attempt"] = routing_guide_attempt
         linked = execute_scalar(
             self._session,
             f"""
@@ -443,16 +448,13 @@ class CommunicationsRepository:
         routing_guide_attempt: int | None = None,
     ) -> str | None:
         """Thread id already linked to lifecycle via ``anchor_event_type`` run (conflict guard)."""
-        attempt_filter = (
-            _ROUTING_GUIDE_ATTEMPT_FILTER if routing_guide_attempt is not None else ""
-        )
+        attempt_filter, attempt_params = _routing_guide_attempt_bind(routing_guide_attempt)
         params: dict[str, Any] = {
             "tenant_id": tenant_id,
             "workflow_lifecycle_id": workflow_lifecycle_id,
             "anchor_event_type": anchor_event_type,
+            **attempt_params,
         }
-        if routing_guide_attempt is not None:
-            params["routing_guide_attempt"] = routing_guide_attempt
         thread_id = execute_scalar(
             self._session,
             f"""

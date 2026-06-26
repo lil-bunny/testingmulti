@@ -4,8 +4,8 @@ from app.core.logger import get_logger
 from app.domain.error_catalog import BusinessError, SystemError
 from app.domain.ingest_source_fields import pack_code_for_product_gap
 from app.domain.gelita.routing_guide_lifecycle import (
+    mark_stale_routing_guide_reminder_if_needed,
     routing_guide_attempt_from_metadata,
-    routing_guide_attempt_is_stale,
     routing_guide_has_attempt,
     sync_routing_guide_attempt_to_state,
 )
@@ -83,27 +83,23 @@ def read_tender_row(state):
                         attempt=routing_guide_attempt_from_metadata(lifecycle_meta),
                     )
 
-    if event_type in ("reminder_due", "escalation_due"):
-        payload_attempt = scheduled_routing_guide_attempt
-        if (
-            payload_attempt is not None
-            and lifecycle is not None
-            and is_ftl_load_type(resolve_load_type(state))
-        ):
-            live_attempt = routing_guide_attempt_from_metadata(
-                lifecycle.get("metadata")
-            )
-            if routing_guide_attempt_is_stale(payload_attempt, live_attempt):
-                logger.info(
-                    "read_tender_row skipping stale routing-guide reminder "
-                    "event_type=%s payload_attempt=%s live_attempt=%s tender_id=%s",
-                    event_type,
-                    payload_attempt,
-                    live_attempt,
-                    tender_id,
-                )
-                state.data["stale_routing_guide_reminder"] = True
-                return state
+    load_type = resolve_load_type(state)
+    if mark_stale_routing_guide_reminder_if_needed(
+        data=state.data,
+        event_type=event_type,
+        payload_attempt=scheduled_routing_guide_attempt,
+        lifecycle_metadata=(lifecycle or {}).get("metadata"),
+        is_ftl=is_ftl_load_type(load_type),
+    ):
+        logger.info(
+            "read_tender_row skipping stale routing-guide reminder "
+            "event_type=%s payload_attempt=%s live_attempt=%s tender_id=%s",
+            event_type,
+            scheduled_routing_guide_attempt,
+            routing_guide_attempt_from_metadata((lifecycle or {}).get("metadata")),
+            tender_id,
+        )
+        return state
 
     if is_tender_created:
         domestic_cfg = gelita_domestic_delivery_settings(state)

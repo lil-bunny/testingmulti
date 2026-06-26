@@ -14,6 +14,7 @@ from app.tools.email import reply_to_thread
 from app.tools.load_tendering_lifecycle_guards import (
     delayed_workflow_step_skip_reason,
     skip_sub_statuses_from_state,
+    stale_ftl_routing_guide_reminder,
 )
 
 logger = get_logger(__name__)
@@ -47,9 +48,10 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    if state.data.get("stale_routing_guide_reminder") and is_ftl_load_type(
-        resolve_load_type(state)
-    ):
+    load_type = resolve_load_type(state)
+    is_ftl = is_ftl_load_type(load_type)
+
+    if stale_ftl_routing_guide_reminder(state):
         logger.info(
             "send_tender_reminder skipping stale routing-guide reminder lifecycle_id=%s",
             workflow_lifecycle_id_str,
@@ -58,11 +60,7 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    attempt = (
-        routing_guide_attempt_from_state(state.data)
-        if is_ftl_load_type(resolve_load_type(state))
-        else None
-    )
+    attempt = routing_guide_attempt_from_state(state.data) if is_ftl else None
     communications_service = CommunicationsService()
     lifecycle_email_thread_id = communications_service.resolve_thread_for_lifecycle(
         tenant_id=state.tenant_id or "",
@@ -80,7 +78,6 @@ def send_tender_reminder(state):
         state.data["tender_reminder_sent"] = False
         return state
 
-    load_type = resolve_load_type(state)
     cfg = action_settings(state, "send_tender_reminder", load_type=load_type)
     sender_account_id = str(cfg.get("ana_at_gelita_account_id") or "").strip()
     if not sender_account_id:

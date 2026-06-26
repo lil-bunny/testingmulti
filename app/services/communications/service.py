@@ -178,12 +178,7 @@ class CommunicationsService:
         workflow_run_id: str,
         routing_guide_attempt: int | None = None,
     ) -> bool:
-        """
-        Link inbound carrier forward to a workflow run and stamp attempt metadata.
-
-        Always patches ``routing_guide_attempt`` when provided, even when the run
-        link is already idempotent — reminders resolve threads via that metadata key.
-        """
+        """Link carrier ingress to a run; always stamp ``routing_guide_attempt`` when given (even if link is idempotent)."""
         linked = self.link_inbound_to_workflow_run(
             communication_id=communication_id,
             workflow_run_id=workflow_run_id,
@@ -498,6 +493,7 @@ class CommunicationsService:
         communication_id: str,
         metadata_patch: dict[str, Any],
     ) -> bool:
+        """Merge keys into ``communications.metadata``; used by carrier ingress link paths."""
         comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
         if not comm_id or not metadata_patch:
             return False
@@ -528,6 +524,7 @@ class CommunicationsService:
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
     ) -> int | None:
+        """Resolve routing-guide attempt for a carrier thread; used by retired-thread guards."""
         tid = self._tenant_uuid_or_none(tenant_id)
         th = self._clean(thread_id)
         lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")

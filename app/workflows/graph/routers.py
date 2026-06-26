@@ -173,9 +173,9 @@ def manual_tms_upload_router(state):
 
 def automatic_reply_ack_router(state):
     """Route ack_received past automatic-reply guard before carrier ack LLM."""
-    if state.data.get("retired_carrier_thread_ack"):
-        return "skipped"
-    if state.data.get("automatic_reply_skipped"):
+    if state.data.get("retired_carrier_thread_ack") or state.data.get(
+        "automatic_reply_skipped"
+    ):
         return "skipped"
     return "continue"
 
@@ -209,6 +209,7 @@ def domestic_delivery_router(state):
 
 
 def post_read_tender_router(state):
+    """Route after ``read_tender_row`` by event type, failover, or tender status."""
     if state.data.get("routing_guide_failover"):
         return "routing_guide_failover"
     event_type = str(state.data.get("event_type") or "").strip()

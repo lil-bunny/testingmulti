@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from app.core.logger import get_logger
 from app.domain.gelita.routing_guide_lifecycle import (
-    mark_routing_guide_reminders_scheduled_for_attempt,
     routing_guide_attempt_from_state,
     routing_guide_reminders_scheduled_for_attempt,
 )

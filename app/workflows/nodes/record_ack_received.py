@@ -36,7 +36,7 @@ logger = get_logger(__name__)
 
 
 def _guard_retired_carrier_thread_ack(state) -> bool:
-    """Defense in depth: skip ack LLM when reply is on a prior carrier thread (FTL)."""
+    """Skip ack LLM when FTL reply is on a prior carrier thread; used by ``guard_automatic_reply_ack``."""
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     thread_id = str(state.data.get("thread_id") or "").strip()
     tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
