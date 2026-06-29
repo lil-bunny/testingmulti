@@ -292,18 +292,6 @@ def test_record_reminder_sent_partial_follow_up_at_cap_action_only():
     assert sequence.steps[0].metadata.get("ladder_at_cap") is True
 
 
-def test_record_reminders_scheduled_metadata():
-    activity = MagicMock()
-    svc = DriverAssignmentActivityService(activity_log_service=activity)
-
-    svc.record_reminders_scheduled(_state())
-
-    sequence = activity.record_sequence.call_args.args[0]
-    meta = sequence.steps[0].metadata
-    assert meta["reminder_steps"][0]["fire_at"] == "2026-03-28T15:30:00+00:00"
-    assert meta["pickup_appointment_at"] == "2026-03-30T15:30:00+00:00"
-
-
 def test_record_not_started_on_ratecon_action_only():
     activity = MagicMock()
     svc = DriverAssignmentActivityService(activity_log_service=activity)

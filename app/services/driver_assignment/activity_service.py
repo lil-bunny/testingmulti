@@ -21,7 +21,6 @@ from app.domain.activity_log_descriptions import (
     format_driver_found_in_tms_action,
     format_driver_not_found_in_tms_action,
     format_driver_reminder_sent_action,
-    format_driver_reminders_scheduled_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
@@ -179,49 +178,6 @@ class DriverAssignmentActivityService:
                         description=format_driver_assignment_not_started_action(
                             reason=skip_reason
                         ),
-                        metadata=meta,
-                    ),
-                ),
-            )
-        )
-
-    def record_reminders_scheduled(self, state) -> None:
-        if not state.data.get("reminders_scheduled"):
-            return
-
-        scope = self._scope_ids(state)
-        if scope is None:
-            logger.warning(
-                "record_reminders_scheduled skipped missing ids "
-                "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
-                bool(state.data.get("workflow_lifecycle_id")),
-                bool(state.tenant_id or state.data.get("tenant_id")),
-                bool(state.execution_id),
-            )
-            return
-
-        wl_id, tenant_id, run_id = scope
-        meta = self._base_metadata(state)
-        schedule = state.data.get("driver_reminder_schedule")
-        if isinstance(schedule, dict):
-            for key in (
-                "pickup_appointment_at",
-                "pickup_appointment_timezone",
-                "reminder_steps",
-                "skipped_steps",
-            ):
-                if key in schedule:
-                    meta[key] = schedule[key]
-
-        self._activity.record_sequence(
-            ActivityLogSequence(
-                tenant_id=tenant_id,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
-                steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_reminders_scheduled_action(),
                         metadata=meta,
                     ),
                 ),
