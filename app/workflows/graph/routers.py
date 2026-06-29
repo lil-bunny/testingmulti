@@ -1,5 +1,6 @@
 from app.core.logger import get_logger
-from app.domain.load_tendering_state import get_tender
+from app.domain.ingest_source_fields import pack_code_for_product_gap
+from app.domain.load_tendering_state import get_tender, get_tender_products
 from app.models.status import StatusSubType, StatusType
 from app.tools.driver_details import (
     DO_NOTHING,
@@ -207,5 +208,13 @@ def domestic_delivery_router(state):
 def post_read_tender_router(state):
     event_type = str(state.data.get("event_type") or "").strip()
     if event_type == "tender_created":
-        return domestic_delivery_router(state)
+        if not state.data.get("is_domestic_delivery"):
+            return "international"
+        skipped = frozenset(state.data.get("skipped_pack_codes") or ())
+        if skipped:
+            tender = get_tender(state.data) or {}
+            for product in get_tender_products(tender):
+                if pack_code_for_product_gap(product) in skipped:
+                    return "pack_code_skipped"
+        return "domestic"
     return tender_status_router(state)

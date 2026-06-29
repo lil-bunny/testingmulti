@@ -10,6 +10,7 @@ from app.domain.tenant_settings.gelita import (
     GelitaDomesticDeliverySettings,
     GelitaEscalateTenderSettings,
     GelitaSendTenderEmailSettings,
+    GelitaSkippedPackCodesSettings,
     GelitaTenderCalculateSettings,
     GelitaTenantSettings,
 )
@@ -237,3 +238,16 @@ def gelita_domestic_delivery_settings(
         return GelitaDomesticDeliverySettings.model_validate(block)
     except ValidationError:
         return None
+
+
+def gelita_skipped_pack_codes_settings(
+    state_or_data: Any,
+) -> GelitaSkippedPackCodesSettings:
+    """Parse ``skipped_pack_codes`` for Gelita; empty when missing or invalid."""
+    block = load_tendering_settings_root(state_or_data).get("skipped_pack_codes")
+    if not isinstance(block, dict):
+        return GelitaSkippedPackCodesSettings()
+    try:
+        return GelitaSkippedPackCodesSettings.model_validate(block)
+    except ValidationError:
+        return GelitaSkippedPackCodesSettings()

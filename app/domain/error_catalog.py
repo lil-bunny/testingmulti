@@ -100,6 +100,10 @@ class BusinessError(_CatalogError):
         "international_delivery_skipped",
         "International (overseas) shipments are skipped",
     )
+    PACK_CODE_SKIPPED = (
+        "pack_code_skipped",
+        "Pack code {pack_code} is skipped",
+    )
 
 
 class IntegrationError(_CatalogError):

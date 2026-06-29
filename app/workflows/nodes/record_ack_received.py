@@ -65,11 +65,6 @@ def guard_automatic_reply_ack(state):
     metadata: dict[str, object] = {
         "source": "guard_automatic_reply_ack",
         "reason": "automatic_reply",
-        "email_id": state.data.get("email_id"),
-        "thread_id": thread_id or None,
-        "subject": state.data.get("subject"),
-        "from": from_email,
-        "provider": state.data.get("type"),
     }
     if tender_id:
         metadata["tender_id"] = tender_id
