@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import copy
 from types import SimpleNamespace
 
 import pytest
 
+from app.domain.error_catalog import SystemError
 from app.domain.load_tendering_settings import (
     action_settings,
     gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
     load_tendering_settings_root,
+    require_gelita_tender_calculate_settings,
 )
 from app.domain.tenant_settings.gelita import normalize_pallet_type_label
+from app.exceptions import WorkflowException
 from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 
@@ -125,6 +129,41 @@ def test_gelita_tender_calculate_defaults_unknown_pallet_type_to_wood_4way() -> 
     key, profile = calc.resolve_pallet_type("unknown pallet type")
     assert key == "wood_4way"
     assert profile.weight_lbs == 50.0
+
+
+def test_require_gelita_tender_calculate_raises_pickup_address_error() -> None:
+    settings = copy.deepcopy(_gelita_tenant_settings())
+    del settings["load_tendering"]["tender_calculate"]["gelita_pickup_address"]
+    state = SimpleNamespace(data={"tenant_settings": settings})
+    with pytest.raises(WorkflowException) as exc_info:
+        require_gelita_tender_calculate_settings(state)
+    assert (
+        exc_info.value.error_code
+        == SystemError.MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS.value
+    )
+
+
+def test_require_gelita_tender_calculate_raises_pallet_profiles_error() -> None:
+    settings = copy.deepcopy(_gelita_tenant_settings())
+    del settings["load_tendering"]["tender_calculate"]["pallet_profiles"]
+    state = SimpleNamespace(data={"tenant_settings": settings})
+    with pytest.raises(WorkflowException) as exc_info:
+        require_gelita_tender_calculate_settings(state)
+    assert exc_info.value.error_code == SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES.value
+
+
+def test_require_gelita_tender_calculate_invalid_pickup_maps_to_pickup_error() -> None:
+    settings = copy.deepcopy(_gelita_tenant_settings())
+    settings["load_tendering"]["tender_calculate"]["gelita_pickup_address"][
+        "postal_code"
+    ] = "not-an-int"
+    state = SimpleNamespace(data={"tenant_settings": settings})
+    with pytest.raises(WorkflowException) as exc_info:
+        require_gelita_tender_calculate_settings(state)
+    assert (
+        exc_info.value.error_code
+        == SystemError.MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS.value
+    )
 
 
 def test_load_type_from_pallet_totals_buckets_by_profile_threshold() -> None:

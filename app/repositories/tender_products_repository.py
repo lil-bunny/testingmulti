@@ -63,7 +63,9 @@ class TenderProductsRepository:
                     pc.pallet_dims,
                     pc.pallet_type,
                     pc.is_active,
-                    tp.weight_unit::text
+                    tp.weight_unit::text,
+                    pc.pack_type::text,
+                    pc.pack_type_weight
                 FROM {self.TABLE_NAME} tp
                 LEFT JOIN pack_codes pc ON pc.id = tp.pack_code_id
                 WHERE tp.tenant_id = CAST(:tenant_id AS uuid) AND tp.tender_id = CAST(:tender_id AS uuid)
@@ -111,6 +113,8 @@ class TenderProductsRepository:
                     "pallet_type": row[14] or "",
                     "pack_is_active": row[15],
                     "weight_unit": row[16] or "",
+                    "pack_type": row[17] or "",
+                    "pack_type_weight": self._to_decimal(row[18]),
                 }
             )
         return products
