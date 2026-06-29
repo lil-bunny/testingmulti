@@ -123,6 +123,11 @@
                 "MX"
             ]
         },
+        "skipped_pack_codes": {
+            "pack_codes": [
+                "3002"
+            ]
+        },
         "tender_calculate": {
             "pallet_profiles": {
                 "wood_4way": {

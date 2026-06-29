@@ -27,8 +27,11 @@ from app.workflows.nodes.turvo import (
     upload_to_turvo,
 )
 from app.workflows.nodes.gelita.calculate_tender_params import calculate_tender_params
-from app.workflows.nodes.gelita.complete_international_tender import (
-    complete_international_tender,
+from app.workflows.nodes.gelita.resolve_international_delivery_skip import (
+    resolve_international_delivery_skip,
+)
+from app.workflows.nodes.gelita.resolve_pack_code_skip import (
+    resolve_pack_code_skip,
 )
 from app.workflows.nodes.gelita.record_tender_business_warnings import (
     record_tender_business_warnings,
@@ -113,7 +116,8 @@ NODE_REGISTRY = {
     "resolve_workflow_lifecycle": resolve_workflow_lifecycle,
     "route_event": route_event,
     "calculate_tender_params": calculate_tender_params,
-    "complete_international_tender": complete_international_tender,
+    "resolve_international_delivery_skip": resolve_international_delivery_skip,
+    "resolve_pack_code_skip": resolve_pack_code_skip,
     "record_tender_business_warnings": record_tender_business_warnings,
     "send_tender_email": send_tender_email,
     "log_tender_activity": log_tender_activity,

@@ -2,8 +2,9 @@
 
 from app.core.logger import get_logger
 from app.domain.error_catalog import BusinessError, SystemError
-from app.domain.load_tendering_settings import gelita_domestic_delivery_settings
-from app.domain.load_tendering_state import get_tender, set_tender, tender_from_read_order
+from app.domain.ingest_source_fields import pack_code_for_product_gap
+from app.domain.load_tendering_settings import (gelita_domestic_delivery_settings, gelita_skipped_pack_codes_settings)
+from app.domain.load_tendering_state import (get_tender, get_tender_products, set_tender, tender_from_read_order)
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -62,6 +63,17 @@ def read_tender_row(state):
         state.data["is_domestic_delivery"] = domestic_cfg.is_domestic_delivery_country(
             _delivery_country_from_order(order)
         )
+        skip_cfg = gelita_skipped_pack_codes_settings(state)
+        skipped = frozenset(skip_cfg.pack_codes)
+        state.data["skipped_pack_codes"] = list(skipped)
+        state.data.pop("matched_skipped_pack_code", None)
+        if skipped:
+            tender = get_tender(state.data) or {}
+            for product in get_tender_products(tender):
+                pack_code = pack_code_for_product_gap(product)
+                if pack_code in skipped:
+                    state.data["matched_skipped_pack_code"] = pack_code
+                    break
 
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     if wl_id:
