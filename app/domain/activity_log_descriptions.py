@@ -239,9 +239,8 @@ def format_details_received_from_email_action(
     )
 
 
-def format_driver_details_partial_follow_up_action(*, step: int | None = None) -> str:
-    label = str(step) if step is not None else "?"
-    return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE.format(step=label)
+def format_driver_details_partial_follow_up_action() -> str:
+    return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE
 
 
 def format_driver_found_in_tms_action(
@@ -257,11 +256,8 @@ def format_driver_found_in_tms_action(
     )
 
 
-def format_driver_not_found_in_tms_action(*, match_by: str, match_value: str) -> str:
-    return DRIVER_NOT_FOUND_IN_TMS_TEMPLATE.format(
-        match_by=match_by,
-        match_value=match_value,
-    )
+def format_driver_not_found_in_tms_action() -> str:
+    return DRIVER_NOT_FOUND_IN_TMS_TEMPLATE
 
 
 def format_driver_ambiguous_in_tms_action(

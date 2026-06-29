@@ -129,7 +129,7 @@ def test_record_reminder_sent_step1_status_change_to_pending_review():
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
 
 
-def test_record_reminder_sent_step2_sub_status_change_only():
+def test_record_reminder_sent_step2_stays_pending_review():
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -145,8 +145,8 @@ def test_record_reminder_sent_step2_sub_status_change_only():
 
     sequence = activity.record_sequence.call_args.args[0]
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
-    assert sequence.steps[1].to_status is None
 
 
 def test_record_reminder_sent_step4_sub_status():
@@ -164,6 +164,7 @@ def test_record_reminder_sent_step4_sub_status():
     svc.record_reminder_sent(_reminder_state(reminder_step=4))
 
     sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_4_SENT
 
 
@@ -262,7 +263,53 @@ def test_record_tms_driver_success_found_marks_details_received():
     assert any("details received" in d for d in descriptions)
     assert StatusSubType.DETAILS_RECEIVED in sub_statuses
     assert StatusSubType.UPLOADED_TO_TMS in sub_statuses
+    transition_steps = [
+        step
+        for step in sequence.steps
+        if step.activity_type == ActivityType.SUB_STATUS_CHANGE
+    ]
+    assert all(step.to_status == StatusType.PENDING_REVIEW for step in transition_steps)
     assert state.data["driver_details_recorded"] is True
+
+
+def test_record_tms_driver_success_from_processing_no_pending_review():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        tms_resolution="found",
+        tms_contact_id=123,
+        tms_search_match_by="phone",
+        tms_driver_outcome="assigned",
+        driver_details_extraction={
+            "driver": {"name": "John Doe", "phone": "555-0100", "email": None},
+        },
+    )
+
+    svc.record_tms_driver_success(state)
+
+    sequence = activity.record_sequence.call_args.args[0]
+    transition_steps = [
+        step
+        for step in sequence.steps
+        if step.activity_type == ActivityType.SUB_STATUS_CHANGE
+    ]
+    assert transition_steps
+    assert all(
+        step.to_status != StatusType.PENDING_REVIEW for step in transition_steps
+    )
+    assert all(step.to_status == StatusType.PROCESSING for step in transition_steps)
+    assert [step.to_sub_status for step in transition_steps] == [
+        StatusSubType.DETAILS_RECEIVED,
+        StatusSubType.UPLOADED_TO_TMS,
+    ]
 
 
 def test_record_reminder_sent_partial_follow_up_at_cap_action_only():
@@ -320,6 +367,7 @@ def test_record_tms_driver_not_resolved_uses_tms_metadata_keys():
         tms_search_match_by="phone",
         tms_match_count=0,
         tms_carrier_id=848297,
+        communication_id="inbound-comm-1",
         driver_details_extraction={"driver": {"name": None, "phone": "+1454235353"}},
     )
     svc.record_tms_driver_not_resolved(state)
@@ -329,6 +377,46 @@ def test_record_tms_driver_not_resolved_uses_tms_metadata_keys():
     assert meta["tms_search_match_by"] == "phone"
     assert "turvo_" not in "".join(meta.keys())
     assert "not found in TMS" in sequence.steps[0].description
+    assert sequence.steps[0].communication_id is None
+
+
+def test_record_tms_driver_success_tms_actions_omit_inbound_communication_id():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_2_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        communication_id="inbound-comm-1",
+        tms_resolution="found",
+        tms_contact_id=123,
+        tms_search_match_by="phone",
+        tms_driver_outcome="assigned",
+        driver_details_extraction={
+            "driver": {"name": "John Doe", "phone": "555-0100", "email": None},
+        },
+    )
+
+    svc.record_tms_driver_success(state)
+
+    sequence = activity.record_sequence.call_args.args[0]
+    comm_by_kind: dict[str, str | None] = {}
+    for step in sequence.steps:
+        desc = (step.description or "").lower()
+        if "found in tms" in desc:
+            comm_by_kind["found"] = step.communication_id
+        elif "details received" in desc:
+            comm_by_kind["details_received"] = step.communication_id
+        elif "assigned to shipment in tms" in desc:
+            comm_by_kind["assigned"] = step.communication_id
+    assert comm_by_kind["found"] is None
+    assert comm_by_kind["assigned"] is None
+    assert comm_by_kind["details_received"] == "inbound-comm-1"
 
 
 def test_record_tms_driver_success_skipped_already_assigned_completes():
@@ -349,6 +437,13 @@ def test_record_tms_driver_success_skipped_already_assigned_completes():
         )
     )
     sequence = activity.record_sequence.call_args.args[0]
+    uploaded_step = next(
+        step
+        for step in sequence.steps
+        if step.to_sub_status == StatusSubType.UPLOADED_TO_TMS
+        and step.activity_type == ActivityType.SUB_STATUS_CHANGE
+    )
+    assert uploaded_step.to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[-1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[-1].to_status == StatusType.COMPLETED
     assert sequence.steps[-1].to_sub_status == StatusSubType.UPLOADED_TO_TMS

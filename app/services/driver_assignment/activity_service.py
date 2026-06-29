@@ -88,6 +88,7 @@ class DriverAssignmentActivityService:
 
     @staticmethod
     def _communication_id(state) -> str | None:
+        """Email comm id from graph state (inbound reply or outbound send), not TMS lookups."""
         raw = state.data.get("communication_id")
         if raw is None:
             return None
@@ -132,12 +133,28 @@ class DriverAssignmentActivityService:
         if current_status == to_status:
             return ActivityLogStep(
                 activity_type=ActivityType.SUB_STATUS_CHANGE,
+                to_status=to_status,
                 to_sub_status=new_sub,
                 metadata=dict(metadata),
             )
         return ActivityLogStep(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=to_status,
+            to_sub_status=new_sub,
+            metadata=dict(metadata),
+        )
+
+    @staticmethod
+    def _build_success_sub_status_step(
+        *,
+        current_status: StatusType | None,
+        new_sub: StatusSubType,
+        metadata: dict[str, Any],
+    ) -> ActivityLogStep:
+        preserve_status = current_status if current_status is not None else StatusType.PROCESSING
+        return ActivityLogStep(
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_status=preserve_status,
             to_sub_status=new_sub,
             metadata=dict(metadata),
         )
@@ -239,7 +256,7 @@ class DriverAssignmentActivityService:
             meta["partial_follow_up"] = True
 
         action_description = (
-            format_driver_details_partial_follow_up_action(step=step)
+            format_driver_details_partial_follow_up_action()
             if state.data.get("driver_reminder_is_partial_follow_up")
             else format_driver_reminder_sent_action(step=step)
         )
@@ -411,12 +428,8 @@ class DriverAssignmentActivityService:
             steps.append(
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
-                    description=format_driver_not_found_in_tms_action(
-                        match_by=match_by,
-                        match_value=match_value,
-                    ),
+                    description=format_driver_not_found_in_tms_action(),
                     metadata=dict(meta),
-                    communication_id=self._communication_id(state),
                 )
             )
         elif resolution == "ambiguous":
@@ -430,7 +443,6 @@ class DriverAssignmentActivityService:
                         count=count,
                     ),
                     metadata=dict(meta),
-                    communication_id=self._communication_id(state),
                 )
             )
         if not steps:
@@ -462,7 +474,6 @@ class DriverAssignmentActivityService:
                         activity_type=ActivityType.ACTION,
                         description=format_driver_assign_to_tms_failed_action(reason=reason),
                         metadata=meta,
-                        communication_id=self._communication_id(state),
                     ),
                 ),
             )
@@ -531,15 +542,14 @@ class DriverAssignmentActivityService:
                     activity_type=ActivityType.ACTION,
                     description=format_driver_already_assigned_in_tms_action(),
                     metadata=dict(meta),
-                    communication_id=self._communication_id(state),
                 )
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
                 steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.SUB_STATUS_CHANGE,
-                        to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                        metadata=dict(meta),
+                    self._build_success_sub_status_step(
+                        current_status=current_status,
+                        new_sub=StatusSubType.UPLOADED_TO_TMS,
+                        metadata=meta,
                     )
                 )
             completed = self._driver_assignment_completed_step(
@@ -554,12 +564,8 @@ class DriverAssignmentActivityService:
                 steps.append(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_driver_not_found_in_tms_action(
-                            match_by=match_by,
-                            match_value=match_value,
-                        ),
+                        description=format_driver_not_found_in_tms_action(),
                         metadata=dict(meta),
-                        communication_id=self._communication_id(state),
                     )
                 )
                 steps.append(
@@ -582,7 +588,6 @@ class DriverAssignmentActivityService:
                             contact_id=contact_id,
                         ),
                         metadata=dict(meta),
-                        communication_id=self._communication_id(state),
                     )
                 )
 
@@ -600,7 +605,7 @@ class DriverAssignmentActivityService:
                     )
                 )
                 steps.append(
-                    self._build_reminder_transition_step(
+                    self._build_success_sub_status_step(
                         current_status=current_status,
                         new_sub=StatusSubType.DETAILS_RECEIVED,
                         metadata=meta,
@@ -616,10 +621,10 @@ class DriverAssignmentActivityService:
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
                 steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.SUB_STATUS_CHANGE,
-                        to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                        metadata=dict(meta),
+                    self._build_success_sub_status_step(
+                        current_status=current_status,
+                        new_sub=StatusSubType.UPLOADED_TO_TMS,
+                        metadata=meta,
                     )
                 )
 
