@@ -241,7 +241,7 @@ async def test_ui_request_uses_contacts_tab_on_carrier_account() -> None:
     oauth._load_tms.return_value = type(
         "Tms",
         (),
-        {"public_api_url": "https://my-sandbox-publicapi.turvo.com"},
+        {"public_api_url": "https://my-sandbox-publicapi.turvo.com", "ui_base_url": None},
     )()
     oauth.get_tenant_tokens = AsyncMock(return_value={"access_token": "tok"})
 
@@ -272,6 +272,49 @@ async def test_ui_request_uses_contacts_tab_on_carrier_account() -> None:
         )
 
     called_url = mock_client.get.await_args.args[0]
-    assert "/api/accounts/848297" in called_url
+    assert called_url.startswith("https://my-sandbox.turvo.com/api/accounts/848297")
     assert "contacts" in called_url
     assert "pageSize" in called_url
+
+
+@pytest.mark.asyncio
+async def test_ui_request_uses_explicit_ui_base_url_from_tenant_settings() -> None:
+    oauth = MagicMock()
+    oauth._load_tms.return_value = type(
+        "Tms",
+        (),
+        {
+            "public_api_url": "https://my-sandbox-publicapi.turvo.com",
+            "ui_base_url": "https://app.turvo.com",
+        },
+    )()
+    oauth.get_tenant_tokens = AsyncMock(return_value={"access_token": "tok"})
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = _contacts_tab_payload(
+        _driver_basic(contact_id=640635, full_name="Virat", phone="9989239823"),
+    )
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("app.integrations.turvo.ui_accounts.httpx.AsyncClient", return_value=mock_client),
+        patch(
+            "app.integrations.turvo.ui_accounts.get_driver_contact",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        await search_carrier_driver_contacts_by_phone(
+            "t3ra",
+            carrier_id=848297,
+            carrier_name="Turvo Test Carrier",
+            phone="9989239823",
+            oauth=oauth,
+        )
+
+    called_url = mock_client.get.await_args.args[0]
+    assert called_url.startswith("https://app.turvo.com/api/accounts/848297")

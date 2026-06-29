@@ -52,6 +52,16 @@ def _db_available() -> bool:
                       AND column_name = 'delivery_date'
                     """
                 )
+                if cur.fetchone() is None:
+                    return False
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'shipments'
+                      AND column_name = 'driver_details'
+                    """
+                )
                 return cur.fetchone() is not None
     except Exception:
         return False
@@ -164,6 +174,64 @@ def test_upsert_display_fields_coalesce_on_conflict(repo: ShipmentsRepository) -
     assert row["carrier_name"] == "Carrier A"
     assert row["customer_name"] == "Customer B"
     assert row["delivery_date"] == date(2026, 4, 1)
+
+
+@pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or shipments migration missing")
+def test_merge_driver_details_tx_persists_jsonb(repo: ShipmentsRepository) -> None:
+    number = f"test-{uuid.uuid4().hex[:12]}"
+    upsert = repo.upsert_by_tenant_and_shipment_number_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_number=number,
+        metadata={"load_id": "LOAD-D"},
+    )
+    repo.merge_driver_details_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=upsert.shipment_id,
+        driver_details={"name": "John", "phone": None},
+    )
+    row = repo.get_by_tenant_and_id_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_id=upsert.shipment_id,
+    )
+    assert row is not None
+    assert row["driver_details"] == {"name": "John", "phone": None}
+
+    repo.merge_driver_details_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=upsert.shipment_id,
+        driver_details={"name": "John", "phone": "555-0100"},
+    )
+    row = repo.get_by_tenant_and_id_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_id=upsert.shipment_id,
+    )
+    assert row is not None
+    assert row["driver_details"] == {"name": "John", "phone": "555-0100"}
+
+
+@pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or shipments migration missing")
+def test_clear_driver_details_tx_nulls_jsonb(repo: ShipmentsRepository) -> None:
+    number = f"test-{uuid.uuid4().hex[:12]}"
+    upsert = repo.upsert_by_tenant_and_shipment_number_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_number=number,
+        metadata={"load_id": "LOAD-E"},
+    )
+    repo.merge_driver_details_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=upsert.shipment_id,
+        driver_details={"name": "Jane", "phone": "555-0200"},
+    )
+    assert repo.clear_driver_details_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=upsert.shipment_id,
+    )
+    row = repo.get_by_tenant_and_id_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_id=upsert.shipment_id,
+    )
+    assert row is not None
+    assert row["driver_details"] == {"name": None, "phone": None}
 
 
 def _any_two_location_ids() -> tuple[str, str] | None:

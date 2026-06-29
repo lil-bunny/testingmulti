@@ -10,6 +10,9 @@ from app.services.driver_assignment.turvo_service import DriverAssignmentTurvoSe
 from app.services.driver_assignment.classification_service import (
     DriverDetailsClassificationService,
 )
+from app.services.driver_assignment.shipment_driver_details_service import (
+    DriverAssignmentShipmentDetailsService,
+)
 from app.services.workflow_reminder_service import WorkflowReminderService
 
 logger = get_logger(__name__)
@@ -146,6 +149,7 @@ def schedule_driver_reminders(state):
 def classify_driver_details(state):
     result = DriverDetailsClassificationService().classify_from_state(state)
     state.data.update(result.to_state_patch())
+    DriverAssignmentShipmentDetailsService().persist_extracted_from_state(state)
     return state
 
 
@@ -182,6 +186,7 @@ def resolve_turvo_driver(state):
 
 def record_tms_driver_success(state):
     DriverAssignmentActivityService().record_tms_driver_success(state)
+    DriverAssignmentShipmentDetailsService().persist_tms_matched_from_state(state)
     return state
 
 

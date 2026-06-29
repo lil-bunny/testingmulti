@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.domain.workflow_cancel_trigger import (
+    RATECON_SUPERSEDED_TRIGGER,
     SHIPMENT_TENDERED_TRIGGER,
     WorkflowCancelTrigger,
 )
@@ -145,3 +146,52 @@ def test_cancel_for_trigger_success_terminal_skip() -> None:
 
     assert result.cancelled is False
     assert result.skip_reason == "success_terminal"
+
+
+def test_cancel_for_trigger_ratecon_superseded_uses_supersede_path() -> None:
+    cancel = MagicMock()
+    cancel.supersede_by_shipment.return_value = WorkflowCancelResult(
+        cancelled=True,
+        lifecycle_id=_LC_ID,
+    )
+    shipments = MagicMock()
+    shipments.get_by_shipment_number.return_value = {"id": _SHIPMENTS_ROW_ID}
+    svc = _service(cancel_service=cancel, shipments_service=shipments)
+
+    with patch(
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
+        return_value=_TENANT_ID,
+    ):
+        result = svc.cancel_for_trigger(
+            _trigger(trigger=RATECON_SUPERSEDED_TRIGGER, metadata={"load_id": "30389"})
+        )
+
+    assert result.cancelled is True
+    cancel.supersede_by_shipment.assert_called_once()
+    cancel.cancel_by_shipment.assert_not_called()
+    shipments.clear_driver_details.assert_called_once_with(
+        tenant_id=_TENANT_ID,
+        shipment_row_id=_SHIPMENTS_ROW_ID,
+    )
+
+
+def test_cancel_for_trigger_ratecon_supersede_skips_clear_when_not_cancelled() -> None:
+    cancel = MagicMock()
+    cancel.supersede_by_shipment.return_value = WorkflowCancelResult(
+        cancelled=False,
+        skip_reason="not_found",
+    )
+    shipments = MagicMock()
+    shipments.get_by_shipment_number.return_value = {"id": _SHIPMENTS_ROW_ID}
+    svc = _service(cancel_service=cancel, shipments_service=shipments)
+
+    with patch(
+        "app.services.driver_assignment.cancel_service.resolve_graph_tenant_to_uuid",
+        return_value=_TENANT_ID,
+    ):
+        result = svc.cancel_for_trigger(
+            _trigger(trigger=RATECON_SUPERSEDED_TRIGGER, shipments_row_id=_SHIPMENTS_ROW_ID)
+        )
+
+    assert result.skip_reason == "no_active_lifecycle"
+    shipments.clear_driver_details.assert_not_called()

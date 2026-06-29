@@ -10,7 +10,18 @@ from app.tools.email import send_email as send_email_tool
 
 logger = get_logger(__name__)
 
-_SHADOW_SUBJECT_PREFIX = "[SHADOW] "
+_SHADOW_SUBJECT_TAG = "[SHADOW]"
+
+
+def _build_shadow_subject(subject: str, load_id: str | None = None) -> str:
+    subject_clean = (subject or "").strip() or "Notification"
+    if subject_clean.upper().startswith(_SHADOW_SUBJECT_TAG):
+        subject_clean = subject_clean[len(_SHADOW_SUBJECT_TAG) :].strip()
+
+    load_clean = (load_id or "").strip()
+    if load_clean:
+        return f"{_SHADOW_SUBJECT_TAG} {load_clean} {subject_clean}"
+    return f"{_SHADOW_SUBJECT_TAG} {subject_clean}"
 
 
 class WorkflowShadowMailService:
@@ -23,14 +34,13 @@ class WorkflowShadowMailService:
         body: str,
         account_id: str,
         workflow_run_id: str | None = None,
+        load_id: str | None = None,
         communication_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """Send a new outbound message (no thread reply) to shadow redirect recipients."""
-        subject_clean = (subject or "").strip() or "Notification"
-        if not subject_clean.startswith(_SHADOW_SUBJECT_PREFIX.strip()):
-            subject_clean = f"{_SHADOW_SUBJECT_PREFIX}{subject_clean}"
-
         meta = dict(communication_metadata or {})
+        effective_load_id = (load_id or meta.get("load_id") or "").strip() or None
+        subject_clean = _build_shadow_subject(subject, effective_load_id)
         meta.setdefault("shadow_mail_redirect", True)
         meta.setdefault("shadow_mail_to", list(recipients.to))
 

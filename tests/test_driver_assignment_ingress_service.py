@@ -210,6 +210,35 @@ def test_try_enqueue_skips_wrong_mode_and_logs_ratecon_activity():
     svc._activity.record_not_started_on_ratecon.assert_called_once()
 
 
+def test_try_enqueue_enqueues_when_turvo_driver_assigned() -> None:
+    svc = _service(duplicate=False)
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+    shipment = _turvo_shipment_fixture()
+    shipment["details"]["carrierOrder"] = [
+        {
+            "deleted": False,
+            "drivers": [
+                {
+                    "deleted": False,
+                    "phone": {"number": "5551234567"},
+                }
+            ],
+        }
+    ]
+    state = SimpleNamespace(
+        tenant_id=_TENANT_ID,
+        data=_ratecon_success_state_data(shipment=shipment),
+    )
+    celery_task = MagicMock(id="celery-2")
+
+    patch_ctx, apply_async = _patch_run_workflow_async(return_value=celery_task)
+    with patch_ctx:
+        result = svc.try_enqueue_from_ratecon_state(state)
+
+    assert result.enqueued is True
+    apply_async.assert_called_once()
+
+
 def test_try_enqueue_skips_not_covered_and_logs_ratecon_activity():
     svc = _service()
     shipment = _turvo_shipment_fixture()

@@ -17,6 +17,7 @@ def test_resolve_tms_settings_from_nested_block():
         "tms": {
             "provider": "turvo",
             "public_api_url": "https://sandbox.turvo.com",
+            "ui_base_url": "https://app.turvo.com",
             "client_id": "cid",
             "client_secret": "csec",
             "x_api_key": "xkey",
@@ -25,6 +26,7 @@ def test_resolve_tms_settings_from_nested_block():
     }
     tms = resolve_tms_settings("t3ra", cfg)
     assert tms.public_api_url == "https://sandbox.turvo.com"
+    assert tms.ui_base_url == "https://app.turvo.com"
     assert tms.x_api_key == "xkey"
     assert tms.user_name == "u@example.com"
 

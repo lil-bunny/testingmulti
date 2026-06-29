@@ -11,11 +11,15 @@ from app.domain.shipment_route_locations import (
     DeliveryAddressFromStop,
     LocationLookup,
     ShipmentLocationLinkError,
+    active_route_stops,
     endpoints_from_route_stops,
     last_active_route_stop,
 )
 from app.integrations.pgeocode.state_lookup import lookup_postal
-from app.integrations.turvo.shipments import postal_from_customer_order_route
+from app.integrations.turvo.shipments import (
+    location_insert_row_from_route_stop,
+    postal_from_customer_order_route,
+)
 from app.repositories.locations_repository import LocationsRepository
 from app.repositories.shipments_repository import ShipmentsRepository
 
@@ -49,9 +53,11 @@ class ShipmentLocationLinkService:
         return s if s else None
 
     @staticmethod
-    def _resolve_location_id(
+    def _resolve_or_create_location_id(
         locations: LocationsRepository,
         lookup: LocationLookup,
+        route_stop: dict[str, Any],
+        shipment_details: dict[str, Any] | None,
     ) -> str:
         try:
             location_id = locations.find_id_by_city_state_country_tx(
@@ -67,13 +73,54 @@ class ShipmentLocationLinkService:
                 lookup.country,
             )
             raise
-        if not location_id:
+        if location_id:
+            return location_id
+
+        insert_row = location_insert_row_from_route_stop(
+            route_stop,
+            shipment_details,
+        )
+        if insert_row is None:
             raise ShipmentLocationLinkError(
-                "location not found for "
+                "location not found and route stop lacks city/state for "
                 f"city={lookup.city!r} state_code={lookup.state_code!r} "
                 f"country={lookup.country!r}"
             )
-        return location_id
+
+        try:
+            inserted_id = locations.insert_location_tx(**insert_row)
+        except Exception:
+            logger.exception(
+                "location insert failed city=%s state_code=%s country=%s",
+                lookup.city,
+                lookup.state_code,
+                lookup.country,
+            )
+            raise
+
+        if inserted_id:
+            logger.info(
+                "inserted location from Turvo route stop city=%s state_code=%s country=%s postal=%s",
+                insert_row["city"],
+                insert_row["state_code"],
+                insert_row["country"],
+                insert_row.get("postal_code"),
+            )
+            return inserted_id
+
+        location_id = locations.find_id_by_city_state_country_tx(
+            city=lookup.city,
+            state_code=lookup.state_code,
+            country=lookup.country,
+        )
+        if location_id:
+            return location_id
+
+        raise ShipmentLocationLinkError(
+            "location not found for "
+            f"city={lookup.city!r} state_code={lookup.state_code!r} "
+            f"country={lookup.country!r}"
+        )
 
     @staticmethod
     def _postal_code_empty(delivery_address: dict[str, Any]) -> bool:
@@ -120,9 +167,20 @@ class ShipmentLocationLinkService:
         delivery_address_builder: DeliveryAddressFromStop | None,
         shipment_details: dict[str, Any] | None,
     ) -> ShipmentLocationLinkResult:
+        active = active_route_stops(stops)
         endpoints = endpoints_from_route_stops(stops)
-        pickup_id = self._resolve_location_id(locations, endpoints.pickup)
-        delivery_id = self._resolve_location_id(locations, endpoints.delivery)
+        pickup_id = self._resolve_or_create_location_id(
+            locations,
+            endpoints.pickup,
+            active[0],
+            shipment_details,
+        )
+        delivery_id = self._resolve_or_create_location_id(
+            locations,
+            endpoints.delivery,
+            active[-1],
+            shipment_details,
+        )
 
         last_stop = last_active_route_stop(stops)
         delivery_address: dict[str, Any] | None = None

@@ -156,6 +156,25 @@ def driver_block_name_phone(driver: dict[str, str | None]) -> tuple[str | None, 
     return _clean_field(driver.get("name")), _clean_field(driver.get("phone"))
 
 
+def merge_driver_details_fields(
+    existing: dict[str, Any] | None,
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+) -> dict[str, str | None]:
+    """Merge incoming name/phone into stored driver_details; only set non-empty incoming."""
+    base = existing if isinstance(existing, dict) else {}
+    merged_name = _clean_field(base.get("name"))
+    merged_phone = _clean_field(base.get("phone"))
+    incoming_name = _clean_field(name)
+    incoming_phone = _clean_field(phone)
+    if incoming_name is not None:
+        merged_name = incoming_name
+    if incoming_phone is not None:
+        merged_phone = incoming_phone
+    return {"name": merged_name, "phone": merged_phone}
+
+
 def has_tms_searchable_fields(driver: dict[str, str | None]) -> bool:
     """Name or phone present — enough to attempt TMS contact search."""
     return bool((driver.get("name") or "").strip() or (driver.get("phone") or "").strip())

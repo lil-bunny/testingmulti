@@ -22,6 +22,18 @@ DRIVER_ASSIGNMENT_CANCEL_POLICY = WorkflowCancellationPolicy(
     ),
 )
 
+DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY = WorkflowCancellationPolicy(
+    workflow_name="driver_assignment",
+    cancellable_statuses=frozenset(
+        {
+            StatusType.PROCESSING,
+            StatusType.PENDING_REVIEW,
+            StatusType.COMPLETED,
+        }
+    ),
+    success_terminal_sub_statuses=frozenset(),
+)
+
 RATECON_SUPERSEDE_POLICY = WorkflowCancellationPolicy(
     workflow_name="ratecon",
     cancellable_statuses=frozenset(

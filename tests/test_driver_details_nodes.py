@@ -12,6 +12,7 @@ from app.workflows.graph.routers import (
 )
 from app.workflows.nodes.driver_assignment.nodes import (
     classify_driver_details,
+    record_tms_driver_success,
     send_driver_details_partial_follow_up,
 )
 
@@ -48,6 +49,38 @@ def test_classify_driver_details_delegates_to_service() -> None:
     assert out is state
     assert state.data["driver_details_decision"] == HAS_DETAILS
     svc_cls.return_value.classify_from_state.assert_called_once_with(state)
+
+
+def test_classify_driver_details_persists_via_shipment_service() -> None:
+    state = SimpleNamespace(
+        tenant_id="tenant-1",
+        execution_id="run-1",
+        data={"thread_id": "t1", "body": "Driver John"},
+    )
+    mock_result = MagicMock()
+    mock_result.to_state_patch.return_value = {"driver_details_decision": HAS_DETAILS}
+    with patch(
+        "app.workflows.nodes.driver_assignment.nodes.DriverDetailsClassificationService"
+    ) as cls_svc, patch(
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentShipmentDetailsService"
+    ) as persist_svc:
+        cls_svc.return_value.classify_from_state.return_value = mock_result
+        classify_driver_details(state)
+
+    persist_svc.return_value.persist_extracted_from_state.assert_called_once_with(state)
+
+
+def test_record_tms_driver_success_persists_via_shipment_service() -> None:
+    state = SimpleNamespace(tenant_id="tenant-1", data={"shipments_row_id": "ship-1"})
+    with patch(
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentActivityService"
+    ) as act_svc, patch(
+        "app.workflows.nodes.driver_assignment.nodes.DriverAssignmentShipmentDetailsService"
+    ) as persist_svc:
+        record_tms_driver_success(state)
+
+    act_svc.return_value.record_tms_driver_success.assert_called_once_with(state)
+    persist_svc.return_value.persist_tms_matched_from_state.assert_called_once_with(state)
 
 
 def test_send_driver_details_partial_follow_up_delegates_to_ingress() -> None:

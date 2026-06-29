@@ -58,6 +58,20 @@ def test_lookup_state_falls_back_to_state_name(monkeypatch: pytest.MonkeyPatch) 
     assert sl.lookup_state("U.S.A.", "76172") == "Texas"
 
 
+def test_lookup_state_display_name_prefers_state_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_nomi(monkeypatch, _FakeNomi("Maryland", state_code="MD"))
+    assert sl.lookup_state_display_name("U.S.A.", "21076", state_code_fallback="MD") == "Maryland"
+
+
+def test_lookup_state_display_name_falls_back_to_state_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_nomi(monkeypatch, None)
+    assert sl.lookup_state_display_name("U.S.A.", "21076", state_code_fallback="MD") == "MD"
+
+
 def test_lookup_state_nan_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_nomi(monkeypatch, _FakeNomi(math.nan))
     assert sl.lookup_state("U.S.A.", "00000") is None

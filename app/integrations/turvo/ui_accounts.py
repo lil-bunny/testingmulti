@@ -11,7 +11,7 @@ import httpx
 
 from app.integrations.turvo.contacts import get_driver_contact
 from app.integrations.turvo.public_api_client import TurvoApiClient, TurvoApiError
-from app.integrations.turvo.public_api_urls import build_turvo_ui_base_url
+from app.integrations.turvo.public_api_urls import resolve_turvo_ui_base_url
 from app.services.turvo_oauth_service import TurvoOAuthService
 from app.tools.driver_details import name_tokens_match, names_match, phones_match
 
@@ -148,10 +148,13 @@ async def _fetch_ui_accounts(
 ) -> dict[str, Any]:
     oauth_svc = oauth or TurvoOAuthService()
     tms = oauth_svc._load_tms(tenant_slug)
-    ui_base = build_turvo_ui_base_url(tms.public_api_url or "")
+    ui_base = resolve_turvo_ui_base_url(
+        ui_base_url=tms.ui_base_url,
+        public_api_url=tms.public_api_url or "",
+    )
     if not ui_base:
         raise TurvoApiError(
-            f"Tenant {tenant_slug!r} TMS public_api_url cannot derive UI base URL",
+            f"Tenant {tenant_slug!r} TMS: set tms.ui_base_url or a derivable tms.public_api_url",
             status_code=503,
         )
     token = await oauth_svc.get_tenant_tokens(tenant_slug)

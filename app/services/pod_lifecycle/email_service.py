@@ -116,6 +116,7 @@ class PodLifecycleEmailService:
                         "source": "pod_send_email",
                         "workflow_lifecycle_id": data.get("workflow_lifecycle_id"),
                         "shipment_id": data.get("shipment_id"),
+                        "load_id": data.get("load_id"),
                         "email_id": data.get("email_id"),
                         "original_thread_id": data.get("thread_id"),
                     },

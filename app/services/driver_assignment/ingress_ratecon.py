@@ -148,7 +148,9 @@ class IngressRateconMixin:
 
         pickup_skip, pickup_fields = self._enrich_pickup_from_turvo_payload(
 
-            turvo_payload
+            turvo_payload,
+
+            ignore_driver_assigned=True,
 
         )
 

@@ -27,8 +27,8 @@ sys.path.insert(0, str(_ROOT))
 from app.integrations.turvo.public_api_urls import (
     build_oauth_token_url,
     build_publicapi_v1_url,
-    build_turvo_ui_base_url,
     normalize_turvo_publicapi_url,
+    resolve_turvo_ui_base_url,
 )
 from app.services.turvo_oauth_service import TurvoOAuthService
 
@@ -58,7 +58,10 @@ async def _resolve_auth(tenant_slug: str) -> tuple[str, str, str, dict[str, Any]
         "client_id": (tms.client_id or "publicapi").strip(),
         "client_secret": (tms.client_secret or "secret").strip(),
         "refresh_token": tokens.get("refresh_token"),
-        "ui_base": build_turvo_ui_base_url(public_api_url),
+        "ui_base": resolve_turvo_ui_base_url(
+            ui_base_url=tms.ui_base_url,
+            public_api_url=public_api_url,
+        ),
     }
     return tokens["access_token"], x_key, base, meta
 

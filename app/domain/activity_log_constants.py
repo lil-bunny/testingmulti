@@ -41,6 +41,9 @@ DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE = "Driver assignment not started: {reason
 DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION = (
     "Driver assignment cancelled — shipment tendered in Turvo"
 )
+DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION = (
+    "Driver assignment cancelled — superseded by new inbound ratecon email"
+)
 DRIVER_REMINDERS_SCHEDULED_ACTION = "Driver reminders scheduled"
 DRIVER_REMINDER_SENT_TEMPLATE = "Driver reminder {step} sent"
 DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE = (

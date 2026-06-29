@@ -72,6 +72,37 @@ def test_supersede_before_run_calls_orchestrator() -> None:
     assert trigger.load_id == "30389"
 
 
+def test_supersede_before_run_logs_driver_assignment_cancelled() -> None:
+    comms = MagicMock()
+    comms.is_communication_linked_to_run.return_value = False
+    orchestrator = MagicMock()
+    orchestrator.cancel_for_trigger.return_value = {
+        "ratecon": WorkflowCancelResult(
+            cancelled=True,
+            lifecycle_id="ratecon-old",
+        ),
+        "driver_assignment": WorkflowCancelResult(
+            cancelled=True,
+            lifecycle_id="da-old",
+        ),
+    }
+    svc = RateconSupersedeService(
+        orchestrator=orchestrator,
+        communications=comms,
+    )
+
+    results = svc.supersede_before_run(
+        tenant_id=_TENANT_ID,
+        tenant_slug="t3ra",
+        shipments_row_id=_SHIPMENTS_ROW_ID,
+        load_id="30389",
+        shipment_id="1000324895",
+    )
+
+    assert results["driver_assignment"].cancelled is True
+    assert results["driver_assignment"].lifecycle_id == "da-old"
+
+
 def test_ratecon_ingress_prepare_payload_calls_supersede() -> None:
     from app.services.ratecon_ingress_service import RateconIngressService
 
