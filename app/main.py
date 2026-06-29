@@ -11,7 +11,6 @@ from app.api.openapi import OPENAPI_TAGS
 from app.api.v1 import v1_router
 from app.core.config import settings
 from app.core.logger import get_logger
-from app.core.observability import configure_observability
 
 logger = get_logger(__name__)
 

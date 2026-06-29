@@ -161,6 +161,23 @@ class GelitaDomesticDeliverySettings(BaseModel):
         return iso not in frozenset(self.country_iso_codes)
 
 
+class GelitaSkippedPackCodesSettings(BaseModel):
+    """``load_tendering.skipped_pack_codes`` — pack codes that skip domestic processing."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    pack_codes: list[str] = Field(default_factory=list)
+
+    @field_validator("pack_codes", mode="before")
+    @classmethod
+    def _normalize_pack_codes(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("pack_codes must be a list")
+        return [str(item).strip() for item in value if str(item).strip()]
+
+
 class GelitaLoadTenderingPrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -181,6 +198,9 @@ class GelitaLoadTenderingSettings(BaseModel):
     ftl: GelitaLoadTypeBranch
     tender_calculate: GelitaTenderCalculateSettings
     domestic_delivery: GelitaDomesticDeliverySettings
+    skipped_pack_codes: GelitaSkippedPackCodesSettings = Field(
+        default_factory=GelitaSkippedPackCodesSettings
+    )
     workflow_error_alerts: WorkflowErrorAlertSettings | None = None
 
 
