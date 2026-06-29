@@ -142,7 +142,6 @@ def schedule_driver_reminders(state):
         ):
             if key in schedule and schedule[key] is not None:
                 state.data[key] = schedule[key]
-    DriverAssignmentActivityService().record_reminders_scheduled(state)
     return state
 
 

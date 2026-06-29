@@ -21,7 +21,6 @@ from app.domain.activity_log_descriptions import (
     format_driver_found_in_tms_action,
     format_driver_not_found_in_tms_action,
     format_driver_reminder_sent_action,
-    format_driver_reminders_scheduled_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
@@ -89,6 +88,7 @@ class DriverAssignmentActivityService:
 
     @staticmethod
     def _communication_id(state) -> str | None:
+        """Email comm id from graph state (inbound reply or outbound send), not TMS lookups."""
         raw = state.data.get("communication_id")
         if raw is None:
             return None
@@ -133,12 +133,28 @@ class DriverAssignmentActivityService:
         if current_status == to_status:
             return ActivityLogStep(
                 activity_type=ActivityType.SUB_STATUS_CHANGE,
+                to_status=to_status,
                 to_sub_status=new_sub,
                 metadata=dict(metadata),
             )
         return ActivityLogStep(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=to_status,
+            to_sub_status=new_sub,
+            metadata=dict(metadata),
+        )
+
+    @staticmethod
+    def _build_success_sub_status_step(
+        *,
+        current_status: StatusType | None,
+        new_sub: StatusSubType,
+        metadata: dict[str, Any],
+    ) -> ActivityLogStep:
+        preserve_status = current_status if current_status is not None else StatusType.PROCESSING
+        return ActivityLogStep(
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_status=preserve_status,
             to_sub_status=new_sub,
             metadata=dict(metadata),
         )
@@ -179,49 +195,6 @@ class DriverAssignmentActivityService:
                         description=format_driver_assignment_not_started_action(
                             reason=skip_reason
                         ),
-                        metadata=meta,
-                    ),
-                ),
-            )
-        )
-
-    def record_reminders_scheduled(self, state) -> None:
-        if not state.data.get("reminders_scheduled"):
-            return
-
-        scope = self._scope_ids(state)
-        if scope is None:
-            logger.warning(
-                "record_reminders_scheduled skipped missing ids "
-                "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
-                bool(state.data.get("workflow_lifecycle_id")),
-                bool(state.tenant_id or state.data.get("tenant_id")),
-                bool(state.execution_id),
-            )
-            return
-
-        wl_id, tenant_id, run_id = scope
-        meta = self._base_metadata(state)
-        schedule = state.data.get("driver_reminder_schedule")
-        if isinstance(schedule, dict):
-            for key in (
-                "pickup_appointment_at",
-                "pickup_appointment_timezone",
-                "reminder_steps",
-                "skipped_steps",
-            ):
-                if key in schedule:
-                    meta[key] = schedule[key]
-
-        self._activity.record_sequence(
-            ActivityLogSequence(
-                tenant_id=tenant_id,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
-                steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_reminders_scheduled_action(),
                         metadata=meta,
                     ),
                 ),
@@ -283,7 +256,7 @@ class DriverAssignmentActivityService:
             meta["partial_follow_up"] = True
 
         action_description = (
-            format_driver_details_partial_follow_up_action(step=step)
+            format_driver_details_partial_follow_up_action()
             if state.data.get("driver_reminder_is_partial_follow_up")
             else format_driver_reminder_sent_action(step=step)
         )
@@ -455,12 +428,8 @@ class DriverAssignmentActivityService:
             steps.append(
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
-                    description=format_driver_not_found_in_tms_action(
-                        match_by=match_by,
-                        match_value=match_value,
-                    ),
+                    description=format_driver_not_found_in_tms_action(),
                     metadata=dict(meta),
-                    communication_id=self._communication_id(state),
                 )
             )
         elif resolution == "ambiguous":
@@ -474,7 +443,6 @@ class DriverAssignmentActivityService:
                         count=count,
                     ),
                     metadata=dict(meta),
-                    communication_id=self._communication_id(state),
                 )
             )
         if not steps:
@@ -506,7 +474,6 @@ class DriverAssignmentActivityService:
                         activity_type=ActivityType.ACTION,
                         description=format_driver_assign_to_tms_failed_action(reason=reason),
                         metadata=meta,
-                        communication_id=self._communication_id(state),
                     ),
                 ),
             )
@@ -575,15 +542,14 @@ class DriverAssignmentActivityService:
                     activity_type=ActivityType.ACTION,
                     description=format_driver_already_assigned_in_tms_action(),
                     metadata=dict(meta),
-                    communication_id=self._communication_id(state),
                 )
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
                 steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.SUB_STATUS_CHANGE,
-                        to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                        metadata=dict(meta),
+                    self._build_success_sub_status_step(
+                        current_status=current_status,
+                        new_sub=StatusSubType.UPLOADED_TO_TMS,
+                        metadata=meta,
                     )
                 )
             completed = self._driver_assignment_completed_step(
@@ -598,12 +564,8 @@ class DriverAssignmentActivityService:
                 steps.append(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_driver_not_found_in_tms_action(
-                            match_by=match_by,
-                            match_value=match_value,
-                        ),
+                        description=format_driver_not_found_in_tms_action(),
                         metadata=dict(meta),
-                        communication_id=self._communication_id(state),
                     )
                 )
                 steps.append(
@@ -626,7 +588,6 @@ class DriverAssignmentActivityService:
                             contact_id=contact_id,
                         ),
                         metadata=dict(meta),
-                        communication_id=self._communication_id(state),
                     )
                 )
 
@@ -644,7 +605,7 @@ class DriverAssignmentActivityService:
                     )
                 )
                 steps.append(
-                    self._build_reminder_transition_step(
+                    self._build_success_sub_status_step(
                         current_status=current_status,
                         new_sub=StatusSubType.DETAILS_RECEIVED,
                         metadata=meta,
@@ -660,10 +621,10 @@ class DriverAssignmentActivityService:
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
                 steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.SUB_STATUS_CHANGE,
-                        to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                        metadata=dict(meta),
+                    self._build_success_sub_status_step(
+                        current_status=current_status,
+                        new_sub=StatusSubType.UPLOADED_TO_TMS,
+                        metadata=meta,
                     )
                 )
 

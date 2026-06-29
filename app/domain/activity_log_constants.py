@@ -44,20 +44,15 @@ DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION = (
 DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION = (
     "Driver assignment cancelled — superseded by new inbound ratecon email"
 )
-DRIVER_REMINDERS_SCHEDULED_ACTION = "Driver reminders scheduled"
 DRIVER_REMINDER_SENT_TEMPLATE = "Driver reminder {step} sent"
 DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE = (
     "Driver details received from carrier email ({name}{contact_suffix})"
 )
-DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE = (
-    "Driver details partial follow-up sent (reminder step {step})"
-)
+DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE = "Driver details partial follow-up sent"
 DRIVER_FOUND_IN_TMS_TEMPLATE = (
     "Driver found in TMS ({match_by}={match_value}, contact_id={contact_id})"
 )
-DRIVER_NOT_FOUND_IN_TMS_TEMPLATE = (
-    "Driver not found in TMS ({match_by}={match_value})"
-)
+DRIVER_NOT_FOUND_IN_TMS_TEMPLATE = "Driver not found in TMS"
 DRIVER_AMBIGUOUS_IN_TMS_TEMPLATE = (
     "Multiple drivers found in TMS ({match_by}={match_value}, count={count})"
 )

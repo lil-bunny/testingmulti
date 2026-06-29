@@ -24,7 +24,6 @@ from app.domain.activity_log_constants import (
     DRIVER_ASSIGNMENT_NOT_STARTED_TEMPLATE,
     DRIVER_ASSIGNMENT_CANCELLED_TENDERED_ACTION,
     DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION,
-    DRIVER_REMINDERS_SCHEDULED_ACTION,
     DRIVER_REMINDER_SENT_TEMPLATE,
     DETAILS_RECEIVED_FROM_EMAIL_TEMPLATE,
     DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE,
@@ -216,10 +215,6 @@ def format_driver_assignment_cancelled_ratecon_superseded_action() -> str:
     return DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION
 
 
-def format_driver_reminders_scheduled_action() -> str:
-    return DRIVER_REMINDERS_SCHEDULED_ACTION
-
-
 def format_driver_reminder_sent_action(*, step: int | None = None) -> str:
     label = str(step) if step is not None else "?"
     return DRIVER_REMINDER_SENT_TEMPLATE.format(step=label)
@@ -244,9 +239,8 @@ def format_details_received_from_email_action(
     )
 
 
-def format_driver_details_partial_follow_up_action(*, step: int | None = None) -> str:
-    label = str(step) if step is not None else "?"
-    return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE.format(step=label)
+def format_driver_details_partial_follow_up_action() -> str:
+    return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE
 
 
 def format_driver_found_in_tms_action(
@@ -262,11 +256,8 @@ def format_driver_found_in_tms_action(
     )
 
 
-def format_driver_not_found_in_tms_action(*, match_by: str, match_value: str) -> str:
-    return DRIVER_NOT_FOUND_IN_TMS_TEMPLATE.format(
-        match_by=match_by,
-        match_value=match_value,
-    )
+def format_driver_not_found_in_tms_action() -> str:
+    return DRIVER_NOT_FOUND_IN_TMS_TEMPLATE
 
 
 def format_driver_ambiguous_in_tms_action(
