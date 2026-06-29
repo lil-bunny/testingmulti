@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 
 def _matched_skipped_pack_code(state_data: dict[str, Any]) -> str:
+    """Resolve skipped pack code from ``read_tender_row`` or tender product lines."""
     matched = str(state_data.get("matched_skipped_pack_code") or "").strip()
     if matched:
         return matched

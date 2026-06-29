@@ -64,7 +64,9 @@ class PackCodesRepository:
                 unit_dims,
                 pallet_dims,
                 pallet_type,
-                is_active
+                is_active,
+                pack_type::text,
+                pack_type_weight
             FROM {self.TABLE_NAME}
             {_WHERE_TENANT}
               AND pack_code = :code
@@ -85,6 +87,8 @@ class PackCodesRepository:
             "unit_dims": row.get("unit_dims") or "",
             "pallet_dims": row.get("pallet_dims") or "",
             "pallet_type": row.get("pallet_type") or "",
+            "pack_type": row.get("pack_type") or "",
+            "pack_type_weight": self._to_decimal(row.get("pack_type_weight")),
             "is_active": bool(row.get("is_active"))
             if row.get("is_active") is not None
             else True,
