@@ -9,6 +9,7 @@ from app.domain.delivery_address import (
     format_usps_mailing_address,
     is_unresolved_customer_name,
 )
+from app.models.pack_type import PackType
 from app.models.weight_unit import WeightUnit
 from app.domain.ingest_source_fields import (
     delivery_gap_context,
@@ -17,15 +18,15 @@ from app.domain.ingest_source_fields import (
     product_or_catalog_gap_context,
 )
 from app.domain.load_tendering_settings import (
-    gelita_tender_calculate_settings,
     load_type_from_pallet_totals,
+    require_gelita_tender_calculate_settings,
 )
 from app.domain.load_tendering_state import (
     get_tender,
     get_tender_products,
     set_tender,
 )
-from app.domain.error_catalog import BusinessError, SystemError
+from app.domain.error_catalog import BusinessError
 from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
@@ -57,6 +58,11 @@ def _pieces_count(order_quantity: Decimal, qty_per_unit: Decimal) -> int:
     return int(pieces_raw.to_integral_value(rounding=ROUND_CEILING))
 
 
+def _pack_type_tare_lbs(pack_type_weight_lb: Decimal, pieces_count: int) -> Decimal:
+    """Empty-container tare: ``pack_codes.pack_type_weight`` (lbs) × piece count."""
+    return pack_type_weight_lb * pieces_count
+
+
 def _pallets_count(order_quantity: Decimal, total_qty: Decimal) -> int:
     pallets_raw = order_quantity / total_qty
     return _round_pallet_count(pallets_raw)
@@ -65,12 +71,24 @@ def _pallets_count(order_quantity: Decimal, total_qty: Decimal) -> int:
 def _gross_weight_lbs(
     *,
     order_quantity: Decimal,
+    pieces_count: int | None,
+    pack_type_weight_lb: Decimal,
     pallets_count: int,
     pallet_weight_lb: Decimal,
     weight_unit: WeightUnit | str | None,
 ) -> Decimal:
+    """Sum product, empty-pack tare, and pallet weight in lbs for Gelita gross weight.
+
+    ``pack_type_weight_lb`` is already in lbs (``pack_codes.pack_type_weight``); only
+    ``order_quantity`` is converted when ``weight_unit`` is kg.
+    """
     unit = WeightUnit.parse(weight_unit) or WeightUnit.KG
-    gross_weight_raw = _product_weight_lbs(order_quantity, unit) + (
+    pack_type_weight_total = (
+        _pack_type_tare_lbs(pack_type_weight_lb, pieces_count)
+        if pieces_count is not None
+        else Decimal(0)
+    )
+    gross_weight_raw = _product_weight_lbs(order_quantity, unit) + pack_type_weight_total + (
         pallet_weight_lb * pallets_count
     )
     return Decimal(int(gross_weight_raw.to_integral_value(rounding=ROUND_CEILING)))
@@ -110,11 +128,15 @@ def gelita_calculate_params(
     qty_per_unit,
     total_qty,
     pallet_weight_lb,
+    pack_type_weight_lb=0,
     unit_price,
     weight_unit: WeightUnit | str | None = None,
 ):
     """
     Per-product Gelita formulas.
+
+    Gross weight (lbs) = product weight + (``pack_type_weight_lb`` × pieces) + pallet tare.
+    ``pack_type_weight_lb`` is per-piece empty-container weight in lbs from ``pack_codes``.
 
     Returns ``pieces_int``, ``pallets_int``, ``gross_weight_dec``, ``product_value``
     (``unit_price * order_quantity`` when unit price is present; else ``None``).
@@ -127,6 +149,8 @@ def gelita_calculate_params(
     pallets_int = _pallets_count(order_quantity, total_qty)
     gross_weight_dec = _gross_weight_lbs(
         order_quantity=order_quantity,
+        pieces_count=pieces_int,
+        pack_type_weight_lb=Decimal(str(pack_type_weight_lb)),
         pallets_count=pallets_int,
         pallet_weight_lb=Decimal(str(pallet_weight_lb)),
         weight_unit=weight_unit,
@@ -146,9 +170,7 @@ def calculate_tender_params(state):
     if not tender_id:
         raise WorkflowException(BusinessError.MISSING_TENDER_ID)
 
-    calc_settings = gelita_tender_calculate_settings(state)
-    if calc_settings is None:
-        raise WorkflowException(SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES)
+    calc_settings = require_gelita_tender_calculate_settings(state)
     pickup_address = calc_settings.gelita_pickup_address.model_dump()
 
     tender = get_tender(state.data)
@@ -184,13 +206,6 @@ def calculate_tender_params(state):
     multi_product = len(products) > 1
 
     for product in products:
-        if not product.get("pack_code_id"):
-            record_business_gap_or_raise(
-                state.data,
-                BusinessError.MISSING_PACK_CODE,
-                **product_gap_context(product),
-            )
-
         order_quantity = product["order_quantity"]
         qty_per_unit = product.get("qty_per_unit")
         total_qty = product.get("total_qty")
@@ -200,8 +215,45 @@ def calculate_tender_params(state):
             product, pack_code=pack_code
         )
 
+        if not product.get("pack_code_id"):
+            record_business_gap_or_raise(
+                state.data,
+                BusinessError.MISSING_PACK_CODE,
+                **product_gap_context(product),
+            )
+
+        pack_type = (
+            PackType.parse(product.get("pack_type"))
+            if product.get("pack_code_id")
+            else None
+        )
+        if product.get("pack_code_id") and pack_type is None:
+            record_business_gap_or_raise(
+                state.data,
+                BusinessError.MISSING_PACK_TYPE,
+                multi_product=multi_product,
+                catalog_gap=catalog_gap,
+                **gap_context,
+            )
+
         profile_key, pallet_profile = calc_settings.resolve_pallet_type(
             product.get("pallet_type")
+        )
+        row_pack_type_weight = product.get("pack_type_weight")
+        if product.get("pack_code_id") and (
+            row_pack_type_weight is None or row_pack_type_weight == ""
+        ):
+            record_business_gap_or_raise(
+                state.data,
+                BusinessError.MISSING_PACK_TYPE_WEIGHT,
+                multi_product=multi_product,
+                catalog_gap=catalog_gap,
+                **gap_context,
+            )
+        pack_type_weight_lb = (
+            Decimal(str(row_pack_type_weight))
+            if row_pack_type_weight is not None and row_pack_type_weight != ""
+            else Decimal(0)
         )
         pieces_int: int | None = None
         pallets_int: int | None = None
@@ -236,6 +288,8 @@ def calculate_tender_params(state):
             )
             gross_weight_dec = _gross_weight_lbs(
                 order_quantity=Decimal(str(order_quantity)),
+                pieces_count=pieces_int,
+                pack_type_weight_lb=pack_type_weight_lb,
                 pallets_count=pallets_int,
                 pallet_weight_lb=Decimal(str(pallet_profile.weight_lbs)),
                 weight_unit=product.get("weight_unit"),

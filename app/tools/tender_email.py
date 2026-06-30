@@ -7,6 +7,7 @@ from decimal import ROUND_CEILING, Decimal
 from html import escape
 from typing import Any
 
+from app.models.pack_type import PackType
 from app.models.weight_unit import WeightUnit
 
 _MISSING_LABEL_STYLE = "color: red;"
@@ -34,6 +35,7 @@ class TenderEmailProductLine:
     product_name: str
     pack_code: str
     pack_code_description: str
+    pack_type: str
     pieces_count: str
     qty_per_unit: str
     weight_unit: str
@@ -123,6 +125,7 @@ def _product_lines_from_payload(
                 product_name=_str_field(row, "product_name"),
                 pack_code=_str_field(row, "pack_code"),
                 pack_code_description=_str_field(row, "pack_code_description"),
+                pack_type=_str_field(row, "pack_type"),
                 pieces_count=_str_field(row, "pieces_count"),
                 qty_per_unit=_str_field(row, "qty_per_unit"),
                 weight_unit=_str_field(row, "weight_unit") or WeightUnit.KG.value,
@@ -248,14 +251,12 @@ def _combined_order_value_line(
     return _format_order_value(value)
 
 
-def container_noun_from_pack_description(description: str) -> str:
-    """Return ``bags`` or ``drums`` from ``pack_codes.description`` prefix."""
-    text = (description or "").strip().lower()
-    if text.startswith("drum") or text.startswith("drums"):
-        return "drums"
-    if text.startswith("bag"):
-        return "bags"
-    return "bags"
+def pack_type_noun_plural(pack_type: str) -> str:
+    """Return plural pack-type label from ``pack_codes.pack_type`` enum."""
+    parsed = PackType.parse(pack_type)
+    if parsed is not None:
+        return parsed.plural_noun()
+    return "Bags"
 
 
 def _format_bags_line(line: TenderEmailProductLine) -> str:
@@ -264,7 +265,7 @@ def _format_bags_line(line: TenderEmailProductLine) -> str:
     label = _field_label("Pieces:", missing=pieces_missing or qty_missing)
     if pieces_missing:
         return f"{label} "
-    container = container_noun_from_pack_description(line.pack_code_description)
+    container = pack_type_noun_plural(line.pack_type)
     unit = WeightUnit.parse(line.weight_unit) or WeightUnit.KG
     qty_raw = line.qty_per_unit.strip()
     if not qty_raw:
@@ -372,6 +373,7 @@ def _combine_product_lines(
             product_name=first.product_name,
             pack_code=first.pack_code,
             pack_code_description=first.pack_code_description,
+            pack_type=first.pack_type,
             pieces_count=sum_field(groups[key], "pieces_count"),
             qty_per_unit=first_unless_any_missing(groups[key], "qty_per_unit"),
             weight_unit=first.weight_unit,
