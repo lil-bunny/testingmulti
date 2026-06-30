@@ -82,7 +82,6 @@ def test_acknowledge_records_action_without_status_change(user: ApiUser) -> None
     assert write.actor_type == ActorType.USER
     assert write.actor_id == _USER_ID
     assert write.metadata["comment"] == "Looks good"
-    assert write.metadata["workflow_name"] == "load_tendering"
     assert write.description == WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION
 
 
@@ -119,6 +118,8 @@ def test_resolve_marks_completed_resolved_manually(user: ApiUser) -> None:
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.COMPLETED
     assert sequence.steps[1].to_sub_status == StatusSubType.RESOLVED_MANUALLY
+    assert sequence.steps[0].metadata["comment"] == "Handled in TMS directly"
+    assert sequence.steps[0].metadata["resolved_via"] == "portal"
 
 
 def test_acknowledge_blank_comment_raises(user: ApiUser) -> None:

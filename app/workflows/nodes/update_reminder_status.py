@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_reminder_sent_action
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
@@ -85,11 +83,6 @@ def update_reminder_status(state):
         )
         return state
 
-    transition_meta: dict[str, Any] = {
-        "reminder_step": step,
-        "tender_id": state.data.get("tender_id"),
-    }
-    action_meta = dict(transition_meta)
     communication_id = str(state.data.get("communication_id") or "").strip() or None
 
     current_status = status_type_from_db(prev.get("status")) if prev else None
@@ -98,14 +91,12 @@ def update_reminder_status(state):
         transition_step = ActivityLogStep(
             activity_type=ActivityType.SUB_STATUS_CHANGE,
             to_sub_status=new_sub,
-            metadata=dict(transition_meta),
         )
     else:
         transition_step = ActivityLogStep(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=to_status,
             to_sub_status=new_sub,
-            metadata=dict(transition_meta),
         )
 
     activity_log_service = ActivityLogService()
@@ -118,7 +109,6 @@ def update_reminder_status(state):
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
                     description=format_reminder_sent_action(step=step),
-                    metadata=dict(action_meta),
                     communication_id=communication_id,
                 ),
                 transition_step,

@@ -45,12 +45,6 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
                 metadata["error_category"] = workflow_error["category"]
             if workflow_error.get("message"):
                 metadata["error_description"] = workflow_error["message"]
-        if state.data.get("tender_id"):
-            metadata["tender_id"] = state.data["tender_id"]
-        if state.data.get("pack_code"):
-            metadata["pack_code"] = state.data["pack_code"]
-        if state.data.get("delivery_address_code"):
-            metadata["delivery_address_code"] = state.data["delivery_address_code"]
         shipment_id = resolve_shipment_id(state.data)
         if shipment_id:
             metadata["shipment_id"] = shipment_id

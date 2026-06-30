@@ -113,11 +113,11 @@ def test_record_workflow_failure_includes_shipment_from_nested_shipment_dict(
 
 @patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
 @patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
-def test_record_workflow_failure_existing_tender_metadata_preserved(
+def test_record_workflow_failure_pod_shipment_metadata_preserved(
     mock_svc_cls: MagicMock,
     mock_enqueue: MagicMock,
 ) -> None:
-    """Gelita tender fields must still be written alongside POD shipment fields."""
+    """POD shipment fields are still written on workflow failure exceptions."""
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
 
@@ -131,6 +131,4 @@ def test_record_workflow_failure_existing_tender_metadata_preserved(
 
     metadata = _exception_metadata(mock_svc)
 
-    assert metadata["tender_id"] == "TND-1"
-    assert metadata["pack_code"] == "5366"
     assert metadata["shipment_id"] == "SHP-777"

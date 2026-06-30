@@ -113,7 +113,7 @@ def _complete_international_state() -> WorkflowState:
     "app.workflows.nodes.gelita.resolve_international_delivery_skip.LifecycleTransitionService"
 )
 @patch("app.workflows.nodes.gelita.resolve_international_delivery_skip.ActivityLogService")
-def test_resolve_international_delivery_skip_logs_exception_and_completes(
+def test_resolve_international_delivery_skip_logs_info_and_completes(
     mock_activity_cls: MagicMock,
     mock_lifecycle_cls: MagicMock,
 ) -> None:
@@ -124,15 +124,15 @@ def test_resolve_international_delivery_skip_logs_exception_and_completes(
 
     resolve_international_delivery_skip(_complete_international_state())
 
-    activity_service.record_exception.assert_called_once()
-    exception_write = activity_service.record_exception.call_args.args[0]
+    activity_service.record_info.assert_called_once()
+    info_write = activity_service.record_info.call_args.args[0]
     assert (
-        exception_write.description
+        info_write.description
         == BusinessError.INTERNATIONAL_DELIVERY_SKIPPED.description
     )
-    assert exception_write.metadata is not None
+    assert info_write.metadata is not None
     assert (
-        exception_write.metadata["error"]
+        info_write.metadata["error"]
         == BusinessError.INTERNATIONAL_DELIVERY_SKIPPED.value
     )
 
@@ -141,11 +141,12 @@ def test_resolve_international_delivery_skip_logs_exception_and_completes(
     assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
     assert kwargs["to_status"] == StatusType.COMPLETED
     assert kwargs["to_sub_status"] == StatusSubType.RESOLVED_MANUALLY
+    assert not kwargs.get("metadata")
 
 
 @patch("app.workflows.nodes.gelita.resolve_pack_code_skip.LifecycleTransitionService")
 @patch("app.workflows.nodes.gelita.resolve_pack_code_skip.ActivityLogService")
-def test_resolve_pack_code_skip_logs_exception_and_completes(
+def test_resolve_pack_code_skip_logs_info_and_completes(
     mock_activity_cls: MagicMock,
     mock_lifecycle_cls: MagicMock,
 ) -> None:
@@ -168,15 +169,16 @@ def test_resolve_pack_code_skip_logs_exception_and_completes(
         )
     )
 
-    activity_service.record_exception.assert_called_once()
-    exception_write = activity_service.record_exception.call_args.args[0]
-    assert exception_write.description == "Pack code 3002 is skipped"
-    assert exception_write.metadata is not None
-    assert exception_write.metadata["error"] == BusinessError.PACK_CODE_SKIPPED.value
-    assert exception_write.metadata["pack_code"] == "3002"
+    activity_service.record_info.assert_called_once()
+    info_write = activity_service.record_info.call_args.args[0]
+    assert info_write.description == "Pack code 3002 is skipped"
+    assert info_write.metadata is not None
+    assert info_write.metadata["error"] == BusinessError.PACK_CODE_SKIPPED.value
+    assert info_write.metadata["pack_code"] == "3002"
 
     lifecycle_service.apply_from_state.assert_called_once()
     kwargs = lifecycle_service.apply_from_state.call_args.kwargs
     assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
     assert kwargs["to_status"] == StatusType.COMPLETED
     assert kwargs["to_sub_status"] == StatusSubType.RESOLVED_MANUALLY
+    assert not kwargs.get("metadata")
