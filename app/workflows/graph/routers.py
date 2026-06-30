@@ -208,18 +208,6 @@ def domestic_delivery_router(state):
     return "domestic" if state.data.get("is_domestic_delivery") else "international"
 
 
-def post_read_tender_router(state):
-    """Route after ``read_tender_row`` by event type, failover, or tender status."""
-    if state.data.get("routing_guide_failover"):
-        return "routing_guide_failover"
-    event_type = str(state.data.get("event_type") or "").strip()
-    if event_type == "carrier_email_received":
-        return "carrier_email_received"
-    if event_type == "tender_created":
-        return domestic_delivery_router(state)
-    return tender_status_router(state)
-
-
 def driver_details_router(state):
     """Route driver_details_email_received LLM decision to graph branch keys."""
     decision = str(state.data.get("driver_details_decision") or DO_NOTHING).strip()
@@ -249,12 +237,15 @@ def tms_driver_router(state):
     if outcome == "error":
         return "error"
     return "error"
-def domestic_delivery_router(state):
-    return "domestic" if state.data.get("is_domestic_delivery") else "international"
 
 
 def post_read_tender_router(state):
+    """Route after ``read_tender_row`` by event type, failover, pack-code skip, or tender status."""
+    if state.data.get("routing_guide_failover"):
+        return "routing_guide_failover"
     event_type = str(state.data.get("event_type") or "").strip()
+    if event_type == "carrier_email_received":
+        return "carrier_email_received"
     if event_type == "tender_created":
         if not state.data.get("is_domestic_delivery"):
             return "international"

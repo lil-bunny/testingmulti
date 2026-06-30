@@ -176,38 +176,28 @@ class CommunicationsService:
         *,
         communication_id: str,
         workflow_run_id: str,
+        workflow_lifecycle_id: str | None = None,
         routing_guide_attempt: int | None = None,
     ) -> bool:
-        """Link carrier ingress to a run; always stamp ``routing_guide_attempt`` when given (even if link is idempotent)."""
-        linked = self.link_inbound_to_workflow_run(
+        """Link carrier ingress to a run and stamp ``workflow_lifecycle_id`` when given."""
+        _ = routing_guide_attempt  # attempt derived from anchor ordinal; kept for call-site compat
+        return self.link_inbound_to_workflow_run(
             communication_id=communication_id,
             workflow_run_id=workflow_run_id,
+            workflow_lifecycle_id=workflow_lifecycle_id,
         )
-        if routing_guide_attempt is not None:
-            patched = self.patch_communication_metadata(
-                communication_id=communication_id,
-                metadata_patch={
-                    "routing_guide_attempt": max(1, int(routing_guide_attempt)),
-                },
-            )
-            if not patched:
-                logger.warning(
-                    "communications carrier ingress metadata patch failed comm_id=%s "
-                    "routing_guide_attempt=%s",
-                    communication_id,
-                    routing_guide_attempt,
-                )
-        return linked
 
     def link_inbound_to_workflow_run(
         self,
         *,
         communication_id: str,
         workflow_run_id: str,
+        workflow_lifecycle_id: str | None = None,
     ) -> bool:
         """Link inbound ``communications`` row to a ``workflow_runs`` id (idempotent)."""
         comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
         run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
         if not comm_id or not run_id:
             return False
         try:
@@ -215,12 +205,14 @@ class CommunicationsService:
                 linked = self._repository.link_workflow_run(
                     communication_id=comm_id,
                     workflow_run_id=run_id,
+                    workflow_lifecycle_id=lid,
                 )
             else:
                 linked = run_with_repos(
                     lambda repos: repos.communications.link_workflow_run(
                         communication_id=comm_id,
                         workflow_run_id=run_id,
+                        workflow_lifecycle_id=lid,
                     )
                 )
             if linked:
@@ -580,10 +572,12 @@ class CommunicationsService:
         tenant_id: str,
         thread_id: str,
         workflow_run_id: str,
+        workflow_lifecycle_id: str | None = None,
     ) -> int:
         tid = self._tenant_uuid_or_none(tenant_id)
         th = self._clean(thread_id)
         run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
         if not tid or not th or not run_id:
             return 0
         try:
@@ -592,6 +586,7 @@ class CommunicationsService:
                     tenant_id=tid,
                     thread_id=th,
                     workflow_run_id=run_id,
+                    workflow_lifecycle_id=lid,
                 )
             else:
                 patched = run_with_repos(
@@ -599,6 +594,7 @@ class CommunicationsService:
                         tenant_id=tid,
                         thread_id=th,
                         workflow_run_id=run_id,
+                        workflow_lifecycle_id=lid,
                     )
                 )
             if patched:

@@ -9,8 +9,18 @@ from app.domain.gelita.routing_guide_lifecycle import (
     routing_guide_has_attempt,
     sync_routing_guide_attempt_to_state,
 )
-from app.domain.load_tendering_settings import (gelita_domestic_delivery_settings, gelita_skipped_pack_codes_settings), is_ftl_load_type, resolve_load_type
-from app.domain.load_tendering_state import (get_tender, get_tender_products, set_tender, tender_from_read_order)
+from app.domain.load_tendering_settings import (
+    gelita_domestic_delivery_settings,
+    gelita_skipped_pack_codes_settings,
+    is_ftl_load_type,
+    resolve_load_type,
+)
+from app.domain.load_tendering_state import (
+    get_tender,
+    get_tender_products,
+    set_tender,
+    tender_from_read_order,
+)
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService

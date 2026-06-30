@@ -139,8 +139,12 @@ def test_advance_carrier_routing_guide_delegates_to_service(mock_service_cls):
     assert state.data["routing_guide_failover"] is True
 
 
+@patch("app.services.routing_guide_lifecycle_service.WorkflowReminderCancelService")
 @patch("app.services.routing_guide_lifecycle_service.run_with_repos")
-def test_routing_guide_lifecycle_service_advance_increments(mock_run):
+def test_routing_guide_lifecycle_service_advance_increments(
+    mock_run, mock_cancel_cls
+):
+    mock_cancel_cls.return_value.cancel_for_attempt.return_value = 0
     repos = MagicMock()
     repos.workflow_lifecycles.read_row_by_id.return_value = {
         "metadata": {"routing_guide_attempt": 1},
@@ -156,6 +160,10 @@ def test_routing_guide_lifecycle_service_advance_increments(mock_run):
     new_attempt = service.advance(state, reason="carrier_rejected")
 
     assert new_attempt == 2
+    mock_cancel_cls.return_value.cancel_for_attempt.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
+        attempt=1,
+    )
     repos.workflow_lifecycles.set_routing_guide_attempt.assert_called_once_with(
         lifecycle_id=LIFECYCLE_UUID,
         attempt=2,

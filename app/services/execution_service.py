@@ -47,12 +47,14 @@ class ExecutionService:
 
         communication_id = payload.get("communication_id")
         event_type = str(payload.get("event_type") or "").strip()
+        wl_id = str(workflow_lifecycle_id or "").strip() or None
         if communication_id:
             comm_id = str(communication_id)
             if event_type == "carrier_email_received":
                 self._communications.link_carrier_email_received_communication(
                     communication_id=comm_id,
                     workflow_run_id=execution_id,
+                    workflow_lifecycle_id=wl_id,
                     routing_guide_attempt=optional_routing_guide_attempt(
                         payload.get("routing_guide_attempt")
                     ),
@@ -61,6 +63,15 @@ class ExecutionService:
                 self._communications.link_inbound_to_workflow_run(
                     communication_id=comm_id,
                     workflow_run_id=execution_id,
+                    workflow_lifecycle_id=wl_id,
+                )
+            thread_id = str(payload.get("thread_id") or "").strip()
+            if thread_id and wl_id:
+                self._communications.link_workflow_run_to_thread(
+                    tenant_id=tenant_id,
+                    thread_id=thread_id,
+                    workflow_run_id=execution_id,
+                    workflow_lifecycle_id=wl_id,
                 )
 
         config = {"configurable": {"thread_id": workflow_lifecycle_id}}

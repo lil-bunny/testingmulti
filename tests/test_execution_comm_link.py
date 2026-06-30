@@ -49,6 +49,7 @@ async def test_execute_links_communication_to_workflow_run() -> None:
     svc._communications.link_inbound_to_workflow_run.assert_called_once_with(
         communication_id=_COMM_UUID,
         workflow_run_id=_RUN_UUID,
+        workflow_lifecycle_id=_LIFECYCLE_UUID,
     )
 
 
@@ -79,7 +80,7 @@ async def test_execute_skips_comm_link_without_communication_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_carrier_email_received_stamps_routing_guide_attempt() -> None:
+async def test_execute_carrier_email_received_links_lifecycle() -> None:
     graph = MagicMock()
     graph.invoke.return_value = {"data": {}}
 
@@ -96,6 +97,7 @@ async def test_execute_carrier_email_received_stamps_routing_guide_attempt() -> 
             "event_type": "carrier_email_received",
             "communication_id": _COMM_UUID,
             "routing_guide_attempt": 2,
+            "thread_id": "thread-carrier-2",
         }
         await svc.execute(
             graph=graph,
@@ -109,6 +111,13 @@ async def test_execute_carrier_email_received_stamps_routing_guide_attempt() -> 
     svc._communications.link_carrier_email_received_communication.assert_called_once_with(
         communication_id=_COMM_UUID,
         workflow_run_id=_RUN_UUID,
+        workflow_lifecycle_id=_LIFECYCLE_UUID,
         routing_guide_attempt=2,
+    )
+    svc._communications.link_workflow_run_to_thread.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        thread_id="thread-carrier-2",
+        workflow_run_id=_RUN_UUID,
+        workflow_lifecycle_id=_LIFECYCLE_UUID,
     )
     svc._communications.link_inbound_to_workflow_run.assert_not_called()

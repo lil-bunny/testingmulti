@@ -22,6 +22,7 @@ from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.services.prompt_service import PromptService
@@ -275,6 +276,9 @@ def record_ack_received(state):
         return state
 
     to_sub = StatusSubType(decision)
+
+    reminder_cancel_service = WorkflowReminderCancelService()
+    reminder_cancel_service.cancel_all(lifecycle_id=wl_id)
 
     lifecycle_transition_service = LifecycleTransitionService()
     command = LifecycleTransitionCommand.from_workflow_state(

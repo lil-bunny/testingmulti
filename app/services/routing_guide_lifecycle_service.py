@@ -27,6 +27,7 @@ from app.domain.load_tendering_settings import (
 from app.models.activity_type import ActivityType, ActorType, is_snapshot_activity_type
 from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 
 logger = get_logger(__name__)
 
@@ -178,6 +179,12 @@ class RoutingGuideLifecycleService:
         wl_id, tenant_id, tender_id, run_id, data = scope
         state_prior = routing_guide_attempt_from_state(data)
         max_attempts = routing_guide_max_attempts(state)
+
+        reminder_cancel_service = WorkflowReminderCancelService()
+        reminder_cancel_service.cancel_for_attempt(
+            lifecycle_id=wl_id,
+            attempt=state_prior,
+        )
 
         def _persist(repos: Any) -> int:
             lifecycle_row = repos.workflow_lifecycles.read_row_by_id(wl_id)

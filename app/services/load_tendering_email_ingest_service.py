@@ -91,18 +91,20 @@ def enqueue_gelita_load_tendering_and_link(
         communications_service.link_carrier_email_received_communication(
             communication_id=communication_id,
             workflow_run_id=execution_id,
-            routing_guide_attempt=routing_guide_attempt,
+            workflow_lifecycle_id=workflow_lifecycle_id,
         )
     elif communication_id:
         communications_service.link_inbound_to_workflow_run(
             communication_id=communication_id,
             workflow_run_id=execution_id,
+            workflow_lifecycle_id=workflow_lifecycle_id,
         )
     if thread_id:
         communications_service.link_workflow_run_to_thread(
             tenant_id=tenant_uuid,
             thread_id=thread_id,
             workflow_run_id=execution_id,
+            workflow_lifecycle_id=workflow_lifecycle_id,
         )
 
     return execution_id

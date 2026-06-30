@@ -1,8 +1,8 @@
-"""Routing guide: lifecycle sub-status ladder and master lookup table.
+"""Routing guide: lifecycle sub-status ladder and master lookup table and add `workflow_lifecycle_id` onto communications
 
-Revision ID: 20260626_01
-Revises: 20260623_01
-Create Date: 2026-06-26
+Revision ID: 20260630_02
+Revises: 20260630_01
+Create Date: 2026-06-30
 
 Appends six ``lifecycle_sub_status`` values for capped per-carrier display:
 ``tender_sent_to_tenant_for_carrier_{1..3}`` and ``tender_sent_to_carrier_{1..3}``.
@@ -21,8 +21,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "20260626_01"
-down_revision: Union[str, Sequence[str], None] = "20260623_01"
+revision: str = "20260630_02"
+down_revision: Union[str, Sequence[str], None] = "20260630_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -146,10 +146,30 @@ def _drop_routing_guide_table() -> None:
 
 
 def upgrade() -> None:
+    # add `workflow_lifecycle_id` in communications
+    op.execute(
+        """
+        ALTER TABLE communications
+        ADD COLUMN IF NOT EXISTS workflow_lifecycle_id UUID
+            REFERENCES workflow_lifecycles(id) ON DELETE SET NULL
+        """
+    )
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_communications_tenant_lifecycle_thread
+        ON communications (tenant_id, workflow_lifecycle_id, thread_id)
+        WHERE workflow_lifecycle_id IS NOT NULL
+        """
+    )
+    # routing guide table
     _add_sub_status_values()
     _create_routing_guide_table()
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS idx_communications_tenant_lifecycle_thread")
+    op.execute(
+        "ALTER TABLE communications DROP COLUMN IF EXISTS workflow_lifecycle_id"
+    )
     _drop_routing_guide_table()
     _swap_lifecycle_sub_status_enum(values=_DOWNGRADE_ENUM_VALUES)
