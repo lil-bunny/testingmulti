@@ -27,7 +27,7 @@ def _command(**kwargs) -> LifecycleTransitionCommand:
 
 @pytest.mark.parametrize(
     "activity_type",
-    [ActivityType.ACTION, ActivityType.EXCEPTION],
+    [ActivityType.ACTION, ActivityType.EXCEPTION, ActivityType.INFO],
 )
 def test_snapshot_activity_type_equals_current(activity_type: ActivityType) -> None:
     log_from, log_to, log_from_sub, log_to_sub = build_activity_log_status_fields(
@@ -41,7 +41,7 @@ def test_snapshot_activity_type_equals_current(activity_type: ActivityType) -> N
 
 @pytest.mark.parametrize(
     "activity_type",
-    [ActivityType.ACTION, ActivityType.EXCEPTION],
+    [ActivityType.ACTION, ActivityType.EXCEPTION, ActivityType.INFO],
 )
 def test_snapshot_activity_type_ignores_command_to_fields(
     activity_type: ActivityType,

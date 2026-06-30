@@ -34,10 +34,9 @@ def _matched_skipped_pack_code(state_data: dict[str, Any]) -> str:
 
 
 def resolve_pack_code_skip(state):
-    """Log pack-code skip exception and mark lifecycle resolved manually."""
+    """Log pack-code skip info and mark lifecycle resolved manually."""
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
-    tender_id = str(state.data.get("tender_id") or "").strip()
     run_id = str(state.execution_id or "").strip()
 
     if not wl_id or not tenant_id or not run_id:
@@ -56,8 +55,6 @@ def resolve_pack_code_skip(state):
     }
     if pack_code:
         metadata["pack_code"] = pack_code
-    if tender_id:
-        metadata["tender_id"] = tender_id
 
     description = format_error_message(
         BusinessError.PACK_CODE_SKIPPED,
@@ -65,7 +62,7 @@ def resolve_pack_code_skip(state):
     )
 
     activity_log_service = ActivityLogService()
-    activity_log_service.record_exception(
+    activity_log_service.record_info(
         ActivityLogWrite(
             tenant_id=tenant_id,
             workflow_lifecycle_id=wl_id,
@@ -83,6 +80,5 @@ def resolve_pack_code_skip(state):
         to_status=StatusType.COMPLETED,
         to_sub_status=StatusSubType.RESOLVED_MANUALLY,
         actor_type=ActorType.SYSTEM,
-        metadata=metadata,
     )
     return state

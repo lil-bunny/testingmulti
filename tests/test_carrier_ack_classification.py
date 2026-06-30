@@ -412,7 +412,7 @@ def test_classify_carrier_ack_records_llm_action_activity(
     assert write.workflow_lifecycle_id == LIFECYCLE_UUID
     assert write.workflow_run_id == RUN_UUID
     assert write.communication_id == COMM_UUID
-    assert write.metadata["carrier_ack_decision"] == StatusSubType.DO_NOTHING.value
+    assert "carrier_ack_decision" not in write.metadata
     assert write.metadata["user_input"] == thread_llm
     assert write.metadata["output"] == llm_result
     assert write.metadata["prompt_step_key"] == LOAD_TENDERING_CARRIER_ACK
@@ -432,7 +432,7 @@ def test_record_ack_received_do_nothing_skips_lifecycle(mock_svc_cls: MagicMock)
     mock_svc_cls.return_value = svc
     state = _state(decision=StatusSubType.DO_NOTHING.value)
     out = record_ack_received(state)
-    svc.apply_from_state.assert_not_called()
+    svc.apply.assert_not_called()
     assert "ack_recorded" not in out.data
 
 
@@ -444,9 +444,10 @@ def test_record_ack_received_rejected_records_activity(mock_svc_cls: MagicMock):
     mock_svc_cls.return_value = svc
     state = _state(decision=StatusSubType.REJECTED.value)
     record_ack_received(state)
-    kwargs = svc.apply_from_state.call_args[1]
-    assert kwargs["to_sub_status"] == StatusSubType.REJECTED
-    assert kwargs["activity_type"] == ActivityType.STATUS_CHANGE
+    command = svc.apply.call_args[0][0]
+    assert command.to_sub_status == StatusSubType.REJECTED
+    assert command.activity_type == ActivityType.STATUS_CHANGE
+    assert not command.metadata
 
 
 @patch(
@@ -457,5 +458,5 @@ def test_record_ack_received_accepted_records_activity(mock_svc_cls: MagicMock):
     mock_svc_cls.return_value = svc
     state = _state(decision=StatusSubType.ACCEPTED.value)
     record_ack_received(state)
-    kwargs = svc.apply_from_state.call_args[1]
-    assert kwargs["to_sub_status"] == StatusSubType.ACCEPTED
+    command = svc.apply.call_args[0][0]
+    assert command.to_sub_status == StatusSubType.ACCEPTED

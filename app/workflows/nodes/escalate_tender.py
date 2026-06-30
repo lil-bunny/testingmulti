@@ -20,7 +20,7 @@ from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tools.communication_metadata import outbound_email_metadata, stash_communication_id
+from app.tools.communication_metadata import stash_communication_id
 from app.tools.email import send_email
 from app.tools.load_tendering_lifecycle_guards import (
     delayed_workflow_step_skip_reason,
@@ -126,11 +126,6 @@ def escalate_tender(state):
             account_id=account_id,
             tenant_id=tenant_id,
             workflow_run_id=run_id,
-            communication_metadata={
-                "source": "escalate_tender",
-                "tender_id": tender_id or None,
-                "workflow_lifecycle_id": wl_id,
-            },
         )
     except UnipileException as exc:
         logger.warning(
@@ -186,20 +181,11 @@ def escalate_tender(state):
         state.data["escalation_skipped"] = skip
         return state
 
-    email_meta = outbound_email_metadata(
-        to=recipients.to,
-        cc=recipients.cc,
-        bcc=recipients.bcc,
-    )
-    transition_meta: dict[str, Any] = {
-        "tender_id": tender_id or None,
-        "order_number": order_number or None,
-        **email_meta,
-    }
-    action_meta = dict(transition_meta)
-
     if not run_id:
-        logger.warning("escalate_tender success path skipped lifecycle update: missing execution_id lifecycle_id=%s", wl_id)
+        logger.warning(
+            "escalate_tender success path skipped lifecycle update: missing execution_id lifecycle_id=%s",
+            wl_id,
+        )
         return state
 
     row_after_send = workflow_lifecycle_service.read_lifecycle_row_by_id(wl_id)
@@ -209,14 +195,12 @@ def escalate_tender(state):
         transition_step = ActivityLogStep(
             activity_type=ActivityType.SUB_STATUS_CHANGE,
             to_sub_status=StatusSubType.ESCALATED,
-            metadata=dict(transition_meta),
         )
     else:
         transition_step = ActivityLogStep(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=to_status,
             to_sub_status=StatusSubType.ESCALATED,
-            metadata=dict(transition_meta),
         )
 
     activity_log_service = ActivityLogService()
@@ -229,7 +213,6 @@ def escalate_tender(state):
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
                     description=format_escalation_sent_action(),
-                    metadata=dict(action_meta),
                     communication_id=communication_id,
                 ),
                 transition_step,
