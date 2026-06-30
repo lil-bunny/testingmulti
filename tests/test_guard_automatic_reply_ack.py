@@ -9,10 +9,7 @@ import pytest
 
 from app.workflows.graph.routers import automatic_reply_ack_router
 from app.workflows.nodes.record_ack_received import guard_automatic_reply_ack
-from tests.fixtures.outlook_auto_reply_emails import (
-    EMAIL_ID_OOO_CHRIS,
-    ack_received_ooo_webhook_payload,
-)
+from tests.fixtures.outlook_auto_reply_emails import ack_received_ooo_webhook_payload
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -71,7 +68,6 @@ def test_guard_automatic_reply_ack_records_exception(mock_svc_cls: MagicMock) ->
     assert write.communication_id == COMM_UUID
     assert "automatic reply" in (write.description or "").lower()
     assert write.metadata["reason"] == "automatic_reply"
-    assert write.metadata["email_id"] == EMAIL_ID_OOO_CHRIS
 
 
 @patch("app.workflows.nodes.record_ack_received.ActivityLogService")

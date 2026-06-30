@@ -300,7 +300,6 @@ def inbound_metadata_from_payload(
         "cc": _attendee_emails(payload.get("cc_attendees")),
         "bcc": _attendee_emails(payload.get("bcc_attendees")),
         "event": payload.get("event"),
-        "account_id": payload.get("account_id"),
         "attachments": attachments,
     }
     if extra:
@@ -359,7 +358,6 @@ def outbound_metadata(
     to: Any = None,
     cc: Any = None,
     bcc: Any = None,
-    account_id: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta: dict[str, Any] = {
@@ -368,8 +366,6 @@ def outbound_metadata(
         "cc": _recipient_identifiers(cc),
         "bcc": _recipient_identifiers(bcc),
     }
-    if account_id:
-        meta["account_id"] = account_id
     if extra:
         meta.update(extra)
     return meta
@@ -413,7 +409,6 @@ def outbound_row_from_send(
             to=to,
             cc=cc,
             bcc=bcc,
-            account_id=account_id,
             extra=extra_metadata,
         ),
     }

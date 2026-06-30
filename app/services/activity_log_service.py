@@ -4,7 +4,7 @@ Callable from any workflow node, webhook handler, or Celery task. Resolves graph
 keys (e.g. ``gelita``) to ``tenants.id`` before insert. Failures are logged and return
 ``None`` so graph execution is not blocked.
 
-Use ``record_action``, ``record_exception``, ``record_status_change``, ``record_sub_status_change``,
+Use ``record_action``, ``record_exception``, ``record_info``, ``record_status_change``, ``record_sub_status_change``,
 ``link_communication``, or ``record_sequence`` for lifecycle-scoped rows. ``record_activity`` remains for legacy
 non-lifecycle event type strings only.
 """
@@ -250,6 +250,10 @@ class ActivityLogService:
         """One ``exception`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
         return self._record_snapshot(write, activity_type=ActivityType.EXCEPTION)
 
+    def record_info(self, write: ActivityLogWrite) -> str | None:
+        """One ``info`` row; snapshots lifecycle status/sub_status (no lifecycle update)."""
+        return self._record_snapshot(write, activity_type=ActivityType.INFO)
+
     def link_communication(
         self,
         *,
@@ -416,6 +420,8 @@ class ActivityLogService:
             return self.record_action(routed_write)
         if clean_activity_type == ActivityType.EXCEPTION.value:
             return self.record_exception(routed_write)
+        if clean_activity_type == ActivityType.INFO.value:
+            return self.record_info(routed_write)
         if clean_activity_type == ActivityType.STATUS_CHANGE.value:
             from app.models.status import StatusSubType, StatusType
 

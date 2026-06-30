@@ -133,11 +133,7 @@ class WorkflowReviewService:
                 workflow_lifecycle_id=wl,
                 workflow_run_id=None,
                 description=format_workflow_review_acknowledged_action(),
-                metadata={
-                    "comment": cleaned_comment,
-                    "workflow_lifecycle_id": wl,
-                    "workflow_name": workflow_name,
-                },
+                metadata={"comment": cleaned_comment},
                 actor_type=ActorType.USER,
                 actor_id=str(user.id),
             )
@@ -172,8 +168,6 @@ class WorkflowReviewService:
 
         metadata = {
             "comment": cleaned_comment,
-            "workflow_lifecycle_id": wl,
-            "workflow_name": workflow_name,
             "resolved_via": "portal",
         }
         sequence_result = self._activity_logs.record_sequence(

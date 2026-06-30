@@ -30,3 +30,11 @@ build/
 # OS / archives
 .DS_Store
 *.zip
+
+.agents
+docs
+CONTEXT-MAP.md
+CONTEXT.md
+docker-compose.dev.yml
+scripts
+AGENTS.md

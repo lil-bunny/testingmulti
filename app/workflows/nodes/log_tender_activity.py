@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_tender_sent_to_vendor
 from app.domain.activity_log_write import (
@@ -26,7 +24,6 @@ def log_tender_activity(state):
     """
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = (state.tenant_id or "").strip()
-    tender_id = str(state.data.get("tender_id") or "").strip()
     run_id = str(state.execution_id or "").strip()
     communication_id = str(state.data.get("communication_id") or "").strip() or None
 
@@ -44,9 +41,6 @@ def log_tender_activity(state):
             )
             return state
 
-        transition_meta: dict[str, Any] = {"tender_id": tender_id}
-        action_meta = dict(transition_meta)
-
         activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -56,13 +50,11 @@ def log_tender_activity(state):
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_tender_sent_to_vendor(),
-                        metadata=dict(action_meta),
                         communication_id=communication_id,
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.SUB_STATUS_CHANGE,
                         to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
-                        metadata=dict(transition_meta),
                     ),
                 ),
             )
@@ -80,7 +72,7 @@ def log_tender_activity(state):
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=run_id,
                 to_status=StatusType.FAILED,
-                metadata={"error": str(err), "tender_id": tender_id},
+                metadata={"error": str(err)},
             )
         )
     return state

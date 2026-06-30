@@ -54,7 +54,6 @@ def record_tender_created_activity(state):
                         order_number=order_number,
                         customer_name=customer_name,
                     ),
-                    metadata={"tender_id": tender_id},
                 ),
                 ActivityLogStep(
                     activity_type=ActivityType.STATUS_CHANGE,
@@ -62,7 +61,6 @@ def record_tender_created_activity(state):
                     to_sub_status=StatusSubType.TENDER_CREATED,
                     from_status=StatusType.NONE,
                     from_sub_status=StatusSubType.NONE,
-                    metadata={"tender_id": tender_id},
                 ),
             ),
         )

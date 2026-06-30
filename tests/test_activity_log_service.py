@@ -89,6 +89,7 @@ def test_link_communication_uses_repo(mock_repo: MagicMock) -> None:
     [
         ("record_action", ActivityType.ACTION),
         ("record_exception", ActivityType.EXCEPTION),
+        ("record_info", ActivityType.INFO),
     ],
 )
 def test_record_snapshot_delegates_without_direct_insert(
