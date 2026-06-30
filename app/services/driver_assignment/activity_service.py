@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import (
-    format_details_received_from_email_action,
+from app.domain.driver_assignment.activity_log_descriptions import (
     format_driver_ambiguous_in_tms_action,
     format_driver_assigned_in_tms_action,
     format_driver_assign_to_tms_failed_action,
@@ -14,7 +13,6 @@ from app.domain.activity_log_descriptions import (
     format_driver_confirmation_default_sent_action,
     format_driver_already_assigned_in_tms_action,
     format_driver_assignment_not_started_action,
-    format_driver_assignment_started_action,
     format_driver_created_in_tms_action,
     format_driver_details_partial_follow_up_action,
     format_driver_escalation_sent_action,
@@ -344,11 +342,6 @@ class DriverAssignmentActivityService:
                 workflow_run_id=run_id,
                 steps=(
                     ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_assignment_started_action(),
-                        metadata=meta,
-                    ),
-                    ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         to_status=StatusType.PROCESSING,
                         to_sub_status=StatusSubType.DRIVER_ASSIGNMENT_STARTED,
@@ -408,12 +401,6 @@ class DriverAssignmentActivityService:
         if match_by == "email":
             return match_by, str(driver.get("email") or "?").strip() or "?"
         return match_by, str(driver.get("name") or "?").strip() or "?"
-
-    @staticmethod
-    def _driver_from_state(state) -> dict[str, Any]:
-        extraction = state.data.get("driver_details_extraction") or {}
-        driver = extraction.get("driver") if isinstance(extraction, dict) else {}
-        return driver if isinstance(driver, dict) else {}
 
     def record_tms_driver_not_resolved(self, state) -> None:
         scope = self._scope_ids(state)
@@ -524,10 +511,8 @@ class DriverAssignmentActivityService:
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
-        driver = self._driver_from_state(state)
         meta = self._tms_metadata(state)
         resolution = str(state.data.get("tms_resolution") or "").strip()
-        match_by, match_value = self._tms_match_value(state)
         contact_id = state.data.get("tms_contact_id")
 
         prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
@@ -571,10 +556,7 @@ class DriverAssignmentActivityService:
                 steps.append(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_driver_created_in_tms_action(
-                            name=str(driver.get("name") or "?"),
-                            contact_id=contact_id or "?",
-                        ),
+                        description=format_driver_created_in_tms_action(),
                         metadata=dict(meta),
                     )
                 )
@@ -582,33 +564,8 @@ class DriverAssignmentActivityService:
                 steps.append(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_driver_found_in_tms_action(
-                            match_by=match_by,
-                            match_value=match_value,
-                            contact_id=contact_id,
-                        ),
+                        description=format_driver_found_in_tms_action(),
                         metadata=dict(meta),
-                    )
-                )
-
-            if current_sub != StatusSubType.DETAILS_RECEIVED:
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_details_received_from_email_action(
-                            name=driver.get("name"),
-                            phone=driver.get("phone"),
-                            email=driver.get("email"),
-                        ),
-                        metadata=dict(meta),
-                        communication_id=self._communication_id(state),
-                    )
-                )
-                steps.append(
-                    self._build_success_sub_status_step(
-                        current_status=current_status,
-                        new_sub=StatusSubType.DETAILS_RECEIVED,
-                        metadata=meta,
                     )
                 )
 

@@ -179,6 +179,51 @@ def test_apply_sub_status_change_keeps_pending_review_when_to_status_explicit(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
+def test_apply_sub_status_change_keeps_pending_review_for_pod_reminder_ladder(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "pod_lifecycle",
+    }
+    lifecycles.update_lifecycle.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply(
+        _command(
+            to_status=StatusType.PENDING_REVIEW,
+            to_sub_status=StatusSubType.REMINDER_2_SENT,
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+        )
+    )
+
+    lifecycles.update_lifecycle.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
+        update=LifecycleUpdate(
+            status=StatusType.PENDING_REVIEW,
+            sub_status=StatusSubType.REMINDER_2_SENT,
+            clear_pause=True,
+        ),
+    )
+    row = activity_logs.insert.call_args[0][0]
+    assert row["from_status"] == StatusType.PENDING_REVIEW.value
+    assert row["to_status"] == StatusType.PENDING_REVIEW.value
+    assert row["to_sub_status"] == StatusSubType.REMINDER_2_SENT.value
+    assert result.to_status == StatusType.PENDING_REVIEW
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
 def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     _resolve_tenant: MagicMock,
 ) -> None:

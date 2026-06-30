@@ -10,14 +10,8 @@ from app.models.status import StatusSubType
 DRIVER_ASSIGNMENT_WORKFLOW = "driver_assignment"
 RATECON_WORKFLOW = "ratecon"
 
-DEFAULT_PARTIAL_DRIVER_DETAILS_FOLLOW_UP_HTML = (
-    "<html><body>"
-    "<p>Thanks for your reply.</p>"
-    "<p>We still need <strong>complete driver details</strong> for this load.</p>"
-    "<p>Please reply with the driver&apos;s <strong>full name</strong> and "
-    "<strong>mobile number</strong> (or email address).</p>"
-    "<p>If you already sent this, please reply again with both in one message.</p>"
-    "</body></html>"
+from app.domain.driver_assignment.partial_follow_up_email import (
+    DEFAULT_PARTIAL_DRIVER_DETAILS_FOLLOW_UP_HTML,
 )
 
 PREPARE_REQUIRED_KEYS = (
@@ -40,7 +34,6 @@ LAYER1_ACTIVITY_SKIP_REASONS = frozenset(
 
 DRIVER_DETAILS_TERMINAL_SUB_STATUSES = frozenset(
     {
-        StatusSubType.DETAILS_RECEIVED,
         StatusSubType.DRIVER_DETAILS_EMAIL_RECEIVED,
         StatusSubType.UPLOADED_TO_TMS,
         StatusSubType.CANCELLED,

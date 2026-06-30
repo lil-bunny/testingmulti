@@ -10,7 +10,7 @@ from app.configs.workflow_cancellation_policies import (
     DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
 )
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import (
+from app.domain.driver_assignment.activity_log_descriptions import (
     format_driver_assignment_cancelled_ratecon_superseded_action,
     format_driver_assignment_cancelled_tendered_action,
 )

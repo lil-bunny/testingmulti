@@ -48,7 +48,7 @@ def test_record_started_skips_without_reminders_scheduled():
     activity.record_sequence.assert_not_called()
 
 
-def test_record_started_writes_action_and_status():
+def test_record_started_writes_status_only():
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -63,11 +63,10 @@ def test_record_started_writes_action_and_status():
     svc.record_started(_state())
 
     sequence = activity.record_sequence.call_args.args[0]
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[1].to_status == StatusType.PROCESSING
-    assert sequence.steps[1].to_sub_status == StatusSubType.DRIVER_ASSIGNMENT_STARTED
+    assert len(sequence.steps) == 1
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.PROCESSING
+    assert sequence.steps[0].to_sub_status == StatusSubType.DRIVER_ASSIGNMENT_STARTED
 
 
 def _reminder_state(**data_overrides):
@@ -225,7 +224,7 @@ def test_record_reminder_sent_partial_follow_up_action_template():
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
 
 
-def test_record_tms_driver_success_found_marks_details_received():
+def test_record_tms_driver_success_found_logs_tms_actions():
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -241,7 +240,9 @@ def test_record_tms_driver_success_found_marks_details_received():
         tms_contact_id=123,
         tms_search_match_by="phone",
         tms_driver_outcome="assigned",
+        driver_details_decision="has_details",
         driver_details_extraction={
+            "decision": "has_details",
             "driver": {"name": "John Doe", "phone": "555-0100", "email": None},
         },
     )
@@ -260,9 +261,9 @@ def test_record_tms_driver_success_found_marks_details_received():
         if step.activity_type == ActivityType.SUB_STATUS_CHANGE
     ]
     assert any("found in tms" in d for d in descriptions)
-    assert any("details received" in d for d in descriptions)
-    assert StatusSubType.DETAILS_RECEIVED in sub_statuses
-    assert StatusSubType.UPLOADED_TO_TMS in sub_statuses
+    assert not any("details received" in d for d in descriptions)
+    assert StatusSubType.DETAILS_RECEIVED not in sub_statuses
+    assert sub_statuses == [StatusSubType.UPLOADED_TO_TMS]
     transition_steps = [
         step
         for step in sequence.steps
@@ -270,6 +271,50 @@ def test_record_tms_driver_success_found_marks_details_received():
     ]
     assert all(step.to_status == StatusType.PENDING_REVIEW for step in transition_steps)
     assert state.data["driver_details_recorded"] is True
+
+
+def test_record_tms_driver_success_insufficient_skips_extra_actions():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_2_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        communication_id="inbound-comm-1",
+        tms_resolution="found",
+        tms_contact_id=123,
+        tms_search_match_by="name",
+        tms_driver_outcome="assigned",
+        driver_details_decision="insufficient",
+        driver_details_extraction={
+            "decision": "insufficient",
+            "driver": {"name": "Emily Sharma", "phone": None, "email": None},
+        },
+    )
+
+    svc.record_tms_driver_success(state)
+
+    sequence = activity.record_sequence.call_args.args[0]
+    descriptions = [
+        step.description.lower()
+        for step in sequence.steps
+        if step.description
+    ]
+    sub_statuses = [
+        step.to_sub_status
+        for step in sequence.steps
+        if step.activity_type == ActivityType.SUB_STATUS_CHANGE
+    ]
+    assert any("found in tms" in d for d in descriptions)
+    assert not any("details received" in d for d in descriptions)
+    assert StatusSubType.DETAILS_RECEIVED not in sub_statuses
+    assert sub_statuses == [StatusSubType.UPLOADED_TO_TMS]
+    assert all(step.communication_id is None for step in sequence.steps)
 
 
 def test_record_tms_driver_success_from_processing_no_pending_review():
@@ -288,7 +333,9 @@ def test_record_tms_driver_success_from_processing_no_pending_review():
         tms_contact_id=123,
         tms_search_match_by="phone",
         tms_driver_outcome="assigned",
+        driver_details_decision="has_details",
         driver_details_extraction={
+            "decision": "has_details",
             "driver": {"name": "John Doe", "phone": "555-0100", "email": None},
         },
     )
@@ -307,7 +354,6 @@ def test_record_tms_driver_success_from_processing_no_pending_review():
     )
     assert all(step.to_status == StatusType.PROCESSING for step in transition_steps)
     assert [step.to_sub_status for step in transition_steps] == [
-        StatusSubType.DETAILS_RECEIVED,
         StatusSubType.UPLOADED_TO_TMS,
     ]
 
@@ -378,45 +424,6 @@ def test_record_tms_driver_not_resolved_uses_tms_metadata_keys():
     assert "turvo_" not in "".join(meta.keys())
     assert "not found in TMS" in sequence.steps[0].description
     assert sequence.steps[0].communication_id is None
-
-
-def test_record_tms_driver_success_tms_actions_omit_inbound_communication_id():
-    activity = MagicMock()
-    lifecycle = MagicMock()
-    lifecycle.read_lifecycle_row_by_id.return_value = {
-        "status": StatusType.PENDING_REVIEW.value,
-        "sub_status": StatusSubType.REMINDER_2_SENT.value,
-    }
-    svc = DriverAssignmentActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
-    state = _state(
-        communication_id="inbound-comm-1",
-        tms_resolution="found",
-        tms_contact_id=123,
-        tms_search_match_by="phone",
-        tms_driver_outcome="assigned",
-        driver_details_extraction={
-            "driver": {"name": "John Doe", "phone": "555-0100", "email": None},
-        },
-    )
-
-    svc.record_tms_driver_success(state)
-
-    sequence = activity.record_sequence.call_args.args[0]
-    comm_by_kind: dict[str, str | None] = {}
-    for step in sequence.steps:
-        desc = (step.description or "").lower()
-        if "found in tms" in desc:
-            comm_by_kind["found"] = step.communication_id
-        elif "details received" in desc:
-            comm_by_kind["details_received"] = step.communication_id
-        elif "assigned to shipment in tms" in desc:
-            comm_by_kind["assigned"] = step.communication_id
-    assert comm_by_kind["found"] is None
-    assert comm_by_kind["assigned"] is None
-    assert comm_by_kind["details_received"] == "inbound-comm-1"
 
 
 def test_record_tms_driver_success_skipped_already_assigned_completes():

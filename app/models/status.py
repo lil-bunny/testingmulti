@@ -29,7 +29,7 @@ class StatusSubType(StrEnum):
     POD_STARTED = "pod_started"
     DRIVER_ASSIGNMENT_STARTED = "driver_assignment_started"
     DRIVER_DETAILS_EMAIL_RECEIVED = "driver_details_email_received"  # legacy DB rows
-    DETAILS_RECEIVED = "details_received"
+    DETAILS_RECEIVED = "details_received"  # legacy DB rows only; do not write
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     DO_NOTHING = "do_nothing"

@@ -583,6 +583,45 @@ def test_send_partial_details_follow_up_email_bumps_reminder_step():
     assert "complete driver details" in comms.send_thread_reply.call_args.kwargs["body"]
 
 
+def test_send_partial_details_follow_up_uses_tenant_template():
+    comms = MagicMock()
+    comms.resolve_thread_for_lifecycle.return_value = "thread-1"
+    comms.send_thread_reply.return_value = {
+        "success": True,
+        "communication_id": "comm-partial-custom",
+    }
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+    }
+    svc = DriverAssignmentIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+
+    result = svc.send_partial_details_follow_up_email(
+        tenant_id=_TENANT_ID,
+        tenant_settings={
+            "mikey_account_id": "acct-1",
+            "driver_assignment": {
+                "partial_follow_up_email": {
+                    "template_html": "<p>Please send name and phone for load</p>",
+                }
+            },
+        },
+        payload=_base_payload(
+            event_type="driver_details_email_received",
+            workflow_lifecycle_id=_DRIVER_LC_ID,
+        ),
+        workflow_run_id="run-1",
+    )
+
+    assert result.sent is True
+    call_kwargs = comms.send_thread_reply.call_args.kwargs
+    assert call_kwargs["body"] == "<p>Please send name and phone for load</p>"
+
+
 def test_send_partial_follow_up_at_reminder_4_still_sends():
     comms = MagicMock()
     comms.resolve_thread_for_lifecycle.return_value = "thread-1"

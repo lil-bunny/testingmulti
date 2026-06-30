@@ -52,11 +52,10 @@ def test_record_pod_started_activity_calls_record_sequence(
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.tenant_id == TENANT_UUID
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[1].to_status == StatusType.PROCESSING
-    assert sequence.steps[1].to_sub_status == StatusSubType.POD_STARTED
+    assert len(sequence.steps) == 1
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.PROCESSING
+    assert sequence.steps[0].to_sub_status == StatusSubType.POD_STARTED
 
 
 @patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
@@ -148,8 +147,8 @@ def test_record_pod_reminder_activity_step2_sub_status_change(
 
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
-    assert sequence.steps[1].to_status is None
 
 
 @patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
@@ -175,6 +174,7 @@ def test_record_pod_reminder_activity_step3_sub_status_change(
 
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_3_SENT
 
 

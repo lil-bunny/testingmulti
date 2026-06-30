@@ -6,15 +6,15 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.driver_assignment.confirmation_email import parse_driver_assignment_confirmation_email
+from app.domain.driver_assignment.partial_follow_up_email import (
+    resolve_partial_follow_up_email,
+)
 from app.domain.tenant_settings.workflow_shadow_mode import (
     parse_shadow_mail_recipients,
     workflow_shadow_active,
 )
 from app.tools.driver_details import render_driver_confirmation_html
-from app.services.driver_assignment.ingress_types import (
-    DEFAULT_PARTIAL_DRIVER_DETAILS_FOLLOW_UP_HTML,
-    SendReminderResult,
-)
+from app.services.driver_assignment.ingress_types import SendReminderResult
 from app.services.unipile_service import UnipileException
 from app.services.workflow_shadow_mail_service import WorkflowShadowMailService
 
@@ -260,8 +260,7 @@ class IngressEmailMixin:
 
         send_payload["reminder_step"] = log_step
 
-        send_payload["body"] = DEFAULT_PARTIAL_DRIVER_DETAILS_FOLLOW_UP_HTML
-
+        send_payload["body"] = resolve_partial_follow_up_email(tenant_settings)
         send_payload.pop("subject", None)
 
         send_payload["reminder_email_source"] = "driver_details_partial_follow_up"

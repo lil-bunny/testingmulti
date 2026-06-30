@@ -349,6 +349,51 @@ def pickup_appointment_from_payload(payload: dict[str, Any]) -> PickupAppointmen
     return None
 
 
+def _delivery_stop_from_customer_order_routes(
+    details: dict[str, Any],
+) -> dict[str, Any] | None:
+    orders = details.get("customerOrder")
+    if not isinstance(orders, list):
+        return None
+    for order in orders:
+        if not isinstance(order, dict) or order.get("deleted"):
+            continue
+        route = order.get("route")
+        if not isinstance(route, list):
+            continue
+        active = [s for s in route if isinstance(s, dict) and not s.get("deleted")]
+        if active:
+            return active[-1]
+    return None
+
+
+def delivery_appointment_from_payload(
+    payload: dict[str, Any],
+) -> tuple[datetime | None, str | None]:
+    """Delivery appointment from last active route stop (globalRoute, then customerOrder)."""
+    if not isinstance(payload, dict):
+        return None, None
+    details = payload.get("details")
+    if not isinstance(details, dict):
+        details = {}
+
+    route_stops = active_route_stops(global_route_stops_from_payload(payload))
+    if route_stops:
+        try:
+            dt, tz = _datetime_from_stop_appointment(last_active_route_stop(route_stops))
+            if dt is not None:
+                return dt, tz
+        except ValueError:
+            pass
+
+    route_stop = _delivery_stop_from_customer_order_routes(details)
+    if route_stop is not None:
+        dt, tz = _datetime_from_stop_appointment(route_stop)
+        if dt is not None:
+            return dt, tz
+    return None, None
+
+
 TL_TRANSPORTATION_MODE_KEY = "24105"
 COVERED_STATUS_CODE_KEY = "2102"
 _EXCLUDED_CARRIER_NAME_SUBSTRINGS = ("a&v palacio truck lines", "convoy")
@@ -453,43 +498,6 @@ def driver_assigned_from_payload(payload: dict[str, Any]) -> bool:
     return False
 
 
-def _date_from_stop_appointment(stop: dict[str, Any]) -> date | None:
-    appt = stop.get("appointment")
-    if not isinstance(appt, dict):
-        return None
-    for key in ("date", "start"):
-        raw = appt.get(key)
-        if raw is None or not str(raw).strip():
-            continue
-        text = str(raw).strip()
-        try:
-            if "T" in text:
-                return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
-            return date.fromisoformat(text[:10])
-        except ValueError:
-            continue
-    return None
-
-
-def _delivery_date_from_customer_order_routes(details: dict[str, Any]) -> date | None:
-    orders = details.get("customerOrder")
-    if not isinstance(orders, list):
-        return None
-    for order in orders:
-        if not isinstance(order, dict) or order.get("deleted"):
-            continue
-        route = order.get("route")
-        if not isinstance(route, list):
-            continue
-        active = [s for s in route if isinstance(s, dict) and not s.get("deleted")]
-        if not active:
-            continue
-        parsed = _date_from_stop_appointment(active[-1])
-        if parsed is not None:
-            return parsed
-    return None
-
-
 def shipment_display_fields_from_payload(payload: dict[str, Any]) -> ShipmentDisplayFields:
     """Map Turvo GET ``/shipments/{id}`` JSON to display columns for ``shipments``."""
     if not isinstance(payload, dict):
@@ -508,22 +516,22 @@ def shipment_display_fields_from_payload(payload: dict[str, Any]) -> ShipmentDis
         "carrier",
     )
 
-    delivery_date: date | None = None
-    route_stops = active_route_stops(global_route_stops_from_payload(payload))
-    if route_stops:
-        try:
-            delivery_date = _date_from_stop_appointment(
-                last_active_route_stop(route_stops)
-            )
-        except ValueError:
-            delivery_date = None
-    if delivery_date is None:
-        delivery_date = _delivery_date_from_customer_order_routes(details)
+    pickup_date: datetime | None = None
+    pickup_timezone: str | None = None
+    pickup = pickup_appointment_from_payload(payload)
+    if pickup is not None:
+        pickup_date = pickup.at_utc
+        pickup_timezone = pickup.timezone
+
+    delivery_date, delivery_timezone = delivery_appointment_from_payload(payload)
 
     return ShipmentDisplayFields(
         carrier_name=carrier_name,
         customer_name=customer_name,
+        pickup_date=pickup_date,
+        pickup_timezone=pickup_timezone,
         delivery_date=delivery_date,
+        delivery_timezone=delivery_timezone,
     )
 
 

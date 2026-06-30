@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import format_driver_details_llm_action
+from app.domain.driver_assignment.activity_log_descriptions import format_driver_details_llm_action
 from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.prompt_step_keys import DRIVER_ASSIGNMENT_DRIVER_DETAILS
 from app.integrations.langsmith import (

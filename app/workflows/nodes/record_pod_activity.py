@@ -11,7 +11,6 @@ from app.domain.activity_log_descriptions import (
     format_pod_document_uploaded_action,
     format_pod_escalation_sent_action,
     format_pod_extraction_processed_action,
-    format_pod_started_action,
     format_pod_vs_ratecon_validated_action,
     format_pod_vs_ratecon_validation_failed_action,
     format_pod_vs_ratecon_validation_skipped_action,
@@ -286,6 +285,7 @@ def _build_reminder_transition_step(
     if current_status == to_status:
         return ActivityLogStep(
             activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_status=to_status,
             to_sub_status=new_sub,
             metadata=dict(metadata),
         )
@@ -325,7 +325,7 @@ def record_pod_started_activity(state):
     """
     Log POD lifecycle started after reminders are scheduled on ``route_completed``.
 
-    ACTION + STATUS_CHANGE: ``none/processing``, ``none/pod_started``.
+    STATUS_CHANGE only: ``none/processing``, ``none/pod_started``.
     """
     if not state.data.get("reminders_scheduled"):
         logger.info(
@@ -362,11 +362,6 @@ def record_pod_started_activity(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=run_id,
             steps=(
-                ActivityLogStep(
-                    activity_type=ActivityType.ACTION,
-                    description=format_pod_started_action(),
-                    metadata=meta,
-                ),
                 ActivityLogStep(
                     activity_type=ActivityType.STATUS_CHANGE,
                     to_status=StatusType.PROCESSING,

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime, timezone
 
-from app.integrations.turvo.shipments import shipment_display_fields_from_payload
+from app.integrations.turvo.shipments import (
+    delivery_appointment_from_payload,
+    shipment_display_fields_from_payload,
+)
 
 SHIPMENT_1000324895_FIXTURE: dict = {
     "details": {
@@ -29,12 +32,20 @@ SHIPMENT_1000324895_FIXTURE: dict = {
                 "deleted": False,
                 "name": "Diamond Pet Foods - Ripon",
                 "address": {"city": "Ripon", "state": "CA"},
+                "stopType": {"value": "Pickup"},
+                "timezone": "America/Los_Angeles",
+                "appointment": {"date": "2026-03-30T14:00:00Z", "timeZone": "America/Los_Angeles"},
             },
             {
                 "deleted": False,
                 "name": "PETCO DC 810",
                 "address": {"city": "CRANBURY", "state": "NJ"},
-                "appointment": {"date": "2026-04-01T07:01:00Z"},
+                "stopType": {"value": "Delivery"},
+                "timezone": "America/New_York",
+                "appointment": {
+                    "date": "2026-04-01T07:01:00Z",
+                    "timeZone": "America/New_York",
+                },
             },
         ],
     }
@@ -45,7 +56,10 @@ def test_shipment_display_fields_from_payload_full_fixture() -> None:
     out = shipment_display_fields_from_payload(SHIPMENT_1000324895_FIXTURE)
     assert out.customer_name == "DIAMOND PET FOODS"
     assert out.carrier_name == "Turvo Test Carrier"
-    assert out.delivery_date == date(2026, 4, 1)
+    assert out.pickup_date == datetime(2026, 3, 30, 14, 0, tzinfo=timezone.utc)
+    assert out.pickup_timezone == "America/Los_Angeles"
+    assert out.delivery_date == datetime(2026, 4, 1, 7, 1, tzinfo=timezone.utc)
+    assert out.delivery_timezone == "America/New_York"
 
 
 def test_shipment_display_fields_skips_deleted_carrier_order() -> None:
@@ -72,7 +86,10 @@ def test_shipment_display_fields_customer_order_route_fallback() -> None:
                     "route": [
                         {
                             "deleted": False,
-                            "appointment": {"start": "2026-05-15T10:00:00Z"},
+                            "appointment": {
+                                "start": "2026-05-15T10:00:00Z",
+                                "timeZone": "America/Chicago",
+                            },
                         }
                     ],
                 }
@@ -83,11 +100,35 @@ def test_shipment_display_fields_customer_order_route_fallback() -> None:
     }
     out = shipment_display_fields_from_payload(payload)
     assert out.customer_name == "Acme"
-    assert out.delivery_date == date(2026, 5, 15)
+    assert out.delivery_date == datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    assert out.delivery_timezone == "America/Chicago"
+
+
+def test_delivery_appointment_from_payload_customer_order_fallback() -> None:
+    payload = {
+        "details": {
+            "customerOrder": [
+                {
+                    "deleted": False,
+                    "route": [
+                        {
+                            "deleted": False,
+                            "appointment": {"start": "2026-05-15T10:00:00Z", "timeZone": "America/Chicago"},
+                        }
+                    ],
+                }
+            ],
+            "globalRoute": [],
+        }
+    }
+    at, tz = delivery_appointment_from_payload(payload)
+    assert at == datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    assert tz == "America/Chicago"
 
 
 def test_shipment_display_fields_empty_payload() -> None:
     out = shipment_display_fields_from_payload({})
     assert out.customer_name is None
     assert out.carrier_name is None
+    assert out.pickup_date is None
     assert out.delivery_date is None
