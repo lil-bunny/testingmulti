@@ -31,7 +31,6 @@ from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip
 logger = get_logger(__name__)
 
 _DRIVER_ASSIGNMENT_WORKFLOW = "driver_assignment"
-_EMPTY_META: dict[str, Any] = {}
 
 
 class DriverAssignmentActivityService:
@@ -63,7 +62,7 @@ class DriverAssignmentActivityService:
         return cid or None
 
     @staticmethod
-    def _tms_assign_metadata(state) -> dict[str, Any]:
+    def _tms_assign_metadata(state) -> dict[str, Any] | None:
         """Event-specific metadata for a successful TMS driver assign action only."""
         meta: dict[str, Any] = {}
         extraction = state.data.get("driver_details_extraction") or {}
@@ -80,7 +79,7 @@ class DriverAssignmentActivityService:
             meta["tms_contact_id"] = contact_id
         if state.data.get("tms_contact_created"):
             meta["tms_contact_created"] = True
-        return meta
+        return meta or None
 
     @staticmethod
     def _lifecycle_already_started(row: dict[str, Any] | None) -> bool:
@@ -121,13 +120,11 @@ class DriverAssignmentActivityService:
                 activity_type=ActivityType.SUB_STATUS_CHANGE,
                 to_status=to_status,
                 to_sub_status=new_sub,
-                metadata=_EMPTY_META,
             )
         return ActivityLogStep(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=to_status,
             to_sub_status=new_sub,
-            metadata=_EMPTY_META,
         )
 
     @staticmethod
@@ -141,7 +138,6 @@ class DriverAssignmentActivityService:
             activity_type=ActivityType.SUB_STATUS_CHANGE,
             to_status=preserve_status,
             to_sub_status=new_sub,
-            metadata=_EMPTY_META,
         )
 
     def record_not_started_on_ratecon(
@@ -175,7 +171,6 @@ class DriverAssignmentActivityService:
                         description=format_driver_assignment_not_started_action(
                             reason=skip_reason
                         ),
-                        metadata=_EMPTY_META,
                     ),
                 ),
             )
@@ -249,7 +244,6 @@ class DriverAssignmentActivityService:
                         ActivityLogStep(
                             activity_type=ActivityType.ACTION,
                             description=action_description,
-                            metadata=_EMPTY_META,
                             communication_id=self._communication_id(state),
                         ),
                     ),
@@ -272,7 +266,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=action_description,
-                        metadata=_EMPTY_META,
                         communication_id=self._communication_id(state),
                     ),
                     transition_step,
@@ -321,7 +314,6 @@ class DriverAssignmentActivityService:
                         to_sub_status=StatusSubType.DRIVER_ASSIGNMENT_STARTED,
                         from_status=StatusType.NONE,
                         from_sub_status=StatusSubType.NONE,
-                        metadata=_EMPTY_META,
                     ),
                 ),
             )
@@ -355,7 +347,6 @@ class DriverAssignmentActivityService:
                 ActivityLogStep(
                     activity_type=ActivityType.INFO,
                     description=format_driver_not_found_in_tms_action(),
-                    metadata=_EMPTY_META,
                 )
             )
         elif resolution == "ambiguous":
@@ -368,7 +359,6 @@ class DriverAssignmentActivityService:
                         match_value=match_value,
                         count=count,
                     ),
-                    metadata=_EMPTY_META,
                 )
             )
         if not steps:
@@ -397,7 +387,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_driver_assign_to_tms_failed_action(reason=reason),
-                        metadata=_EMPTY_META,
                     ),
                 ),
             )
@@ -418,14 +407,12 @@ class DriverAssignmentActivityService:
                 to_status=StatusType.COMPLETED,
                 from_sub_status=from_sub_status,
                 to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                metadata=_EMPTY_META,
             )
         if from_sub_status != StatusSubType.UPLOADED_TO_TMS:
             return ActivityLogStep(
                 activity_type=ActivityType.SUB_STATUS_CHANGE,
                 from_sub_status=from_sub_status,
                 to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                metadata=_EMPTY_META,
             )
         return None
 
@@ -448,7 +435,6 @@ class DriverAssignmentActivityService:
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
                     description=format_driver_already_assigned_in_tms_action(),
-                    metadata=_EMPTY_META,
                 )
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
@@ -512,7 +498,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=description,
-                        metadata=_EMPTY_META,
                         communication_id=self._communication_id(state),
                     ),
                 ),
@@ -584,7 +569,6 @@ class DriverAssignmentActivityService:
             from_sub_status=from_sub,
             from_status=current_status,
             to_status=current_status,
-            metadata=_EMPTY_META,
         )
 
         self._activity.record_sequence(
@@ -596,7 +580,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_driver_escalation_sent_action(),
-                        metadata=_EMPTY_META,
                     ),
                     transition_step,
                 ),

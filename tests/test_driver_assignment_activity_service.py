@@ -416,7 +416,7 @@ def test_record_reminder_sent_partial_follow_up_at_cap_action_only():
     assert len(sequence.steps) == 1
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert "partial follow-up" in sequence.steps[0].description.lower()
-    assert sequence.steps[0].metadata == {}
+    assert sequence.steps[0].metadata is None
 
 
 def test_record_not_started_on_ratecon_action_only():
@@ -439,7 +439,7 @@ def test_record_not_started_on_ratecon_action_only():
     assert "pickup_appointment_not_found" in sequence.steps[0].description
 
 
-def test_record_tms_driver_not_resolved_has_empty_metadata():
+def test_record_tms_driver_not_resolved_omits_metadata():
     activity = MagicMock()
     svc = DriverAssignmentActivityService(activity_log_service=activity)
     state = _state(
@@ -452,8 +452,7 @@ def test_record_tms_driver_not_resolved_has_empty_metadata():
     )
     svc.record_tms_driver_not_resolved(state)
     sequence = activity.record_sequence.call_args.args[0]
-    meta = sequence.steps[0].metadata
-    assert meta == {}
+    assert sequence.steps[0].metadata is None
     assert sequence.steps[0].activity_type == ActivityType.INFO
     assert "not found in TMS" in sequence.steps[0].description
     assert sequence.steps[0].communication_id is None
