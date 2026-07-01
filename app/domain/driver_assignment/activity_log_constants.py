@@ -14,12 +14,10 @@ DRIVER_ASSIGNMENT_CANCELLED_RATECON_SUPERSEDED_ACTION = (
 )
 DRIVER_REMINDER_SENT_TEMPLATE = "Driver reminder {step} sent"
 DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE = "Driver details partial follow-up sent"
-DRIVER_FOUND_IN_TMS_ACTION = "Driver found in TMS"
 DRIVER_NOT_FOUND_IN_TMS_TEMPLATE = "Driver not found in TMS"
 DRIVER_AMBIGUOUS_IN_TMS_TEMPLATE = (
     "Multiple drivers found in TMS ({match_by}={match_value}, count={count})"
 )
-DRIVER_CREATED_IN_TMS_ACTION = "Driver contact created in TMS"
 DRIVER_ASSIGNED_IN_TMS_ACTION = "Driver assigned to shipment in TMS"
 DRIVER_ALREADY_ASSIGNED_IN_TMS_ACTION = (
     "Driver already assigned on shipment in TMS; assign skipped"

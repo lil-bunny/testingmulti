@@ -236,7 +236,7 @@ def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     }
     lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
-    activity_logs.insert.side_effect = ["details-log-id", "uploaded-log-id"]
+    activity_logs.insert.side_effect = ["reminder-log-id", "uploaded-log-id"]
 
     svc = LifecycleTransitionService(
         lifecycles_repo=lifecycles,
@@ -245,7 +245,7 @@ def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     result = svc.apply_sequence(
         _command(
             to_status=StatusType.PROCESSING,
-            to_sub_status=StatusSubType.DETAILS_RECEIVED,
+            to_sub_status=StatusSubType.REMINDER_3_SENT,
             activity_type=ActivityType.SUB_STATUS_CHANGE,
             description=None,
         ),
@@ -261,11 +261,11 @@ def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     assert lifecycles.update_lifecycle.call_count == 2
     for call in lifecycles.update_lifecycle.call_args_list:
         assert call.kwargs["update"].status == StatusType.PROCESSING
-    details_row = activity_logs.insert.call_args_list[0][0][0]
+    reminder_row = activity_logs.insert.call_args_list[0][0][0]
     uploaded_row = activity_logs.insert.call_args_list[1][0][0]
-    assert details_row["from_status"] == StatusType.PROCESSING.value
-    assert details_row["to_status"] == StatusType.PROCESSING.value
-    assert details_row["to_sub_status"] == StatusSubType.DETAILS_RECEIVED.value
+    assert reminder_row["from_status"] == StatusType.PROCESSING.value
+    assert reminder_row["to_status"] == StatusType.PROCESSING.value
+    assert reminder_row["to_sub_status"] == StatusSubType.REMINDER_3_SENT.value
     assert uploaded_row["from_status"] == StatusType.PROCESSING.value
     assert uploaded_row["to_status"] == StatusType.PROCESSING.value
     assert uploaded_row["to_sub_status"] == StatusSubType.UPLOADED_TO_TMS.value

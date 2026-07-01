@@ -224,7 +224,7 @@ def test_record_reminder_sent_partial_follow_up_action_template():
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
 
 
-def test_record_tms_driver_success_found_logs_tms_actions():
+def test_record_tms_driver_success_logs_single_assign_action():
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -250,19 +250,16 @@ def test_record_tms_driver_success_found_logs_tms_actions():
     svc.record_tms_driver_success(state)
 
     sequence = activity.record_sequence.call_args.args[0]
-    descriptions = [
-        step.description.lower()
-        for step in sequence.steps
-        if step.description
+    action_steps = [
+        step for step in sequence.steps if step.activity_type == ActivityType.ACTION
     ]
     sub_statuses = [
         step.to_sub_status
         for step in sequence.steps
         if step.activity_type == ActivityType.SUB_STATUS_CHANGE
     ]
-    assert any("found in tms" in d for d in descriptions)
-    assert not any("details received" in d for d in descriptions)
-    assert StatusSubType.DETAILS_RECEIVED not in sub_statuses
+    assert len(action_steps) == 1
+    assert "assigned to shipment in tms" in action_steps[0].description.lower()
     assert sub_statuses == [StatusSubType.UPLOADED_TO_TMS]
     transition_steps = [
         step
@@ -273,7 +270,41 @@ def test_record_tms_driver_success_found_logs_tms_actions():
     assert state.data["driver_details_recorded"] is True
 
 
-def test_record_tms_driver_success_insufficient_skips_extra_actions():
+def test_record_tms_driver_success_created_logs_single_assign_action():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_3_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        tms_resolution="created",
+        tms_contact_id=640861,
+        tms_contact_created=True,
+        tms_search_match_by="name_and_phone",
+        tms_driver_outcome="assigned",
+        driver_details_extraction={
+            "driver": {"name": "Lily Potter", "phone": "+19832487248"},
+        },
+    )
+
+    svc.record_tms_driver_success(state)
+
+    sequence = activity.record_sequence.call_args.args[0]
+    action_steps = [
+        step for step in sequence.steps if step.activity_type == ActivityType.ACTION
+    ]
+    assert len(action_steps) == 1
+    assert "assigned to shipment in tms" in action_steps[0].description.lower()
+    assert action_steps[0].metadata["tms_resolution"] == "created"
+    assert action_steps[0].metadata["tms_contact_created"] is True
+
+
+def test_record_tms_driver_success_insufficient_still_logs_assign():
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -300,19 +331,16 @@ def test_record_tms_driver_success_insufficient_skips_extra_actions():
     svc.record_tms_driver_success(state)
 
     sequence = activity.record_sequence.call_args.args[0]
-    descriptions = [
-        step.description.lower()
-        for step in sequence.steps
-        if step.description
+    action_steps = [
+        step for step in sequence.steps if step.activity_type == ActivityType.ACTION
     ]
     sub_statuses = [
         step.to_sub_status
         for step in sequence.steps
         if step.activity_type == ActivityType.SUB_STATUS_CHANGE
     ]
-    assert any("found in tms" in d for d in descriptions)
-    assert not any("details received" in d for d in descriptions)
-    assert StatusSubType.DETAILS_RECEIVED not in sub_statuses
+    assert len(action_steps) == 1
+    assert "assigned to shipment in tms" in action_steps[0].description.lower()
     assert sub_statuses == [StatusSubType.UPLOADED_TO_TMS]
     assert all(step.communication_id is None for step in sequence.steps)
 

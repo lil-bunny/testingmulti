@@ -12,11 +12,9 @@ from app.domain.driver_assignment.activity_log_constants import (
     DRIVER_ASSIGN_TO_TMS_FAILED_TEMPLATE,
     DRIVER_CONFIRMATION_DEFAULT_SENT_ACTION,
     DRIVER_CONFIRMATION_TRACKING_SENT_ACTION,
-    DRIVER_CREATED_IN_TMS_ACTION,
     DRIVER_DETAILS_LLM_ACTION_TEMPLATE,
     DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE,
     DRIVER_ESCALATION_SENT_ACTION,
-    DRIVER_FOUND_IN_TMS_ACTION,
     DRIVER_NOT_FOUND_IN_TMS_TEMPLATE,
     DRIVER_REMINDER_SENT_TEMPLATE,
 )
@@ -58,10 +56,6 @@ def format_driver_details_partial_follow_up_action() -> str:
     return DRIVER_DETAILS_PARTIAL_FOLLOW_UP_TEMPLATE
 
 
-def format_driver_found_in_tms_action() -> str:
-    return DRIVER_FOUND_IN_TMS_ACTION
-
-
 def format_driver_not_found_in_tms_action() -> str:
     return DRIVER_NOT_FOUND_IN_TMS_TEMPLATE
 
@@ -74,10 +68,6 @@ def format_driver_ambiguous_in_tms_action(
         match_value=match_value,
         count=count,
     )
-
-
-def format_driver_created_in_tms_action() -> str:
-    return DRIVER_CREATED_IN_TMS_ACTION
 
 
 def format_driver_assigned_in_tms_action() -> str:

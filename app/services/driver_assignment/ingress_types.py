@@ -34,7 +34,6 @@ LAYER1_ACTIVITY_SKIP_REASONS = frozenset(
 
 DRIVER_DETAILS_TERMINAL_SUB_STATUSES = frozenset(
     {
-        StatusSubType.DRIVER_DETAILS_EMAIL_RECEIVED,
         StatusSubType.UPLOADED_TO_TMS,
         StatusSubType.CANCELLED,
     }

@@ -13,10 +13,8 @@ from app.domain.driver_assignment.activity_log_descriptions import (
     format_driver_confirmation_default_sent_action,
     format_driver_already_assigned_in_tms_action,
     format_driver_assignment_not_started_action,
-    format_driver_created_in_tms_action,
     format_driver_details_partial_follow_up_action,
     format_driver_escalation_sent_action,
-    format_driver_found_in_tms_action,
     format_driver_not_found_in_tms_action,
     format_driver_reminder_sent_action,
 )
@@ -372,7 +370,7 @@ class DriverAssignmentActivityService:
             "tms_follow_up_reason",
             "tms_carrier_id",
             "tms_shipment_id",
-            "tms_created_contact",
+            "tms_contact_created",
         ):
             raw = state.data.get(key)
             if raw is not None and str(raw).strip() != "":
@@ -513,7 +511,6 @@ class DriverAssignmentActivityService:
         wl_id, tenant_id, run_id = scope
         meta = self._tms_metadata(state)
         resolution = str(state.data.get("tms_resolution") or "").strip()
-        contact_id = state.data.get("tms_contact_id")
 
         prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
         current_status = status_type_from_db(prev.get("status")) if prev else None
@@ -545,30 +542,6 @@ class DriverAssignmentActivityService:
             if completed is not None:
                 steps.append(completed)
         else:
-            if resolution == "created":
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_not_found_in_tms_action(),
-                        metadata=dict(meta),
-                    )
-                )
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_created_in_tms_action(),
-                        metadata=dict(meta),
-                    )
-                )
-            elif resolution == "found" and contact_id is not None:
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_found_in_tms_action(),
-                        metadata=dict(meta),
-                    )
-                )
-
             steps.append(
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,

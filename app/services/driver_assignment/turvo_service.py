@@ -64,7 +64,7 @@ class TmsDriverResolution:
     tms_search_match_by: str | None = None
     tms_follow_up_reason: str | None = None
     tms_driver_error: str | None = None
-    tms_created_contact: bool = False
+    tms_contact_created: bool = False
     tms_customer_name: str | None = None
     tms_is_tracking_customer: bool = False
     tms_matched_driver_name: str | None = None
@@ -88,8 +88,8 @@ class TmsDriverResolution:
             val = getattr(self, key)
             if val is not None:
                 patch[key] = val
-        if self.tms_created_contact:
-            patch["tms_created_contact"] = True
+        if self.tms_contact_created:
+            patch["tms_contact_created"] = True
         if self.tms_customer_name:
             patch["tms_customer_name"] = self.tms_customer_name
         if self.tms_is_tracking_customer:
@@ -256,7 +256,7 @@ class DriverAssignmentTurvoService:
                 return TmsDriverResolution(
                     outcome="assigned",
                     tms_resolution="created",
-                    tms_created_contact=True,
+                    tms_contact_created=True,
                     tms_shipment_id=sid,
                     tms_carrier_id=carrier_id,
                     tms_matched_driver_name=matched_name,
@@ -276,7 +276,7 @@ class DriverAssignmentTurvoService:
                 outcome="assigned",
                 tms_resolution=(
                     "created"
-                    if resolution.tms_created_contact
+                    if resolution.tms_contact_created
                     else ("found" if resolution.tms_resolution == "found" else "assigned")
                 ),
                 tms_shipment_id=sid,
@@ -284,7 +284,7 @@ class DriverAssignmentTurvoService:
                 tms_contact_id=contact_id,
                 tms_match_count=resolution.tms_match_count,
                 tms_search_match_by=resolution.tms_search_match_by,
-                tms_created_contact=resolution.tms_created_contact,
+                tms_contact_created=resolution.tms_contact_created,
                 tms_customer_name=customer_name,
                 tms_is_tracking_customer=is_tracking,
                 tms_matched_driver_name=resolution.tms_matched_driver_name,
@@ -320,7 +320,7 @@ class DriverAssignmentTurvoService:
             outcome="assigned",
             tms_resolution=(
                 "created"
-                if resolution.tms_created_contact
+                if resolution.tms_contact_created
                 else ("found" if resolution.tms_resolution == "found" else "assigned")
             ),
             tms_shipment_id=sid,
@@ -328,7 +328,7 @@ class DriverAssignmentTurvoService:
             tms_contact_id=contact_id,
             tms_match_count=resolution.tms_match_count,
             tms_search_match_by=resolution.tms_search_match_by,
-            tms_created_contact=resolution.tms_created_contact,
+            tms_contact_created=resolution.tms_contact_created,
             tms_customer_name=customer_name,
             tms_is_tracking_customer=is_tracking,
             tms_matched_driver_name=resolution.tms_matched_driver_name,
@@ -634,7 +634,7 @@ class DriverAssignmentTurvoService:
         return contact_id, TmsDriverResolution(
             outcome="assigned",
             tms_resolution="created",
-            tms_created_contact=True,
+            tms_contact_created=True,
             tms_contact_id=contact_id,
             tms_match_count=0,
             tms_search_match_by=match_by,

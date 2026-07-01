@@ -28,7 +28,7 @@ def test_is_driver_assignment_success_terminal() -> None:
         StatusType.PROCESSING, StatusSubType.UPLOADED_TO_TMS
     )
     assert not is_driver_assignment_success_terminal(
-        StatusType.PROCESSING, StatusSubType.DETAILS_RECEIVED
+        StatusType.PROCESSING, StatusSubType.REMINDER_3_SENT
     )
     assert not is_driver_assignment_success_terminal(
         StatusType.COMPLETED, StatusSubType.CANCELLED
@@ -66,7 +66,7 @@ def test_blocks_driver_assignment_reminder_matrix() -> None:
     assert blocks_driver_assignment_reminder(
         {
             "status": StatusType.PENDING_REVIEW.value,
-            "sub_status": StatusSubType.DETAILS_RECEIVED.value,
+            "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
         }
     )
 
