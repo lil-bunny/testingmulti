@@ -10,12 +10,13 @@ class ActivityType(StrEnum):
 
     ACTION = "action"
     EXCEPTION = "exception"
+    INFO = "info"
     STATUS_CHANGE = "status_change"
     SUB_STATUS_CHANGE = "sub_status_change"
 
 
 def is_snapshot_activity_type(activity_type: ActivityType) -> bool:
-    return activity_type in (ActivityType.ACTION, ActivityType.EXCEPTION)
+    return activity_type in (ActivityType.ACTION, ActivityType.EXCEPTION, ActivityType.INFO)
 
 
 class ActorType(StrEnum):

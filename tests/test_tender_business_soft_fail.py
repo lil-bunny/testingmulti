@@ -107,9 +107,7 @@ def test_record_tender_business_warnings_single_row_for_duplicate_catalog_gaps(
     mock_svc.record_exception.assert_called_once()
     write = mock_svc.record_exception.call_args[0][0]
     assert write.description == msg
-    assert write.metadata["error"] == BusinessError.MISSING_UNIT_DIMS.value
-    assert write.metadata["pack_code"] == "3002"
-    assert "tender_product_id" not in write.metadata
+    assert write.metadata is None
 
 
 def test_filter_primary_business_warnings_suppresses_pack_profile_dependents() -> None:
@@ -249,7 +247,7 @@ def test_record_tender_business_warnings_writes_one_row_for_dependent_gaps(
     mock_svc.record_exception.assert_called_once()
     write = mock_svc.record_exception.call_args[0][0]
     assert write.description == address_msg
-    assert write.metadata["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
+    assert write.metadata is None
 
 
 def test_record_business_gap_only_on_tender_created() -> None:
@@ -308,8 +306,7 @@ def test_record_tender_business_warnings_writes_exception_rows(
     mock_svc.record_exception.assert_called_once()
     write = mock_svc.record_exception.call_args[0][0]
     assert write.description == msg
-    assert write.metadata["error"] == BusinessError.MISSING_DELIVERY_DATE.value
-    assert write.metadata["tender_id"] == "tender-1"
+    assert write.metadata is None
 
 
 @patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")

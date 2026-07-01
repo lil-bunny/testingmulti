@@ -62,7 +62,7 @@ def generate_activity_log_description(
 
     ``STATUS_CHANGE``: status line only (sub-status columns may still differ).
     ``SUB_STATUS_CHANGE``: sub-status line only.
-    ``ACTION`` / ``EXCEPTION``: no template — callers supply narrative text.
+    ``ACTION`` / ``EXCEPTION`` / ``INFO``: no template — callers supply narrative text.
     """
     if activity_type == ActivityType.STATUS_CHANGE:
         if from_status == to_status:
