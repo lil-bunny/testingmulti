@@ -261,6 +261,11 @@ def test_record_tms_driver_success_logs_single_assign_action():
     assert len(action_steps) == 1
     assert "assigned to shipment in tms" in action_steps[0].description.lower()
     assert sub_statuses == [StatusSubType.UPLOADED_TO_TMS]
+    assert action_steps[0].metadata == {
+        "driver_name": "John Doe",
+        "driver_phone": "555-0100",
+        "tms_contact_id": 123,
+    }
     transition_steps = [
         step
         for step in sequence.steps
@@ -300,8 +305,9 @@ def test_record_tms_driver_success_created_logs_single_assign_action():
     ]
     assert len(action_steps) == 1
     assert "assigned to shipment in tms" in action_steps[0].description.lower()
-    assert action_steps[0].metadata["tms_resolution"] == "created"
     assert action_steps[0].metadata["tms_contact_created"] is True
+    assert action_steps[0].metadata["tms_contact_id"] == 640861
+    assert action_steps[0].metadata["driver_name"] == "Lily Potter"
 
 
 def test_record_tms_driver_success_insufficient_still_logs_assign():
@@ -410,7 +416,7 @@ def test_record_reminder_sent_partial_follow_up_at_cap_action_only():
     assert len(sequence.steps) == 1
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert "partial follow-up" in sequence.steps[0].description.lower()
-    assert sequence.steps[0].metadata.get("ladder_at_cap") is True
+    assert sequence.steps[0].metadata == {}
 
 
 def test_record_not_started_on_ratecon_action_only():
@@ -433,7 +439,7 @@ def test_record_not_started_on_ratecon_action_only():
     assert "pickup_appointment_not_found" in sequence.steps[0].description
 
 
-def test_record_tms_driver_not_resolved_uses_tms_metadata_keys():
+def test_record_tms_driver_not_resolved_has_empty_metadata():
     activity = MagicMock()
     svc = DriverAssignmentActivityService(activity_log_service=activity)
     state = _state(
@@ -447,9 +453,8 @@ def test_record_tms_driver_not_resolved_uses_tms_metadata_keys():
     svc.record_tms_driver_not_resolved(state)
     sequence = activity.record_sequence.call_args.args[0]
     meta = sequence.steps[0].metadata
-    assert meta["tms_resolution"] == "not_found"
-    assert meta["tms_search_match_by"] == "phone"
-    assert "turvo_" not in "".join(meta.keys())
+    assert meta == {}
+    assert sequence.steps[0].activity_type == ActivityType.INFO
     assert "not found in TMS" in sequence.steps[0].description
     assert sequence.steps[0].communication_id is None
 

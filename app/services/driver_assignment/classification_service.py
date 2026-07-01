@@ -202,8 +202,6 @@ class DriverDetailsClassificationService:
                 "prompt_source": prompt_metadata.source,
                 "prompt_commit_hash": prompt_metadata.commit_hash,
             }
-            if shipment_id:
-                activity_metadata["shipment_id"] = shipment_id
             activity_log_id = self._activity.record_action(
                 ActivityLogWrite(
                     tenant_id=tenant_id,

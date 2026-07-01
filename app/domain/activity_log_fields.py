@@ -25,7 +25,7 @@ def build_activity_log_status_fields(
     """
     Return ``(log_from_status, log_to_status, log_from_sub, log_to_sub)``.
 
-    ``action`` / ``exception``: snapshot only — ``from_*`` and ``to_*`` equal current
+    ``action`` / ``exception`` / ``info``: snapshot only — ``from_*`` and ``to_*`` equal current
     lifecycle state.
     ``status_change`` / ``sub_status_change``: transition — ``from_*`` from current,
     ``to_*`` from command when set else unchanged.
