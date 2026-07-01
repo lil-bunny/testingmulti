@@ -19,6 +19,7 @@ def test_pod_lifecycle_pod_request_graph():
     assert "record_pod_extraction_activity" in names
     assert "record_pod_vs_ratecon_activity" in names
     assert "record_pod_processed_activity" in names
+    assert "check_pod_reminder_eligibility" in names
 
     routers = graph["routers"]
     assert "check_pod_request_triggered" not in routers
@@ -26,7 +27,10 @@ def test_pod_lifecycle_pod_request_graph():
     assert "check_existing_pod" in routers
     assert routers["check_existing_pod"]["map"]["skip_send"] == "end"
     assert routers["check_existing_pod"]["map"]["schedule_initial"] == "record_and_schedule_pod_request"
-    assert routers["check_existing_pod"]["map"]["send_now"] == "send_email"
+    assert routers["check_existing_pod"]["map"]["send_now"] == "check_pod_reminder_eligibility"
+    assert routers["check_pod_reminder_eligibility"]["router"] == "pod_reminder_eligibility_router"
+    assert routers["check_pod_reminder_eligibility"]["map"]["eligible"] == "send_email"
+    assert routers["check_pod_reminder_eligibility"]["map"]["skip"] == "end"
 
     edges = [tuple(e) for e in graph["edges"]]
     assert ("get_email_attachments", "load_ratecon_analysis") in edges
@@ -51,6 +55,7 @@ def test_pod_lifecycle_pod_request_graph():
     assert routers["record_pod_tms_upload_activity"]["map"]["stop"] == "end"
     assert ("classify_attachments", "pod_analysis") not in edges
     assert ("pod_vs_ratecon_analysis", "upload_to_turvo") not in edges
+    assert ("check_pod_reminder_eligibility", "send_email") in edges
     assert ("send_email", "record_pod_reminder_activity") in edges
     assert ("record_pod_reminder_activity", "end") in edges
     assert ("record_and_schedule_pod_request", "record_pod_started_activity") in edges

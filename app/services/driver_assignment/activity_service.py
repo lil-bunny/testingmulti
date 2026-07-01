@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import (
-    format_details_received_from_email_action,
+from app.domain.driver_assignment.activity_log_descriptions import (
     format_driver_ambiguous_in_tms_action,
     format_driver_assigned_in_tms_action,
     format_driver_assign_to_tms_failed_action,
@@ -14,18 +13,14 @@ from app.domain.activity_log_descriptions import (
     format_driver_confirmation_default_sent_action,
     format_driver_already_assigned_in_tms_action,
     format_driver_assignment_not_started_action,
-    format_driver_assignment_started_action,
-    format_driver_created_in_tms_action,
     format_driver_details_partial_follow_up_action,
     format_driver_escalation_sent_action,
-    format_driver_found_in_tms_action,
     format_driver_not_found_in_tms_action,
     format_driver_reminder_sent_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType
-from app.domain.tenant_settings.workflow_shadow_mode import shadow_metadata_patch
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -49,13 +44,6 @@ class DriverAssignmentActivityService:
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
 
     @staticmethod
-    def _clean(value: Any) -> str | None:
-        if value is None:
-            return None
-        s = str(value).strip()
-        return s if s else None
-
-    @staticmethod
     def _scope_ids(state) -> tuple[str, str, str] | None:
         wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
         tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
@@ -65,28 +53,6 @@ class DriverAssignmentActivityService:
         return wl_id, tenant_id, run_id
 
     @staticmethod
-    def _base_metadata(state) -> dict[str, Any]:
-        meta: dict[str, Any] = {}
-        for key in (
-            "shipment_id",
-            "shipments_row_id",
-            "thread_id",
-            "load_id",
-            "ratecon_workflow_lifecycle_id",
-            "pickup_appointment_at",
-            "pickup_appointment_timezone",
-            "pickup_appointment_source",
-        ):
-            raw = state.data.get(key)
-            if raw is not None and str(raw).strip():
-                meta[key] = str(raw).strip()
-        wl_id = state.data.get("workflow_lifecycle_id")
-        if wl_id is not None and str(wl_id).strip():
-            meta["workflow_lifecycle_id"] = str(wl_id).strip()
-        meta.update(shadow_metadata_patch(state.data))
-        return meta
-
-    @staticmethod
     def _communication_id(state) -> str | None:
         """Email comm id from graph state (inbound reply or outbound send), not TMS lookups."""
         raw = state.data.get("communication_id")
@@ -94,6 +60,26 @@ class DriverAssignmentActivityService:
             return None
         cid = str(raw).strip()
         return cid or None
+
+    @staticmethod
+    def _tms_assign_metadata(state) -> dict[str, Any] | None:
+        """Event-specific metadata for a successful TMS driver assign action only."""
+        meta: dict[str, Any] = {}
+        extraction = state.data.get("driver_details_extraction") or {}
+        driver = extraction.get("driver") if isinstance(extraction, dict) else {}
+        if isinstance(driver, dict):
+            name = driver.get("name")
+            phone = driver.get("phone")
+            if name:
+                meta["driver_name"] = name
+            if phone:
+                meta["driver_phone"] = phone
+        contact_id = state.data.get("tms_contact_id")
+        if contact_id is not None and str(contact_id).strip() != "":
+            meta["tms_contact_id"] = contact_id
+        if state.data.get("tms_contact_created"):
+            meta["tms_contact_created"] = True
+        return meta or None
 
     @staticmethod
     def _lifecycle_already_started(row: dict[str, Any] | None) -> bool:
@@ -127,7 +113,6 @@ class DriverAssignmentActivityService:
         *,
         current_status: StatusType | None,
         new_sub: StatusSubType,
-        metadata: dict[str, Any],
     ) -> ActivityLogStep:
         to_status = StatusType.PENDING_REVIEW
         if current_status == to_status:
@@ -135,13 +120,11 @@ class DriverAssignmentActivityService:
                 activity_type=ActivityType.SUB_STATUS_CHANGE,
                 to_status=to_status,
                 to_sub_status=new_sub,
-                metadata=dict(metadata),
             )
         return ActivityLogStep(
             activity_type=ActivityType.STATUS_CHANGE,
             to_status=to_status,
             to_sub_status=new_sub,
-            metadata=dict(metadata),
         )
 
     @staticmethod
@@ -149,14 +132,12 @@ class DriverAssignmentActivityService:
         *,
         current_status: StatusType | None,
         new_sub: StatusSubType,
-        metadata: dict[str, Any],
     ) -> ActivityLogStep:
         preserve_status = current_status if current_status is not None else StatusType.PROCESSING
         return ActivityLogStep(
             activity_type=ActivityType.SUB_STATUS_CHANGE,
             to_status=preserve_status,
             to_sub_status=new_sub,
-            metadata=dict(metadata),
         )
 
     def record_not_started_on_ratecon(
@@ -172,18 +153,13 @@ class DriverAssignmentActivityService:
         pickup_appointment_at: str | None = None,
         pickup_appointment_timezone: str | None = None,
     ) -> None:
-        meta: dict[str, Any] = {"skip_reason": skip_reason}
-        for key, val in (
-            ("shipment_id", shipment_id),
-            ("load_id", load_id),
-            ("shipments_row_id", shipments_row_id),
-            ("pickup_appointment_at", pickup_appointment_at),
-            ("pickup_appointment_timezone", pickup_appointment_timezone),
-        ):
-            cleaned = self._clean(val)
-            if cleaned:
-                meta[key] = cleaned
-
+        _ = (
+            shipment_id,
+            load_id,
+            shipments_row_id,
+            pickup_appointment_at,
+            pickup_appointment_timezone,
+        )
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -195,7 +171,6 @@ class DriverAssignmentActivityService:
                         description=format_driver_assignment_not_started_action(
                             reason=skip_reason
                         ),
-                        metadata=meta,
                     ),
                 ),
             )
@@ -250,11 +225,6 @@ class DriverAssignmentActivityService:
             )
             return
 
-        meta = self._base_metadata(state)
-        meta["reminder_step"] = step
-        if state.data.get("driver_reminder_is_partial_follow_up"):
-            meta["partial_follow_up"] = True
-
         action_description = (
             format_driver_details_partial_follow_up_action()
             if state.data.get("driver_reminder_is_partial_follow_up")
@@ -265,7 +235,6 @@ class DriverAssignmentActivityService:
             state.data.get("driver_reminder_is_partial_follow_up")
             and state.data.get("driver_reminder_skip_sub_status_bump")
         ):
-            meta["ladder_at_cap"] = True
             self._activity.record_sequence(
                 ActivityLogSequence(
                     tenant_id=tenant_id,
@@ -275,7 +244,6 @@ class DriverAssignmentActivityService:
                         ActivityLogStep(
                             activity_type=ActivityType.ACTION,
                             description=action_description,
-                            metadata=dict(meta),
                             communication_id=self._communication_id(state),
                         ),
                     ),
@@ -287,7 +255,6 @@ class DriverAssignmentActivityService:
         transition_step = self._build_reminder_transition_step(
             current_status=current_status,
             new_sub=new_sub,
-            metadata=meta,
         )
 
         self._activity.record_sequence(
@@ -299,7 +266,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=action_description,
-                        metadata=dict(meta),
                         communication_id=self._communication_id(state),
                     ),
                     transition_step,
@@ -336,7 +302,6 @@ class DriverAssignmentActivityService:
             )
             return
 
-        meta = self._base_metadata(state)
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -344,55 +309,15 @@ class DriverAssignmentActivityService:
                 workflow_run_id=run_id,
                 steps=(
                     ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_assignment_started_action(),
-                        metadata=meta,
-                    ),
-                    ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         to_status=StatusType.PROCESSING,
                         to_sub_status=StatusSubType.DRIVER_ASSIGNMENT_STARTED,
                         from_status=StatusType.NONE,
                         from_sub_status=StatusSubType.NONE,
-                        metadata=meta,
                     ),
                 ),
             )
         )
-
-    @staticmethod
-    def _tms_metadata(state) -> dict[str, Any]:
-        meta = DriverAssignmentActivityService._base_metadata(state)
-        extraction = state.data.get("driver_details_extraction") or {}
-        driver = extraction.get("driver") if isinstance(extraction, dict) else {}
-        if isinstance(driver, dict):
-            for key in ("name", "phone", "email"):
-                val = driver.get(key)
-                if val:
-                    meta[f"driver_{key}"] = val
-        for key in (
-            "tms_driver_outcome",
-            "tms_resolution",
-            "tms_contact_id",
-            "tms_match_count",
-            "tms_search_match_by",
-            "tms_follow_up_reason",
-            "tms_carrier_id",
-            "tms_shipment_id",
-            "tms_created_contact",
-        ):
-            raw = state.data.get(key)
-            if raw is not None and str(raw).strip() != "":
-                meta[key] = raw
-        err = state.data.get("tms_driver_error")
-        if err:
-            meta["tms_driver_error"] = str(err)
-        if state.data.get("tms_is_tracking_customer"):
-            meta["tms_is_tracking_customer"] = True
-        customer = state.data.get("tms_customer_name")
-        if customer:
-            meta["tms_customer_name"] = str(customer)
-        return meta
 
     @staticmethod
     def _tms_match_value(state) -> tuple[str, str]:
@@ -409,27 +334,19 @@ class DriverAssignmentActivityService:
             return match_by, str(driver.get("email") or "?").strip() or "?"
         return match_by, str(driver.get("name") or "?").strip() or "?"
 
-    @staticmethod
-    def _driver_from_state(state) -> dict[str, Any]:
-        extraction = state.data.get("driver_details_extraction") or {}
-        driver = extraction.get("driver") if isinstance(extraction, dict) else {}
-        return driver if isinstance(driver, dict) else {}
-
     def record_tms_driver_not_resolved(self, state) -> None:
         scope = self._scope_ids(state)
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
         resolution = str(state.data.get("tms_resolution") or "").strip()
-        meta = self._tms_metadata(state)
         match_by, match_value = self._tms_match_value(state)
         steps: list[ActivityLogStep] = []
         if resolution == "not_found":
             steps.append(
                 ActivityLogStep(
-                    activity_type=ActivityType.ACTION,
+                    activity_type=ActivityType.INFO,
                     description=format_driver_not_found_in_tms_action(),
-                    metadata=dict(meta),
                 )
             )
         elif resolution == "ambiguous":
@@ -442,7 +359,6 @@ class DriverAssignmentActivityService:
                         match_value=match_value,
                         count=count,
                     ),
-                    metadata=dict(meta),
                 )
             )
         if not steps:
@@ -462,8 +378,6 @@ class DriverAssignmentActivityService:
             return
         wl_id, tenant_id, run_id = scope
         reason = str(state.data.get("tms_driver_error") or "unknown").strip() or "unknown"
-        meta = self._tms_metadata(state)
-        meta["tms_resolution"] = "failed"
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -473,7 +387,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_driver_assign_to_tms_failed_action(reason=reason),
-                        metadata=meta,
                     ),
                 ),
             )
@@ -484,7 +397,6 @@ class DriverAssignmentActivityService:
         *,
         from_status: StatusType | None,
         from_sub_status: StatusSubType | None,
-        metadata: dict[str, Any],
     ) -> ActivityLogStep | None:
         if from_status == StatusType.COMPLETED and from_sub_status == StatusSubType.UPLOADED_TO_TMS:
             return None
@@ -495,40 +407,22 @@ class DriverAssignmentActivityService:
                 to_status=StatusType.COMPLETED,
                 from_sub_status=from_sub_status,
                 to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                metadata=dict(metadata),
             )
         if from_sub_status != StatusSubType.UPLOADED_TO_TMS:
             return ActivityLogStep(
                 activity_type=ActivityType.SUB_STATUS_CHANGE,
                 from_sub_status=from_sub_status,
                 to_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                metadata=dict(metadata),
             )
         return None
-
-    @staticmethod
-    def _confirmation_metadata(state) -> dict[str, Any]:
-        meta = DriverAssignmentActivityService._tms_metadata(state)
-        if state.data.get("tms_is_tracking_customer"):
-            meta["tms_is_tracking_customer"] = True
-            meta["confirmation_email_variant"] = "tracking"
-        else:
-            meta["confirmation_email_variant"] = "default"
-        customer = state.data.get("tms_customer_name")
-        if customer:
-            meta["tms_customer_name"] = customer
-        return meta
 
     def record_tms_driver_success(self, state) -> None:
         scope = self._scope_ids(state)
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
-        driver = self._driver_from_state(state)
-        meta = self._tms_metadata(state)
         resolution = str(state.data.get("tms_resolution") or "").strip()
-        match_by, match_value = self._tms_match_value(state)
-        contact_id = state.data.get("tms_contact_id")
+        assign_meta = self._tms_assign_metadata(state)
 
         prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
         current_status = status_type_from_db(prev.get("status")) if prev else None
@@ -541,7 +435,6 @@ class DriverAssignmentActivityService:
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
                     description=format_driver_already_assigned_in_tms_action(),
-                    metadata=dict(meta),
                 )
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
@@ -549,74 +442,20 @@ class DriverAssignmentActivityService:
                     self._build_success_sub_status_step(
                         current_status=current_status,
                         new_sub=StatusSubType.UPLOADED_TO_TMS,
-                        metadata=meta,
                     )
                 )
             completed = self._driver_assignment_completed_step(
                 from_status=current_status,
                 from_sub_status=StatusSubType.UPLOADED_TO_TMS,
-                metadata=meta,
             )
             if completed is not None:
                 steps.append(completed)
         else:
-            if resolution == "created":
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_not_found_in_tms_action(),
-                        metadata=dict(meta),
-                    )
-                )
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_created_in_tms_action(
-                            name=str(driver.get("name") or "?"),
-                            contact_id=contact_id or "?",
-                        ),
-                        metadata=dict(meta),
-                    )
-                )
-            elif resolution == "found" and contact_id is not None:
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_driver_found_in_tms_action(
-                            match_by=match_by,
-                            match_value=match_value,
-                            contact_id=contact_id,
-                        ),
-                        metadata=dict(meta),
-                    )
-                )
-
-            if current_sub != StatusSubType.DETAILS_RECEIVED:
-                steps.append(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_details_received_from_email_action(
-                            name=driver.get("name"),
-                            phone=driver.get("phone"),
-                            email=driver.get("email"),
-                        ),
-                        metadata=dict(meta),
-                        communication_id=self._communication_id(state),
-                    )
-                )
-                steps.append(
-                    self._build_success_sub_status_step(
-                        current_status=current_status,
-                        new_sub=StatusSubType.DETAILS_RECEIVED,
-                        metadata=meta,
-                    )
-                )
-
             steps.append(
                 ActivityLogStep(
                     activity_type=ActivityType.ACTION,
                     description=format_driver_assigned_in_tms_action(),
-                    metadata=dict(meta),
+                    metadata=assign_meta,
                 )
             )
             if current_sub != StatusSubType.UPLOADED_TO_TMS:
@@ -624,7 +463,6 @@ class DriverAssignmentActivityService:
                     self._build_success_sub_status_step(
                         current_status=current_status,
                         new_sub=StatusSubType.UPLOADED_TO_TMS,
-                        metadata=meta,
                     )
                 )
 
@@ -645,7 +483,6 @@ class DriverAssignmentActivityService:
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
-        meta = self._confirmation_metadata(state)
         is_tracking = bool(state.data.get("tms_is_tracking_customer"))
         description = (
             format_driver_confirmation_tracking_sent_action()
@@ -661,7 +498,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=description,
-                        metadata=dict(meta),
                         communication_id=self._communication_id(state),
                     ),
                 ),
@@ -675,14 +511,12 @@ class DriverAssignmentActivityService:
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
-        meta = self._confirmation_metadata(state)
         prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
         from_status = status_type_from_db(prev.get("status")) if prev else None
         from_sub = sub_status_type_from_db(prev.get("sub_status")) if prev else None
         completed = self._driver_assignment_completed_step(
             from_status=from_status,
             from_sub_status=from_sub,
-            metadata=meta,
         )
         if completed is None:
             return
@@ -727,14 +561,6 @@ class DriverAssignmentActivityService:
             )
             return
 
-        meta = self._base_metadata(state)
-        enrich = state.data.get("shipment_display_enrich")
-        if isinstance(enrich, dict):
-            for key in ("carrier_name", "customer_name", "delivery_date"):
-                val = enrich.get(key)
-                if val is not None and str(val).strip():
-                    meta[key] = str(val).strip()
-
         current_status = status_type_from_db(prev.get("status")) if prev else None
         from_sub = sub_status_type_from_db(prev.get("sub_status")) if prev else None
         transition_step = ActivityLogStep(
@@ -743,7 +569,6 @@ class DriverAssignmentActivityService:
             from_sub_status=from_sub,
             from_status=current_status,
             to_status=current_status,
-            metadata=dict(meta),
         )
 
         self._activity.record_sequence(
@@ -755,7 +580,6 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_driver_escalation_sent_action(),
-                        metadata=dict(meta),
                     ),
                     transition_step,
                 ),

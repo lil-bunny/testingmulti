@@ -208,7 +208,7 @@ async def test_name_and_phone_not_found_creates_and_assigns() -> None:
     assert result.outcome == "assigned"
     assert result.tms_resolution == "created"
     assert result.tms_contact_id == 640535
-    assert result.tms_created_contact is True
+    assert result.tms_contact_created is True
 
 
 @pytest.mark.asyncio

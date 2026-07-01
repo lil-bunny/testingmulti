@@ -179,6 +179,51 @@ def test_apply_sub_status_change_keeps_pending_review_when_to_status_explicit(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
+def test_apply_sub_status_change_keeps_pending_review_for_pod_reminder_ladder(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "pod_lifecycle",
+    }
+    lifecycles.update_lifecycle.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply(
+        _command(
+            to_status=StatusType.PENDING_REVIEW,
+            to_sub_status=StatusSubType.REMINDER_2_SENT,
+            activity_type=ActivityType.SUB_STATUS_CHANGE,
+        )
+    )
+
+    lifecycles.update_lifecycle.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
+        update=LifecycleUpdate(
+            status=StatusType.PENDING_REVIEW,
+            sub_status=StatusSubType.REMINDER_2_SENT,
+            clear_pause=True,
+        ),
+    )
+    row = activity_logs.insert.call_args[0][0]
+    assert row["from_status"] == StatusType.PENDING_REVIEW.value
+    assert row["to_status"] == StatusType.PENDING_REVIEW.value
+    assert row["to_sub_status"] == StatusSubType.REMINDER_2_SENT.value
+    assert result.to_status == StatusType.PENDING_REVIEW
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
 def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     _resolve_tenant: MagicMock,
 ) -> None:
@@ -191,7 +236,7 @@ def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     }
     lifecycles.update_lifecycle.return_value = True
     activity_logs = MagicMock()
-    activity_logs.insert.side_effect = ["details-log-id", "uploaded-log-id"]
+    activity_logs.insert.side_effect = ["reminder-log-id", "uploaded-log-id"]
 
     svc = LifecycleTransitionService(
         lifecycles_repo=lifecycles,
@@ -200,7 +245,7 @@ def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     result = svc.apply_sequence(
         _command(
             to_status=StatusType.PROCESSING,
-            to_sub_status=StatusSubType.DETAILS_RECEIVED,
+            to_sub_status=StatusSubType.REMINDER_3_SENT,
             activity_type=ActivityType.SUB_STATUS_CHANGE,
             description=None,
         ),
@@ -216,11 +261,11 @@ def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     assert lifecycles.update_lifecycle.call_count == 2
     for call in lifecycles.update_lifecycle.call_args_list:
         assert call.kwargs["update"].status == StatusType.PROCESSING
-    details_row = activity_logs.insert.call_args_list[0][0][0]
+    reminder_row = activity_logs.insert.call_args_list[0][0][0]
     uploaded_row = activity_logs.insert.call_args_list[1][0][0]
-    assert details_row["from_status"] == StatusType.PROCESSING.value
-    assert details_row["to_status"] == StatusType.PROCESSING.value
-    assert details_row["to_sub_status"] == StatusSubType.DETAILS_RECEIVED.value
+    assert reminder_row["from_status"] == StatusType.PROCESSING.value
+    assert reminder_row["to_status"] == StatusType.PROCESSING.value
+    assert reminder_row["to_sub_status"] == StatusSubType.REMINDER_3_SENT.value
     assert uploaded_row["from_status"] == StatusType.PROCESSING.value
     assert uploaded_row["to_status"] == StatusType.PROCESSING.value
     assert uploaded_row["to_sub_status"] == StatusSubType.UPLOADED_TO_TMS.value

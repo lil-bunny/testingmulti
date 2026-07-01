@@ -10,7 +10,7 @@ from app.configs.workflow_cancellation_policies import (
     DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
 )
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import (
+from app.domain.driver_assignment.activity_log_descriptions import (
     format_driver_assignment_cancelled_ratecon_superseded_action,
     format_driver_assignment_cancelled_tendered_action,
 )
@@ -105,19 +105,13 @@ class DriverAssignmentCancelService:
                     skip_reason="shipment_not_found",
                 )
 
-        meta: dict[str, Any] = dict(trigger.metadata)
-        if shipment_number:
-            meta.setdefault("shipment_number", shipment_number)
-        if trigger.load_id:
-            meta.setdefault("load_id", trigger.load_id)
-
         if trigger.trigger == RATECON_SUPERSEDED_TRIGGER:
             result = self._cancel.supersede_by_shipment(
                 tenant_id=trigger.tenant_id,
                 shipment_row_id=shipments_row_id,
                 policy=DRIVER_ASSIGNMENT_RATECON_SUPERSEDE_POLICY,
                 description=format_driver_assignment_cancelled_ratecon_superseded_action(),
-                metadata=meta,
+                metadata={},
             )
             if result.cancelled:
                 self._shipments.clear_driver_details(
@@ -144,7 +138,7 @@ class DriverAssignmentCancelService:
             shipment_row_id=shipments_row_id,
             policy=DRIVER_ASSIGNMENT_CANCEL_POLICY,
             description=format_driver_assignment_cancelled_tendered_action(),
-            metadata=meta,
+            metadata={},
         )
         if not result.cancelled and result.skip_reason == "not_found":
             logger.info(

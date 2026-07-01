@@ -83,7 +83,7 @@ class CommunicationsRepository:
               AND c.workflow_run_id IS NOT NULL
               AND wl.workflow_name = :workflow_name
               AND wl.sub_status::text NOT IN (
-                  'details_received', 'driver_details_email_received', 'uploaded_to_tms', 'cancelled'
+                  'uploaded_to_tms', 'cancelled'
               )
             ORDER BY wl.updated_at DESC
             LIMIT 1

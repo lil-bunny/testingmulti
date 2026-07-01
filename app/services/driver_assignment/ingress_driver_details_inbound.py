@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse
 from app.core.logger import get_logger
 from app.domain.status_parsing import sub_status_type_from_db
 from app.domain.unipile_email import is_unipile_email_reply
-from app.models.status import StatusSubType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.driver_assignment.ingress_types import (
     DRIVER_ASSIGNMENT_WORKFLOW,
@@ -304,13 +303,7 @@ class IngressDriverDetailsInboundMixin:
 
         sub = sub_status_type_from_db(lifecycle_row.get("sub_status"))
 
-        if sub in (
-
-            StatusSubType.DETAILS_RECEIVED,
-
-            StatusSubType.UPLOADED_TO_TMS,
-
-        ):
+        if sub in DRIVER_DETAILS_TERMINAL_SUB_STATUSES:
 
             return JSONResponse(
 

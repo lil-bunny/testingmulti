@@ -531,8 +531,7 @@ class WorkflowLifecyclesRepository:
                 {_WHERE_TENANT_WORKFLOW}
                   AND shipment_id = CAST(:shipment_id AS uuid)
                   AND sub_status IN (
-                      CAST(:uploaded AS lifecycle_sub_status),
-                      CAST(:details_received AS lifecycle_sub_status)
+                      CAST(:uploaded AS lifecycle_sub_status)
                   )
                 LIMIT 1
                 """
@@ -542,7 +541,6 @@ class WorkflowLifecyclesRepository:
                 "workflow_name": "driver_assignment",
                 "shipment_id": shipment_id,
                 "uploaded": StatusSubType.UPLOADED_TO_TMS.value,
-                "details_received": StatusSubType.DETAILS_RECEIVED.value,
             },
         ).first()
         return row is not None

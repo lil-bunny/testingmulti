@@ -58,9 +58,7 @@ def test_cancel_for_trigger_delegates_to_shared_cancel() -> None:
     assert result.cancelled is True
     assert result.lifecycle_id == _LC_ID
     cancel.cancel_by_shipment.assert_called_once()
-    meta = cancel.cancel_by_shipment.call_args.kwargs["metadata"]
-    assert meta["vendor"] == "turvo"
-    assert meta["turvo_status_key"] == "2101"
+    assert cancel.cancel_by_shipment.call_args.kwargs["metadata"] == {}
 
 
 def test_cancel_for_trigger_maps_not_found_to_no_active_lifecycle() -> None:

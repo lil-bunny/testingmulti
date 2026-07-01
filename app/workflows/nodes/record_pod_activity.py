@@ -11,20 +11,19 @@ from app.domain.activity_log_descriptions import (
     format_pod_document_uploaded_action,
     format_pod_escalation_sent_action,
     format_pod_extraction_processed_action,
-    format_pod_started_action,
     format_pod_vs_ratecon_validated_action,
     format_pod_vs_ratecon_validation_failed_action,
     format_pod_vs_ratecon_validation_skipped_action,
     format_reminder_sent_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
+from app.domain.pod_lifecycle_guards import pod_reminder_skip_sub_statuses
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.services.workflow_reminder_service import parse_reminders_for_workflow
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 
 logger = get_logger(__name__)
@@ -286,6 +285,7 @@ def _build_reminder_transition_step(
     if current_status == to_status:
         return ActivityLogStep(
             activity_type=ActivityType.SUB_STATUS_CHANGE,
+            to_status=to_status,
             to_sub_status=new_sub,
             metadata=dict(metadata),
         )
@@ -295,16 +295,6 @@ def _build_reminder_transition_step(
         to_sub_status=new_sub,
         metadata=dict(metadata),
     )
-
-
-def _pod_skip_sub_statuses_from_state(state: Any) -> frozenset[str]:
-    data = getattr(state, "data", None) or {}
-    if not isinstance(data, dict):
-        return frozenset()
-    cfg = parse_reminders_for_workflow(data, "pod_lifecycle")
-    if cfg is None:
-        return frozenset()
-    return frozenset(s.strip() for s in cfg.skip_sub_statuses if str(s).strip())
 
 
 def _lifecycle_already_started(row: dict[str, Any] | None) -> bool:
@@ -325,7 +315,7 @@ def record_pod_started_activity(state):
     """
     Log POD lifecycle started after reminders are scheduled on ``route_completed``.
 
-    ACTION + STATUS_CHANGE: ``none/processing``, ``none/pod_started``.
+    STATUS_CHANGE only: ``none/processing``, ``none/pod_started``.
     """
     if not state.data.get("reminders_scheduled"):
         logger.info(
@@ -362,11 +352,6 @@ def record_pod_started_activity(state):
             workflow_lifecycle_id=wl_id,
             workflow_run_id=run_id,
             steps=(
-                ActivityLogStep(
-                    activity_type=ActivityType.ACTION,
-                    description=format_pod_started_action(),
-                    metadata=meta,
-                ),
                 ActivityLogStep(
                     activity_type=ActivityType.STATUS_CHANGE,
                     to_status=StatusType.PROCESSING,
@@ -425,7 +410,7 @@ def record_pod_reminder_activity(state):
     prev = lifecycle_service.read_lifecycle_row_by_id(wl_id)
     skip = delayed_workflow_step_skip_reason(
         prev,
-        skip_sub_statuses=_pod_skip_sub_statuses_from_state(state),
+        skip_sub_statuses=pod_reminder_skip_sub_statuses(state.data),
     )
     if skip:
         logger.info(
@@ -499,7 +484,7 @@ def record_pod_escalation_activity(state):
     row = lifecycle_service.read_lifecycle_row_by_id(wl_id)
     skip = delayed_workflow_step_skip_reason(
         row,
-        skip_sub_statuses=_pod_skip_sub_statuses_from_state(state),
+        skip_sub_statuses=pod_reminder_skip_sub_statuses(state.data),
     )
     if skip:
         logger.info(
@@ -780,7 +765,7 @@ def record_pod_vs_ratecon_activity(state):
 
 def record_pod_processed_activity(state):
     """
-    Finalize POD processing: sub_status ``document_processed`` when extraction succeeded.
+    Finalize POD processing: ``pending_review`` + ``document_processed`` when extraction succeeded.
 
     Failure: action + ``failed`` status when extraction did not persist.
     Skips when S3 upload would have failed.
@@ -811,12 +796,10 @@ def record_pod_processed_activity(state):
 
     actor_type, actor_id = _resolve_actor(state)
     activity_log_service = ActivityLogService()
-    from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
-    if from_sub is None:
-        from_sub = StatusSubType.NONE
 
     if _analysis_success(state):
         meta = _finalize_success_metadata(state)
+        current_status = status_type_from_db(row.get("status")) if row else None
         activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -825,10 +808,9 @@ def record_pod_processed_activity(state):
                 actor_type=actor_type,
                 actor_id=actor_id,
                 steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.SUB_STATUS_CHANGE,
-                        to_sub_status=StatusSubType.DOCUMENT_PROCESSED,
-                        from_sub_status=from_sub,
+                    _build_reminder_transition_step(
+                        current_status=current_status,
+                        new_sub=StatusSubType.DOCUMENT_PROCESSED,
                         metadata=meta,
                     ),
                 ),

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import format_driver_details_llm_action
+from app.domain.driver_assignment.activity_log_descriptions import format_driver_details_llm_action
 from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.prompt_step_keys import DRIVER_ASSIGNMENT_DRIVER_DETAILS
 from app.integrations.langsmith import (
@@ -202,8 +202,6 @@ class DriverDetailsClassificationService:
                 "prompt_source": prompt_metadata.source,
                 "prompt_commit_hash": prompt_metadata.commit_hash,
             }
-            if shipment_id:
-                activity_metadata["shipment_id"] = shipment_id
             activity_log_id = self._activity.record_action(
                 ActivityLogWrite(
                     tenant_id=tenant_id,

@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.domain.driver_assignment.confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,
 )
+from app.domain.driver_assignment.partial_follow_up_email import (
+    DriverAssignmentPartialFollowUpEmailConfig,
+)
 from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
@@ -28,6 +31,7 @@ class T3raDriverAssignmentSettings(BaseModel):
     shadow_emails: EmailRecipients | None = None
     reminders: WorkflowRemindersConfig
     confirmation_email: DriverAssignmentConfirmationEmailConfig | None = None
+    partial_follow_up_email: DriverAssignmentPartialFollowUpEmailConfig | None = None
     escalate_driver: DriverAssignmentEscalateSettings | None = None
 
 

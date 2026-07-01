@@ -15,10 +15,7 @@ DRIVER_ASSIGNMENT_CANCEL_POLICY = WorkflowCancellationPolicy(
         {StatusType.PROCESSING, StatusType.PENDING_REVIEW}
     ),
     success_terminal_sub_statuses=frozenset(
-        {
-            StatusSubType.DETAILS_RECEIVED,
-            StatusSubType.UPLOADED_TO_TMS,
-        }
+        {StatusSubType.UPLOADED_TO_TMS}
     ),
 )
 

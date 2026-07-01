@@ -28,7 +28,7 @@ def test_is_workflow_cancellable_pending_review_reminder() -> None:
 def test_is_workflow_cancellable_rejects_success_terminal() -> None:
     assert not is_workflow_cancellable(
         StatusType.PENDING_REVIEW,
-        StatusSubType.DETAILS_RECEIVED,
+        StatusSubType.UPLOADED_TO_TMS,
         DRIVER_ASSIGNMENT_CANCEL_POLICY,
     )
 
@@ -44,7 +44,7 @@ def test_is_workflow_cancellable_rejects_already_cancelled() -> None:
 def test_workflow_ingress_terminal_includes_cancelled() -> None:
     terminals = workflow_ingress_terminal_sub_statuses(DRIVER_ASSIGNMENT_CANCEL_POLICY)
     assert StatusSubType.CANCELLED in terminals
-    assert StatusSubType.DETAILS_RECEIVED in terminals
+    assert StatusSubType.UPLOADED_TO_TMS in terminals
 
 
 def test_is_workflow_success_terminal() -> None:

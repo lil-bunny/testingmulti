@@ -35,7 +35,7 @@ def _lifecycle_row(*, sub_status: str = "document_uploaded") -> dict:
 
 @patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
 @patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
-def test_record_pod_processed_activity_sub_status_only_on_success(
+def test_record_pod_processed_activity_sets_pending_review_on_success(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
@@ -68,11 +68,9 @@ def test_record_pod_processed_activity_sub_status_only_on_success(
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert len(sequence.steps) == 1
-    assert sequence.steps[0].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[0].to_sub_status == StatusSubType.DOCUMENT_PROCESSED
-    assert sequence.steps[0].from_sub_status == StatusSubType.DOCUMENT_UPLOADED
-    assert sequence.steps[0].to_status is None
-    assert sequence.steps[0].to_status != StatusType.COMPLETED
     assert sequence.steps[0].metadata["shipment_id"] == "1000324895"
 
 
@@ -188,6 +186,8 @@ def test_record_pod_processed_activity_runs_after_uploaded_to_tms(
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert len(sequence.steps) == 1
-    assert sequence.steps[0].activity_type == ActivityType.SUB_STATUS_CHANGE
+    from app.models.status import StatusType
+
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[0].to_sub_status == StatusSubType.DOCUMENT_PROCESSED
-    assert sequence.steps[0].from_sub_status == StatusSubType.UPLOADED_TO_TMS

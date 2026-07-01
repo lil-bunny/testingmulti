@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from app.workflows.graph.routers import (
     event_type_router,
     manual_tms_upload_router,
+    pod_reminder_eligibility_router,
     ratecon_cache_router,
     read_workflow_lifecycle_router,
     shipment_router,
@@ -20,6 +21,16 @@ def _state(**data):
 def test_event_type_router_manual_pod_upload():
     state = _state(event_type="manual_pod_upload")
     assert event_type_router(state) == "manual_pod_upload"
+
+
+def test_pod_reminder_eligibility_router_eligible():
+    state = _state(pod_reminder_eligible=True)
+    assert pod_reminder_eligibility_router(state) == "eligible"
+
+
+def test_pod_reminder_eligibility_router_skip():
+    state = _state(pod_reminder_eligible=False)
+    assert pod_reminder_eligibility_router(state) == "skip"
 
 
 def test_read_workflow_lifecycle_router_manual_found():

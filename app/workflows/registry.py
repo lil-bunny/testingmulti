@@ -8,6 +8,7 @@ from app.workflows.nodes.pod import (
 )
 from app.workflows.nodes.email import send_email, get_email_attachments
 from app.workflows.nodes.pod_request import (
+    check_pod_reminder_eligibility,
     record_and_schedule_pod_request,
     record_reminder_run,
 )
@@ -103,6 +104,7 @@ NODE_REGISTRY = {
     "update_shipment": update_shipment,
     "send_email": send_email,
     "record_and_schedule_pod_request": record_and_schedule_pod_request,
+    "check_pod_reminder_eligibility": check_pod_reminder_eligibility,
     "record_reminder_run": record_reminder_run,
     "get_email_attachments": get_email_attachments,
     "classify_attachments": classify_attachments,
