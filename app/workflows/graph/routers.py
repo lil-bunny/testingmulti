@@ -105,6 +105,12 @@ def driver_assignment_eligibility_router(state):
     return "skip"
 
 
+def pod_reminder_eligibility_router(state):
+    if state.data.get("pod_reminder_eligible"):
+        return "eligible"
+    return "skip"
+
+
 def driver_assignment_delayed_event_router(state):
     if state.data.get("event_type") == "escalation_due":
         return "escalation_due"

@@ -26,6 +26,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "reminder_step",
             "reminders_scheduled",
             "pod_reminder_sent",
+            "pod_reminder_eligible",
+            "pod_reminder_skip_reason",
         ],
     ),
     "ratecon": WorkflowTemplateContract(
@@ -105,7 +107,7 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "tms_driver_error",
             "tms_carrier_id",
             "tms_shipment_id",
-            "tms_created_contact",
+            "tms_contact_created",
             "tms_customer_name",
             "tms_is_tracking_customer",
             "tms_matched_driver_name",

@@ -7,6 +7,7 @@ WORKFLOW_CONFIGS = {
             "get_shipment",
             "read_workflow_lifecycle",
             "check_existing_pod",
+            "check_pod_reminder_eligibility",
             "send_email",
             "record_and_schedule_pod_request",
             "record_pod_started_activity",
@@ -36,6 +37,7 @@ WORKFLOW_CONFIGS = {
             ["record_pod_processed_activity", "update_shipment"],
             ["upload_to_turvo", "record_pod_tms_upload_activity"],
             ["update_shipment", "end"],
+            ["check_pod_reminder_eligibility", "send_email"],
             ["send_email", "record_pod_reminder_activity"],
             ["record_pod_reminder_activity", "end"],
             ["record_and_schedule_pod_request", "record_pod_started_activity"],
@@ -68,8 +70,15 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "exists": "end",
                     "schedule_initial": "record_and_schedule_pod_request",  # no send_email on initial
-                    "send_now": "send_email",  # reminder_due path
+                    "send_now": "check_pod_reminder_eligibility",  # reminder_due path
                     "skip_send": "end",
+                },
+            },
+            "check_pod_reminder_eligibility": {
+                "router": "pod_reminder_eligibility_router",
+                "map": {
+                    "eligible": "send_email",
+                    "skip": "end",
                 },
             },
             "read_workflow_lifecycle": {
