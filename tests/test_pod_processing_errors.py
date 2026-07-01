@@ -147,6 +147,17 @@ def test_load_ratecon_analysis_success_does_not_set_error(mock_tool):
 # ---------------------------------------------------------------------------
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_extraction_empty_manual_soft_fail(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "extraction_empty"}
+    state = _state(event_type="manual_pod_upload")
+
+    pod_analysis(state)
+
+    assert "error" not in state.data
+    assert state.data["pod_analysis_results"]["error"] == "extraction_empty"
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
 def test_pod_analysis_extraction_empty_sets_error(mock_tool):
     mock_tool.return_value = {"success": False, "error": "extraction_empty"}
     state = _state()
@@ -174,6 +185,20 @@ def test_pod_analysis_missing_shipment_id_sets_unexpected_failure(mock_tool):
     result = pod_analysis(state)
 
     _assert_error(result, SystemError.UNEXPECTED_NODE_FAILURE)
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_skipped_manual_soft_fail(mock_tool):
+    mock_tool.return_value = {
+        "success": True,
+        "skipped": True,
+        "reason": "no_pod_object_key",
+    }
+    state = _state(event_type="manual_pod_upload")
+
+    pod_analysis(state)
+
+    assert "error" not in state.data
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
@@ -266,6 +291,16 @@ def test_ratecon_analysis_skip_does_not_set_error(mock_tool):
 # ---------------------------------------------------------------------------
 
 @patch("app.workflows.nodes.pod.get_pod_vs_ratecon_analysis")
+def test_pod_vs_ratecon_comparison_manual_soft_fail(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "cross validation failed"}
+    state = _state(event_type="manual_pod_upload")
+
+    pod_vs_ratecon_analysis(state)
+
+    assert "error" not in state.data
+
+
+@patch("app.workflows.nodes.pod.get_pod_vs_ratecon_analysis")
 def test_pod_vs_ratecon_comparison_exception_sets_unexpected(mock_tool):
     mock_tool.return_value = {"success": False, "error": "cross validation failed"}
     state = _state()
@@ -279,9 +314,12 @@ def test_pod_vs_ratecon_comparison_exception_sets_unexpected(mock_tool):
 # upload_to_turvo
 # ---------------------------------------------------------------------------
 
-@patch("app.workflows.nodes.turvo.upload_to_turvo_tool")
-def test_upload_to_turvo_failure_sets_error(mock_tool):
-    mock_tool.return_value = {"success": False, "message": "TMS upload failed after retries"}
+@patch("app.workflows.nodes.turvo.PodTmsUploadService")
+def test_upload_to_turvo_failure_sets_error(mock_svc_cls):
+    mock_svc_cls.return_value.upload_merged_pod_from_state.return_value = {
+        "success": False,
+        "message": "TMS upload failed after retries",
+    }
     state = _state()
 
     result = upload_to_turvo(state)
@@ -289,9 +327,12 @@ def test_upload_to_turvo_failure_sets_error(mock_tool):
     _assert_error(result, IntegrationError.TMS_POD_UPLOAD_FAILED)
 
 
-@patch("app.workflows.nodes.turvo.upload_to_turvo_tool")
-def test_upload_to_turvo_success_does_not_set_error(mock_tool):
-    mock_tool.return_value = {"success": True, "document": {"id": "doc-turvo-1"}}
+@patch("app.workflows.nodes.turvo.PodTmsUploadService")
+def test_upload_to_turvo_success_does_not_set_error(mock_svc_cls):
+    mock_svc_cls.return_value.upload_merged_pod_from_state.return_value = {
+        "success": True,
+        "document": {"id": "doc-turvo-1"},
+    }
     state = _state()
 
     upload_to_turvo(state)

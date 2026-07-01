@@ -47,7 +47,11 @@ def shipment_router(state):
         allowed_status_codes = {"2116", "2106", "2105"} # Route Complete, EnRoute, At Delivery
         status_ok = str(status_key) in allowed_status_codes
         if event_type == "manual_pod_upload":
-            return "manual_pod_valid" if status_ok else "invalid_shipment_status"
+            if not status_ok:
+                return "invalid_shipment_status"
+            if state.data.get("manual_pod_upload_source") == "stored":
+                return "manual_pod_stored"
+            return "manual_pod_process"
         return "valid_shipment_status" if status_ok else "invalid_shipment_status"
 
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
@@ -61,7 +65,16 @@ def ratecon_cache_router(state):
         extracted = findings.get("extracted_fields") or {}
         if extracted:
             return "ready"
+    if state.data.get("event_type") == "manual_pod_upload":
+        return "manual_skip"
     return "missing"
+
+
+def post_pod_processing_router(state):
+    """After LLM pipeline: manual portal uploads to TMS; email updates shipment."""
+    if state.data.get("event_type") == "manual_pod_upload":
+        return "manual"
+    return "email"
 
 
 def read_workflow_lifecycle_router(state):
@@ -149,11 +162,13 @@ def tender_status_router(state):
 
 
 def manual_tms_upload_router(state):
-    """Manual portal path: continue processing after TMS upload succeeded or was skipped."""
+    """Manual portal path: continue processing after TMS upload unless re-uploading stored POD."""
     outcome = str(state.data.get("pod_tms_upload_outcome") or "").strip()
-    if outcome in ("uploaded", "skipped"):
-        return "continue"
-    return "stop"
+    if outcome not in ("uploaded", "skipped"):
+        return "stop"
+    if state.data.get("manual_pod_upload_source") == "stored":
+        return "stop"
+    return "continue"
 
 
 def automatic_reply_ack_router(state):

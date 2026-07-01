@@ -77,6 +77,7 @@ class PodManualUploadIngressService:
             "workflow_lifecycle_id": resolution.workflow_lifecycle_id,
             "pod_object_keys": [object_key],
             "execution_id": execution_id,
+            "manual_pod_upload_source": source,
         }
         if uploaded_by:
             payload["uploaded_by"] = uploaded_by

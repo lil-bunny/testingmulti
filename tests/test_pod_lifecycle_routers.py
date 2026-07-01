@@ -8,6 +8,7 @@ from app.workflows.graph.routers import (
     event_type_router,
     manual_tms_upload_router,
     pod_reminder_eligibility_router,
+    post_pod_processing_router,
     ratecon_cache_router,
     read_workflow_lifecycle_router,
     shipment_router,
@@ -41,12 +42,30 @@ def test_read_workflow_lifecycle_router_manual_found():
     assert read_workflow_lifecycle_router(state) == "is_found"
 
 
+def test_shipment_router_manual_process_status():
+    state = _state(
+        event_type="manual_pod_upload",
+        manual_pod_upload_source="upload",
+        shipment={"details": {"status": {"code": {"key": "2116"}}}},
+    )
+    assert shipment_router(state) == "manual_pod_process"
+
+
+def test_shipment_router_manual_stored_status():
+    state = _state(
+        event_type="manual_pod_upload",
+        manual_pod_upload_source="stored",
+        shipment={"details": {"status": {"code": {"key": "2116"}}}},
+    )
+    assert shipment_router(state) == "manual_pod_stored"
+
+
 def test_shipment_router_manual_valid_status():
     state = _state(
         event_type="manual_pod_upload",
         shipment={"details": {"status": {"code": {"key": "2116"}}}},
     )
-    assert shipment_router(state) == "manual_pod_valid"
+    assert shipment_router(state) == "manual_pod_process"
 
 
 def test_ratecon_cache_router_ready():
@@ -70,6 +89,28 @@ def test_ratecon_cache_router_missing_when_skipped():
     assert ratecon_cache_router(state) == "missing"
 
 
+def test_ratecon_cache_router_manual_skip_when_missing():
+    state = _state(
+        event_type="manual_pod_upload",
+        ratecon_analysis_results={
+            "success": False,
+            "skipped": True,
+            "reason": "no_ratecon_extraction",
+        },
+    )
+    assert ratecon_cache_router(state) == "manual_skip"
+
+
+def test_post_pod_processing_router_manual():
+    state = _state(event_type="manual_pod_upload")
+    assert post_pod_processing_router(state) == "manual"
+
+
+def test_post_pod_processing_router_email():
+    state = _state(event_type="email_received")
+    assert post_pod_processing_router(state) == "email"
+
+
 def test_shipment_router_manual_invalid_status():
     state = _state(
         event_type="manual_pod_upload",
@@ -86,6 +127,22 @@ def test_manual_tms_upload_router_continue_on_uploaded():
 def test_manual_tms_upload_router_continue_on_skipped():
     state = _state(pod_tms_upload_outcome="skipped")
     assert manual_tms_upload_router(state) == "continue"
+
+
+def test_manual_tms_upload_router_stop_on_stored_reupload():
+    state = _state(
+        pod_tms_upload_outcome="uploaded",
+        manual_pod_upload_source="stored",
+    )
+    assert manual_tms_upload_router(state) == "stop"
+
+
+def test_manual_tms_upload_router_stop_on_stored_already_on_tms():
+    state = _state(
+        pod_tms_upload_outcome="skipped",
+        manual_pod_upload_source="stored",
+    )
+    assert manual_tms_upload_router(state) == "stop"
 
 
 def test_manual_tms_upload_router_stop_on_failed():

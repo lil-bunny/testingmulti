@@ -34,10 +34,9 @@ WORKFLOW_CONFIGS = {
             ["record_pod_extraction_activity", "pod_vs_ratecon_analysis"],
             ["pod_vs_ratecon_analysis", "record_pod_vs_ratecon_activity"],
             ["record_pod_vs_ratecon_activity", "record_pod_processed_activity"],
-            ["record_pod_processed_activity", "update_shipment"],
             ["upload_to_turvo", "record_pod_tms_upload_activity"],
+            ["record_pod_tms_upload_activity", "end"],
             ["update_shipment", "end"],
-            ["check_pod_reminder_eligibility", "send_email"],
             ["send_email", "record_pod_reminder_activity"],
             ["record_pod_reminder_activity", "end"],
             ["record_and_schedule_pod_request", "record_pod_started_activity"],
@@ -61,7 +60,8 @@ WORKFLOW_CONFIGS = {
                     "non_convoy": "check_existing_pod",
                     # Pod reply workflow
                     "valid_shipment_status": "get_email_attachments",
-                    "manual_pod_valid": "upload_to_turvo",
+                    "manual_pod_stored": "upload_to_turvo",
+                    "manual_pod_process": "load_ratecon_analysis",
                     "invalid_shipment_status": "end",
                 },
             },
@@ -87,11 +87,18 @@ WORKFLOW_CONFIGS = {
             },
             "load_ratecon_analysis": {
                 "router": "ratecon_cache_router",
-                "map": {"ready": "classify_attachments", "missing": "end"},
+                "map": {
+                    "ready": "classify_attachments",
+                    "manual_skip": "classify_attachments",
+                    "missing": "end",
+                },
             },
-            "record_pod_tms_upload_activity": {
-                "router": "manual_tms_upload_router",
-                "map": {"continue": "load_ratecon_analysis", "stop": "end"},
+            "record_pod_processed_activity": {
+                "router": "post_pod_processing_router",
+                "map": {
+                    "manual": "upload_to_turvo",
+                    "email": "update_shipment",
+                },
             },
         },
     },

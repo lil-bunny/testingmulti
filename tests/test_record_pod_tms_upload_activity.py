@@ -44,6 +44,8 @@ def test_record_uploaded_activity_sequence_matches_ratecon_complete_pattern():
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.COMPLETED
     assert sequence.steps[1].to_sub_status == StatusSubType.UPLOADED_TO_TMS
+    assert sequence.steps[1].metadata is None
+    assert sequence.steps[0].metadata == {"outcome": "uploaded"}
 
 
 def test_record_skipped_activity_completes_lifecycle_with_single_status_change():
@@ -134,3 +136,32 @@ def test_record_failed_activity_marks_failed():
     assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert sequence.steps[1].to_status == StatusType.FAILED
+
+
+def test_manual_from_pending_review_normalizes_then_completes() -> None:
+    svc = MagicMock()
+    svc.record_sequence.return_value = MagicMock()
+
+    record_pod_tms_upload_activity(
+        scope=_scope(
+            from_status=StatusType.PENDING_REVIEW,
+            from_sub_status=StatusSubType.DOCUMENT_PROCESSED,
+        ),
+        shipment_id="1000324895",
+        outcome="uploaded",
+        activity_log_service=svc,
+        is_manual=True,
+    )
+
+    sequence = svc.record_sequence.call_args[0][0]
+    assert len(sequence.steps) == 3
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].from_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[0].to_status == StatusType.PROCESSING
+    assert sequence.steps[1].activity_type == ActivityType.ACTION
+    assert sequence.steps[2].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[2].from_status == StatusType.PROCESSING
+    assert sequence.steps[2].to_status == StatusType.COMPLETED
+    assert sequence.steps[2].to_sub_status == StatusSubType.UPLOADED_TO_TMS
+    assert sequence.steps[0].metadata is None
+    assert sequence.steps[2].metadata is None
