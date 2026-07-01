@@ -18,6 +18,8 @@ def _state_data(*, tenant_settings: dict | None = None) -> dict:
 
 
 def test_check_skips_when_sub_status_in_tenant_skip_list() -> None:
+    settings = minimal_t3ra_tenant_settings()
+    settings["pod_lifecycle"]["reminders"]["skip_sub_statuses"] = ["document_processed"]
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PROCESSING.value,
@@ -27,7 +29,7 @@ def test_check_skips_when_sub_status_in_tenant_skip_list() -> None:
 
     result = svc.check(
         workflow_lifecycle_id="wl-1",
-        state_data=_state_data(),
+        state_data=_state_data(tenant_settings=settings),
     )
 
     assert not result.eligible

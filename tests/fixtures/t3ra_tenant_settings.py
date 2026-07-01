@@ -63,12 +63,6 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                     {"step": 3, "event_type": "reminder_due", "delay_hours": 0.09666666666666666},
                 ],
                 "expire_grace_hours": 2,
-                "skip_sub_statuses": [
-                    "document_uploaded",
-                    "document_processed",
-                    "uploaded_to_tms",
-                    "resolved_manually",
-                ],
                 "email_template_html": "<html>pod-reminder</html>",
             },
         },
