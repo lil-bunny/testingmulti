@@ -10,9 +10,12 @@ from app.domain.tenant_settings.gelita import (
     GelitaDomesticDeliverySettings,
     GelitaEscalateTenderSettings,
     GelitaSendTenderEmailSettings,
+    GelitaSkippedPackCodesSettings,
     GelitaTenderCalculateSettings,
     GelitaTenantSettings,
 )
+from app.exceptions import WorkflowException
+from app.domain.error_catalog import SystemError
 from app.services.tender_service import TenderService
 from app.domain.state import workflow_state_data
 
@@ -228,6 +231,34 @@ def gelita_tender_calculate_settings(
         return None
 
 
+def _system_error_for_tender_calculate_validation(exc: ValidationError) -> SystemError:
+    """Map Pydantic ``tender_calculate`` field errors to tenant settings system errors."""
+    top_fields: set[str] = set()
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        if loc and isinstance(loc[0], str):
+            top_fields.add(loc[0])
+    if top_fields == {"gelita_pickup_address"}:
+        return SystemError.MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS
+    if "pallet_profiles" in top_fields:
+        return SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES
+    if "gelita_pickup_address" in top_fields:
+        return SystemError.MISSING_TENANT_SETTINGS_GELITA_PICKUP_ADDRESS
+    return SystemError.MISSING_TENANT_SETTINGS_PALLET_PROFILES
+
+
+def require_gelita_tender_calculate_settings(
+    state_or_data: Any,
+) -> GelitaTenderCalculateSettings:
+    """Parse ``tender_calculate`` for Gelita; raises mapped ``WorkflowException`` on failure."""
+    cfg = action_settings(state_or_data, "tender_calculate")
+    try:
+        return GelitaTenderCalculateSettings.model_validate(cfg)
+    except ValidationError as exc:
+        system_error = _system_error_for_tender_calculate_validation(exc)
+        raise WorkflowException(system_error) from None
+
+
 def gelita_domestic_delivery_settings(
     state_or_data: Any,
 ) -> GelitaDomesticDeliverySettings | None:
@@ -237,3 +268,16 @@ def gelita_domestic_delivery_settings(
         return GelitaDomesticDeliverySettings.model_validate(block)
     except ValidationError:
         return None
+
+
+def gelita_skipped_pack_codes_settings(
+    state_or_data: Any,
+) -> GelitaSkippedPackCodesSettings:
+    """Parse ``skipped_pack_codes`` for Gelita; empty when missing or invalid."""
+    block = load_tendering_settings_root(state_or_data).get("skipped_pack_codes")
+    if not isinstance(block, dict):
+        return GelitaSkippedPackCodesSettings()
+    try:
+        return GelitaSkippedPackCodesSettings.model_validate(block)
+    except ValidationError:
+        return GelitaSkippedPackCodesSettings()

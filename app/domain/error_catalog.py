@@ -80,6 +80,14 @@ class BusinessError(_CatalogError):
         "missing_unit_dims",
         "Pack code {pack_code} unit dimensions are missing.",
     )
+    MISSING_PACK_TYPE = (
+        "missing_pack_type",
+        "Pack code {pack_code} pack type is missing.",
+    )
+    MISSING_PACK_TYPE_WEIGHT = (
+        "missing_pack_type_weight",
+        "Pack code {pack_code} pack type weight is missing.",
+    )
     MISSING_CUSTOMER_PO = ("missing_customer_po", "Customer PO number is required.")
     # POD lifecycle
     POD_ATTACHMENT_UPLOAD_FAILED = (
@@ -99,6 +107,10 @@ class BusinessError(_CatalogError):
     INTERNATIONAL_DELIVERY_SKIPPED = (
         "international_delivery_skipped",
         "International (overseas) shipments are skipped",
+    )
+    PACK_CODE_SKIPPED = (
+        "pack_code_skipped",
+        "Pack code {pack_code} is skipped",
     )
 
 

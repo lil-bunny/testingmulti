@@ -300,7 +300,6 @@ def inbound_metadata_from_payload(
         "cc": _attendee_emails(payload.get("cc_attendees")),
         "bcc": _attendee_emails(payload.get("bcc_attendees")),
         "event": payload.get("event"),
-        "account_id": payload.get("account_id"),
         "attachments": attachments,
     }
     if extra:

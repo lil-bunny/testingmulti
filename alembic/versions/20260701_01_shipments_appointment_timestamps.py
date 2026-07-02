@@ -1,8 +1,8 @@
 """Shipment appointment timestamps and drop legacy DA sub-status enum values.
 
-Revision ID: 20260630_01
-Revises: 20260626_01
-Create Date: 2026-06-30
+Revision ID: 20260701_01
+Revises: 20260630_01
+Create Date: 2026-07-01
 
 Removes unused ``lifecycle_sub_status`` values ``details_received`` and
 ``driver_details_email_received`` (sub-status only; workflow event type unchanged).
@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "20260630_01"
-down_revision = "20260626_01"
+revision = "20260701_01"
+down_revision = "20260630_01"
 branch_labels = None
 depends_on = None
 

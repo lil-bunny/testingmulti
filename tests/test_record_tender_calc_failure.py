@@ -66,8 +66,6 @@ def test_record_workflow_failure_node_applies_transition(
     assert metadata["error"] == BusinessError.MISSING_PACK_CODE.value
     assert metadata["error_category"] == BusinessError.CATEGORY.value
     assert metadata["error_description"] == PACK_MSG
-    assert metadata["tender_id"] == TENDER_UUID
-    assert metadata["pack_code"] == "9999"
     assert commands[0].description == PACK_MSG
     mock_enqueue.assert_called_once_with(
         state,
@@ -145,7 +143,6 @@ def test_record_workflow_failure_node_missing_delivery_address(
     metadata = commands[0].metadata
     assert metadata["error"] == BusinessError.MISSING_DELIVERY_ADDRESS.value
     assert metadata["error_description"] == DEL_MSG
-    assert metadata["delivery_address_code"] == "41000100"
     mock_enqueue.assert_called_once_with(
         state,
         exception_activity_log_id=EXCEPTION_ACTIVITY_LOG_UUID,

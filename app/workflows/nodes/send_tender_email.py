@@ -122,12 +122,6 @@ def send_tender_email(state):
         account_id=account_id,
         tenant_id=state.tenant_id,
         workflow_run_id=run_id,
-        communication_metadata={
-            "source": "send_tender_email",
-            "tender_id": state.data.get("tender_id"),
-            "workflow_lifecycle_id": state.data.get("workflow_lifecycle_id"),
-            "load_type": load_type,
-        },
     )
     if not result or not result.get("success"):
         err = (result or {}).get("error") if isinstance(result, dict) else None

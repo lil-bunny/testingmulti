@@ -257,7 +257,8 @@ WORKFLOW_CONFIGS = {
             "classify_carrier_ack",
             "record_ack_received",
             "read_tender_row",
-            "complete_international_tender",
+            "resolve_international_delivery_skip",
+            "resolve_pack_code_skip",
             "record_tender_business_warnings",
             "send_tender_reminder",
             "update_reminder_status",
@@ -266,7 +267,8 @@ WORKFLOW_CONFIGS = {
         ],
         "edges": [
             ["record_tender_created_activity", "read_tender_row"],
-            ["complete_international_tender", "end"],
+            ["resolve_international_delivery_skip", "end"],
+            ["resolve_pack_code_skip", "end"],
             ["send_tender_email", "record_tender_business_warnings"],
             ["record_tender_business_warnings", "log_tender_activity"],
             ["log_tender_activity", "end"],
@@ -298,7 +300,8 @@ WORKFLOW_CONFIGS = {
             "read_tender_row": {
                 "router": "post_read_tender_router",
                 "map": {
-                    "international": "complete_international_tender",
+                    "international": "resolve_international_delivery_skip",
+                    "pack_code_skipped": "resolve_pack_code_skip",
                     "domestic": "calculate_tender_params",
                     "completed": "end",
                     "reminder_due": "send_tender_reminder",

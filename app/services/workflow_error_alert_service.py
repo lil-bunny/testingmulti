@@ -223,8 +223,6 @@ class WorkflowErrorAlertService:
             "workflow_lifecycle_id": payload.workflow_lifecycle_id,
             "workflow_name": payload.workflow_name,
         }
-        if payload.tender_id:
-            meta["tender_id"] = payload.tender_id
         if payload.pack_code:
             meta["pack_code"] = payload.pack_code
         if payload.delivery_address_code:
@@ -252,8 +250,6 @@ class WorkflowErrorAlertService:
             "channel": channel,
             "alert_type": _ALERT_SOURCE,
         }
-        if payload.tender_id:
-            metadata_patch["tender_id"] = payload.tender_id
         if payload.pack_code:
             metadata_patch["pack_code"] = payload.pack_code
         if payload.delivery_address_code:

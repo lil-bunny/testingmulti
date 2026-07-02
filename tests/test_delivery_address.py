@@ -9,6 +9,7 @@ from app.domain.delivery_address import (
     CUSTOMER_NAME_SOURCE_DELIVERY_LOCATION,
     CUSTOMER_NAME_SOURCE_UNKNOWN,
     delivery_address_from_location_row,
+    format_usps_mailing_address,
     is_unresolved_customer_name,
     resolve_delivery_address,
 )
@@ -144,6 +145,60 @@ def test_resolve_delivery_address_threads_state_resolver_through() -> None:
     )
     assert out is not None
     assert out["state"] == "IA"
+
+
+def _minimal_row(*, city: str, zip_code: str = "78045", country: str = "U.S.A.") -> dict:
+    return {
+        "Name": "TEST",
+        "Street": "1 Main",
+        "City": city,
+        "Zip Code": zip_code,
+        "country name": country,
+    }
+
+
+@pytest.mark.parametrize(
+    ("city_cell", "expected_city", "expected_state", "resolver_called"),
+    [
+        ("LAREDO, TX", "LAREDO", "TX", False),
+        ("LERMA, EDO", "LERMA", "EDO", False),
+        ("MILLS RIVER", "MILLS RIVER", "NC", True),
+        ("SIOUX CITY", "SIOUX CITY", "IA", True),
+        ("FOO,", "FOO", "IA", True),
+    ],
+)
+def test_delivery_address_city_state_from_q_column(
+    city_cell: str,
+    expected_city: str,
+    expected_state: str,
+    resolver_called: bool,
+) -> None:
+    seen: list[tuple[str | None, object]] = []
+
+    def resolver(country: str | None, postal: object) -> str | None:
+        seen.append((country, postal))
+        return expected_state
+
+    row = _minimal_row(city=city_cell)
+    out = delivery_address_from_location_row(row, state_resolver=resolver)
+
+    assert out["city"] == expected_city
+    assert out["state"] == expected_state
+    if resolver_called:
+        assert seen == [("U.S.A.", "78045")]
+    else:
+        assert seen == []
+
+
+def test_format_usps_mailing_address_prefers_stored_state() -> None:
+    addr = {
+        "city": "LAREDO",
+        "state": "TX",
+        "postal_code": "78045",
+        "country": "U.S.A.",
+    }
+    formatted = format_usps_mailing_address(addr)
+    assert formatted == "LAREDO TX 78045"
 
 
 @pytest.mark.parametrize(

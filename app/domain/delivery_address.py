@@ -41,6 +41,15 @@ def _optional_str(val: Any) -> str | None:
     return str(cleaned)
 
 
+def _city_and_state_from_sheet_cell(city_val: Any) -> tuple[str, str | None]:
+    """Split ``City`` (column Q) into city and optional state suffix after comma."""
+    raw = _required_str(city_val)
+    if "," not in raw:
+        return raw.strip(), None
+    city, _, suffix = raw.partition(",")
+    return city.strip(), suffix.strip() or None
+
+
 def _resolve_state(
     country: str,
     postal: str,
@@ -61,20 +70,26 @@ def delivery_address_from_location_row(
 ) -> dict[str, Any]:
     """Build normalized ``delivery_address`` JSON from one Delivery locations row.
 
-    When ``state_resolver`` is provided, ``state`` is filled by calling it with
-    the cleaned country name and postal code; if the resolver returns ``None``
-    or a blank value, ``state`` falls back to ``""`` to preserve the existing
-    contract.
+    When column Q contains ``city, state``, the suffix is used as ``state`` and
+    ``state_resolver`` is not called. Otherwise ``state`` comes from
+    ``state_resolver(country, postal)`` when provided; blank resolver output
+    becomes ``""``.
     """
     country = _required_str(location_row.get(_SHEET_COUNTRY))
     postal = _required_str(location_row.get(_SHEET_ZIP))
-    state = _resolve_state(country, postal, state_resolver)
+    city, state_from_sheet = _city_and_state_from_sheet_cell(
+        location_row.get(_SHEET_CITY)
+    )
+    if state_from_sheet:
+        state = state_from_sheet
+    else:
+        state = _resolve_state(country, postal, state_resolver)
     return {
         "name": _required_str(location_row.get(_SHEET_NAME)),
         "name2": _optional_str(location_row.get(_SHEET_NAME2)),
         "address1": _required_str(location_row.get(_SHEET_STREET)),
         "address2": _optional_str(location_row.get(_SHEET_STREET2)),
-        "city": _required_str(location_row.get(_SHEET_CITY)),
+        "city": city,
         "state": state,
         "postal_code": postal,
         "country": country,
@@ -198,13 +213,14 @@ def format_usps_mailing_address(addr: dict[str, Any] | None) -> str:
     city = _line_str(addr.get("city")).upper()
     postal_raw = _line_str(addr.get("postal_code"))
     postal = _postal_for_usps_line(postal_raw)
-    state = (lookup_state(addr.get("country"), postal_raw) or "").strip()
-    if not state:
-        state_raw = _line_str(addr.get("state"))
+    state_raw = _line_str(addr.get("state"))
+    if state_raw:
         if len(state_raw) == 2 and state_raw.isalpha():
             state = state_raw.upper()
         else:
             state = state_raw
+    else:
+        state = (lookup_state(addr.get("country"), postal_raw) or "").strip()
 
     if city or state or postal:
         csz_parts = [p for p in (city, state, postal) if p]

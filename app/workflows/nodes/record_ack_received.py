@@ -46,8 +46,6 @@ def guard_automatic_reply_ack(state):
     wl_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
     run_id = str(state.execution_id or state.data.get("execution_id") or "").strip()
-    tender_id = str(state.data.get("tender_id") or "").strip()
-    thread_id = str(state.data.get("thread_id") or "").strip()
     communication_id = str(state.data.get("communication_id") or "").strip() or None
 
     if not wl_id or not tenant_id or not run_id:
@@ -60,19 +58,9 @@ def guard_automatic_reply_ack(state):
         )
         return state
 
-    from_attendee = state.data.get("from_attendee") or {}
-    from_email = str(from_attendee.get("identifier") or "").strip() or None
     metadata: dict[str, object] = {
-        "source": "guard_automatic_reply_ack",
         "reason": "automatic_reply",
-        "email_id": state.data.get("email_id"),
-        "thread_id": thread_id or None,
-        "subject": state.data.get("subject"),
-        "from": from_email,
-        "provider": state.data.get("type"),
     }
-    if tender_id:
-        metadata["tender_id"] = tender_id
 
     activity_log_service = ActivityLogService()
     activity_log_service.record_exception(
@@ -175,9 +163,6 @@ def classify_carrier_ack(state):
             confidence = None
         activity_log_service = ActivityLogService()
         activity_metadata = {
-            "source": "classify_carrier_ack",
-            "tender_id": tender_id,
-            "carrier_ack_decision": decision,
             "user_input": reply_text,
             "output": result,
             "prompt_step_key": LOAD_TENDERING_CARRIER_ACK,
@@ -257,7 +242,6 @@ def record_ack_received(state):
         to_sub_status=to_sub,
         activity_type=ActivityType.STATUS_CHANGE,
         actor_type=ActorType.SYSTEM,
-        metadata={"tender_id": tender_id, "carrier_ack_decision": decision},
     )
     command = dataclasses.replace(command, communication_id=None)
     lifecycle_transition_service.apply(command)

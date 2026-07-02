@@ -72,6 +72,7 @@ def test_read_tender_row_allows_missing_delivery_date_on_tender_created(
 
     assert state.data["tender"]["delivery_address"]["country"] == "U.S.A."
     assert state.data["is_domestic_delivery"] is True
+    assert state.data["skipped_pack_codes"] == ["3002"]
     assert "error" not in state.data
 
 
