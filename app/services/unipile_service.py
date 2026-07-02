@@ -201,7 +201,8 @@ class Unipile:
         account_id: Optional[str] = None,
         cc: Optional[List[Dict]] = None, 
         bcc: Optional[List[Dict]] = None,
-        reply_to: Optional[str] = None
+        reply_to: Optional[str] = None,
+        from_recipient: Optional[Dict[str, str]] = None,
     ) -> Dict:
         """
         Send an email using Unipile.
@@ -214,6 +215,7 @@ class Unipile:
             cc: Optional list of CC recipients
             bcc: Optional list of BCC recipients
             reply_to: Optional provider_id of the email being replied to (Unipile API requirement)
+            from_recipient: Optional sender override ``{display_name, identifier}`` for aliases
             
         Returns:
             Dict: Response containing success status and tracking information
@@ -239,6 +241,9 @@ class Unipile:
                 
             if reply_to:
                 data['reply_to'] = reply_to
+
+            if from_recipient:
+                data['from'] = json.dumps(from_recipient)
             
             headers = self._get_headers()
             headers['Content-Type'] = 'application/x-www-form-urlencoded'

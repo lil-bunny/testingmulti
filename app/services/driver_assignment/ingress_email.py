@@ -13,6 +13,7 @@ from app.domain.tenant_settings.workflow_shadow_mode import (
     parse_shadow_mail_recipients,
     workflow_shadow_active,
 )
+from app.domain.pod_lifecycle_settings import resolve_mikey_mailbox
 from app.tools.driver_details import render_driver_confirmation_html
 from app.services.driver_assignment.ingress_types import SendReminderResult
 from app.services.unipile_service import UnipileException
@@ -53,11 +54,12 @@ class IngressEmailMixin:
 
         settings = tenant_settings or {}
 
-        account_id = self._clean(settings.get("mikey_account_id"))
-
-        if not account_id:
-
+        mailbox = resolve_mikey_mailbox({"tenant_settings": settings})
+        if not mailbox:
             return SendReminderResult(sent=False, error="missing_mikey_account_id")
+
+        account_id = mailbox.account_id
+        from_email = mailbox.email_alias
 
         if not thread_id:
 
@@ -115,6 +117,7 @@ class IngressEmailMixin:
                     subject=subject,
                     body=body,
                     account_id=account_id,
+                    from_email=from_email,
                     workflow_run_id=workflow_run_id,
                     communication_metadata={
                         "source": email_source,
@@ -153,6 +156,8 @@ class IngressEmailMixin:
                 body=body,
 
                 account_id=account_id,
+
+                from_email=from_email,
 
                 subject=subject,
 

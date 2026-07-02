@@ -14,6 +14,14 @@ def normalize_email(value: Any) -> str:
     return (str(value) if value else "").strip().lower()
 
 
+def exclude_emails_for_reply(*, primary_email: str, from_email: str | None) -> str:
+    """Email to exclude from reply-all TO/CC; alias takes precedence when set."""
+    alias = (from_email or "").strip()
+    if alias:
+        return alias
+    return primary_email
+
+
 def attendee_to_recipient(att: Any) -> dict[str, str] | None:
     if not isinstance(att, dict):
         return None

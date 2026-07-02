@@ -360,6 +360,7 @@ def outbound_metadata(
     cc: Any = None,
     bcc: Any = None,
     account_id: str | None = None,
+    from_email: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta: dict[str, Any] = {
@@ -370,6 +371,9 @@ def outbound_metadata(
     }
     if account_id:
         meta["account_id"] = account_id
+    alias = str(from_email or "").strip()
+    if alias:
+        meta["from"] = alias
     if extra:
         meta.update(extra)
     return meta
@@ -386,6 +390,7 @@ def outbound_row_from_send(
     cc: Any = None,
     bcc: Any = None,
     account_id: str | None = None,
+    from_email: str | None = None,
     extra_metadata: dict[str, Any] | None = None,
     workflow_run_id: str | None = None,
     channel: str = "email",
@@ -414,6 +419,7 @@ def outbound_row_from_send(
             cc=cc,
             bcc=bcc,
             account_id=account_id,
+            from_email=from_email,
             extra=extra_metadata,
         ),
     }

@@ -2,7 +2,6 @@ import logging
 from typing import Any, Dict, List
 
 from app.core.config import settings
-from app.domain.pod_lifecycle_settings import resolve_pod_sender_account_id
 from app.services.attachment_normalizer import pod_individual_attachment_filename
 from app.services.pod_lifecycle.email_service import PodLifecycleEmailService
 from app.services.s3bucket_service import bucket
@@ -32,7 +31,7 @@ def get_email_attachments(state):
     """
     attachments = state.data.get("attachments") or []
     email_id = state.data.get("email_id")
-    account_id = resolve_pod_sender_account_id(state)
+    account_id = PodLifecycleEmailService().resolve_sender_account_id(state)
     if not account_id:
         raise RuntimeError("missing_mikey_account_id: cannot fetch POD email attachments")
     attachments_ids = [attachment.get("id") for attachment in attachments]

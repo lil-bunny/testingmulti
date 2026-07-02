@@ -68,6 +68,9 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
         },
         "enabledProcesses": ["pod_lifecycle", "pod_collection", "driver_assignment"],
         "prompts": T3RA_PROMPTS,
-        "mikey_account_id": "test-mikey-account-id",
+        "mikey_account_id": {
+            "account_id": "test-mikey-account-id",
+            "email_alias": "ops@example.com",
+        },
         "inbound_routing_emails": ["test@example.com"],
     }
