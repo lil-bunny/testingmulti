@@ -224,6 +224,56 @@ def test_apply_sub_status_change_keeps_pending_review_for_pod_reminder_ladder(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
+def test_apply_status_change_pod_upload_pending_review_to_processing(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "pod_lifecycle",
+    }
+    lifecycles.update_lifecycle.return_value = True
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    result = svc.apply(
+        _command(
+            to_status=StatusType.PROCESSING,
+            to_sub_status=StatusSubType.DOCUMENT_UPLOADED,
+            from_sub_status=StatusSubType.REMINDER_1_SENT,
+            activity_type=ActivityType.STATUS_CHANGE,
+            description=None,
+        )
+    )
+
+    lifecycles.update_lifecycle.assert_called_once_with(
+        lifecycle_id=LIFECYCLE_UUID,
+        update=LifecycleUpdate(
+            status=StatusType.PROCESSING,
+            sub_status=StatusSubType.DOCUMENT_UPLOADED,
+            clear_pause=True,
+        ),
+    )
+    row = activity_logs.insert.call_args[0][0]
+    assert row["description"] == "Status changed from Pending Review to Processing"
+    assert row["from_status"] == StatusType.PENDING_REVIEW.value
+    assert row["to_status"] == StatusType.PROCESSING.value
+    assert row["from_sub_status"] == StatusSubType.REMINDER_1_SENT.value
+    assert row["to_sub_status"] == StatusSubType.DOCUMENT_UPLOADED.value
+    assert result.to_status == StatusType.PROCESSING
+    assert result.to_sub_status == StatusSubType.DOCUMENT_UPLOADED
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
 def test_apply_sequence_tms_success_sub_bumps_stay_processing(
     _resolve_tenant: MagicMock,
 ) -> None:

@@ -210,14 +210,19 @@ def workflow_error_payload(
     code: str,
     message: str,
     category: ErrorCategory | None = None,
+    communication_id: str | None = None,
 ) -> dict[str, str]:
     """Build the ``state.data['error']`` payload."""
     resolved_category = category or error_category(code)
-    return {
+    payload: dict[str, str] = {
         "category": resolved_category.value,
         "code": code,
         "message": message,
     }
+    comm = str(communication_id or "").strip()
+    if comm:
+        payload["communication_id"] = comm
+    return payload
 
 
 def has_workflow_error(state_data: dict) -> bool:

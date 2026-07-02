@@ -5,6 +5,17 @@ def validate_graph_definition(graph_def: dict) -> GraphDefinition:
     return GraphDefinition.model_validate(graph_def)
 
 
+def validate_router_static_edge_conflict(graph_def: dict) -> None:
+    """Reject static edges from nodes that already have a conditional router."""
+    routers = graph_def.get("routers") or {}
+    for src, dst in graph_def.get("edges") or []:
+        if src in routers:
+            raise ValueError(
+                f"Node {src!r} has a router and a static edge to {dst!r}; "
+                "use the router map only"
+            )
+
+
 def validate_tenant_overlay(overlay: dict) -> TenantWorkflowOverlay:
     return TenantWorkflowOverlay.model_validate(overlay)
 

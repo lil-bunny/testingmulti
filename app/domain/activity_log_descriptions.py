@@ -11,6 +11,7 @@ from app.domain.activity_log_constants import (
     POD_DOCUMENT_PROCESSING_FAILED_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
     POD_DOCUMENT_UPLOAD_FAILED_ACTION,
+    POD_UPLOADED_MANUALLY_INFO,
     POD_ESCALATION_SENT_ACTION,
     POD_EXTRACTION_PROCESSED_TEMPLATE,
     POD_UPLOADED_TO_TMS_ACTION,
@@ -167,6 +168,10 @@ def format_pod_escalation_sent_action() -> str:
 
 def format_pod_document_uploaded_action() -> str:
     return POD_DOCUMENT_UPLOADED_ACTION
+
+
+def format_pod_uploaded_manually_info() -> str:
+    return POD_UPLOADED_MANUALLY_INFO
 
 
 def format_pod_document_upload_failed_action() -> str:

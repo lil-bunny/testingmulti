@@ -5,6 +5,7 @@ from app.domain.error_catalog import BusinessError, IntegrationError, SystemErro
 from app.exceptions import WorkflowException
 from app.models.document import DocumentType
 from app.models.document_analysis import DocumentAnalysisType
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.tools.document_analysis import upsert_document_analysis, upsert_ratecon_extraction
 from app.tools.documents import insert_document
 from app.tools.pod import (
@@ -162,10 +163,34 @@ def ratecon_analysis(state):
     return state
 
 
+def _is_manual_pod_upload(data: dict) -> bool:
+    return str(data.get("event_type") or "").strip() == (
+        WorkflowRunEventType.MANUAL_POD_UPLOAD.value
+    )
+
+
+def _manual_pod_analysis_soft_fail(out: dict) -> bool:
+    if out.get("skipped"):
+        return True
+    if not out.get("success"):
+        return str(out.get("error") or "").strip() == "extraction_empty"
+    return not (out.get("findings") or {}).get("pod_data")
+
+
 @safe_node
 def pod_analysis(state):
     out = get_pod_analysis(state.data)
     state.data["pod_analysis_results"] = out
+
+    if _is_manual_pod_upload(state.data) and _manual_pod_analysis_soft_fail(out):
+        logger.warning(
+            "pod_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s skipped=%s",
+            state.data.get("shipment_id"),
+            state.data.get("workflow_lifecycle_id"),
+            out.get("error"),
+            out.get("skipped"),
+        )
+        return state
 
     _raise_on_tool_failure(out, _POD_ANALYSIS_ERRORS)
 
@@ -205,6 +230,14 @@ def pod_vs_ratecon_analysis(state):
     state.data["pod_vs_ratecon_analysis_results"] = out
 
     if not out.get("skipped") and not out.get("success"):
+        if _is_manual_pod_upload(state.data):
+            logger.warning(
+                "pod_vs_ratecon_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s",
+                state.data.get("shipment_id"),
+                state.data.get("workflow_lifecycle_id"),
+                out.get("error"),
+            )
+            return state
         raise WorkflowException(SystemError.UNEXPECTED_NODE_FAILURE)
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)

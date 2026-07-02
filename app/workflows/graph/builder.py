@@ -6,6 +6,7 @@ from app.workflows.registry import NODE_REGISTRY
 from app.domain.state import WorkflowState
 from app.workflows.contracts import GraphDefinition
 from app.workflows.checkpoint import get_checkpointer
+from app.workflows.validators import validate_router_static_edge_conflict
 
 ERROR_NODE = "record_workflow_failure"
 ERROR_ROUTE = "__error__"
@@ -28,6 +29,7 @@ def _wrap_router(router_fn):
 
 def build_graph(graph_def: dict, router_registry: dict):
     graph_def = GraphDefinition.model_validate(graph_def).model_dump()
+    validate_router_static_edge_conflict(graph_def)
     graph = StateGraph(WorkflowState)
 
     for node in graph_def["nodes"]:

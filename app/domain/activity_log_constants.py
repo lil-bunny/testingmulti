@@ -34,6 +34,7 @@ RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE = (
 )
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
+POD_UPLOADED_MANUALLY_INFO = "POD uploaded manually"
 POD_DOCUMENT_UPLOAD_FAILED_ACTION = "POD document upload failed"
 POD_DOCUMENT_PROCESSED_ACTION = "POD document processed"
 POD_DOCUMENT_PROCESSING_FAILED_ACTION = "POD document processing failed"
