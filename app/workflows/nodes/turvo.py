@@ -11,11 +11,11 @@ from app.integrations.turvo.shipments import (
 )
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.services.shipments_service import ShipmentsService
+from app.services.pod_tms_upload_service import PodTmsUploadService
 from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool
 from app.tools.turvo import update_shipment as update_shipment_tool
-from app.tools.turvo import upload_to_turvo as upload_to_turvo_tool
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipment_id_for_fetch
 from app.workflows.utils.decorators import safe_node
 
@@ -146,7 +146,7 @@ def link_shipment_locations(state):
 
 @safe_node
 def upload_to_turvo(state):
-    result = upload_to_turvo_tool(state.data)
+    result = PodTmsUploadService().upload_merged_pod_from_state(state)
     state.data["turvo_upload_result"] = result
     if not result.get("success"):
         raise WorkflowException(IntegrationError.TMS_POD_UPLOAD_FAILED)

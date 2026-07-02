@@ -62,6 +62,7 @@ def test_enqueue_stages_and_queues_workflow():
     assert payload["shipments_row_id"] == _SHIPMENTS_ROW_UUID
     assert payload["pod_object_keys"] == ["pod_attachments/manual.pdf"]
     assert payload["uploaded_by"] == "ana.gelita.test@freightx.ai"
+    assert payload["manual_pod_upload_source"] == "upload"
     assert kwargs["workflow_name"] == "pod_lifecycle"
 
 
@@ -103,6 +104,7 @@ def test_enqueue_uses_stored_document_without_pdf_bytes():
     payload = apply_async.call_args.kwargs["kwargs"]["payload"]
     assert payload["pod_object_keys"] == ["pod_attachments/existing.pdf"]
     assert payload["manual_pod_document_id"] == "doc-stored-1"
+    assert payload["manual_pod_upload_source"] == "stored"
     assert payload["uploaded_by_user_id"] == "user-1"
 
 

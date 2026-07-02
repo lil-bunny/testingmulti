@@ -28,8 +28,8 @@ def _base_state(*, data: dict | None = None) -> WorkflowState:
     )
 
 
-@patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_started_activity_calls_record_sequence(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -52,25 +52,25 @@ def test_record_pod_started_activity_calls_record_sequence(
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.tenant_id == TENANT_UUID
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[1].to_status == StatusType.PROCESSING
-    assert sequence.steps[1].to_sub_status == StatusSubType.POD_STARTED
+    assert len(sequence.steps) == 1
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.PROCESSING
+    assert sequence.steps[0].to_sub_status == StatusSubType.POD_STARTED
+    assert sequence.steps[0].metadata is None
 
 
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_started_activity_skips_without_reminders_scheduled(
     mock_svc_cls: MagicMock,
 ) -> None:
     from app.workflows.nodes.record_pod_activity import record_pod_started_activity
 
     record_pod_started_activity(_base_state())
-    mock_svc_cls.assert_not_called()
+    mock_svc_cls.return_value.record_sequence.assert_not_called()
 
 
-@patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_started_activity_skips_when_already_started(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -86,11 +86,11 @@ def test_record_pod_started_activity_skips_when_already_started(
     record_pod_started_activity(
         _base_state(data={"reminders_scheduled": True})
     )
-    mock_svc_cls.assert_not_called()
+    mock_svc_cls.return_value.record_sequence.assert_not_called()
 
 
-@patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_step1_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -123,10 +123,11 @@ def test_record_pod_reminder_activity_step1_status_change(
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
+    assert sequence.steps[1].metadata is None
 
 
-@patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_step2_sub_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -148,12 +149,12 @@ def test_record_pod_reminder_activity_step2_sub_status_change(
 
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
-    assert sequence.steps[1].to_status is None
 
 
-@patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_step3_sub_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -175,10 +176,11 @@ def test_record_pod_reminder_activity_step3_sub_status_change(
 
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_3_SENT
 
 
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_skips_when_not_sent(
     mock_svc_cls: MagicMock,
 ) -> None:
@@ -187,11 +189,11 @@ def test_record_pod_reminder_activity_skips_when_not_sent(
     record_pod_reminder_activity(
         _base_state(data={"pod_reminder_sent": False, "reminder_step": 1})
     )
-    mock_svc_cls.assert_not_called()
+    mock_svc_cls.return_value.record_sequence.assert_not_called()
 
 
-@patch("app.workflows.nodes.record_pod_activity.WorkflowLifecycleService")
-@patch("app.workflows.nodes.record_pod_activity.ActivityLogService")
+@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
 def test_record_pod_escalation_activity_sub_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -215,20 +217,23 @@ def test_record_pod_escalation_activity_sub_status_change(
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
     assert sequence.steps[1].to_sub_status == StatusSubType.ESCALATED
     assert sequence.steps[1].from_sub_status == StatusSubType.REMINDER_3_SENT
+    assert sequence.steps[0].metadata is None
+    assert sequence.steps[1].metadata is None
 
 
 @patch("app.workflows.nodes.email.stash_communication_id")
-@patch("app.workflows.nodes.email.send_email_tool")
+@patch("app.workflows.nodes.email.PodLifecycleEmailService")
 def test_send_email_sets_pod_reminder_sent_and_communication_id(
-    mock_send: MagicMock,
+    mock_service_cls: MagicMock,
     mock_stash: MagicMock,
 ) -> None:
+    from app.services.pod_lifecycle.email_service import PodReminderSendResult
     from app.workflows.nodes.email import send_email
 
-    mock_send.return_value = {
-        "success": True,
-        "communication_id": COMM_UUID,
-    }
+    mock_service_cls.return_value.send_pod_reminder_from_state.return_value = PodReminderSendResult(
+        sent=True,
+        send_result={"success": True, "communication_id": COMM_UUID},
+    )
 
     state = _base_state(
         data={
@@ -242,6 +247,4 @@ def test_send_email_sets_pod_reminder_sent_and_communication_id(
 
     assert state.data["pod_reminder_sent"] is True
     mock_stash.assert_called_once()
-    mock_send.assert_called_once()
-    assert mock_send.call_args.kwargs.get("account_id") == "acc-from-tenant"
-    assert mock_send.call_args.kwargs.get("workflow_run_id") == RUN_UUID
+    mock_service_cls.return_value.send_pod_reminder_from_state.assert_called_once_with(state)

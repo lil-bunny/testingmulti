@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from datetime import date
+from datetime import datetime, timezone
 
 from app.domain.shipment_display import ShipmentDisplayFields
 from app.repositories.shipments_repository import ShipmentUpsertResult
@@ -148,7 +148,10 @@ def test_upsert_from_turvo_maps_turvo_payload_to_display_columns():
     call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
     assert call_kw["customer_name"] == "DIAMOND PET FOODS"
     assert call_kw["carrier_name"] == "Turvo Test Carrier"
-    assert call_kw["delivery_date"] == date(2026, 4, 1)
+    assert call_kw["delivery_date"] == datetime(2026, 4, 1, 7, 1, tzinfo=timezone.utc)
+    assert call_kw["delivery_timezone"] == "America/New_York"
+    assert call_kw["pickup_date"] == datetime(2026, 3, 30, 14, 0, tzinfo=timezone.utc)
+    assert call_kw["pickup_timezone"] == "America/Los_Angeles"
 
 
 def test_upsert_from_turvo_accepts_explicit_display_fields():
@@ -166,14 +169,20 @@ def test_upsert_from_turvo_accepts_explicit_display_fields():
         display_fields=ShipmentDisplayFields(
             carrier_name="Carrier A",
             customer_name="Customer B",
-            delivery_date=date(2026, 1, 2),
+            delivery_date=datetime(2026, 1, 2, 8, 30, tzinfo=timezone.utc),
+            delivery_timezone="America/New_York",
+            pickup_date=datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc),
+            pickup_timezone="America/Chicago",
         ),
     )
 
     call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
     assert call_kw["carrier_name"] == "Carrier A"
     assert call_kw["customer_name"] == "Customer B"
-    assert call_kw["delivery_date"] == date(2026, 1, 2)
+    assert call_kw["delivery_date"] == datetime(2026, 1, 2, 8, 30, tzinfo=timezone.utc)
+    assert call_kw["delivery_timezone"] == "America/New_York"
+    assert call_kw["pickup_date"] == datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    assert call_kw["pickup_timezone"] == "America/Chicago"
 
 
 def test_get_by_id_returns_none_for_invalid_uuid():
@@ -181,3 +190,27 @@ def test_get_by_id_returns_none_for_invalid_uuid():
 
     assert svc.get_by_id(tenant_id=_TENANT_UUID, shipment_id="1000324895") is None
     svc._shipments.get_by_tenant_and_id_tx.assert_not_called()
+
+
+def test_clear_driver_details_delegates_to_repo():
+    repo = MagicMock()
+    repo.clear_driver_details_tx.return_value = True
+    svc = ShipmentsService(shipments_repository=repo)
+
+    ok = svc.clear_driver_details(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+    )
+
+    assert ok is True
+    repo.clear_driver_details_tx.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+    )
+
+
+def test_clear_driver_details_returns_false_for_invalid_ids():
+    svc = ShipmentsService(shipments_repository=MagicMock())
+
+    assert svc.clear_driver_details(tenant_id="", shipment_row_id=_SHIPMENTS_ROW_UUID) is False
+    svc._shipments.clear_driver_details_tx.assert_not_called()

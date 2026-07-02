@@ -6,9 +6,18 @@ Turvo payload shapes vary by event; extend extractors as you lock onto real samp
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 ROUTE_COMPLETED_STATUS_CODE_KEY = "2116"
+TENDERED_STATUS_CODE_KEY = "2101"
+
+
+@dataclass(frozen=True)
+class TurvoStatusWebhookEvent:
+    status_key: str
+    shipment_id: str | None
+    load_id: str | None
 
 
 def extract_shipment_and_load_ids(body: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -59,6 +68,24 @@ def extract_status_code_key(body: dict[str, Any]) -> str | None:
 
     key = code.get("key")
     return str(key) if key is not None else None
+
+
+def map_turvo_status_webhook(body: dict[str, Any]) -> TurvoStatusWebhookEvent | None:
+    """Parse Turvo status webhook for Tendered (2101) or Route complete (2116)."""
+    shipment_id, load_id = extract_shipment_and_load_ids(body)
+    status_code_key = extract_status_code_key(body)
+    if status_code_key not in (
+        ROUTE_COMPLETED_STATUS_CODE_KEY,
+        TENDERED_STATUS_CODE_KEY,
+    ):
+        return None
+    if not (shipment_id or load_id):
+        return None
+    return TurvoStatusWebhookEvent(
+        status_key=status_code_key,
+        shipment_id=shipment_id,
+        load_id=load_id,
+    )
 
 
 def should_run_pod_workflow(

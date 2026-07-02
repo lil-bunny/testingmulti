@@ -1,8 +1,9 @@
-"""Reads for ``locations`` reference data."""
+"""Reads and writes for ``locations`` reference data."""
 
 from __future__ import annotations
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
@@ -45,6 +46,48 @@ class LocationsRepository:
             ),
             {"country": country_s, "state_code": state_s, "city": city_s},
         ).first()
+        return str(row[0]) if row and row[0] else None
+
+    def insert_location_tx(
+        self,
+        *,
+        city: str,
+        state: str | None,
+        state_code: str,
+        postal_code: str | None,
+        country: str,
+    ) -> str | None:
+        """Insert one location row; return id, or ``None`` on unique-key conflict."""
+        city_s = self._clean(city)
+        state_s = self._clean(state)
+        state_code_s = self._clean(state_code)
+        postal_s = self._clean(postal_code)
+        country_s = self._clean(country)
+        if not city_s or not state_code_s or not country_s:
+            return None
+
+        params = {
+            "city": city_s,
+            "state": state_s,
+            "state_code": state_code_s,
+            "postal_code": postal_s,
+            "country": country_s,
+        }
+        try:
+            row = self._session.execute(
+                text(
+                    f"""
+                    INSERT INTO {self.TABLE_NAME}
+                        (city, state, state_code, postal_code, country)
+                    VALUES
+                        (:city, :state, :state_code, :postal_code, :country)
+                    RETURNING id::text
+                    """
+                ),
+                params,
+            ).first()
+        except IntegrityError:
+            return None
         return str(row[0]) if row and row[0] else None
 
     def get_postal_code_by_id(self, location_id: str) -> str | None:

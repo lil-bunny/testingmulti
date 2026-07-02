@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from app.domain.state import workflow_state_data
+from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_active
 from app.core.config import settings
 from app.core.db import db_scope
 from app.core.logger import get_logger
@@ -187,3 +189,30 @@ class PodTmsUploadService:
             document_id=None,
             attachment_id=attachment_id,
         )
+
+    def upload_merged_pod_from_state(self, state) -> dict[str, Any]:
+        """Upload merged POD PDF to Turvo; no-op external write in workflow shadow mode."""
+        data = workflow_state_data(state) or {}
+        tenant_settings = (
+            data.get("tenant_settings") if isinstance(data.get("tenant_settings"), dict) else None
+        )
+        if workflow_shadow_active(
+            tenant_settings,
+            data,
+            workflow_name="pod_lifecycle",
+        ):
+            shipment_id = self._clean(data.get("shipment_id")) or ""
+            logger.info(
+                "upload_merged_pod shadow_mode skipped TMS upload shipment_id=%s",
+                shipment_id,
+            )
+            return {
+                "success": True,
+                "shadow_skipped": True,
+                "message": "shadow_mode",
+                "shipment_id": shipment_id,
+            }
+
+        from app.tools.turvo import upload_to_turvo as upload_to_turvo_tool
+
+        return upload_to_turvo_tool(data)

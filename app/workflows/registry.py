@@ -8,6 +8,7 @@ from app.workflows.nodes.pod import (
 )
 from app.workflows.nodes.email import send_email, get_email_attachments
 from app.workflows.nodes.pod_request import (
+    check_pod_reminder_eligibility,
     record_and_schedule_pod_request,
     record_reminder_run,
 )
@@ -51,6 +52,30 @@ from app.workflows.nodes.record_ratecon_activity import (
     record_ratecon_received_activity,
     record_ratecon_upload_activity,
 )
+from app.workflows.nodes.enqueue_driver_assignment import (
+    enqueue_driver_assignment_on_ratecon_complete,
+)
+from app.workflows.nodes.driver_assignment.nodes import (
+    check_driver_assignment_eligibility,
+    check_driver_escalation_eligibility,
+    check_driver_reminder_eligibility,
+    classify_driver_details,
+    escalate_driver_assignment,
+    record_driver_assignment_started,
+    record_driver_assignment_completed,
+    record_driver_details_confirmation_sent,
+    record_driver_reminder_sent,
+    record_tms_driver_error,
+    record_tms_driver_not_resolved,
+    record_tms_driver_success,
+    resolve_turvo_driver,
+    route_driver_assignment_delayed_event,
+    route_tms_searchable,
+    schedule_driver_reminders,
+    send_driver_details_confirmation,
+    send_driver_details_partial_follow_up,
+    send_driver_reminder,
+)
 from app.workflows.nodes.record_pod_activity import (
     record_pod_escalation_activity,
     record_pod_extraction_activity,
@@ -79,6 +104,7 @@ NODE_REGISTRY = {
     "update_shipment": update_shipment,
     "send_email": send_email,
     "record_and_schedule_pod_request": record_and_schedule_pod_request,
+    "check_pod_reminder_eligibility": check_pod_reminder_eligibility,
     "record_reminder_run": record_reminder_run,
     "get_email_attachments": get_email_attachments,
     "classify_attachments": classify_attachments,
@@ -106,6 +132,26 @@ NODE_REGISTRY = {
     "record_ratecon_received_activity": record_ratecon_received_activity,
     "record_ratecon_upload_activity": record_ratecon_upload_activity,
     "record_ratecon_processed_activity": record_ratecon_processed_activity,
+    "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
+    "check_driver_assignment_eligibility": check_driver_assignment_eligibility,
+    "check_driver_reminder_eligibility": check_driver_reminder_eligibility,
+    "route_driver_assignment_delayed_event": route_driver_assignment_delayed_event,
+    "check_driver_escalation_eligibility": check_driver_escalation_eligibility,
+    "escalate_driver_assignment": escalate_driver_assignment,
+    "send_driver_reminder": send_driver_reminder,
+    "record_driver_reminder_sent": record_driver_reminder_sent,
+    "record_driver_assignment_started": record_driver_assignment_started,
+    "schedule_driver_reminders": schedule_driver_reminders,
+    "classify_driver_details": classify_driver_details,
+    "route_tms_searchable": route_tms_searchable,
+    "resolve_turvo_driver": resolve_turvo_driver,
+    "record_tms_driver_success": record_tms_driver_success,
+    "record_tms_driver_not_resolved": record_tms_driver_not_resolved,
+    "record_tms_driver_error": record_tms_driver_error,
+    "send_driver_details_confirmation": send_driver_details_confirmation,
+    "record_driver_details_confirmation_sent": record_driver_details_confirmation_sent,
+    "record_driver_assignment_completed": record_driver_assignment_completed,
+    "send_driver_details_partial_follow_up": send_driver_details_partial_follow_up,
     "record_pod_started_activity": record_pod_started_activity,
     "record_pod_reminder_activity": record_pod_reminder_activity,
     "record_pod_escalation_activity": record_pod_escalation_activity,

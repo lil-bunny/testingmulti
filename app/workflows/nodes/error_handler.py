@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import uuid
 from typing import Any
 
 from app.core.logger import get_logger
@@ -20,12 +22,30 @@ from app.services.workflow_error_alert_enqueue_service import (
 logger = get_logger(__name__)
 
 
+def _failure_communication_id(workflow_error: dict[str, Any]) -> str | None:
+    """Comm for the exception row: only when explicitly set on the error payload."""
+    raw = workflow_error.get("communication_id")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    try:
+        return str(uuid.UUID(s))
+    except (ValueError, AttributeError):
+        return None
+
+
 def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
     """
     Global sink for catalog workflow errors.
 
     Writes ``exception`` + ``pending_review``, then enqueues alerts with the exception
     activity log id so outbound comms link to that row instead of a new ``action``.
+
+    ``communication_id`` on the exception row comes only from ``error.communication_id``
+    (explicit opt-in). Ambient ``state.data["communication_id"]`` is ignored so stale
+    comms from earlier steps (tender send, reminders, etc.) are not linked.
     """
     workflow_error = state.data.get("error")
     if not isinstance(workflow_error, dict):
@@ -62,23 +82,33 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             # DO NOT remove this: keeping it for upcoming usecases
             # pause_type = PauseType.BUSINESS_EXCEPTION
 
+        failure_comm_id = _failure_communication_id(workflow_error)
+
+        exception_cmd = LifecycleTransitionCommand.from_workflow_state(
+            state,
+            activity_type=ActivityType.EXCEPTION,
+            actor_type=ActorType.SYSTEM,
+            metadata=metadata or None,
+            description=workflow_error.get("message"),
+            update_lifecycle=False,
+            pause_type=pause_type,
+        )
+        exception_cmd = dataclasses.replace(
+            exception_cmd, communication_id=failure_comm_id
+        )
+
+        status_cmd = LifecycleTransitionCommand.from_workflow_state(
+            state,
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=StatusType.PENDING_REVIEW,
+            actor_type=ActorType.SYSTEM,
+        )
+        status_cmd = dataclasses.replace(status_cmd, communication_id=None)
+
         try:
             transition_result = lifecycle_transition_service.apply_sequence(
-                LifecycleTransitionCommand.from_workflow_state(
-                    state,
-                    activity_type=ActivityType.EXCEPTION,
-                    actor_type=ActorType.SYSTEM,
-                    metadata=metadata or None,
-                    description=workflow_error.get("message"),
-                    update_lifecycle=False,
-                    pause_type=pause_type,
-                ),
-                LifecycleTransitionCommand.from_workflow_state(
-                    state,
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    to_status=StatusType.PENDING_REVIEW,
-                    actor_type=ActorType.SYSTEM,
-                ),
+                exception_cmd,
+                status_cmd,
             )
         except Exception:
             logger.exception(
@@ -99,3 +129,5 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
             )
 
     return state
+
+ 

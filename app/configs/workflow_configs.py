@@ -7,6 +7,7 @@ WORKFLOW_CONFIGS = {
             "get_shipment",
             "read_workflow_lifecycle",
             "check_existing_pod",
+            "check_pod_reminder_eligibility",
             "send_email",
             "record_and_schedule_pod_request",
             "record_pod_started_activity",
@@ -33,8 +34,8 @@ WORKFLOW_CONFIGS = {
             ["record_pod_extraction_activity", "pod_vs_ratecon_analysis"],
             ["pod_vs_ratecon_analysis", "record_pod_vs_ratecon_activity"],
             ["record_pod_vs_ratecon_activity", "record_pod_processed_activity"],
-            ["record_pod_processed_activity", "update_shipment"],
             ["upload_to_turvo", "record_pod_tms_upload_activity"],
+            ["record_pod_tms_upload_activity", "end"],
             ["update_shipment", "end"],
             ["send_email", "record_pod_reminder_activity"],
             ["record_pod_reminder_activity", "end"],
@@ -59,7 +60,8 @@ WORKFLOW_CONFIGS = {
                     "non_convoy": "check_existing_pod",
                     # Pod reply workflow
                     "valid_shipment_status": "get_email_attachments",
-                    "manual_pod_valid": "upload_to_turvo",
+                    "manual_pod_stored": "upload_to_turvo",
+                    "manual_pod_process": "load_ratecon_analysis",
                     "invalid_shipment_status": "end",
                 },
             },
@@ -68,8 +70,15 @@ WORKFLOW_CONFIGS = {
                 "map": {
                     "exists": "end",
                     "schedule_initial": "record_and_schedule_pod_request",  # no send_email on initial
-                    "send_now": "send_email",  # reminder_due path
+                    "send_now": "check_pod_reminder_eligibility",  # reminder_due path
                     "skip_send": "end",
+                },
+            },
+            "check_pod_reminder_eligibility": {
+                "router": "pod_reminder_eligibility_router",
+                "map": {
+                    "eligible": "send_email",
+                    "skip": "end",
                 },
             },
             "read_workflow_lifecycle": {
@@ -78,11 +87,18 @@ WORKFLOW_CONFIGS = {
             },
             "load_ratecon_analysis": {
                 "router": "ratecon_cache_router",
-                "map": {"ready": "classify_attachments", "missing": "end"},
+                "map": {
+                    "ready": "classify_attachments",
+                    "manual_skip": "classify_attachments",
+                    "missing": "end",
+                },
             },
-            "record_pod_tms_upload_activity": {
-                "router": "manual_tms_upload_router",
-                "map": {"continue": "load_ratecon_analysis", "stop": "end"},
+            "record_pod_processed_activity": {
+                "router": "post_pod_processing_router",
+                "map": {
+                    "manual": "upload_to_turvo",
+                    "email": "update_shipment",
+                },
             },
         },
     },
@@ -99,6 +115,7 @@ WORKFLOW_CONFIGS = {
             "record_ratecon_upload_activity",
             "ratecon_analysis",
             "record_ratecon_processed_activity",
+            "enqueue_driver_assignment_on_ratecon_complete",
             "check_ratecon_workflow_lifecycle",
             "end",
         ],
@@ -111,10 +128,119 @@ WORKFLOW_CONFIGS = {
             ["upload_ratecon_attachments", "record_ratecon_upload_activity"],
             ["record_ratecon_upload_activity", "ratecon_analysis"],
             ["ratecon_analysis", "record_ratecon_processed_activity"],
-            ["record_ratecon_processed_activity", "check_ratecon_workflow_lifecycle"],
+            [
+                "record_ratecon_processed_activity",
+                "enqueue_driver_assignment_on_ratecon_complete",
+            ],
+            [
+                "enqueue_driver_assignment_on_ratecon_complete",
+                "check_ratecon_workflow_lifecycle",
+            ],
             ["check_ratecon_workflow_lifecycle", "end"],
         ],
         "routers": {},
+    },
+    "driver_assignment": {
+        "entry": "route_event",
+        "exit": "end",
+        "nodes": [
+            "route_event",
+            "get_shipment",
+            "check_driver_assignment_eligibility",
+            "check_driver_reminder_eligibility",
+            "check_driver_escalation_eligibility",
+            "route_driver_assignment_delayed_event",
+            "resolve_workflow_lifecycle",
+            "schedule_driver_reminders",
+            "record_driver_assignment_started",
+            "send_driver_reminder",
+            "record_driver_reminder_sent",
+            "classify_driver_details",
+            "route_tms_searchable",
+            "resolve_turvo_driver",
+            "record_tms_driver_success",
+            "record_tms_driver_not_resolved",
+            "record_tms_driver_error",
+            "send_driver_details_confirmation",
+            "record_driver_details_confirmation_sent",
+            "record_driver_assignment_completed",
+            "send_driver_details_partial_follow_up",
+            "escalate_driver_assignment",
+            "end",
+        ],
+        "edges": [
+            ["resolve_workflow_lifecycle", "schedule_driver_reminders"],
+            ["schedule_driver_reminders", "record_driver_assignment_started"],
+            ["record_driver_assignment_started", "end"],
+            ["get_shipment", "route_driver_assignment_delayed_event"],
+            ["escalate_driver_assignment", "end"],
+            ["send_driver_reminder", "record_driver_reminder_sent"],
+            ["record_driver_reminder_sent", "end"],
+            ["send_driver_details_partial_follow_up", "record_driver_reminder_sent"],
+            ["record_tms_driver_not_resolved", "send_driver_details_partial_follow_up"],
+            ["record_tms_driver_success", "send_driver_details_confirmation"],
+            ["send_driver_details_confirmation", "record_driver_details_confirmation_sent"],
+            [
+                "record_driver_details_confirmation_sent",
+                "record_driver_assignment_completed",
+            ],
+            ["record_driver_assignment_completed", "end"],
+            ["record_tms_driver_error", "end"],
+        ],
+        "routers": {
+            "route_event": {
+                "router": "event_type",
+                "map": {
+                    "ratecon_completed": "check_driver_assignment_eligibility",
+                    "reminder_due": "get_shipment",
+                    "escalation_due": "get_shipment",
+                    "driver_details_email_received": "classify_driver_details",
+                },
+            },
+            "route_driver_assignment_delayed_event": {
+                "router": "driver_assignment_delayed_event_router",
+                "map": {
+                    "reminder_due": "check_driver_reminder_eligibility",
+                    "escalation_due": "check_driver_escalation_eligibility",
+                },
+            },
+            "check_driver_assignment_eligibility": {
+                "router": "driver_assignment_eligibility_router",
+                "map": {"eligible": "resolve_workflow_lifecycle", "skip": "end"},
+            },
+            "check_driver_reminder_eligibility": {
+                "router": "driver_assignment_eligibility_router",
+                "map": {"eligible": "send_driver_reminder", "skip": "end"},
+            },
+            "check_driver_escalation_eligibility": {
+                "router": "driver_assignment_eligibility_router",
+                "map": {"eligible": "escalate_driver_assignment", "skip": "end"},
+            },
+            "classify_driver_details": {
+                "router": "driver_details_router",
+                "map": {
+                    "has_details": "resolve_turvo_driver",
+                    "insufficient": "route_tms_searchable",
+                    "do_nothing": "end",
+                },
+            },
+            "route_tms_searchable": {
+                "router": "tms_searchable_router",
+                "map": {
+                    "searchable": "resolve_turvo_driver",
+                    "follow_up_only": "send_driver_details_partial_follow_up",
+                    "none": "end",
+                },
+            },
+            "resolve_turvo_driver": {
+                "router": "tms_driver_router",
+                "map": {
+                    "assigned": "record_tms_driver_success",
+                    "follow_up": "record_tms_driver_not_resolved",
+                    "error": "record_tms_driver_error",
+                },
+            },
+        },
     },
     "load_tendering": {
         "entry": "route_event",

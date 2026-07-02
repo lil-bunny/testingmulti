@@ -32,6 +32,7 @@ class TmsSettings(BaseModel):
 
     provider: str = "turvo"
     public_api_url: str | None = None
+    ui_base_url: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
     x_api_key: str | None = None

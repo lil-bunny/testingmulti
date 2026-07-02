@@ -17,6 +17,7 @@ from app.repositories.shipments_repository import (
     ShipmentsRepository,
     ShipmentUpsertResult,
 )
+from app.tools.driver_details import merge_driver_details_fields
 
 logger = get_logger(__name__)
 
@@ -90,7 +91,10 @@ class ShipmentsService:
             "metadata": metadata,
         }
         if display_fields is not None:
+            kwargs["pickup_date"] = display_fields.pickup_date
+            kwargs["pickup_timezone"] = display_fields.pickup_timezone
             kwargs["delivery_date"] = display_fields.delivery_date
+            kwargs["delivery_timezone"] = display_fields.delivery_timezone
             kwargs["carrier_name"] = display_fields.carrier_name
             kwargs["customer_name"] = display_fields.customer_name
 
@@ -117,7 +121,7 @@ class ShipmentsService:
 
         ``shipment_number`` stores the Turvo shipment id. ``metadata`` always includes
         ``load_id``. When ``turvo_payload`` or ``display_fields`` is supplied, also
-        persists ``delivery_date``, ``carrier_name``, and ``customer_name``.
+        persists appointment timestamps, timezones, ``carrier_name``, and ``customer_name``.
         """
         tid = self._uuid_or_none(tenant_id)
         if not tid:
@@ -279,4 +283,79 @@ class ShipmentsService:
         return self.get_by_shipment_number(
             tenant_id=tenant_id,
             shipment_number=turvo_shipment_id,
+        )
+
+    def merge_driver_details(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        name: str | None = None,
+        phone: str | None = None,
+    ) -> bool:
+        """Merge name/phone into ``shipments.driver_details``; returns False when row missing."""
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid:
+            return False
+
+        if self._shipments is not None:
+            row = self._shipments.get_by_tenant_and_id_tx(
+                tenant_id=tid,
+                shipment_id=sid,
+            )
+        else:
+            row = run_with_repos(
+                lambda repos: self._repo(repos).get_by_tenant_and_id_tx(
+                    tenant_id=tid,
+                    shipment_id=sid,
+                )
+            )
+        if not row:
+            return False
+
+        merged = merge_driver_details_fields(
+            row.get("driver_details"),
+            name=name,
+            phone=phone,
+        )
+
+        if self._shipments is not None:
+            self._shipments.merge_driver_details_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                driver_details=merged,
+            )
+        else:
+            run_with_repos(
+                lambda repos: self._repo(repos).merge_driver_details_tx(
+                    tenant_id=tid,
+                    shipment_row_id=sid,
+                    driver_details=merged,
+                )
+            )
+        return True
+
+    def clear_driver_details(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+    ) -> bool:
+        """Clear ``shipments.driver_details``; returns False when row missing."""
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid:
+            return False
+
+        if self._shipments is not None:
+            return self._shipments.clear_driver_details_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).clear_driver_details_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+            )
         )

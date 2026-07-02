@@ -14,7 +14,7 @@ SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE = (
 # ACTION description templates
 
 TENDER_CREATED_ACTION_TEMPLATE = "Tender {order_number} created for {customer_name}"
-TENDER_SENT_TO_VENDOR_ACTION = "Tender email sent to vendor"
+TENDER_SENT_TO_VENDOR_ACTION = "Tender email sent to Shipper"
 CARRIER_ACK_LLM_ACTION_TEMPLATE = (
     "Carrier ack LLM classified reply as {decision}{confidence_suffix}: {reason}"
 )
@@ -22,6 +22,9 @@ AUTO_REPLY_ACK_SKIPPED_ACTION = "Carrier acknowledge skipped for automatic reply
 REMINDER_SENT_ACTION_TEMPLATE = "Reminder {step} sent to carrier"
 ESCALATION_SENT_ACTION = "Tender escalated to internal recipients"
 RATECON_RECEIVED_ACTION = "Ratecon email received"
+RATECON_SUPERSEDED_ACTION = (
+    "Ratecon cancelled — superseded by new inbound ratecon email"
+)
 RATECON_DOCUMENT_UPLOADED_ACTION = "Ratecon document uploaded to S3"
 RATECON_DOCUMENT_UPLOAD_FAILED_ACTION = "Ratecon document upload failed"
 RATECON_DOCUMENT_PROCESSED_ACTION = "Ratecon document processed"
@@ -29,9 +32,9 @@ RATECON_DOCUMENT_PROCESSING_FAILED_ACTION = "Ratecon document processing failed"
 RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE = (
     "Ratecon document processed — LLM extraction{confidence_suffix}"
 )
-POD_STARTED_ACTION = "POD lifecycle started"
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
+POD_UPLOADED_MANUALLY_INFO = "POD uploaded manually"
 POD_DOCUMENT_UPLOAD_FAILED_ACTION = "POD document upload failed"
 POD_DOCUMENT_PROCESSED_ACTION = "POD document processed"
 POD_DOCUMENT_PROCESSING_FAILED_ACTION = "POD document processing failed"

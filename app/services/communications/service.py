@@ -20,6 +20,13 @@ from app.services.communications._mapper import (
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
+from app.domain.email_thread_reply import (
+    build_recipients,
+    build_reply_subject,
+    merge_cc,
+    resolve_parent_id,
+)
+from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
 
@@ -200,6 +207,28 @@ class CommunicationsService:
             )
             return False
 
+    def is_communication_linked_to_run(self, *, communication_id: str) -> bool:
+        """True when this communication is already linked to a workflow run."""
+        comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
+        if not comm_id:
+            return False
+        try:
+            if self._repository is not None:
+                return self._repository.is_communication_linked_to_run(
+                    communication_id=comm_id,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.is_communication_linked_to_run(
+                    communication_id=comm_id,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications is_communication_linked_to_run failed comm_id=%s",
+                comm_id,
+            )
+            return False
+
     def resolve_thread_for_lifecycle(
         self,
         *,
@@ -238,6 +267,44 @@ class CommunicationsService:
             )
             return False
 
+
+    def find_active_lifecycle_id_for_thread(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_name: str = "driver_assignment",
+    ) -> str | None:
+        """Active (non-terminal) lifecycle for ``workflow_name`` on an email thread."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        th = self._clean(thread_id)
+        if not tid or not th:
+            return None
+        try:
+            if self._repository is not None:
+                lifecycle_id = self._repository.find_active_lifecycle_id_for_thread(
+                    tenant_id=tid,
+                    thread_id=th,
+                    workflow_name=workflow_name,
+                )
+            else:
+                lifecycle_id = run_with_repos(
+                    lambda repos: repos.communications.find_active_lifecycle_id_for_thread(
+                        tenant_id=tid,
+                        thread_id=th,
+                        workflow_name=workflow_name,
+                    )
+                )
+            return lifecycle_id
+        except Exception:
+            logger.exception(
+                "communications find_active_lifecycle_id_for_thread failed "
+                "tenant_id=%s thread_id=%s workflow_name=%s",
+                tid,
+                th,
+                workflow_name,
+            )
+            return None
 
     def resolve_lifecycle_id_for_thread(
         self,
@@ -532,6 +599,83 @@ class CommunicationsService:
                 tid,
             )
             return None
+
+    def send_thread_reply(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        body: str,
+        account_id: str,
+        subject: str | None = None,
+        reply_to_message_id: str | None = None,
+        cc: list[dict[str, Any]] | None = None,
+        communication_metadata: dict[str, Any] | None = None,
+        workflow_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Unipile thread reply-all + outbound ``communications`` row."""
+        th = self._clean(thread_id)
+        acc = self._clean(account_id)
+        if not th:
+            raise UnipileException("thread_id is required to reply to a thread")
+        if not acc:
+            raise UnipileException("account_id is required to reply to a thread")
+
+        unipile = Unipile()
+        exclude_email = unipile.get_account_email(acc)
+        emails_result = unipile.list_emails(account_id=acc, thread_id=th, limit=50)
+        emails = emails_result.get("items", []) if isinstance(emails_result, dict) else []
+        if not emails:
+            raise UnipileException(f"No emails found for thread_id={th}")
+
+        sorted_emails = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
+        latest_email = sorted_emails[0]
+        reply_to_id = resolve_parent_id(
+            unipile, latest_email, reply_to_message_id, acc
+        )
+        logger.info("send_thread_reply: resolved reply_to_id=%s", reply_to_id)
+
+        original_subject = (latest_email.get("subject") or "").strip()
+        effective_subject = build_reply_subject(original_subject, subject)
+        to_list, thread_cc = build_recipients(latest_email, exclude_email)
+        if not to_list:
+            raise UnipileException("Could not determine reply recipients from the thread")
+        cc_final = merge_cc(thread_cc, cc, exclude_email, to_list)
+
+        result = unipile.send_email(
+            to=to_list,
+            subject=effective_subject,
+            body=body,
+            account_id=acc,
+            reply_to=reply_to_id,
+            cc=cc_final,
+        )
+        result.setdefault("thread_id", th)
+        result.setdefault("reply_to_message_id", reply_to_id)
+        if not result.get("success", True):
+            logger.warning(
+                "send_thread_reply: Unipile send failed thread_id=%s reply_to_id=%s err=%s",
+                th,
+                reply_to_id,
+                result.get("error"),
+            )
+            return result
+
+        comm_id = self.record_outbound_from_send(
+            tenant_id,
+            send_result=result,
+            body=body,
+            subject=effective_subject,
+            thread_id=th,
+            to=to_list,
+            cc=cc_final,
+            account_id=acc,
+            extra_metadata=communication_metadata,
+            workflow_run_id=workflow_run_id,
+        )
+        if comm_id:
+            result["communication_id"] = comm_id
+        return result
 
     def list_thread_messages(
         self,

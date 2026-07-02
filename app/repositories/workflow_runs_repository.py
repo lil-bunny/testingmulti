@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, fetchone_dict
 from app.core.logger import get_logger
+from app.models.status import StatusSubType, StatusType
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 
 logger = get_logger(__name__)
@@ -59,9 +61,9 @@ class WorkflowRunsRepository:
         exclude_run_id: str | None = None,
     ) -> bool:
         """
-        Whether a prior recorded run already covers this ``route_completed`` trigger.
+        Whether a prior recorded run already covers this initial-path trigger.
 
-        Matches either same ``workflow_lifecycle_id`` + ``route_completed`` or any run for the same
+        Matches either same ``workflow_lifecycle_id`` + ``event_type`` or any run for the same
         tenant shipment (via ``workflow_lifecycles.shipment_id``). Requires resolvable UUID ``tenant_id``.
         """
         tid = self._tenant_uuid_or_none(tenant_id)
@@ -71,7 +73,7 @@ class WorkflowRunsRepository:
         sid_uuid = self._uuid_or_none(sid)
         exc = self._clean(exclude_run_id)
 
-        if not tid or not wl or et != "route_completed" or not sid:
+        if not tid or not wl or not et or not sid:
             return False
 
         shipment_match_sql = ""
@@ -82,7 +84,7 @@ class WorkflowRunsRepository:
                 SELECT 1 FROM {table} wr
                 INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
                 WHERE trim(both wr.tenant_id::text) = trim(both CAST(:tid AS text))
-                  AND wr.event_type = 'route_completed'
+                  AND wr.event_type = :et
                   AND wl.shipment_id IS NOT DISTINCT FROM CAST(:sid_uuid AS uuid)
                   AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
             """.format(table=self.TABLE_NAME)
@@ -97,6 +99,71 @@ class WorkflowRunsRepository:
                   AND wr.event_type = :et
                   AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
                 {shipment_match_sql}
+            )
+            """,
+            params,
+        )
+        return bool(exists)
+
+    def is_ratecon_completed_blocked_for_shipment(
+        self,
+        *,
+        tenant_id: str | None,
+        workflow_lifecycle_id: str | None,
+        shipment_id: str | None,
+        exclude_run_id: str | None = None,
+    ) -> bool:
+        """
+        DA-only duplicate gate for ``ratecon_completed``.
+
+        Layer 1: same lifecycle id already has the event.
+        Layer 2: shipment has the event on a non-cancelled driver_assignment lifecycle.
+        """
+        tid = self._tenant_uuid_or_none(tenant_id)
+        wl = self._clean(workflow_lifecycle_id)
+        sid_uuid = self._uuid_or_none(self._clean(shipment_id))
+        exc = self._clean(exclude_run_id)
+        et = WorkflowRunEventType.RATECON_COMPLETED.value
+
+        if not tid or not sid_uuid:
+            return False
+
+        params: dict[str, Any] = {
+            "tid": tid,
+            "et": et,
+            "exc": exc,
+            "sid_uuid": sid_uuid,
+            "cancelled_sub": StatusSubType.CANCELLED.value,
+            "completed_status": StatusType.COMPLETED.value,
+        }
+
+        lifecycle_match_sql = ""
+        if wl:
+            lifecycle_match_sql = """
+                SELECT 1 FROM {table} wr
+                WHERE trim(both wr.workflow_lifecycle_id::text) = trim(both CAST(:wl AS text))
+                  AND wr.event_type = :et
+                  AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
+                UNION ALL
+            """.format(table=self.TABLE_NAME)
+            params["wl"] = wl
+
+        exists = execute_scalar(
+            self._session,
+            f"""
+            SELECT EXISTS (
+                {lifecycle_match_sql}
+                SELECT 1 FROM {self.TABLE_NAME} wr
+                INNER JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+                WHERE trim(both wr.tenant_id::text) = trim(both CAST(:tid AS text))
+                  AND wr.event_type = :et
+                  AND wl.workflow_name = 'driver_assignment'
+                  AND wl.shipment_id IS NOT DISTINCT FROM CAST(:sid_uuid AS uuid)
+                  AND NOT (
+                      wl.status = CAST(:completed_status AS lifecycle_status)
+                      AND wl.sub_status = CAST(:cancelled_sub AS lifecycle_sub_status)
+                  )
+                  AND (CAST(:exc AS text) IS NULL OR trim(both wr.id::text) != trim(both CAST(:exc AS text)))
             )
             """,
             params,

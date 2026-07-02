@@ -132,6 +132,8 @@ def test_has_rate_confirmation_subject() -> None:
     assert has_rate_confirmation_subject("Invoice attached") is False
     assert has_rate_confirmation_subject("Rate confirmation TONU for shipment") is False
     assert has_rate_confirmation_subject("TONU - Rate confirmation #12345") is False
+    assert has_rate_confirmation_subject("Revised Rate confirmation for shipment") is False
+    assert has_rate_confirmation_subject("Rate confirmation (REVISED) #30389") is False
 
 
 def test_extract_ratecon_metadata_rejects_tonu_subject() -> None:

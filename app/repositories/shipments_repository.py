@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -16,9 +16,13 @@ _SELECT_SHIPMENT_COLUMNS = """
     shipment_number,
     metadata,
     delivery_address,
+    pickup_date,
+    pickup_timezone,
     delivery_date,
+    delivery_timezone,
     carrier_name,
-    customer_name
+    customer_name,
+    driver_details
 """
 
 
@@ -49,6 +53,14 @@ class ShipmentsRepository:
         return s if s else None
 
     @staticmethod
+    def _datetime_or_none(raw: Any) -> datetime | None:
+        if raw is None:
+            return None
+        if hasattr(raw, "isoformat") and hasattr(raw, "tzinfo"):
+            return raw
+        return None
+
+    @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:
         delivery_raw = row[3]
         if isinstance(delivery_raw, dict):
@@ -60,23 +72,28 @@ class ShipmentsRepository:
             if not delivery_address:
                 delivery_address = None
 
-        delivery_date_raw = row[4]
-        delivery_date: date | None
-        if delivery_date_raw is None:
-            delivery_date = None
-        elif hasattr(delivery_date_raw, "isoformat"):
-            delivery_date = delivery_date_raw
+        driver_details_raw = row[10]
+        if isinstance(driver_details_raw, dict):
+            driver_details = driver_details_raw
+        elif driver_details_raw in (None, ""):
+            driver_details = None
         else:
-            delivery_date = None
+            driver_details = parse_json(driver_details_raw)
+            if not driver_details:
+                driver_details = None
 
         return {
             "id": str(row[0]),
             "shipment_number": row[1] or "",
             "metadata": parse_json(row[2]),
             "delivery_address": delivery_address,
-            "delivery_date": delivery_date,
-            "carrier_name": row[5] or None,
-            "customer_name": row[6] or None,
+            "pickup_date": ShipmentsRepository._datetime_or_none(row[4]),
+            "pickup_timezone": row[5] or None,
+            "delivery_date": ShipmentsRepository._datetime_or_none(row[6]),
+            "delivery_timezone": row[7] or None,
+            "carrier_name": row[8] or None,
+            "customer_name": row[9] or None,
+            "driver_details": driver_details,
         }
 
     def upsert_by_tenant_and_shipment_number_tx(
@@ -85,7 +102,10 @@ class ShipmentsRepository:
         tenant_id: str,
         shipment_number: str,
         metadata: dict[str, Any],
-        delivery_date: date | None = None,
+        pickup_date: datetime | None = None,
+        pickup_timezone: str | None = None,
+        delivery_date: datetime | None = None,
+        delivery_timezone: str | None = None,
         carrier_name: str | None = None,
         customer_name: str | None = None,
     ) -> ShipmentUpsertResult:
@@ -101,14 +121,20 @@ class ShipmentsRepository:
                     tenant_id,
                     shipment_number,
                     metadata,
+                    pickup_date,
+                    pickup_timezone,
                     delivery_date,
+                    delivery_timezone,
                     carrier_name,
                     customer_name
                 ) VALUES (
                     CAST(:tenant_id AS uuid),
                     :shipment_number,
                     CAST(:metadata AS jsonb),
+                    :pickup_date,
+                    :pickup_timezone,
                     :delivery_date,
+                    :delivery_timezone,
                     :carrier_name,
                     :customer_name
                 )
@@ -116,9 +142,21 @@ class ShipmentsRepository:
                 DO UPDATE SET
                     updated_at = NOW(),
                     metadata = {self.TABLE_NAME}.metadata || EXCLUDED.metadata,
+                    pickup_date = COALESCE(
+                        EXCLUDED.pickup_date,
+                        {self.TABLE_NAME}.pickup_date
+                    ),
+                    pickup_timezone = COALESCE(
+                        EXCLUDED.pickup_timezone,
+                        {self.TABLE_NAME}.pickup_timezone
+                    ),
                     delivery_date = COALESCE(
                         EXCLUDED.delivery_date,
                         {self.TABLE_NAME}.delivery_date
+                    ),
+                    delivery_timezone = COALESCE(
+                        EXCLUDED.delivery_timezone,
+                        {self.TABLE_NAME}.delivery_timezone
                     ),
                     carrier_name = COALESCE(
                         EXCLUDED.carrier_name,
@@ -135,7 +173,10 @@ class ShipmentsRepository:
                 "tenant_id": tid,
                 "shipment_number": number,
                 "metadata": jsonb_param(metadata),
+                "pickup_date": pickup_date,
+                "pickup_timezone": self._clean(pickup_timezone),
                 "delivery_date": delivery_date,
+                "delivery_timezone": self._clean(delivery_timezone),
                 "carrier_name": self._clean(carrier_name),
                 "customer_name": self._clean(customer_name),
             },
@@ -240,3 +281,66 @@ class ShipmentsRepository:
             raise RuntimeError(
                 f"shipments location update affected {result.rowcount} rows"
             )
+
+    def merge_driver_details_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        driver_details: dict[str, Any],
+    ) -> None:
+        tid = self._clean(tenant_id)
+        row_id = self._clean(shipment_row_id)
+        if not tid or not row_id:
+            raise ValueError("tenant_id and shipment_row_id are required")
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET driver_details = CAST(:driver_details AS jsonb),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_row_id": row_id,
+                "driver_details": jsonb_param(driver_details),
+            },
+        )
+        if result.rowcount != 1:
+            raise RuntimeError(
+                f"shipments driver_details update affected {result.rowcount} rows"
+            )
+
+    def clear_driver_details_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+    ) -> bool:
+        tid = self._clean(tenant_id)
+        row_id = self._clean(shipment_row_id)
+        if not tid or not row_id:
+            raise ValueError("tenant_id and shipment_row_id are required")
+
+        empty_driver_details = {"name": None, "phone": None}
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET driver_details = CAST(:driver_details AS jsonb),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_row_id": row_id,
+                "driver_details": jsonb_param(empty_driver_details),
+            },
+        )
+        return result.rowcount == 1

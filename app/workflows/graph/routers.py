@@ -2,6 +2,13 @@ from app.core.logger import get_logger
 from app.domain.ingest_source_fields import pack_code_for_product_gap
 from app.domain.load_tendering_state import get_tender, get_tender_products
 from app.models.status import StatusSubType, StatusType
+from app.tools.driver_details import (
+    DO_NOTHING,
+    HAS_DETAILS,
+    INSUFFICIENT,
+    has_partial_driver_fields,
+    has_tms_searchable_fields,
+)
 from app.tools.tender_reminder_delivery_cutoff import is_past_delivery_cutoff
 
 logger = get_logger(__name__)
@@ -41,7 +48,11 @@ def shipment_router(state):
         allowed_status_codes = {"2116", "2106", "2105"} # Route Complete, EnRoute, At Delivery
         status_ok = str(status_key) in allowed_status_codes
         if event_type == "manual_pod_upload":
-            return "manual_pod_valid" if status_ok else "invalid_shipment_status"
+            if not status_ok:
+                return "invalid_shipment_status"
+            if state.data.get("manual_pod_upload_source") == "stored":
+                return "manual_pod_stored"
+            return "manual_pod_process"
         return "valid_shipment_status" if status_ok else "invalid_shipment_status"
 
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
@@ -55,7 +66,16 @@ def ratecon_cache_router(state):
         extracted = findings.get("extracted_fields") or {}
         if extracted:
             return "ready"
+    if state.data.get("event_type") == "manual_pod_upload":
+        return "manual_skip"
     return "missing"
+
+
+def post_pod_processing_router(state):
+    """After LLM pipeline: manual portal uploads to TMS; email updates shipment."""
+    if state.data.get("event_type") == "manual_pod_upload":
+        return "manual"
+    return "email"
 
 
 def read_workflow_lifecycle_router(state):
@@ -86,7 +106,29 @@ def event_type_router(state):
         return "email_received"
     if event_type == "manual_pod_upload":
         return "manual_pod_upload"
+    if event_type == "ratecon_completed":
+        return "ratecon_completed"
+    if event_type == "driver_details_email_received":
+        return "driver_details_email_received"
     return "route_completed"
+
+
+def driver_assignment_eligibility_router(state):
+    if state.data.get("driver_assignment_eligible"):
+        return "eligible"
+    return "skip"
+
+
+def pod_reminder_eligibility_router(state):
+    if state.data.get("pod_reminder_eligible"):
+        return "eligible"
+    return "skip"
+
+
+def driver_assignment_delayed_event_router(state):
+    if state.data.get("event_type") == "escalation_due":
+        return "escalation_due"
+    return "reminder_due"
 
 
 def load_type_router(state):
@@ -121,11 +163,13 @@ def tender_status_router(state):
 
 
 def manual_tms_upload_router(state):
-    """Manual portal path: continue processing after TMS upload succeeded or was skipped."""
+    """Manual portal path: continue processing after TMS upload unless re-uploading stored POD."""
     outcome = str(state.data.get("pod_tms_upload_outcome") or "").strip()
-    if outcome in ("uploaded", "skipped"):
-        return "continue"
-    return "stop"
+    if outcome not in ("uploaded", "skipped"):
+        return "stop"
+    if state.data.get("manual_pod_upload_source") == "stored":
+        return "stop"
+    return "continue"
 
 
 def automatic_reply_ack_router(state):
@@ -149,6 +193,35 @@ def carrier_ack_router(state):
     return StatusSubType.DO_NOTHING.value
 
 
+def driver_details_router(state):
+    """Route driver_details_email_received LLM decision to graph branch keys."""
+    decision = str(state.data.get("driver_details_decision") or DO_NOTHING).strip()
+    if decision in (HAS_DETAILS, INSUFFICIENT, DO_NOTHING):
+        return decision
+    return DO_NOTHING
+
+
+def tms_searchable_router(state):
+    """Insufficient branch: TMS search when name/phone present, else follow-up or end."""
+    extraction = state.data.get("driver_details_extraction") or {}
+    driver = extraction.get("driver") if isinstance(extraction, dict) else {}
+    if isinstance(driver, dict) and has_tms_searchable_fields(driver):
+        return "searchable"
+    if isinstance(driver, dict) and has_partial_driver_fields(driver):
+        return "follow_up_only"
+    return "none"
+
+
+def tms_driver_router(state):
+    """Route TMS driver resolution outcome."""
+    outcome = str(state.data.get("tms_driver_outcome") or "").strip()
+    if outcome == "assigned":
+        return "assigned"
+    if outcome == "follow_up":
+        return "follow_up"
+    if outcome == "error":
+        return "error"
+    return "error"
 def domestic_delivery_router(state):
     return "domestic" if state.data.get("is_domestic_delivery") else "international"
 
