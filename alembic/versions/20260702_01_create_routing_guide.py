@@ -1,8 +1,8 @@
 """Routing guide: lifecycle sub-status ladder and master lookup table and add `workflow_lifecycle_id` onto communications
 
-Revision ID: 20260630_02
-Revises: 20260630_01
-Create Date: 2026-06-30
+Revision ID: 20260702_01
+Revises: 20260701_01
+Create Date: 2026-07-02
 
 Appends six ``lifecycle_sub_status`` values for capped per-carrier display:
 ``tender_sent_to_tenant_for_carrier_{1..3}`` and ``tender_sent_to_carrier_{1..3}``.
@@ -21,8 +21,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "20260630_02"
-down_revision: Union[str, Sequence[str], None] = "20260630_01"
+revision: str = "20260702_01"
+down_revision: Union[str, Sequence[str], None] = "20260701_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
