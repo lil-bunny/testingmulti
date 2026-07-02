@@ -6,6 +6,7 @@ from app.services.communications.service import CommunicationsService
 from app.domain.email_thread_reply import (
     build_recipients,
     build_reply_subject,
+    exclude_emails_for_reply,
     merge_cc,
     normalize_email,
     resolve_parent_id,
@@ -35,6 +36,7 @@ def _record_outbound_communication(
     cc: Any = None,
     bcc: Any = None,
     account_id: str | None = None,
+    from_email: str | None = None,
     workflow_run_id: str | None = None,
 ) -> str | None:
     if not tenant_id or not isinstance(result, dict) or not result.get("success"):
@@ -50,6 +52,7 @@ def _record_outbound_communication(
         cc=cc,
         bcc=bcc,
         account_id=account_id,
+        from_email=from_email,
         extra_metadata=communication_metadata,
         workflow_run_id=workflow_run_id,
     )
@@ -63,6 +66,14 @@ def _normalize_email(e: Any) -> str:
 def _unipile_recipient_list(field: Any, *, required: bool) -> List[Dict[str, str]]:
     addrs = coerce_email_list(field, required=required)
     return unipile_recipients_from_addresses(addrs)
+
+
+def _unipile_from_recipient(from_email: str | None) -> dict[str, str] | None:
+    alias = (from_email or "").strip()
+    if not alias:
+        return None
+    recipients = unipile_recipients_from_addresses([alias])
+    return recipients[0] if recipients else None
 
 
 def _resolve_parent_id(
@@ -175,6 +186,7 @@ def send_email(
     bcc: Any = None,
     workflow_run_id: Optional[str] = None,
     handle_auto_reply: bool = True,
+    from_email: Optional[str] = None,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
@@ -219,6 +231,7 @@ def send_email(
             communication_metadata=communication_metadata,
             workflow_run_id=workflow_run_id,
             handle_auto_reply=handle_auto_reply,
+            from_email=from_email,
         )
 
     try:
@@ -231,6 +244,7 @@ def send_email(
 
     cc_recipients = _unipile_recipient_list(cc, required=False) or None
     bcc_recipients = _unipile_recipient_list(bcc, required=False) or None
+    from_recipient = _unipile_from_recipient(from_email)
 
     unipile = Unipile()
     out = unipile.send_email(
@@ -240,6 +254,7 @@ def send_email(
         account_id=acc,
         cc=cc_recipients,
         bcc=bcc_recipients,
+        from_recipient=from_recipient,
     )
     if not out.get("success"):
         err = out.get("error") or "Unipile send_email failed"
@@ -258,6 +273,7 @@ def send_email(
         cc=cc_logged or None,
         bcc=bcc_logged or None,
         account_id=acc,
+        from_email=from_email,
         workflow_run_id=workflow_run_id,
     )
     if comm_id:
@@ -276,6 +292,7 @@ def reply_to_thread(
     communication_metadata: Optional[dict[str, Any]] = None,
     workflow_run_id: Optional[str] = None,
     handle_auto_reply: bool = True,
+    from_email: Optional[str] = None,
 ):
     """
     Orchestrates a thread reply (reply-all):
@@ -294,7 +311,12 @@ def reply_to_thread(
     unipile = Unipile()
 
     # 1) Resolve our email to exclude from recipients
-    exclude_email = unipile.get_account_email(account_id)
+    primary_email = unipile.get_account_email(account_id)
+    exclude_email = exclude_emails_for_reply(
+        primary_email=primary_email,
+        from_email=from_email,
+    )
+    from_recipient = _unipile_from_recipient(from_email)
 
     # 2) Fetch all emails in thread
     emails_result = unipile.list_emails(account_id=account_id, thread_id=thread_id, limit=50)
@@ -333,6 +355,7 @@ def reply_to_thread(
         account_id=account_id,
         reply_to=reply_to_id,
         cc=cc_final,
+        from_recipient=from_recipient,
     )
 
     result.setdefault("thread_id", thread_id)
@@ -358,6 +381,7 @@ def reply_to_thread(
             to=to_list,
             cc=cc_final,
             account_id=account_id,
+            from_email=from_email,
             workflow_run_id=workflow_run_id,
         )
         if comm_id:

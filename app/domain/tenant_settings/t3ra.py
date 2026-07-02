@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated, Any
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from app.domain.driver_assignment.confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,
@@ -63,6 +65,26 @@ class T3raPrompts(BaseModel):
     driver_assignment: T3raDriverAssignmentPrompts | None = None
 
 
+class MikeyAccountSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    account_id: str
+    email_alias: str | None = None
+
+
+def _coerce_mikey_account_id(value: Any) -> MikeyAccountSettings:
+    if isinstance(value, str):
+        return MikeyAccountSettings(account_id=value.strip())
+    if isinstance(value, MikeyAccountSettings):
+        return value
+    if isinstance(value, dict):
+        return MikeyAccountSettings.model_validate(value)
+    raise ValueError("mikey_account_id must be a string or {account_id, email_alias?} object")
+
+
+MikeyAccountId = Annotated[MikeyAccountSettings, BeforeValidator(_coerce_mikey_account_id)]
+
+
 class T3raTenantSettings(BaseModel):
     """
     Root ``tenants.settings`` JSON for t3ra.
@@ -74,7 +96,7 @@ class T3raTenantSettings(BaseModel):
 
     enabledProcesses: list[str] = Field(default_factory=list)
     inbound_routing_emails: InboundRoutingEmails
-    mikey_account_id: str
+    mikey_account_id: MikeyAccountId
     tms: TmsSettings
     prompts: T3raPrompts
     pod_lifecycle: T3raPodLifecycleSettings

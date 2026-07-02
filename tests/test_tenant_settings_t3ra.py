@@ -13,7 +13,8 @@ _T3RA_SETTINGS = minimal_t3ra_tenant_settings()
 def test_t3ra_fixture_validates() -> None:
     model = T3raTenantSettings.model_validate(_T3RA_SETTINGS)
     assert model.inbound_routing_emails == ["test@example.com"]
-    assert model.mikey_account_id == "test-mikey-account-id"
+    assert model.mikey_account_id.account_id == "test-mikey-account-id"
+    assert model.mikey_account_id.email_alias == "ops@example.com"
     assert "driver_assignment" in model.enabledProcesses
     assert model.driver_assignment is not None
     assert model.driver_assignment.reminders.schedule_mode == "before_pickup"

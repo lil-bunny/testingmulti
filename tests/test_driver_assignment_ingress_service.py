@@ -447,6 +447,37 @@ def test_send_reminder_email_success():
     assert call_kwargs["thread_id"] == "thread-1"
 
 
+def test_send_reminder_email_passes_from_email_when_alias_configured():
+    comms = MagicMock()
+    comms.resolve_thread_for_lifecycle.return_value = "thread-1"
+    comms.send_thread_reply.return_value = {
+        "success": True,
+        "communication_id": "comm-uuid-1",
+    }
+    svc = DriverAssignmentIngressService(communications_service=comms)
+
+    result = svc.send_reminder_email(
+        tenant_id=_TENANT_ID,
+        tenant_settings={
+            "mikey_account_id": {
+                "account_id": "acct-1",
+                "email_alias": "ops@example.com",
+            }
+        },
+        payload=_base_payload(
+            event_type="reminder_due",
+            reminder_step=1,
+            body="Please send driver info",
+        ),
+        workflow_run_id="run-1",
+    )
+
+    assert result.sent is True
+    call_kwargs = comms.send_thread_reply.call_args.kwargs
+    assert call_kwargs["account_id"] == "acct-1"
+    assert call_kwargs["from_email"] == "ops@example.com"
+
+
 def test_send_reminder_email_shadow_blocks_without_redirect():
     comms = MagicMock()
     svc = DriverAssignmentIngressService(communications_service=comms)

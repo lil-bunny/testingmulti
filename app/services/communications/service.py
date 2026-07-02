@@ -23,9 +23,11 @@ from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.domain.email_thread_reply import (
     build_recipients,
     build_reply_subject,
+    exclude_emails_for_reply,
     merge_cc,
     resolve_parent_id,
 )
+from app.domain.tenant_settings.email_recipients import unipile_recipients_from_addresses
 from app.services.unipile_service import Unipile, UnipileException
 
 logger = get_logger(__name__)
@@ -538,6 +540,7 @@ class CommunicationsService:
         cc: Any = None,
         bcc: Any = None,
         account_id: str | None = None,
+        from_email: str | None = None,
         extra_metadata: dict[str, Any] | None = None,
         workflow_run_id: str | None = None,
     ) -> str | None:
@@ -562,6 +565,7 @@ class CommunicationsService:
             cc=cc,
             bcc=bcc,
             account_id=account_id,
+            from_email=from_email,
             extra_metadata=extra_metadata,
             workflow_run_id=run_id,
         )
@@ -610,6 +614,7 @@ class CommunicationsService:
         subject: str | None = None,
         reply_to_message_id: str | None = None,
         cc: list[dict[str, Any]] | None = None,
+        from_email: str | None = None,
         communication_metadata: dict[str, Any] | None = None,
         workflow_run_id: str | None = None,
     ) -> dict[str, Any]:
@@ -622,7 +627,16 @@ class CommunicationsService:
             raise UnipileException("account_id is required to reply to a thread")
 
         unipile = Unipile()
-        exclude_email = unipile.get_account_email(acc)
+        primary_email = unipile.get_account_email(acc)
+        exclude_email = exclude_emails_for_reply(
+            primary_email=primary_email,
+            from_email=from_email,
+        )
+        from_recipient = None
+        alias = self._clean(from_email)
+        if alias:
+            recipients = unipile_recipients_from_addresses([alias])
+            from_recipient = recipients[0] if recipients else None
         emails_result = unipile.list_emails(account_id=acc, thread_id=th, limit=50)
         emails = emails_result.get("items", []) if isinstance(emails_result, dict) else []
         if not emails:
@@ -649,6 +663,7 @@ class CommunicationsService:
             account_id=acc,
             reply_to=reply_to_id,
             cc=cc_final,
+            from_recipient=from_recipient,
         )
         result.setdefault("thread_id", th)
         result.setdefault("reply_to_message_id", reply_to_id)
@@ -670,6 +685,7 @@ class CommunicationsService:
             to=to_list,
             cc=cc_final,
             account_id=acc,
+            from_email=from_email,
             extra_metadata=communication_metadata,
             workflow_run_id=workflow_run_id,
         )
