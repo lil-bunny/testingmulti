@@ -132,7 +132,7 @@ def vs_ratecon_action_metadata(
     vs_persist: dict[str, Any] | None,
     vs_results: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    """Ratecon ACTION: id on success, skip reason on skip, error on failure."""
+    """Ratecon ACTION: ``document_analysis_id`` on success, skip reason on skip, error on failure."""
     if not isinstance(vs_results, dict):
         return None
 
@@ -145,7 +145,7 @@ def vs_ratecon_action_metadata(
     if isinstance(vs_persist, dict) and vs_persist.get("stored") is True:
         vs_id = vs_persist.get("id")
         if vs_id is not None and str(vs_id).strip():
-            return compact(validation_document_analysis_id=str(vs_id).strip())
+            return compact(document_analysis_id=str(vs_id).strip())
 
     error = vs_results.get("error")
     if error is not None and str(error).strip():

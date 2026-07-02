@@ -93,7 +93,7 @@ def test_vs_ratecon_action_metadata_success_id_only() -> None:
             "validation_summary": "All fields match.",
         },
     )
-    assert meta == {"validation_document_analysis_id": "vs-1"}
+    assert meta == {"document_analysis_id": "vs-1"}
     assert_no_forbidden_keys(meta)
 
 

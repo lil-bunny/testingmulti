@@ -89,7 +89,7 @@ def test_record_pod_vs_ratecon_activity_validation_stored(
         sequence.steps[0].description
         == "POD validated against ratecon confidence=0.91 (PASS)"
     )
-    assert sequence.steps[0].metadata == {"validation_document_analysis_id": "analysis-vs-1"}
+    assert sequence.steps[0].metadata == {"document_analysis_id": "analysis-vs-1"}
 
 
 @patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")

@@ -89,7 +89,7 @@ def test_vs_ratecon_success_metadata_id_only() -> None:
     service.record_vs_ratecon_from_state(state)
 
     sequence = mock_activity.record_sequence.call_args[0][0]
-    assert sequence.steps[0].metadata == {"validation_document_analysis_id": "analysis-vs-1"}
+    assert sequence.steps[0].metadata == {"document_analysis_id": "analysis-vs-1"}
 
 
 def test_started_status_metadata_none() -> None:
