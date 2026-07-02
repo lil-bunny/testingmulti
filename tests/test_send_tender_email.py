@@ -109,3 +109,14 @@ def test_send_tender_email_missing_delivery_date(mock_send_email) -> None:
     assert error["code"] == BusinessError.MISSING_DELIVERY_DATE.value
     assert error["category"] == BusinessError.CATEGORY.value
     mock_send_email.assert_not_called()
+
+
+@patch("app.workflows.nodes.send_tender_email.send_email")
+def test_send_tender_email_does_not_pass_from_email(mock_send_email) -> None:
+    mock_send_email.return_value = {"success": True, "communication_id": "comm-1"}
+    state = _state(tender={})
+
+    send_tender_email(state)
+
+    mock_send_email.assert_called_once()
+    assert mock_send_email.call_args.kwargs.get("from_email") is None

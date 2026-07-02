@@ -47,7 +47,7 @@ def test_generate_sub_status_change_description() -> None:
         from_sub_status=StatusSubType.TENDER_SENT_TO_TENANT,
         to_sub_status=StatusSubType.ESCALATED,
     )
-    assert text == "Sub-status changed from Tender Sent To Tenant to Escalated"
+    assert text == "Sub-status changed from Tender Sent To Shipper to Escalated"
 
 
 def test_generate_action_returns_none() -> None:

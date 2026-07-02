@@ -24,7 +24,10 @@ def _state(**data):
             "subject": "POD please",
             "body": "Send POD",
             "tenant_settings": {
-                "mikey_account_id": "acct-1",
+                "mikey_account_id": {
+                    "account_id": "acct-1",
+                    "email_alias": "ops@example.com",
+                },
                 "pod_lifecycle": {"shadow_mode": True},
             },
             "workflow_shadow_mode": True,
@@ -50,7 +53,10 @@ def test_send_pod_reminder_shadow_redirects_without_thread_reply() -> None:
     svc = PodLifecycleEmailService()
     state = _state(
         tenant_settings={
-            "mikey_account_id": "acct-1",
+            "mikey_account_id": {
+                "account_id": "acct-1",
+                "email_alias": "ops@example.com",
+            },
             "pod_lifecycle": {
                 "shadow_mode": True,
                 "shadow_emails": {"to": ["test@freightx.ai"]},
@@ -73,6 +79,29 @@ def test_send_pod_reminder_shadow_redirects_without_thread_reply() -> None:
     call_kwargs = redirect_mock.call_args.kwargs
     assert call_kwargs["recipients"].to == ["test@freightx.ai"]
     assert call_kwargs["communication_metadata"]["original_thread_id"] == "thread-1"
+    assert call_kwargs["from_email"] == "ops@example.com"
+
+
+def test_send_pod_reminder_passes_from_email_on_thread_reply() -> None:
+    svc = PodLifecycleEmailService()
+    state = _state(
+        tenant_settings={
+            "mikey_account_id": {
+                "account_id": "acct-1",
+                "email_alias": "ops@example.com",
+            },
+            "pod_lifecycle": {"shadow_mode": False},
+        },
+        workflow_shadow_mode=False,
+    )
+    with patch("app.services.pod_lifecycle.email_service.send_email_tool") as send_mock:
+        send_mock.return_value = {"success": True, "communication_id": "comm-1"}
+        result = svc.send_pod_reminder_from_state(state)
+
+    assert result.sent is True
+    send_mock.assert_called_once()
+    assert send_mock.call_args.kwargs["from_email"] == "ops@example.com"
+    assert send_mock.call_args.kwargs["account_id"] == "acct-1"
 
 
 def test_send_email_node_delegates_to_service() -> None:

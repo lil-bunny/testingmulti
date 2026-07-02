@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle_settings import resolve_pod_sender_account_id
+from app.domain.pod_lifecycle_settings import resolve_mikey_mailbox
 from app.domain.tenant_settings.workflow_shadow_mode import (
     parse_shadow_mail_recipients,
     workflow_shadow_active,
@@ -42,6 +42,12 @@ class PodReminderSendResult:
 
 class PodLifecycleEmailService:
     @staticmethod
+    def resolve_sender_account_id(state) -> str | None:
+        """Unipile account id for POD attachment fetch / send (thin wrapper over domain)."""
+        mailbox = resolve_mikey_mailbox(state)
+        return mailbox.account_id if mailbox else None
+
+    @staticmethod
     def _result_from_send(send_result: dict[str, Any] | None) -> PodReminderSendResult:
         if send_result is None:
             return PodReminderSendResult(sent=False, error="send_skipped_or_no_result")
@@ -76,14 +82,17 @@ class PodLifecycleEmailService:
         run_id = str(state.execution_id or "").strip() or None
         tenant_settings = data.get("tenant_settings") if isinstance(data.get("tenant_settings"), dict) else None
 
-        sender_account_id = resolve_pod_sender_account_id(state)
-        if not sender_account_id:
+        mailbox = resolve_mikey_mailbox(state)
+        if not mailbox:
             logger.error(
                 "send_pod_reminder mikey_account_id missing lifecycle_id=%s shipment_id=%s",
                 data.get("workflow_lifecycle_id"),
                 data.get("shipment_id"),
             )
             return PodReminderSendResult(sent=False, error="missing_mikey_account_id")
+
+        sender_account_id = mailbox.account_id
+        from_email = mailbox.email_alias
 
         subject = str(data.get("subject") or "POD Request").strip() or "POD Request"
         body = str(data.get("body") or "")
@@ -111,6 +120,7 @@ class PodLifecycleEmailService:
                     subject=subject,
                     body=body,
                     account_id=sender_account_id,
+                    from_email=from_email,
                     workflow_run_id=run_id,
                     communication_metadata={
                         "source": "pod_send_email",
@@ -146,6 +156,7 @@ class PodLifecycleEmailService:
                 body,
                 thread_id=data.get("thread_id"),
                 account_id=sender_account_id,
+                from_email=from_email,
                 tenant_id=tenant_raw,
                 workflow_run_id=run_id,
                 communication_metadata={

@@ -37,6 +37,10 @@ from app.domain.activity_log_constants import (
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 
+_SUB_STATUS_DISPLAY_LABELS: dict[StatusSubType, str] = {
+    StatusSubType.TENDER_SENT_TO_TENANT: "Tender Sent To Shipper",
+}
+
 
 def _label_status(value: StatusType) -> str:
     if value == StatusType.NONE:
@@ -47,6 +51,8 @@ def _label_status(value: StatusType) -> str:
 def _label_sub_status(value: StatusSubType) -> str:
     if value == StatusSubType.NONE:
         return "None"
+    if value in _SUB_STATUS_DISPLAY_LABELS:
+        return _SUB_STATUS_DISPLAY_LABELS[value]
     return value.value.replace("_", " ").title()
 
 
