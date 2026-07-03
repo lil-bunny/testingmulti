@@ -1,4 +1,10 @@
-"""Pre-graph ingress for ``pod_lifecycle`` (route_completed dedupe + email_received correlation)."""
+"""Pre-graph ingress for ``pod_lifecycle`` (route_completed dedupe + email_received correlation).
+
+``email_received`` strict policy: resolve shipment from payload or email thread only
+(requires an existing ``shipments`` row, normally created by ratecon). Attachment
+filename load-id upsert is not used. A ``ratecon`` workflow_lifecycle must exist before
+the graph runs.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +13,6 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.pod_lifecycle_guards import is_pod_processing_complete_sub_status
-from app.domain.ratecon_import import (
-    attachment_display_filename,
-    is_pdf_attachment,
-    load_id_from_ratecon_attachment_name,
-)
 from app.domain.status_parsing import sub_status_type_from_db
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
@@ -22,6 +23,21 @@ from app.services.workflow_runs_service import WorkflowRunsService
 logger = get_logger(__name__)
 
 POD_LIFECYCLE_WORKFLOW = "pod_lifecycle"
+RATECON_GATE_WORKFLOW = "ratecon"
+
+
+class PodEmailIngressSkipped(Exception):
+    """POD reply email blocked at ingress (return 200 skip to webhook caller)."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        shipments_row_id: str | None = None,
+    ) -> None:
+        self.reason = reason
+        self.shipments_row_id = shipments_row_id
+        super().__init__(reason)
 
 
 @dataclass(frozen=True)
@@ -102,21 +118,23 @@ class PodLifecycleIngressService:
                 return number
         return external
 
-    @staticmethod
-    def _load_id_from_attachments(payload: dict[str, Any]) -> str | None:
-        attachments = payload.get("attachments")
-        if not isinstance(attachments, list):
-            return None
-        for attachment in attachments:
-            if not isinstance(attachment, dict):
-                continue
-            name = attachment_display_filename(attachment)
-            if not name or not is_pdf_attachment(attachment, name):
-                continue
-            load_id = load_id_from_ratecon_attachment_name(name)
-            if load_id:
-                return load_id
-        return None
+    def _require_ratecon_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str,
+    ) -> None:
+        lifecycle = self._lifecycle_service.read_lifecycle(
+            tenant_id=tenant_id,
+            workflow_name=RATECON_GATE_WORKFLOW,
+            shipment_id=shipments_row_id,
+        )
+        if lifecycle.get("found"):
+            return
+        raise PodEmailIngressSkipped(
+            "no_ratecon_workflow_lifecycle",
+            shipments_row_id=shipments_row_id,
+        )
 
     def _pod_lifecycle_id_for_shipment(
         self,
@@ -191,6 +209,23 @@ class PodLifecycleIngressService:
         )
         return out
 
+    def _finish_email_resolution(
+        self,
+        payload: dict[str, Any],
+        *,
+        tenant_id: str,
+        resolution: PodEmailReceivedResolution,
+    ) -> dict[str, Any]:
+        self._require_ratecon_lifecycle(
+            tenant_id=tenant_id,
+            shipments_row_id=resolution.shipments_row_id,
+        )
+        return self._apply_resolution(
+            payload,
+            tenant_id=tenant_id,
+            resolution=resolution,
+        )
+
     async def prepare_email_received_payload(
         self,
         *,
@@ -201,9 +236,11 @@ class PodLifecycleIngressService:
         """
         Resolve shipment + optional existing pod lifecycle before graph correlation.
 
+        Requires a ``ratecon`` workflow_lifecycle for the resolved ``shipments`` row.
         Mirrors manual upload keys: ``shipments_row_id``, Turvo ``shipment_id``,
         and ``workflow_lifecycle_id`` when a pod lifecycle already exists.
         """
+        _ = tenant_slug  # kept for caller symmetry; strict path does not upsert here
         tid = self._clean(tenant_id)
         if not tid:
             raise Exception("pod_lifecycle email_received: missing tenant_id")
@@ -224,7 +261,7 @@ class PodLifecycleIngressService:
                 tenant_id=tid,
                 shipments_row_id=existing_row_id,
             )
-            return self._apply_resolution(
+            return self._finish_email_resolution(
                 payload,
                 tenant_id=tid,
                 resolution=PodEmailReceivedResolution(
@@ -249,7 +286,7 @@ class PodLifecycleIngressService:
                         tenant_id=tid,
                         shipments_row_id=shipments_row_id,
                     )
-                return self._apply_resolution(
+                return self._finish_email_resolution(
                     payload,
                     tenant_id=tid,
                     resolution=PodEmailReceivedResolution(
@@ -260,49 +297,9 @@ class PodLifecycleIngressService:
                     ),
                 )
 
-        load_id = self._load_id_from_attachments(payload)
-        if load_id:
-            persist = await self._shipments.upsert_from_load_id(
-                tenant_id=tid,
-                tenant_slug=tenant_slug,
-                load_id=load_id,
-            )
-            if not persist.get("success") or not persist.get("shipments_row_id"):
-                message = persist.get("message") or "shipments_upsert_failed"
-                if message == "turvo_load_resolve_failed":
-                    raise Exception(
-                        f"pod_lifecycle email_received: Turvo load resolve failed: {message}"
-                    )
-                if message == "turvo_shipment_not_found":
-                    raise Exception(
-                        "pod_lifecycle email_received: Turvo load resolve failed: "
-                        f"no shipment for load_id={load_id!r}"
-                    )
-                raise Exception(
-                    f"pod_lifecycle email_received: shipment upsert failed: {message}"
-                )
-
-            turvo_shipment_id = str(persist.get("shipment_number") or "").strip()
-
-            shipments_row_id = str(persist["shipments_row_id"])
-            pod_lc_id = self._pod_lifecycle_id_for_shipment(
-                tenant_id=tid,
-                shipments_row_id=shipments_row_id,
-            )
-            return self._apply_resolution(
-                payload,
-                tenant_id=tid,
-                resolution=PodEmailReceivedResolution(
-                    shipments_row_id=shipments_row_id,
-                    shipment_number=turvo_shipment_id,
-                    workflow_lifecycle_id=pod_lc_id,
-                    resolution_source="attachment_load_id",
-                ),
-            )
-
-        raise Exception(
-            "pod_lifecycle email_received: could not resolve shipment "
-            f"(tenant_id={tid!r} thread_id={thread_id!r})"
+        raise PodEmailIngressSkipped(
+            "no_shipment_context",
+            shipments_row_id=None,
         )
 
     def check_route_completed_duplicate(

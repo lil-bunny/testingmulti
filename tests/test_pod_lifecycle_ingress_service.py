@@ -6,12 +6,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle_ingress_service import (
+    PodEmailIngressSkipped,
+    PodLifecycleIngressService,
+)
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _SHIPMENTS_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 _LIFECYCLE_UUID = "11111111-2222-3333-4444-555555555555"
 _TURVO_SHIPMENT = "1000324895"
+
+
+def _mock_ratecon_gate_pass(lifecycle: MagicMock) -> None:
+    lifecycle.read_lifecycle.return_value = {
+        "found": True,
+        "lifecycle_id": "ratecon-lc-1",
+    }
 
 
 def test_check_route_completed_duplicate_not_route_completed_event() -> None:
@@ -120,6 +130,7 @@ async def test_prepare_email_received_payload_passthrough_when_shipments_row_id_
         "exists": True,
         "lifecycle_id": _LIFECYCLE_UUID,
     }
+    _mock_ratecon_gate_pass(lifecycle)
     svc = PodLifecycleIngressService(
         communications_service=comms,
         shipments_service=shipments,
@@ -161,6 +172,7 @@ async def test_prepare_email_received_payload_resolves_from_thread() -> None:
     ]
     lifecycle = MagicMock()
     lifecycle.check_lifecycle_exists.return_value = {"exists": False}
+    _mock_ratecon_gate_pass(lifecycle)
     svc = PodLifecycleIngressService(
         communications_service=comms,
         lifecycle_service=lifecycle,
@@ -197,6 +209,7 @@ async def test_prepare_email_received_payload_thread_without_pod_lc() -> None:
     ]
     lifecycle = MagicMock()
     lifecycle.check_lifecycle_exists.return_value = {"exists": False}
+    _mock_ratecon_gate_pass(lifecycle)
     svc = PodLifecycleIngressService(
         communications_service=comms,
         lifecycle_service=lifecycle,
@@ -214,28 +227,20 @@ async def test_prepare_email_received_payload_thread_without_pod_lc() -> None:
 
 
 @pytest.mark.asyncio
-async def test_prepare_email_received_payload_attachment_load_id_fallback() -> None:
+async def test_prepare_email_received_payload_skips_attachment_only() -> None:
     comms = MagicMock()
     comms.find_shipment_context_for_thread.return_value = []
     shipments = MagicMock()
-    shipments.upsert_from_load_id = AsyncMock(
-        return_value={
-            "success": True,
-            "shipments_row_id": _SHIPMENTS_ROW_UUID,
-            "shipment_number": _TURVO_SHIPMENT,
-        }
-    )
+    shipments.upsert_from_load_id = AsyncMock()
     lifecycle = MagicMock()
-    lifecycle.check_lifecycle_exists.return_value = {"exists": False}
-
     svc = PodLifecycleIngressService(
         communications_service=comms,
         shipments_service=shipments,
         lifecycle_service=lifecycle,
     )
 
-    with pytest.MonkeyPatch.context():
-        out = await svc.prepare_email_received_payload(
+    with pytest.raises(PodEmailIngressSkipped) as exc_info:
+        await svc.prepare_email_received_payload(
             tenant_id=_TENANT_UUID,
             tenant_slug="t3ra",
             payload={
@@ -243,27 +248,69 @@ async def test_prepare_email_received_payload_attachment_load_id_fallback() -> N
                 "thread_id": "unknown-thread",
                 "attachments": [
                     {
-                        "name": "Carrier_rate_confirmation_-__30389.pdf",
+                        "name": "62495 bol.pdf",
                         "mime": "application/pdf",
                     }
                 ],
             },
         )
 
-    assert out["shipments_row_id"] == _SHIPMENTS_ROW_UUID
-    assert out["shipment_id"] == _TURVO_SHIPMENT
-    shipments.upsert_from_load_id.assert_awaited_once()
+    assert exc_info.value.reason == "no_shipment_context"
+    shipments.upsert_from_load_id.assert_not_called()
+    lifecycle.read_lifecycle.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_prepare_email_received_payload_raises_when_unresolvable() -> None:
+async def test_prepare_email_received_payload_skips_without_ratecon_lifecycle() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle.return_value = {"found": False}
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+
+    with pytest.raises(PodEmailIngressSkipped) as exc_info:
+        await svc.prepare_email_received_payload(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            payload={"event_type": "email_received", "thread_id": "thread-abc"},
+        )
+
+    assert exc_info.value.reason == "no_ratecon_workflow_lifecycle"
+    assert exc_info.value.shipments_row_id == _SHIPMENTS_ROW_UUID
+    lifecycle.read_lifecycle.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        workflow_name="ratecon",
+        shipment_id=_SHIPMENTS_ROW_UUID,
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_skips_no_shipment_context() -> None:
     comms = MagicMock()
     comms.find_shipment_context_for_thread.return_value = []
-    svc = PodLifecycleIngressService(communications_service=comms)
+    shipments = MagicMock()
+    shipments.upsert_from_load_id = AsyncMock()
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        shipments_service=shipments,
+    )
 
-    with pytest.raises(Exception, match="could not resolve shipment"):
+    with pytest.raises(PodEmailIngressSkipped) as exc_info:
         await svc.prepare_email_received_payload(
             tenant_id=_TENANT_UUID,
             tenant_slug="t3ra",
             payload={"event_type": "email_received", "thread_id": "orphan-thread"},
         )
+
+    assert exc_info.value.reason == "no_shipment_context"
+    shipments.upsert_from_load_id.assert_not_called()
