@@ -16,7 +16,10 @@ from app.services.driver_assignment.ingress_service import DriverAssignmentIngre
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle_ingress_service import (
+    PodEmailIngressSkipped,
+    PodLifecycleIngressService,
+)
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.domain.unipile_email import extract_recipient_emails
 from app.services.workflow_classifier_service import WorkflowClassifierService
@@ -87,16 +90,28 @@ class T3raInboundEmailService:
         tenant: UnipileTenantContext,
         communication_id: str | None,
     ) -> JSONResponse:
-        data_import_id = await process_email_webhook_attachment_import(
-            payload=payload,
-            workflow_name="pod_lifecycle",
-            data_import_tenant_id=tenant.tenant_uuid,
-            data_import_data_type=DataImportDataType.LOAD_TENDER,
-            ingest_source_type=DataImportSourceType.EMAIL,
-        )
         workflow_payload = {**payload, "event_type": "email_received"}
-        if data_import_id:
-            workflow_payload["data_import_id"] = data_import_id
+        try:
+            prepared = await self._pod_lifecycle_ingress.prepare_email_received_payload(
+                tenant_id=tenant.tenant_uuid,
+                tenant_slug=tenant.tenant_slug,
+                payload=workflow_payload,
+            )
+        except PodEmailIngressSkipped as skip:
+            logger.info(
+                "t3ra unipile: pod email ingress skipped tenant=%s thread_id=%s "
+                "reason=%s shipments_row_id=%s",
+                tenant.tenant_uuid,
+                payload.get("thread_id"),
+                skip.reason,
+                skip.shipments_row_id,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"message": "skipped", "reason": skip.reason},
+            )
+
+        workflow_payload = prepared
 
         if self._pod_lifecycle_ingress.is_duplicate_email_pod_ingest(
             tenant_id=tenant.tenant_uuid,
@@ -111,6 +126,16 @@ class T3raInboundEmailService:
                 status_code=status.HTTP_200_OK,
                 content={"message": "pod already processed"},
             )
+
+        data_import_id = await process_email_webhook_attachment_import(
+            payload=payload,
+            workflow_name="pod_lifecycle",
+            data_import_tenant_id=tenant.tenant_uuid,
+            data_import_data_type=DataImportDataType.LOAD_TENDER,
+            ingest_source_type=DataImportSourceType.EMAIL,
+        )
+        if data_import_id:
+            workflow_payload["data_import_id"] = data_import_id
 
         if communication_id:
             workflow_payload["communication_id"] = communication_id
