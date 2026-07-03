@@ -6,15 +6,15 @@ from app.exceptions import WorkflowException
 from app.models.document import DocumentType
 from app.models.document_analysis import DocumentAnalysisType
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.tools.document_analysis import upsert_document_analysis, upsert_ratecon_extraction
+from app.tools.document_analysis import upsert_document_analysis
 from app.tools.documents import insert_document
 from app.tools.pod import (
     classify_attachments as get_normalized_attachments,
     load_ratecon_analysis as load_ratecon_analysis_tool,
     pod_analysis as get_pod_analysis,
     pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
-    ratecon_analysis as get_ratecon_analysis,
 )
+from app.services.ratecon_document_service import RateconDocumentService
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
 from app.workflows.utils.decorators import safe_node
 
@@ -31,13 +31,6 @@ _POD_ANALYSIS_ERRORS = {
     "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
     "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
 }
-
-_RATECON_ANALYSIS_ERRORS = {
-    **_PDF_FETCH_ERRORS,
-    "extraction_empty": BusinessError.RATECON_EXTRACTION_EMPTY,
-    "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
-}
-
 
 def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
     if out.get("skipped") or out.get("success"):
@@ -139,27 +132,8 @@ def load_ratecon_analysis(state):
     return state
 
 
-@safe_node
 def ratecon_analysis(state):
-    out = get_ratecon_analysis(state.data)
-    state.data["ratecon_analysis_results"] = out
-    _raise_on_tool_failure(out, _RATECON_ANALYSIS_ERRORS)
-
-    shipments_row_id = resolve_shipments_row_id_for_db(state.data)
-    if (
-        out.get("success")
-        and not out.get("skipped")
-        and out.get("findings")
-        and shipments_row_id
-    ):
-        persist = upsert_ratecon_extraction(
-            shipments_row_id,
-            results=out["findings"],
-            confidence_score=out.get("confidence_score"),
-            llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
-            document_id=out.get("document_id"),
-        )
-        state.data["document_analysis_ratecon"] = persist
+    state.data.update(RateconDocumentService().analyze_and_persist(state.data))
     return state
 
 
