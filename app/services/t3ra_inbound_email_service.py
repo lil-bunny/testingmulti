@@ -17,6 +17,7 @@ from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
 from app.services.pod_lifecycle_ingress_service import (
+    POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
 )
@@ -53,11 +54,13 @@ class T3raInboundEmailService:
             classification
             and classification.get("workflow_name") == "pod_lifecycle"
         ):
-            return await self._enqueue_pod_lifecycle(
+            pod_response = await self._try_enqueue_pod_lifecycle(
                 payload=payload,
                 tenant=tenant,
                 communication_id=communication_id,
             )
+            if pod_response is not None:
+                return pod_response
 
         driver_response = self._driver_assignment_ingress.try_driver_details_email_received(
             payload=payload,
@@ -83,13 +86,13 @@ class T3raInboundEmailService:
             content={"message": "no workflow classified"},
         )
 
-    async def _enqueue_pod_lifecycle(
+    async def _try_enqueue_pod_lifecycle(
         self,
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
         communication_id: str | None,
-    ) -> JSONResponse:
+    ) -> JSONResponse | None:
         workflow_payload = {**payload, "event_type": "email_received"}
         try:
             prepared = await self._pod_lifecycle_ingress.prepare_email_received_payload(
@@ -106,6 +109,8 @@ class T3raInboundEmailService:
                 skip.reason,
                 skip.shipments_row_id,
             )
+            if skip.reason == POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS:
+                return None
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={"message": "skipped", "reason": skip.reason},

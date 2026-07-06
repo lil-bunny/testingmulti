@@ -12,8 +12,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle_guards import is_pod_processing_complete_sub_status
+from app.domain.pod_lifecycle_guards import (
+    is_pod_processing_complete_sub_status,
+    pod_email_status_eligible_from_turvo_payload,
+)
 from app.domain.status_parsing import sub_status_type_from_db
+from app.integrations.turvo.shipments import get_shipment
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.services.shipments_service import ShipmentsService
@@ -24,6 +28,8 @@ logger = get_logger(__name__)
 
 POD_LIFECYCLE_WORKFLOW = "pod_lifecycle"
 RATECON_GATE_WORKFLOW = "ratecon"
+POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS = "invalid_shipment_status"
+POD_EMAIL_SKIP_TURVO_FETCH_FAILED = "turvo_shipment_fetch_failed"
 
 
 class PodEmailIngressSkipped(Exception):
@@ -209,17 +215,42 @@ class PodLifecycleIngressService:
         )
         return out
 
-    def _finish_email_resolution(
+    async def _finish_email_resolution(
         self,
         payload: dict[str, Any],
         *,
         tenant_id: str,
+        tenant_slug: str,
         resolution: PodEmailReceivedResolution,
     ) -> dict[str, Any]:
         self._require_ratecon_lifecycle(
             tenant_id=tenant_id,
             shipments_row_id=resolution.shipments_row_id,
         )
+        slug = self._clean(tenant_slug)
+        if not slug:
+            raise Exception(
+                "pod_lifecycle email_received: missing tenant_slug for status check"
+            )
+        try:
+            turvo_payload = await get_shipment(slug, resolution.shipment_number)
+        except Exception as exc:
+            logger.warning(
+                "pod email ingress: turvo get_shipment failed tenant_slug=%s "
+                "shipment_id=%s error=%s",
+                slug,
+                resolution.shipment_number,
+                exc,
+            )
+            raise PodEmailIngressSkipped(
+                POD_EMAIL_SKIP_TURVO_FETCH_FAILED,
+                shipments_row_id=resolution.shipments_row_id,
+            ) from exc
+        if not pod_email_status_eligible_from_turvo_payload(turvo_payload):
+            raise PodEmailIngressSkipped(
+                POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
+                shipments_row_id=resolution.shipments_row_id,
+            )
         return self._apply_resolution(
             payload,
             tenant_id=tenant_id,
@@ -240,7 +271,6 @@ class PodLifecycleIngressService:
         Mirrors manual upload keys: ``shipments_row_id``, Turvo ``shipment_id``,
         and ``workflow_lifecycle_id`` when a pod lifecycle already exists.
         """
-        _ = tenant_slug  # kept for caller symmetry; strict path does not upsert here
         tid = self._clean(tenant_id)
         if not tid:
             raise Exception("pod_lifecycle email_received: missing tenant_id")
@@ -261,9 +291,10 @@ class PodLifecycleIngressService:
                 tenant_id=tid,
                 shipments_row_id=existing_row_id,
             )
-            return self._finish_email_resolution(
+            return await self._finish_email_resolution(
                 payload,
                 tenant_id=tid,
+                tenant_slug=tenant_slug,
                 resolution=PodEmailReceivedResolution(
                     shipments_row_id=existing_row_id,
                     shipment_number=shipment_number,
@@ -286,9 +317,10 @@ class PodLifecycleIngressService:
                         tenant_id=tid,
                         shipments_row_id=shipments_row_id,
                     )
-                return self._finish_email_resolution(
+                return await self._finish_email_resolution(
                     payload,
                     tenant_id=tid,
+                    tenant_slug=tenant_slug,
                     resolution=PodEmailReceivedResolution(
                         shipments_row_id=shipments_row_id,
                         shipment_number=shipment_number,
