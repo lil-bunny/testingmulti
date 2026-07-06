@@ -30,44 +30,6 @@ class IngressGatesMixin:
         return s if s else None
 
     @staticmethod
-    def _ratecon_upload_success(data: dict[str, Any]) -> bool:
-
-        upload_result = data.get("ratecon_s3_upload")
-
-        if not isinstance(upload_result, dict):
-
-            return False
-
-        if upload_result.get("skipped"):
-
-            return False
-
-        if not upload_result.get("all_succeeded"):
-
-            return False
-
-        for item in upload_result.get("results") or []:
-
-            if not isinstance(item, dict):
-
-                continue
-
-            persist = item.get("document_persist") or {}
-
-            if persist.get("stored"):
-
-                return True
-
-        return False
-
-    @staticmethod
-    def _ratecon_analysis_success(data: dict[str, Any]) -> bool:
-
-        persist = data.get("document_analysis_ratecon")
-
-        return isinstance(persist, dict) and persist.get("stored") is True
-
-    @staticmethod
     def _is_process_enabled(tenant_settings: dict[str, Any] | None) -> bool:
 
         return DRIVER_ASSIGNMENT_WORKFLOW in enabled_processes_from_settings(
@@ -189,15 +151,7 @@ class IngressGatesMixin:
 
         status = status_type_from_db(row.get("status"))
 
-        sub = sub_status_type_from_db(row.get("sub_status"))
-
-        return (
-
-            status == StatusType.COMPLETED
-
-            and sub == StatusSubType.DOCUMENT_PROCESSED
-
-        )
+        return status == StatusType.COMPLETED
 
     def _is_duplicate_ratecon_completed(
 

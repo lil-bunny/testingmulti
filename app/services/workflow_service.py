@@ -3,7 +3,10 @@ from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_mode
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle_ingress_service import (
+    PodEmailIngressSkipped,
+    PodLifecycleIngressService,
+)
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
@@ -117,6 +120,28 @@ class WorkflowService:
             "data": data,
         }
 
+    @staticmethod
+    def _skipped_pod_email_ingress_result(
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict,
+        reason: str,
+        shipments_row_id: str | None = None,
+    ) -> dict:
+        execution_id = str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+        data = dict(payload)
+        data["skipped_pod_email_ingress"] = True
+        data["pod_email_ingress_skip_reason"] = reason
+        if shipments_row_id:
+            data["shipments_row_id"] = shipments_row_id
+        return {
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant_slug,
+            "execution_id": execution_id,
+            "data": data,
+        }
+
     async def run(
         self,
         tenant_slug: str,
@@ -171,11 +196,20 @@ class WorkflowService:
             workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "email_received"
         ):
-            payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
-                tenant_id=tenant_id,
-                tenant_slug=tenant_slug,
-                payload=payload,
-            )
+            try:
+                payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                )
+            except PodEmailIngressSkipped as skip:
+                return self._skipped_pod_email_ingress_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    reason=skip.reason,
+                    shipments_row_id=skip.shipments_row_id,
+                )
 
         if (
             workflow_name == "pod_lifecycle"

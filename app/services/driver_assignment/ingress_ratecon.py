@@ -30,30 +30,6 @@ class IngressRateconMixin:
 
         tenant_settings = data.get("tenant_settings") or {}
 
-        if data.get("error"):
-
-            return EnqueueResult(enqueued=False, skip_reason="workflow_error")
-
-        if not self._ratecon_upload_success(data):
-
-            return EnqueueResult(
-
-                enqueued=False,
-
-                skip_reason="ratecon_upload_not_succeeded",
-
-            )
-
-        if not self._ratecon_analysis_success(data):
-
-            return EnqueueResult(
-
-                enqueued=False,
-
-                skip_reason="ratecon_analysis_not_stored",
-
-            )
-
         shipments_row_id = self._clean(data.get("shipments_row_id"))
 
         load_id = self._clean(data.get("load_id"))
