@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
+from app.integrations.turvo.shipments import assigned_driver_contact_from_payload
 from app.services.shipments_service import ShipmentsService
 from app.tools.driver_details import DO_NOTHING, driver_block_name_phone
 
@@ -101,3 +102,16 @@ class DriverAssignmentShipmentDetailsService:
         name = self._clean(data.get("tms_matched_driver_name")) or fallback_name
         phone = self._clean(data.get("tms_matched_driver_phone")) or fallback_phone
         self._persist(state, name=name, phone=phone, source="tms_matched")
+
+    def persist_from_turvo_shipment(self, state) -> None:
+        data = getattr(state, "data", None) or {}
+        shipment = data.get("shipment")
+        if not isinstance(shipment, dict):
+            return
+        contact = assigned_driver_contact_from_payload(shipment)
+        self._persist(
+            state,
+            name=self._clean(contact.get("name")),
+            phone=self._clean(contact.get("phone")),
+            source="turvo_shipment",
+        )

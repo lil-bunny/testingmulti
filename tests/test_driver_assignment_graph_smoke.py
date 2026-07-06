@@ -41,6 +41,9 @@ def test_driver_assignment_graph_routes_driver_details_email_received() -> None:
     delayed_map = routers["route_driver_assignment_delayed_event"]["map"]
     assert delayed_map["reminder_due"] == "check_driver_reminder_eligibility"
     assert delayed_map["escalation_due"] == "check_driver_escalation_eligibility"
+    reminder_map = routers["check_driver_reminder_eligibility"]["map"]
+    assert reminder_map["driver_already_assigned"] == "complete_driver_assignment_from_tms"
+    assert ("complete_driver_assignment_from_tms", "end") in edges
     assert ("get_shipment", "route_driver_assignment_delayed_event") in edges
     assert ("escalate_driver_assignment", "end") in edges
     classify_map = routers["classify_driver_details"]["map"]

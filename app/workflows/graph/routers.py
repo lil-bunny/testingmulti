@@ -113,6 +113,14 @@ def driver_assignment_eligibility_router(state):
     return "skip"
 
 
+def driver_assignment_delayed_eligibility_router(state):
+    if state.data.get("driver_assignment_eligible"):
+        return "eligible"
+    if state.data.get("driver_assignment_skip_reason") == "driver_already_assigned":
+        return "driver_already_assigned"
+    return "skip"
+
+
 def pod_reminder_eligibility_router(state):
     if state.data.get("pod_reminder_eligible"):
         return "eligible"
