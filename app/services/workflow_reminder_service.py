@@ -12,6 +12,7 @@ from app.core.logger import get_logger
 from app.domain.load_tendering_settings import load_type_bucket, resolve_load_type
 from app.domain.reminder_schedule import ReminderStepSpec, WorkflowRemindersConfig
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 from app.tasks.reminders import trigger_workflow_reminder
 
 logger = get_logger(__name__)
@@ -197,6 +198,35 @@ def _parse_pickup_appointment_at(data: dict[str, Any]) -> datetime | None:
 
 
 class WorkflowReminderService:
+    def _register_queued_tasks(
+        self,
+        data: dict[str, Any],
+        *,
+        queued: list[Any],
+        steps: list[ReminderStepSpec],
+    ) -> None:
+        wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
+        if not wl_id or not queued:
+            return
+        entries: list[dict[str, Any]] = []
+        for result, step in zip(queued, steps, strict=False):
+            task_id = getattr(result, "id", None)
+            if not task_id:
+                continue
+            entry: dict[str, Any] = {
+                "task_id": str(task_id),
+                "event_type": step.event_type,
+            }
+            if step.step is not None:
+                entry["step"] = int(step.step)
+            entries.append(entry)
+        if not entries:
+            return
+        WorkflowReminderCancelService().register_tasks(
+            lifecycle_id=wl_id,
+            entries=entries,
+        )
+
     def schedule(self, data: dict[str, Any], *, workflow_name: str) -> None:
         wf = (workflow_name or "").strip()
         if not wf:
@@ -280,6 +310,7 @@ class WorkflowReminderService:
                     pass
             return
 
+        self._register_queued_tasks(data, queued=queued, steps=steps)
         data["reminders_scheduled"] = True
 
     def _schedule_before_pickup(
@@ -308,7 +339,7 @@ class WorkflowReminderService:
         )
         reminder_steps: list[dict[str, Any]] = []
         skipped_steps: list[dict[str, Any]] = []
-        to_enqueue: list[tuple[datetime, dict[str, Any]]] = []
+        to_enqueue: list[tuple[datetime, dict[str, Any], ReminderStepSpec]] = []
 
         for index, step in enumerate(steps, start=1):
             step_num = step.step if step.step is not None else index
@@ -333,10 +364,10 @@ class WorkflowReminderService:
             tz = data.get("pickup_appointment_timezone")
             if tz is not None and str(tz).strip():
                 payload["pickup_appointment_timezone"] = str(tz).strip()
-            to_enqueue.append((fire_at, payload))
+            to_enqueue.append((fire_at, payload, step))
 
         if to_enqueue:
-            latest_fire_at = max(fire_at for fire_at, _ in to_enqueue)
+            latest_fire_at = max(fire_at for fire_at, _, _ in to_enqueue)
             expire_s = int(
                 (
                     (latest_fire_at - now)
@@ -347,14 +378,16 @@ class WorkflowReminderService:
             expire_s = int(timedelta(hours=reminders.expire_grace_hours).total_seconds())
 
         queued: list[Any] = []
+        enqueued_steps: list[ReminderStepSpec] = []
         try:
-            for fire_at, payload in to_enqueue:
+            for fire_at, payload, step in to_enqueue:
                 result = trigger_workflow_reminder.apply_async(
                     kwargs={"payload": payload},
                     eta=fire_at,
                     expires=expire_s,
                 )
                 queued.append(result)
+                enqueued_steps.append(step)
         except Exception:
             logger.exception(
                 "workflow_reminder before_pickup enqueue failed workflow=%s lifecycle_id=%s",
@@ -368,6 +401,7 @@ class WorkflowReminderService:
                     pass
             return
 
+        self._register_queued_tasks(data, queued=queued, steps=enqueued_steps)
         data["driver_reminder_schedule"] = {
             "pickup_appointment_at": pickup_at.isoformat(),
             "pickup_appointment_timezone": data.get("pickup_appointment_timezone"),

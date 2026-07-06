@@ -23,7 +23,11 @@ from app.domain.status_parsing import status_type_from_db, sub_status_type_from_
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.driver_assignment.shipment_driver_details_service import (
+    DriverAssignmentShipmentDetailsService,
+)
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 from app.services.workflow_reminder_service import parse_reminders_for_workflow
 from app.tools.driver_details import normalize_phone_digits
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
@@ -422,6 +426,13 @@ class DriverAssignmentActivityService:
             return
         wl_id, tenant_id, run_id = scope
         resolution = str(state.data.get("tms_resolution") or "").strip()
+        if resolution == "skipped_already_assigned":
+            data = state.data
+            if not str(data.get("tms_matched_driver_name") or "").strip() and not str(
+                data.get("tms_matched_driver_phone") or ""
+            ).strip():
+                DriverAssignmentShipmentDetailsService().persist_from_turvo_shipment(state)
+        WorkflowReminderCancelService().cancel_all(lifecycle_id=wl_id)
         assign_meta = self._tms_assign_metadata(state)
 
         prev = self._lifecycle.read_lifecycle_row_by_id(wl_id)
@@ -433,7 +444,7 @@ class DriverAssignmentActivityService:
         if resolution == "skipped_already_assigned":
             steps.append(
                 ActivityLogStep(
-                    activity_type=ActivityType.ACTION,
+                    activity_type=ActivityType.INFO,
                     description=format_driver_already_assigned_in_tms_action(),
                 )
             )
@@ -475,6 +486,14 @@ class DriverAssignmentActivityService:
             )
         )
         state.data["driver_details_recorded"] = True
+
+    def complete_when_driver_already_in_tms(self, state) -> None:
+        """Complete DA when Turvo already has a driver (reminder/escalation path)."""
+        if self._scope_ids(state) is None:
+            return
+        if not str(state.data.get("tms_resolution") or "").strip():
+            state.data["tms_resolution"] = "skipped_already_assigned"
+        self.record_tms_driver_success(state)
 
     def record_driver_details_confirmation_sent(self, state) -> None:
         if not state.data.get("driver_confirmation_sent"):

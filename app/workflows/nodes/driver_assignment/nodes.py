@@ -189,6 +189,11 @@ def record_tms_driver_success(state):
     return state
 
 
+def complete_driver_assignment_from_tms(state):
+    DriverAssignmentActivityService().complete_when_driver_already_in_tms(state)
+    return state
+
+
 def record_tms_driver_not_resolved(state):
     DriverAssignmentActivityService().record_tms_driver_not_resolved(state)
     return state

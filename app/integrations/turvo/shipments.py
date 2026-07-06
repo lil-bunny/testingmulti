@@ -469,6 +469,63 @@ def _active_driver_entry(entry: dict[str, Any]) -> bool:
     return False
 
 
+def _driver_phone_from_entry(entry: dict[str, Any]) -> str | None:
+    raw = entry.get("phone")
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text or None
+    if isinstance(raw, dict):
+        number = raw.get("number")
+        if number is not None:
+            text = str(number).strip()
+            return text or None
+    return None
+
+
+def _driver_name_from_entry(entry: dict[str, Any]) -> str | None:
+    name = entry.get("name")
+    if name is not None and str(name).strip():
+        return str(name).strip()
+    ctx = entry.get("context")
+    if isinstance(ctx, dict):
+        ctx_name = ctx.get("name")
+        if ctx_name is not None and str(ctx_name).strip():
+            return str(ctx_name).strip()
+    return None
+
+
+def _iter_active_driver_entries(order: dict[str, Any]):
+    for key in ("driver", "drivers", "primaryDriver"):
+        raw = order.get(key)
+        if isinstance(raw, dict) and _active_driver_entry(raw):
+            yield raw
+        elif isinstance(raw, list):
+            for item in raw:
+                if _active_driver_entry(item):
+                    yield item
+
+
+def assigned_driver_contact_from_payload(payload: dict[str, Any]) -> dict[str, str | None]:
+    """Name and phone from the first active driver embed on a Turvo shipment payload."""
+    if not isinstance(payload, dict):
+        return {"name": None, "phone": None}
+    details = payload.get("details")
+    if not isinstance(details, dict):
+        return {"name": None, "phone": None}
+    carrier_orders = details.get("carrierOrder")
+    if not isinstance(carrier_orders, list):
+        return {"name": None, "phone": None}
+    for order in carrier_orders:
+        if not isinstance(order, dict) or order.get("deleted"):
+            continue
+        for entry in _iter_active_driver_entries(order):
+            return {
+                "name": _driver_name_from_entry(entry),
+                "phone": _driver_phone_from_entry(entry),
+            }
+    return {"name": None, "phone": None}
+
+
 def driver_assigned_from_payload(payload: dict[str, Any]) -> bool:
     """True when Turvo shows driver assigned or pickup already executed."""
     if not isinstance(payload, dict):

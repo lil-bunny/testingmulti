@@ -9,6 +9,8 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.db import jsonb_param
+
 from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
 
@@ -310,6 +312,7 @@ class WorkflowLifecyclesRepository:
             "status": row[3],
             "sub_status": row[4],
             "tender_id": row[5] or "",
+            "metadata": row[6] if len(row) > 6 else {},
         }
 
     def read_row_by_id(self, lifecycle_id: str) -> dict[str, Any] | None:
@@ -318,7 +321,7 @@ class WorkflowLifecyclesRepository:
             text(
                 f"""
                 SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
-                       tender_id::text
+                       tender_id::text, metadata
                 FROM {self.TABLE_NAME}
                 {_WHERE_LIFECYCLE_ID}
                 """
@@ -341,7 +344,7 @@ class WorkflowLifecyclesRepository:
             text(
                 f"""
                 SELECT id::text, tenant_id::text, workflow_name, status::text, sub_status::text,
-                       tender_id::text
+                       tender_id::text, metadata
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_WORKFLOW}
                   AND tender_id = CAST(:tender_id AS uuid)
@@ -544,6 +547,29 @@ class WorkflowLifecyclesRepository:
             },
         ).first()
         return row is not None
+
+    def patch_metadata(
+        self,
+        *,
+        lifecycle_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """Merge ``metadata_patch`` into ``workflow_lifecycles.metadata``."""
+        rowcount = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb),
+                    updated_at = NOW()
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {
+                "lifecycle_id": lifecycle_id,
+                "metadata_patch": jsonb_param(metadata_patch or {}),
+            },
+        ).rowcount
+        return rowcount > 0
 
     def insert_driver_assignment_lifecycle(
         self,

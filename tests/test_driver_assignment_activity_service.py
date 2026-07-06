@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
+
+
+@pytest.fixture(autouse=True)
+def _mock_reminder_cancel_service():
+    with patch(
+        "app.services.driver_assignment.activity_service.WorkflowReminderCancelService"
+    ) as mock_cls:
+        yield mock_cls
 
 
 def _state(**data_overrides):
@@ -224,7 +234,7 @@ def test_record_reminder_sent_partial_follow_up_action_template():
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
 
 
-def test_record_tms_driver_success_logs_single_assign_action():
+def test_record_tms_driver_success_logs_single_assign_action(_mock_reminder_cancel_service):
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -249,6 +259,9 @@ def test_record_tms_driver_success_logs_single_assign_action():
 
     svc.record_tms_driver_success(state)
 
+    _mock_reminder_cancel_service.return_value.cancel_all.assert_called_once_with(
+        lifecycle_id="driver-lc-1"
+    )
     sequence = activity.record_sequence.call_args.args[0]
     action_steps = [
         step for step in sequence.steps if step.activity_type == ActivityType.ACTION
@@ -476,6 +489,7 @@ def test_record_tms_driver_success_skipped_already_assigned_completes():
         )
     )
     sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[0].activity_type == ActivityType.INFO
     uploaded_step = next(
         step
         for step in sequence.steps
@@ -486,6 +500,58 @@ def test_record_tms_driver_success_skipped_already_assigned_completes():
     assert sequence.steps[-1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[-1].to_status == StatusType.COMPLETED
     assert sequence.steps[-1].to_sub_status == StatusSubType.UPLOADED_TO_TMS
+
+
+@patch("app.services.driver_assignment.activity_service.DriverAssignmentShipmentDetailsService")
+def test_record_tms_driver_success_skipped_persists_from_turvo_when_no_matched(
+    mock_details_cls: MagicMock,
+):
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        tms_resolution="skipped_already_assigned",
+        shipment={
+            "details": {
+                "carrierOrder": [
+                    {"deleted": False, "primaryDriver": {"id": "1", "name": "Alex", "phone": "555"}}
+                ]
+            }
+        },
+    )
+    svc.record_tms_driver_success(state)
+    mock_details_cls.return_value.persist_from_turvo_shipment.assert_called_once_with(state)
+
+
+@patch("app.services.driver_assignment.activity_service.DriverAssignmentShipmentDetailsService")
+def test_record_tms_driver_success_skipped_skips_persist_when_matched_present(
+    mock_details_cls: MagicMock,
+):
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    svc.record_tms_driver_success(
+        _state(
+            tms_resolution="skipped_already_assigned",
+            tms_matched_driver_name="Existing",
+            shipment={"details": {"carrierOrder": []}},
+        )
+    )
+    mock_details_cls.return_value.persist_from_turvo_shipment.assert_not_called()
 
 
 def test_record_driver_assignment_completed_after_confirmation():

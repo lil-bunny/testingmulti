@@ -121,3 +121,38 @@ def test_persist_extracted_logs_and_skips_missing_scope() -> None:
         svc.persist_extracted_from_state(state)
     shipments.merge_driver_details.assert_not_called()
     log.warning.assert_called_once()
+
+
+def test_persist_from_turvo_shipment_merges_driver() -> None:
+    shipments = MagicMock()
+    svc = DriverAssignmentShipmentDetailsService(shipments_service=shipments)
+    svc.persist_from_turvo_shipment(
+        _state(
+            shipment={
+                "details": {
+                    "carrierOrder": [
+                        {
+                            "deleted": False,
+                            "primaryDriver": {
+                                "name": "Alex",
+                                "phone": "555-0100",
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+    )
+    shipments.merge_driver_details.assert_called_once_with(
+        tenant_id=_TENANT,
+        shipment_row_id=_SHIP_ROW,
+        name="Alex",
+        phone="555-0100",
+    )
+
+
+def test_persist_from_turvo_shipment_skips_without_shipment() -> None:
+    shipments = MagicMock()
+    svc = DriverAssignmentShipmentDetailsService(shipments_service=shipments)
+    svc.persist_from_turvo_shipment(_state())
+    shipments.merge_driver_details.assert_not_called()

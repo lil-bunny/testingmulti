@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.integrations.turvo.shipments import (
+    assigned_driver_contact_from_payload,
     driver_assigned_from_payload,
     pickup_appointment_from_payload,
 )
@@ -212,3 +213,73 @@ def test_driver_assigned_from_context_only_driver_row() -> None:
         }
     }
     assert driver_assigned_from_payload(payload) is True
+
+
+def test_assigned_driver_contact_from_primary_driver() -> None:
+    payload = {
+        "details": {
+            "globalRoute": [],
+            "carrierOrder": [
+                {
+                    "deleted": False,
+                    "primaryDriver": {"id": "drv-1", "name": "Alex", "phone": "555-0100"},
+                }
+            ],
+        }
+    }
+    assert assigned_driver_contact_from_payload(payload) == {
+        "name": "Alex",
+        "phone": "555-0100",
+    }
+
+
+def test_assigned_driver_contact_from_drivers_list() -> None:
+    payload = {
+        "details": {
+            "globalRoute": [],
+            "carrierOrder": [
+                {
+                    "deleted": False,
+                    "drivers": [
+                        {
+                            "deleted": False,
+                            "context": {"name": "Alyssa Wolf"},
+                            "phone": {"number": "5122691730"},
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    assert assigned_driver_contact_from_payload(payload) == {
+        "name": "Alyssa Wolf",
+        "phone": "5122691730",
+    }
+
+
+def test_assigned_driver_contact_ignores_deleted_driver() -> None:
+    payload = {
+        "details": {
+            "globalRoute": [],
+            "carrierOrder": [
+                {
+                    "deleted": False,
+                    "drivers": [
+                        {
+                            "deleted": True,
+                            "context": {"name": "Stale"},
+                            "phone": {"number": "111"},
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    assert assigned_driver_contact_from_payload(payload) == {"name": None, "phone": None}
+
+
+def test_assigned_driver_contact_empty_when_no_driver() -> None:
+    assert assigned_driver_contact_from_payload(_PICKUP_FIXTURE) == {
+        "name": None,
+        "phone": None,
+    }
