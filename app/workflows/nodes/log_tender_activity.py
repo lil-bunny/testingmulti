@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import format_tender_sent_to_vendor
+from app.domain.activity_log_descriptions import format_tender_sent_to_tenant
 from app.domain.activity_log_write import (
     ActivityLogSequence,
     ActivityLogStep,
@@ -56,7 +56,7 @@ def log_tender_activity(state):
                 steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_tender_sent_to_vendor(),
+                        description=format_tender_sent_to_tenant(),
                         communication_id=communication_id,
                     ),
                     ActivityLogStep(

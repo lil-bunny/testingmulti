@@ -6,10 +6,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
-from app.domain.activity_log_descriptions import (
-    format_routing_guide_advance_action,
-    format_tender_sent_to_vendor,
-)
+from app.domain.activity_log_descriptions import format_tender_sent_to_tenant
 from app.domain.gelita.routing_guide_lifecycle import (
     mark_routing_guide_reminders_scheduled_for_attempt,
     routing_guide_attempt_from_metadata,
@@ -128,7 +125,7 @@ class RoutingGuideLifecycleService:
                     workflow_lifecycle_id=wl_id,
                     workflow_run_id=run_id,
                     activity_type=ActivityType.ACTION,
-                    description=format_tender_sent_to_vendor(),
+                    description=format_tender_sent_to_tenant(),
                     metadata=transition_meta,
                     communication_id=communication_id,
                 ),
@@ -208,31 +205,6 @@ class RoutingGuideLifecycleService:
                     wl_id,
                     next_attempt,
                 )
-            clean_reason = str(reason or "").strip() or "routing_guide_failover"
-            transition_meta: dict[str, Any] = {
-                "tender_id": tender_id,
-                "routing_guide_attempt": next_attempt,
-                "routing_guide_reason": clean_reason,
-                "prior_attempt": prior,
-            }
-            lifecycle_transition_service = LifecycleTransitionService(
-                lifecycles_repo=repos.workflow_lifecycles,
-                activity_logs_repo=repos.activity_logs,
-            )
-            lifecycle_transition_service.apply_sequence(
-                _lifecycle_command(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl_id,
-                    workflow_run_id=run_id,
-                    activity_type=ActivityType.ACTION,
-                    description=format_routing_guide_advance_action(
-                        prior_attempt=prior,
-                        next_attempt=next_attempt,
-                        reason=clean_reason,
-                    ),
-                    metadata=transition_meta,
-                ),
-            )
             return next_attempt
 
         new_attempt = run_with_repos(_persist)

@@ -145,7 +145,9 @@ class RoutingGuideRepository:
                         CAST(:carriers AS jsonb)
                     )
                     ON CONFLICT ON CONSTRAINT routing_guide_tenant_customer_zip_unique
-                    DO NOTHING
+                    DO UPDATE SET
+                        customer_aliases = EXCLUDED.customer_aliases,
+                        carriers = EXCLUDED.carriers
                     """
                 ),
                 {

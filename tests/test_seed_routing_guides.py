@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scripts.seed_routing_guides import routing_guide_row_from_csv_row
+from scripts.seed_routing_guide import routing_guide_row_from_csv_row
 
 
 def test_routing_guide_row_from_csv_row_us_zip_and_location() -> None:

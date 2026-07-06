@@ -30,8 +30,7 @@ from app.domain.activity_log_constants import (
     STATUS_CHANGE_DESCRIPTION_TEMPLATE,
     SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE,
     TENDER_CREATED_ACTION_TEMPLATE,
-    TENDER_SENT_TO_VENDOR_ACTION,
-    ROUTING_GUIDE_ADVANCE_ACTION_TEMPLATE,
+    TENDER_SENT_TO_TENANT_ACTION,
     WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION,
     WORKFLOW_REVIEW_RESOLVED_ACTION,
 )
@@ -103,21 +102,8 @@ def format_tender_created_action(
     )
 
 
-def format_tender_sent_to_vendor() -> str:
-    return TENDER_SENT_TO_VENDOR_ACTION
-
-
-def format_routing_guide_advance_action(
-    *,
-    prior_attempt: int,
-    next_attempt: int,
-    reason: str,
-) -> str:
-    return ROUTING_GUIDE_ADVANCE_ACTION_TEMPLATE.format(
-        prior_attempt=prior_attempt,
-        next_attempt=next_attempt,
-        reason=(reason or "").strip() or "routing_guide_failover",
-    )
+def format_tender_sent_to_tenant() -> str:
+    return TENDER_SENT_TO_TENANT_ACTION
 
 
 def format_auto_reply_ack_skipped_action() -> str:
