@@ -13,6 +13,7 @@ from app.repositories.document_analysis_repository import DocumentAnalysisReposi
 from app.repositories.documents_repository import DocumentsRepository
 from app.repositories.locations_repository import LocationsRepository
 from app.repositories.pack_codes_repository import PackCodesRepository
+from app.repositories.routing_guide_repository import RoutingGuideRepository
 from app.repositories.shipments_repository import ShipmentsRepository
 from app.repositories.tender_products_repository import TenderProductsRepository
 from app.repositories.tenders_repository import TendersRepository
@@ -39,6 +40,7 @@ class DbRepos:
     turvo_oauth: TurvoOAuthRepository
     shipments: ShipmentsRepository
     locations: LocationsRepository
+    routing_guide: RoutingGuideRepository
 
 
 def build_db_repos(session: Session) -> DbRepos:
@@ -58,4 +60,5 @@ def build_db_repos(session: Session) -> DbRepos:
         turvo_oauth=TurvoOAuthRepository(session),
         shipments=ShipmentsRepository(session),
         locations=LocationsRepository(session),
+        routing_guide=RoutingGuideRepository(session),
     )

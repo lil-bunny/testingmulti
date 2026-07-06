@@ -30,30 +30,13 @@ from app.domain.activity_log_constants import (
     STATUS_CHANGE_DESCRIPTION_TEMPLATE,
     SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE,
     TENDER_CREATED_ACTION_TEMPLATE,
-    TENDER_SENT_TO_VENDOR_ACTION,
+    TENDER_SENT_TO_TENANT_ACTION,
     WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION,
     WORKFLOW_REVIEW_RESOLVED_ACTION,
 )
+from app.domain.status_display_labels import label_status, label_sub_status
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
-
-_SUB_STATUS_DISPLAY_LABELS: dict[StatusSubType, str] = {
-    StatusSubType.TENDER_SENT_TO_TENANT: "Tender Sent To Shipper",
-}
-
-
-def _label_status(value: StatusType) -> str:
-    if value == StatusType.NONE:
-        return "None"
-    return value.value.replace("_", " ").title()
-
-
-def _label_sub_status(value: StatusSubType) -> str:
-    if value == StatusSubType.NONE:
-        return "None"
-    if value in _SUB_STATUS_DISPLAY_LABELS:
-        return _SUB_STATUS_DISPLAY_LABELS[value]
-    return value.value.replace("_", " ").title()
 
 
 def generate_activity_log_description(
@@ -75,15 +58,15 @@ def generate_activity_log_description(
         if from_status == to_status:
             return None
         return STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
-            from_status=_label_status(from_status),
-            to_status=_label_status(to_status),
+            from_status=label_status(from_status),
+            to_status=label_status(to_status),
         )
     if activity_type == ActivityType.SUB_STATUS_CHANGE:
         if from_sub_status == to_sub_status:
             return None
         return SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
-            from_sub_status=_label_sub_status(from_sub_status),
-            to_sub_status=_label_sub_status(to_sub_status),
+            from_sub_status=label_sub_status(from_sub_status),
+            to_sub_status=label_sub_status(to_sub_status),
         )
     return None
 
@@ -102,8 +85,8 @@ def format_tender_created_action(
     )
 
 
-def format_tender_sent_to_vendor() -> str:
-    return TENDER_SENT_TO_VENDOR_ACTION
+def format_tender_sent_to_tenant() -> str:
+    return TENDER_SENT_TO_TENANT_ACTION
 
 
 def format_auto_reply_ack_skipped_action() -> str:

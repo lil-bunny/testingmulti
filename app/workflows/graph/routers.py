@@ -1,5 +1,11 @@
 from app.core.logger import get_logger
 from app.domain.ingest_source_fields import pack_code_for_product_gap
+from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
+from app.domain.load_tendering_settings import (
+    is_ftl_load_type,
+    resolve_load_type,
+    routing_guide_max_attempts,
+)
 from app.domain.load_tendering_state import get_tender, get_tender_products
 from app.models.status import StatusSubType, StatusType
 from app.tools.driver_details import (
@@ -143,20 +149,13 @@ def load_type_router(state):
 
 
 def tender_status_router(state):
+    if state.data.get("stale_routing_guide_reminder"):
+        return "completed"
     if state.data.get("workflow_lifecycle_status") == StatusType.COMPLETED.value:
         return "completed"
     event_type = state.data.get("event_type")
     if event_type in ("reminder_due", "escalation_due"):
         if is_past_delivery_cutoff(state.data):
-            tender = get_tender(state.data) or {}
-            logger.info(
-                "tender_status_router skipping past delivery cutoff "
-                "event_type=%s tender_id=%s delivery_date=%s lifecycle_id=%s",
-                event_type,
-                state.data.get("tender_id"),
-                tender.get("delivery_date"),
-                state.data.get("workflow_lifecycle_id"),
-            )
             return "completed"
         return event_type
     return "missing"
@@ -174,7 +173,9 @@ def manual_tms_upload_router(state):
 
 def automatic_reply_ack_router(state):
     """Route ack_received past automatic-reply guard before carrier ack LLM."""
-    if state.data.get("automatic_reply_skipped"):
+    if state.data.get("retired_carrier_thread_ack") or state.data.get(
+        "automatic_reply_skipped"
+    ):
         return "skipped"
     return "continue"
 
@@ -191,6 +192,20 @@ def carrier_ack_router(state):
     ):
         return decision
     return StatusSubType.DO_NOTHING.value
+
+
+def routing_guide_router(state):
+    """Route reject/timeout to advance, exhausted, or LTL terminal."""
+    if not is_ftl_load_type(resolve_load_type(state)):
+        return "ltl_terminal"
+    attempt = routing_guide_attempt_from_state(state.data)
+    if attempt < routing_guide_max_attempts(state):
+        return "advance"
+    return "exhausted"
+
+
+def domestic_delivery_router(state):
+    return "domestic" if state.data.get("is_domestic_delivery") else "international"
 
 
 def driver_details_router(state):
@@ -222,12 +237,15 @@ def tms_driver_router(state):
     if outcome == "error":
         return "error"
     return "error"
-def domestic_delivery_router(state):
-    return "domestic" if state.data.get("is_domestic_delivery") else "international"
 
 
 def post_read_tender_router(state):
+    """Route after ``read_tender_row`` by event type, failover, pack-code skip, or tender status."""
+    if state.data.get("routing_guide_failover"):
+        return "routing_guide_failover"
     event_type = str(state.data.get("event_type") or "").strip()
+    if event_type == "carrier_email_received":
+        return "carrier_email_received"
     if event_type == "tender_created":
         if not state.data.get("is_domestic_delivery"):
             return "international"

@@ -112,6 +112,14 @@ class BusinessError(_CatalogError):
         "pack_code_skipped",
         "Pack code {pack_code} is skipped",
     )
+    ROUTING_GUIDE_LANE_NOT_FOUND = (
+        "routing_guide_lane_not_found",
+        "No route guide lane matched for this tender zip and partner.",
+    )
+    MISSING_ROUTING_GUIDE_CARRIER_EMAIL = (
+        "missing_routing_guide_carrier_email",
+        "Carrier email is missing for route guide plan {plan_carrier}.",
+    )
 
 
 class IntegrationError(_CatalogError):

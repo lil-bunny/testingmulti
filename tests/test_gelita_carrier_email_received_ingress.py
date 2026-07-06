@@ -38,20 +38,25 @@ def _carrier_payload(*, role: str = "inbox") -> dict:
     }
 
 
-def _service_with_mocks() -> GelitaInboundEmailService:
+def _service_with_mocks(*, load_type: str = "FTL", attempt: int = 1) -> GelitaInboundEmailService:
     svc = GelitaInboundEmailService()
     svc._lifecycle = MagicMock()
     svc._tender_service = MagicMock()
     svc._communications = MagicMock()
     svc._communications.is_thread_linked_to_lifecycle.return_value = False
     svc._communications.find_linked_thread_for_lifecycle.return_value = None
+    svc._communications.is_communication_linked_to_run.return_value = False
+    svc._communications.is_retired_carrier_thread.return_value = False
     svc._tender_service.find_tender_by_order_number.return_value = {
         "id": TENDER_ID,
         "order_number": "93795",
+        "load_type": load_type,
     }
     svc._lifecycle.find_lifecycle_row_by_tender_id.return_value = {
         "id": LIFECYCLE_ID,
         "tender_id": TENDER_ID,
+        "status": "processing",
+        "metadata": {"routing_guide_attempt": attempt},
     }
     return svc
 
@@ -118,6 +123,8 @@ def test_carrier_email_received_enqueues_for_inbox_role(
     assert call_kwargs["payload"]["communication_id"] == COMM_ID
     assert call_kwargs["communication_id"] == COMM_ID
     assert call_kwargs["thread_id"] == THREAD_ID
+    assert call_kwargs["routing_guide_attempt"] == 1
+    assert call_kwargs["payload"]["routing_guide_attempt"] == 1
     svc._tender_service.find_tender_by_order_number.assert_called_once_with(
         tenant_id=TENANT_UUID,
         order_number="93795",
@@ -215,3 +222,126 @@ def test_carrier_email_received_raises_on_thread_conflict() -> None:
             tenant=_tenant(),
             graph_slug="gelita",
         )
+
+
+@patch(
+    "app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link",
+    return_value="exec-carrier-2",
+)
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_allows_attempt_2_thread(mock_enqueue: MagicMock) -> None:
+    svc = _service_with_mocks(attempt=2)
+    svc._communications.find_linked_thread_for_lifecycle.return_value = None
+
+    response = svc._carrier_email_received(
+        payload={**_carrier_payload(role="inbox"), "thread_id": "carrier-2-thread"},
+        tenant=_tenant(),
+        graph_slug="gelita",
+        communication_id=COMM_ID,
+    )
+
+    content = json.loads(response.body)
+    assert content["execution_id"] == "exec-carrier-2"
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.kwargs["routing_guide_attempt"] == 2
+    svc._communications.is_thread_linked_to_lifecycle.assert_called_once()
+    assert (
+        svc._communications.is_thread_linked_to_lifecycle.call_args.kwargs[
+            "routing_guide_attempt"
+        ]
+        == 2
+    )
+
+
+@patch(
+    "app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link",
+    return_value="exec-carrier-2",
+)
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_ftl_resolves_load_type_without_repo_field(
+    mock_enqueue: MagicMock,
+) -> None:
+    """Regression: order lookup without load_type must still take FTL attempt-scoped path."""
+    svc = _service_with_mocks(attempt=2)
+    svc._tender_service.find_tender_by_order_number.return_value = {
+        "id": TENDER_ID,
+        "order_number": "93795",
+    }
+    svc._tender_service.read_order.return_value = {
+        "tender": {"load_type": "FTL"},
+        "products": [],
+    }
+    svc._communications.find_linked_thread_for_lifecycle.return_value = None
+
+    response = svc._carrier_email_received(
+        payload={**_carrier_payload(role="inbox"), "thread_id": "carrier-2-thread"},
+        tenant=_tenant(),
+        graph_slug="gelita",
+        communication_id=COMM_ID,
+    )
+
+    content = json.loads(response.body)
+    assert content["execution_id"] == "exec-carrier-2"
+    svc._tender_service.read_order.assert_called_once()
+    assert (
+        svc._communications.find_linked_thread_for_lifecycle.call_args.kwargs[
+            "routing_guide_attempt"
+        ]
+        == 2
+    )
+
+
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_skips_completed_lifecycle() -> None:
+    svc = _service_with_mocks()
+    svc._lifecycle.find_lifecycle_row_by_tender_id.return_value = {
+        "id": LIFECYCLE_ID,
+        "tender_id": TENDER_ID,
+        "status": "completed",
+        "metadata": {"routing_guide_attempt": 1},
+    }
+
+    response = svc._carrier_email_received(
+        payload=_carrier_payload(role="inbox"),
+        tenant=_tenant(),
+        graph_slug="gelita",
+    )
+
+    content = json.loads(response.body)
+    assert content["reason"] == "lifecycle_completed"
+
+
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_skips_when_comm_already_linked() -> None:
+    svc = _service_with_mocks()
+    svc._communications.is_communication_linked_to_run.return_value = True
+
+    response = svc._carrier_email_received(
+        payload=_carrier_payload(role="inbox"),
+        tenant=_tenant(),
+        graph_slug="gelita",
+        communication_id=COMM_ID,
+    )
+
+    content = json.loads(response.body)
+    assert content["message"] == "communication already linked; no enqueue"
+
+
+@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+def test_carrier_email_received_ltl_uses_global_thread_conflict() -> None:
+    svc = _service_with_mocks(load_type="LTL")
+    svc._communications.find_linked_thread_for_lifecycle.return_value = "other-thread"
+
+    with pytest.raises(GelitaCarrierEmailIngressError, match="carrier thread conflict"):
+        svc._carrier_email_received(
+            payload=_carrier_payload(role="inbox"),
+            tenant=_tenant(),
+            graph_slug="gelita",
+        )
+
+    assert (
+        svc._communications.find_linked_thread_for_lifecycle.call_args.kwargs.get(
+            "routing_guide_attempt"
+        )
+        is None
+    )

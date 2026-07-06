@@ -538,7 +538,10 @@ def test_calculate_tender_params_order_96564_ftl(mock_svc_cls: MagicMock) -> Non
     assert line["pieces_count"] == "448"
     assert line["pallets_count"] == "12"
     assert line["product_value"] == Decimal("138835.20")
-    assert tender["gross_weight_lbs"] == "16,311"
+    assert tender["gross_weight_lbs"] == "15,415"
+    assert isinstance(tender["delivery_address"], dict)
+    assert tender["delivery_address"]["postal_code"] == "51105"
+    assert "SIOUX CITY" in tender["delivery_address_formatted"]
 
     ctx = build_tender_email_input_from_tender(tender)
     block = _ftl_products_block(

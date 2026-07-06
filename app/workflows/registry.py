@@ -91,6 +91,11 @@ from app.workflows.nodes.record_pod_tms_upload_activity import (
 from app.workflows.nodes.send_tender_reminder import send_tender_reminder
 from app.workflows.nodes.update_reminder_status import update_reminder_status
 from app.workflows.nodes.escalate_tender import escalate_tender
+from app.workflows.nodes.routing_guide import (
+    advance_carrier_routing_guide,
+    evaluate_reject_routing_guide,
+    evaluate_timeout_routing_guide,
+)
 from app.workflows.nodes.tenders import read_tender_row
 from app.workflows.nodes.error_handler import record_workflow_failure_node
 
@@ -164,6 +169,9 @@ NODE_REGISTRY = {
     "send_tender_reminder": send_tender_reminder,
     "update_reminder_status": update_reminder_status,
     "escalate_tender": escalate_tender,
+    "evaluate_reject_routing_guide": evaluate_reject_routing_guide,
+    "evaluate_timeout_routing_guide": evaluate_timeout_routing_guide,
+    "advance_carrier_routing_guide": advance_carrier_routing_guide,
     "record_workflow_failure": record_workflow_failure_node,
     "end": end,
 }

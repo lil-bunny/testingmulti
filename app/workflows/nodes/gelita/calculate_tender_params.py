@@ -366,10 +366,9 @@ def calculate_tender_params(state):
     delivery_date_str = delivery_date.isoformat() if delivery_date else ""
 
     pickup_formatted = format_usps_mailing_address(pickup_address)
+    delivery_structured = delivery_raw if isinstance(delivery_raw, dict) else {}
     delivery_formatted = (
-        format_usps_mailing_address(delivery_raw)
-        if isinstance(delivery_raw, dict)
-        else ""
+        format_usps_mailing_address(delivery_structured) if delivery_structured else ""
     )
 
     prior_tender = get_tender(state.data) or {}
@@ -387,7 +386,8 @@ def calculate_tender_params(state):
             "ship_date": ship_date_str,
             "delivery_date": delivery_date_str,
             "pickup_address": pickup_formatted,
-            "delivery_address": delivery_formatted,
+            "delivery_address": delivery_structured,
+            "delivery_address_formatted": delivery_formatted,
             "pallets_count": str(total_pallets),
             "gross_weight_lbs": f"{int(total_gross):,}" if total_gross else "",
             "load_type": load_type.lower(),

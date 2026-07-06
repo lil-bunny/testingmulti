@@ -10,6 +10,40 @@ from sqlalchemy.orm import Session
 from app.core.db import execute_scalar, fetchall_dicts, jsonb_param
 from app.models.workflow_run_event_type import WorkflowRunEventType
 
+_LIFECYCLE_ON_COMMS = """
+(
+  c.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+  OR (
+    c.workflow_lifecycle_id IS NULL
+    AND wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+  )
+)
+"""
+
+
+def _carrier_anchors_ranked_sql(*, table_name: str) -> str:
+    """CTE: distinct carrier threads per lifecycle ordered by first anchor time."""
+    return f"""
+    WITH thread_anchors AS (
+        SELECT DISTINCT ON (c.thread_id)
+               c.thread_id,
+               c.created_at AS anchored_at
+        FROM {table_name} c
+        JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+        WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+          AND {_LIFECYCLE_ON_COMMS}
+          AND wr.event_type = :anchor_event_type
+          AND c.thread_id IS NOT NULL
+          AND TRIM(c.thread_id) <> ''
+        ORDER BY c.thread_id, c.created_at ASC
+    ),
+    ranked AS (
+        SELECT thread_id,
+               ROW_NUMBER() OVER (ORDER BY anchored_at ASC)::int AS anchor_attempt
+        FROM thread_anchors
+    )
+    """
+
 
 class CommunicationsRepository:
     TABLE_NAME = "communications"
@@ -205,6 +239,7 @@ class CommunicationsRepository:
         *,
         communication_id: str,
         workflow_run_id: str,
+        workflow_lifecycle_id: str | None = None,
     ) -> bool:
         """Set ``workflow_run_id`` on comm when unlinked or already same run (idempotent)."""
         existing = execute_scalar(
@@ -217,20 +252,43 @@ class CommunicationsRepository:
             {"communication_id": communication_id},
         )
         if existing and str(existing).strip() == str(workflow_run_id).strip():
+            if workflow_lifecycle_id:
+                self._session.execute(
+                    text(
+                        f"""
+                        UPDATE {self.TABLE_NAME}
+                        SET workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
+                        WHERE id = CAST(:communication_id AS uuid)
+                          AND workflow_lifecycle_id IS NULL
+                        """
+                    ),
+                    {
+                        "communication_id": communication_id,
+                        "workflow_lifecycle_id": workflow_lifecycle_id,
+                    },
+                )
             return True
+        lifecycle_set = ""
+        params: dict[str, Any] = {
+            "communication_id": communication_id,
+            "workflow_run_id": workflow_run_id,
+        }
+        if workflow_lifecycle_id:
+            lifecycle_set = (
+                ", workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)"
+            )
+            params["workflow_lifecycle_id"] = workflow_lifecycle_id
         rowcount = self._session.execute(
             text(
                 f"""
                 UPDATE {self.TABLE_NAME}
                 SET workflow_run_id = CAST(:workflow_run_id AS uuid)
+                    {lifecycle_set}
                 WHERE id = CAST(:communication_id AS uuid)
                   AND workflow_run_id IS NULL
                 """
             ),
-            {
-                "communication_id": communication_id,
-                "workflow_run_id": workflow_run_id,
-            },
+            params,
         ).rowcount
         return rowcount > 0
 
@@ -240,23 +298,32 @@ class CommunicationsRepository:
         tenant_id: str,
         thread_id: str,
         workflow_run_id: str,
+        workflow_lifecycle_id: str | None = None,
     ) -> int:
         """Patch ``workflow_run_id`` on all unlinked comms for a tenant thread."""
+        lifecycle_set = ""
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "thread_id": thread_id,
+            "workflow_run_id": workflow_run_id,
+        }
+        if workflow_lifecycle_id:
+            lifecycle_set = (
+                ", workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)"
+            )
+            params["workflow_lifecycle_id"] = workflow_lifecycle_id
         result = self._session.execute(
             text(
                 f"""
                 UPDATE {self.TABLE_NAME}
                 SET workflow_run_id = CAST(:workflow_run_id AS uuid)
+                    {lifecycle_set}
                 WHERE tenant_id = CAST(:tenant_id AS uuid)
                   AND thread_id = :thread_id
                   AND workflow_run_id IS NULL
                 """
             ),
-            {
-                "tenant_id": tenant_id,
-                "thread_id": thread_id,
-                "workflow_run_id": workflow_run_id,
-            },
+            params,
         )
         return int(result.rowcount or 0)
 
@@ -266,28 +333,37 @@ class CommunicationsRepository:
         tenant_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> str | None:
-        """``communications.thread_id`` from the latest linked run for ``anchor_event_type``."""
-        thread_id = execute_scalar(
-            self._session,
-            """
-            SELECT c.thread_id
-            FROM communications c
-            JOIN workflow_runs wr ON wr.id = c.workflow_run_id
-            WHERE wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
-              AND wr.tenant_id = CAST(:tenant_id AS uuid)
-              AND wr.event_type = :anchor_event_type
-              AND c.thread_id IS NOT NULL
-              AND TRIM(c.thread_id) <> ''
-            ORDER BY c.created_at DESC
+        """Carrier thread for lifecycle; FTL uses anchor ordinal, LTL uses latest anchor."""
+        cte = _carrier_anchors_ranked_sql(table_name=self.TABLE_NAME)
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+            "anchor_event_type": anchor_event_type,
+        }
+        if routing_guide_attempt is not None:
+            params["routing_guide_attempt"] = int(routing_guide_attempt)
+            sql = (
+                cte
+                + """
+            SELECT thread_id
+            FROM ranked
+            WHERE anchor_attempt = :routing_guide_attempt
             LIMIT 1
-            """,
-            {
-                "tenant_id": tenant_id,
-                "workflow_lifecycle_id": workflow_lifecycle_id,
-                "anchor_event_type": anchor_event_type,
-            },
-        )
+            """
+            )
+        else:
+            sql = (
+                cte
+                + """
+            SELECT thread_id
+            FROM thread_anchors
+            ORDER BY anchored_at DESC
+            LIMIT 1
+            """
+            )
+        thread_id = execute_scalar(self._session, sql, params)
         if not thread_id:
             return None
         return str(thread_id).strip() or None
@@ -299,17 +375,22 @@ class CommunicationsRepository:
         thread_id: str,
         workflow_name: str = "load_tendering",
     ) -> str | None:
-        """Earliest patched comm on thread → ``workflow_runs`` → lifecycle (ack ingress)."""
+        """Earliest patched comm on thread → lifecycle (ack ingress)."""
         lifecycle_id = execute_scalar(
             self._session,
             """
-            SELECT wr.workflow_lifecycle_id::text
+            SELECT COALESCE(c.workflow_lifecycle_id, wr.workflow_lifecycle_id)::text
             FROM communications c
-            JOIN workflow_runs wr ON wr.id = c.workflow_run_id
-            JOIN workflow_lifecycles wl ON wl.id = wr.workflow_lifecycle_id
+            LEFT JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+            LEFT JOIN workflow_lifecycles wl ON wl.id = COALESCE(
+                c.workflow_lifecycle_id, wr.workflow_lifecycle_id
+            )
             WHERE c.tenant_id = CAST(:tenant_id AS uuid)
               AND c.thread_id = :thread_id
-              AND c.workflow_run_id IS NOT NULL
+              AND (
+                c.workflow_lifecycle_id IS NOT NULL
+                OR c.workflow_run_id IS NOT NULL
+              )
               AND wl.workflow_name = :workflow_name
             ORDER BY c.created_at ASC
             LIMIT 1
@@ -364,28 +445,41 @@ class CommunicationsRepository:
         thread_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> bool:
-        """True when this thread already has a patched comm for the lifecycle (idempotency)."""
-        linked = execute_scalar(
-            self._session,
-            """
+        """True when this thread is a carrier anchor on the lifecycle (optional attempt ordinal)."""
+        cte = _carrier_anchors_ranked_sql(table_name=self.TABLE_NAME)
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "thread_id": thread_id,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+            "anchor_event_type": anchor_event_type,
+        }
+        if routing_guide_attempt is not None:
+            params["routing_guide_attempt"] = int(routing_guide_attempt)
+            sql = (
+                cte
+                + """
             SELECT EXISTS (
                 SELECT 1
-                FROM communications c
-                JOIN workflow_runs wr ON wr.id = c.workflow_run_id
-                WHERE c.tenant_id = CAST(:tenant_id AS uuid)
-                  AND c.thread_id = :thread_id
-                  AND wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
-                  AND wr.event_type = :anchor_event_type
+                FROM ranked
+                WHERE thread_id = :thread_id
+                  AND anchor_attempt = :routing_guide_attempt
             )
-            """,
-            {
-                "tenant_id": tenant_id,
-                "thread_id": thread_id,
-                "workflow_lifecycle_id": workflow_lifecycle_id,
-                "anchor_event_type": anchor_event_type,
-            },
-        )
+            """
+            )
+        else:
+            sql = (
+                cte
+                + """
+            SELECT EXISTS (
+                SELECT 1
+                FROM thread_anchors
+                WHERE thread_id = :thread_id
+            )
+            """
+            )
+        linked = execute_scalar(self._session, sql, params)
         return bool(linked)
 
     def find_linked_thread_for_lifecycle(
@@ -394,31 +488,98 @@ class CommunicationsRepository:
         tenant_id: str,
         workflow_lifecycle_id: str,
         anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+        routing_guide_attempt: int | None = None,
     ) -> str | None:
-        """Thread id already linked to lifecycle via ``anchor_event_type`` run (conflict guard)."""
-        thread_id = execute_scalar(
-            self._session,
-            """
-            SELECT c.thread_id
-            FROM communications c
-            JOIN workflow_runs wr ON wr.id = c.workflow_run_id
-            WHERE c.tenant_id = CAST(:tenant_id AS uuid)
-              AND wr.workflow_lifecycle_id = CAST(:workflow_lifecycle_id AS uuid)
-              AND wr.event_type = :anchor_event_type
-              AND c.thread_id IS NOT NULL
-              AND TRIM(c.thread_id) <> ''
-            ORDER BY c.created_at ASC
+        """Carrier thread already anchored for lifecycle (ordinal when attempt is set)."""
+        cte = _carrier_anchors_ranked_sql(table_name=self.TABLE_NAME)
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+            "anchor_event_type": anchor_event_type,
+        }
+        if routing_guide_attempt is not None:
+            params["routing_guide_attempt"] = int(routing_guide_attempt)
+            sql = (
+                cte
+                + """
+            SELECT thread_id
+            FROM ranked
+            WHERE anchor_attempt = :routing_guide_attempt
             LIMIT 1
+            """
+            )
+        else:
+            sql = (
+                cte
+                + """
+            SELECT thread_id
+            FROM thread_anchors
+            ORDER BY anchored_at ASC
+            LIMIT 1
+            """
+            )
+        thread_id = execute_scalar(self._session, sql, params)
+        if not thread_id:
+            return None
+        return str(thread_id).strip() or None
+
+    def patch_communication_metadata(
+        self,
+        *,
+        communication_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """Merge ``metadata_patch`` into ``communications.metadata``."""
+        comm_id = str(communication_id or "").strip()
+        if not comm_id or not metadata_patch:
+            return False
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb)
+                WHERE id = CAST(:communication_id AS uuid)
+                """
+            ),
+            {
+                "communication_id": comm_id,
+                "metadata_patch": jsonb_param(metadata_patch),
+            },
+        )
+        return int(result.rowcount or 0) > 0
+
+    def thread_attempt_for_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        workflow_lifecycle_id: str,
+        anchor_event_type: WorkflowRunEventType = WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+    ) -> int | None:
+        """Ordinal routing-guide attempt for a carrier thread (first anchor = 1)."""
+        cte = _carrier_anchors_ranked_sql(table_name=self.TABLE_NAME)
+        raw = execute_scalar(
+            self._session,
+            cte
+            + """
+            SELECT anchor_attempt
+            FROM ranked
+            WHERE thread_id = :thread_id
             """,
             {
                 "tenant_id": tenant_id,
+                "thread_id": thread_id,
                 "workflow_lifecycle_id": workflow_lifecycle_id,
                 "anchor_event_type": anchor_event_type,
             },
         )
-        if not thread_id:
+        if raw is None:
             return None
-        return str(thread_id).strip() or None
+        try:
+            attempt = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return attempt if attempt >= 1 else None
 
     def is_communication_linked_to_run(self, *, communication_id: str) -> bool:
         """True when inbound comm already has a ``workflow_run_id`` (Celery retry guard)."""

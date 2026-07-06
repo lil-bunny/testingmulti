@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.activity_log_descriptions import format_tender_sent_to_vendor
+from app.domain.activity_log_descriptions import format_tender_sent_to_tenant
 from app.domain.activity_log_write import (
     ActivityLogSequence,
     ActivityLogStep,
     ActivityLogWrite,
 )
+from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.routing_guide_lifecycle_service import RoutingGuideLifecycleService
 
 logger = get_logger(__name__)
 
@@ -41,6 +43,11 @@ def log_tender_activity(state):
             )
             return state
 
+        if is_ftl_load_type(resolve_load_type(state)):
+            routing_guide_lifecycle_service = RoutingGuideLifecycleService()
+            routing_guide_lifecycle_service.record_tenant_sent(state)
+            return state
+
         activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -49,7 +56,7 @@ def log_tender_activity(state):
                 steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_tender_sent_to_vendor(),
+                        description=format_tender_sent_to_tenant(),
                         communication_id=communication_id,
                     ),
                     ActivityLogStep(

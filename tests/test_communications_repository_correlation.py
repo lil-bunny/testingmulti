@@ -40,6 +40,7 @@ def test_resolve_lifecycle_id_for_thread_returns_earliest_lifecycle() -> None:
     assert out == "11111111-1111-1111-1111-111111111111"
     sql = scalar.call_args[0][1]
     assert "ORDER BY c.created_at ASC" in sql
+    assert "COALESCE(c.workflow_lifecycle_id" in sql
     assert scalar.call_args[0][2]["workflow_name"] == "load_tendering"
 
 
@@ -69,6 +70,73 @@ def test_find_linked_thread_for_lifecycle_returns_thread() -> None:
             workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
         )
     assert out == "other-thread"
+
+
+def test_find_inbound_thread_for_lifecycle_with_attempt_uses_anchor_ordinal() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value="thread-2",
+    ) as scalar:
+        out = repo.find_inbound_thread_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+            anchor_event_type=WorkflowRunEventType.CARRIER_EMAIL_RECEIVED,
+            routing_guide_attempt=2,
+        )
+    assert out == "thread-2"
+    sql = scalar.call_args[0][1]
+    params = scalar.call_args[0][2]
+    assert "anchor_attempt" in sql
+    assert params["routing_guide_attempt"] == 2
+    assert scalar.call_count == 1
+
+
+def test_find_inbound_thread_for_lifecycle_without_attempt_uses_latest_anchor() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value="thread-1",
+    ) as scalar:
+        repo.find_inbound_thread_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+        )
+    sql = scalar.call_args[0][1]
+    assert "thread_anchors" in sql
+    assert "ORDER BY anchored_at DESC" in sql
+
+
+def test_patch_communication_metadata_merges_json() -> None:
+    session = MagicMock()
+    session.execute.return_value.rowcount = 1
+    repo = CommunicationsRepository(session)
+    assert repo.patch_communication_metadata(
+        communication_id="33333333-3333-3333-3333-333333333333",
+        metadata_patch={"source": "test"},
+    )
+    sql = str(session.execute.call_args[0][0])
+    assert "metadata" in sql
+
+
+def test_thread_attempt_for_lifecycle_uses_anchor_ordinal() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value=1,
+    ) as scalar:
+        out = repo.thread_attempt_for_lifecycle(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            thread_id="legacy-carrier-1-thread",
+            workflow_lifecycle_id="11111111-1111-1111-1111-111111111111",
+        )
+    assert out == 1
+    sql = scalar.call_args[0][1]
+    assert "anchor_attempt" in sql
+    assert "ranked" in sql
 
 
 def test_link_workflow_run_idempotent_when_already_linked() -> None:
