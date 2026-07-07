@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.services.pod_lifecycle_ingress_service import (
+    POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
+    POD_EMAIL_SKIP_TURVO_FETCH_FAILED,
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
 )
@@ -22,6 +24,18 @@ def _mock_ratecon_gate_pass(lifecycle: MagicMock) -> None:
         "found": True,
         "lifecycle_id": "ratecon-lc-1",
     }
+
+
+def _valid_turvo_shipment(status_key: str = "2116") -> dict:
+    return {"details": {"status": {"code": {"key": status_key}}}}
+
+
+def _patch_valid_turvo_get():
+    return patch(
+        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        return_value=_valid_turvo_shipment(),
+    )
 
 
 def test_check_route_completed_duplicate_not_route_completed_event() -> None:
@@ -137,15 +151,16 @@ async def test_prepare_email_received_payload_passthrough_when_shipments_row_id_
         lifecycle_service=lifecycle,
     )
 
-    out = await svc.prepare_email_received_payload(
-        tenant_id=_TENANT_UUID,
-        tenant_slug="t3ra",
-        payload={
-            "event_type": "email_received",
-            "shipments_row_id": _SHIPMENTS_ROW_UUID,
-            "thread_id": "thread-1",
-        },
-    )
+    with _patch_valid_turvo_get():
+        out = await svc.prepare_email_received_payload(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            payload={
+                "event_type": "email_received",
+                "shipments_row_id": _SHIPMENTS_ROW_UUID,
+                "thread_id": "thread-1",
+            },
+        )
 
     assert out["shipments_row_id"] == _SHIPMENTS_ROW_UUID
     assert out["shipment_id"] == _TURVO_SHIPMENT
@@ -178,14 +193,15 @@ async def test_prepare_email_received_payload_resolves_from_thread() -> None:
         lifecycle_service=lifecycle,
     )
 
-    out = await svc.prepare_email_received_payload(
-        tenant_id=_TENANT_UUID,
-        tenant_slug="t3ra",
-        payload={
-            "event_type": "email_received",
-            "thread_id": "thread-abc",
-        },
-    )
+    with _patch_valid_turvo_get():
+        out = await svc.prepare_email_received_payload(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            payload={
+                "event_type": "email_received",
+                "thread_id": "thread-abc",
+            },
+        )
 
     assert out["shipments_row_id"] == _SHIPMENTS_ROW_UUID
     assert out["shipment_id"] == _TURVO_SHIPMENT
@@ -215,11 +231,12 @@ async def test_prepare_email_received_payload_thread_without_pod_lc() -> None:
         lifecycle_service=lifecycle,
     )
 
-    out = await svc.prepare_email_received_payload(
-        tenant_id=_TENANT_UUID,
-        tenant_slug="t3ra",
-        payload={"event_type": "email_received", "thread_id": "thread-abc"},
-    )
+    with _patch_valid_turvo_get():
+        out = await svc.prepare_email_received_payload(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            payload={"event_type": "email_received", "thread_id": "thread-abc"},
+        )
 
     assert out["shipments_row_id"] == _SHIPMENTS_ROW_UUID
     assert out["shipment_id"] == _TURVO_SHIPMENT
@@ -314,3 +331,71 @@ async def test_prepare_email_received_payload_skips_no_shipment_context() -> Non
 
     assert exc_info.value.reason == "no_shipment_context"
     shipments.upsert_from_load_id.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_skips_invalid_shipment_status() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    _mock_ratecon_gate_pass(lifecycle)
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        return_value=_valid_turvo_shipment("2102"),
+    ):
+        with pytest.raises(PodEmailIngressSkipped) as exc_info:
+            await svc.prepare_email_received_payload(
+                tenant_id=_TENANT_UUID,
+                tenant_slug="t3ra",
+                payload={"event_type": "email_received", "thread_id": "thread-abc"},
+            )
+
+    assert exc_info.value.reason == POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS
+    assert exc_info.value.shipments_row_id == _SHIPMENTS_ROW_UUID
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_skips_turvo_fetch_failed() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    _mock_ratecon_gate_pass(lifecycle)
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("turvo timeout"),
+    ):
+        with pytest.raises(PodEmailIngressSkipped) as exc_info:
+            await svc.prepare_email_received_payload(
+                tenant_id=_TENANT_UUID,
+                tenant_slug="t3ra",
+                payload={"event_type": "email_received", "thread_id": "thread-abc"},
+            )
+
+    assert exc_info.value.reason == POD_EMAIL_SKIP_TURVO_FETCH_FAILED
+    assert exc_info.value.shipments_row_id == _SHIPMENTS_ROW_UUID

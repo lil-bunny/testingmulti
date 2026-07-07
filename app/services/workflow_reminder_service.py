@@ -342,7 +342,7 @@ class WorkflowReminderService:
         )
         reminder_steps: list[dict[str, Any]] = []
         skipped_steps: list[dict[str, Any]] = []
-        to_enqueue: list[tuple[datetime, dict[str, Any]]] = []
+        to_enqueue: list[tuple[datetime, dict[str, Any], ReminderStepSpec]] = []
 
         for index, step in enumerate(steps, start=1):
             step_num = step.step if step.step is not None else index
@@ -367,10 +367,10 @@ class WorkflowReminderService:
             tz = data.get("pickup_appointment_timezone")
             if tz is not None and str(tz).strip():
                 payload["pickup_appointment_timezone"] = str(tz).strip()
-            to_enqueue.append((fire_at, payload))
+            to_enqueue.append((fire_at, payload, step))
 
         if to_enqueue:
-            latest_fire_at = max(fire_at for fire_at, _ in to_enqueue)
+            latest_fire_at = max(fire_at for fire_at, _, _ in to_enqueue)
             expire_s = int(
                 (
                     (latest_fire_at - now)
@@ -381,14 +381,16 @@ class WorkflowReminderService:
             expire_s = int(timedelta(hours=reminders.expire_grace_hours).total_seconds())
 
         queued: list[Any] = []
+        enqueued_steps: list[ReminderStepSpec] = []
         try:
-            for fire_at, payload in to_enqueue:
+            for fire_at, payload, step in to_enqueue:
                 result = trigger_workflow_reminder.apply_async(
                     kwargs={"payload": payload},
                     eta=fire_at,
                     expires=expire_s,
                 )
                 queued.append(result)
+                enqueued_steps.append(step)
         except Exception:
             logger.exception(
                 "workflow_reminder before_pickup enqueue failed workflow=%s lifecycle_id=%s",
@@ -402,6 +404,7 @@ class WorkflowReminderService:
                     pass
             return
 
+        self._register_queued_tasks(data, queued=queued, steps=enqueued_steps)
         data["driver_reminder_schedule"] = {
             "pickup_appointment_at": pickup_at.isoformat(),
             "pickup_appointment_timezone": data.get("pickup_appointment_timezone"),

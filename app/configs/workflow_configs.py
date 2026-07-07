@@ -159,6 +159,7 @@ WORKFLOW_CONFIGS = {
             "route_tms_searchable",
             "resolve_turvo_driver",
             "record_tms_driver_success",
+            "complete_driver_assignment_from_tms",
             "record_tms_driver_not_resolved",
             "record_tms_driver_error",
             "send_driver_details_confirmation",
@@ -186,6 +187,7 @@ WORKFLOW_CONFIGS = {
             ],
             ["record_driver_assignment_completed", "end"],
             ["record_tms_driver_error", "end"],
+            ["complete_driver_assignment_from_tms", "end"],
         ],
         "routers": {
             "route_event": {
@@ -209,12 +211,20 @@ WORKFLOW_CONFIGS = {
                 "map": {"eligible": "resolve_workflow_lifecycle", "skip": "end"},
             },
             "check_driver_reminder_eligibility": {
-                "router": "driver_assignment_eligibility_router",
-                "map": {"eligible": "send_driver_reminder", "skip": "end"},
+                "router": "driver_assignment_delayed_eligibility_router",
+                "map": {
+                    "eligible": "send_driver_reminder",
+                    "driver_already_assigned": "complete_driver_assignment_from_tms",
+                    "skip": "end",
+                },
             },
             "check_driver_escalation_eligibility": {
-                "router": "driver_assignment_eligibility_router",
-                "map": {"eligible": "escalate_driver_assignment", "skip": "end"},
+                "router": "driver_assignment_delayed_eligibility_router",
+                "map": {
+                    "eligible": "escalate_driver_assignment",
+                    "driver_already_assigned": "complete_driver_assignment_from_tms",
+                    "skip": "end",
+                },
             },
             "classify_driver_details": {
                 "router": "driver_details_router",

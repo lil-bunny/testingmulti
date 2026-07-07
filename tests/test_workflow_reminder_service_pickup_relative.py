@@ -75,6 +75,37 @@ def test_schedule_before_pickup_uses_eta(mock_task: MagicMock) -> None:
     assert schedule["skipped_steps"] == []
 
 
+@patch("app.services.workflow_reminder_service.WorkflowReminderCancelService")
+@patch("app.services.workflow_reminder_service.trigger_workflow_reminder")
+def test_schedule_before_pickup_registers_queued_tasks(
+    mock_task: MagicMock, mock_cancel_cls: MagicMock
+) -> None:
+    mock_result = MagicMock()
+    mock_result.id = "celery-task-1"
+    mock_task.apply_async.return_value = mock_result
+    pickup_at = datetime.now(timezone.utc) + timedelta(hours=10)
+    data = {
+        "tenant_id": "tenant-1",
+        "tenant_slug": "t3ra",
+        "workflow_lifecycle_id": "wl-1",
+        "pickup_appointment_at": pickup_at.isoformat(),
+        "tenant_settings": _before_pickup_settings(),
+    }
+
+    with patch(
+        "app.services.workflow_reminder_service.WorkflowLifecycleService"
+    ) as mock_lifecycle_cls:
+        mock_lifecycle_cls.return_value.read_lifecycle_row_by_id.return_value = {
+            "sub_status": "none",
+        }
+        WorkflowReminderService().schedule(data, workflow_name="driver_assignment")
+
+    mock_cancel_cls.return_value.register_tasks.assert_called_once()
+    call = mock_cancel_cls.return_value.register_tasks.call_args
+    assert call.kwargs["lifecycle_id"] == "wl-1"
+    assert len(call.kwargs["entries"]) == 1
+
+
 @patch("app.services.workflow_reminder_service.trigger_workflow_reminder")
 def test_schedule_before_pickup_skips_past_offsets(mock_task: MagicMock) -> None:
     mock_task.apply_async.return_value = MagicMock()

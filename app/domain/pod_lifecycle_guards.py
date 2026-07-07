@@ -32,6 +32,20 @@ POD_PROCESSING_COMPLETE_SUB_STATUSES = frozenset(
     }
 )
 
+# Route complete, EnRoute, At Delivery — same set as shipment_router email_received gate.
+POD_EMAIL_ALLOWED_TURVO_STATUS_KEYS = frozenset({"2116", "2106", "2105"})
+
+
+def pod_email_status_eligible_from_turvo_payload(shipment: dict[str, Any]) -> bool:
+    """True when Turvo shipment status allows POD email ingress / processing."""
+    status_key = (
+        (shipment.get("details") or {})
+        .get("status", {})
+        .get("code", {})
+        .get("key")
+    )
+    return str(status_key) in POD_EMAIL_ALLOWED_TURVO_STATUS_KEYS
+
 
 def is_pod_processing_complete_sub_status(sub: StatusSubType | None) -> bool:
     """True when POD extraction pipeline finished (duplicate email gate)."""

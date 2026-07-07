@@ -1,4 +1,4 @@
-"""Revoke delayed load_tendering reminder Celery tasks tracked on lifecycle metadata."""
+"""Revoke delayed reminder Celery tasks tracked on lifecycle metadata."""
 
 from __future__ import annotations
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.domain.pod_lifecycle_guards import (
+    POD_EMAIL_ALLOWED_TURVO_STATUS_KEYS,
     POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
     POD_UPLOAD_ACTIVITY_DONE_SUB_STATUSES,
     is_manual_fresh_pod_upload,
     is_manual_pod_upload,
+    pod_email_status_eligible_from_turvo_payload,
     should_skip_idempotent_pod_activity_log,
 )
 from app.models.status import StatusSubType
@@ -84,3 +88,14 @@ def test_should_skip_idempotent_pod_activity_log_manual_stored_skips_when_proces
         )
         is True
     )
+
+
+@pytest.mark.parametrize("status_key", sorted(POD_EMAIL_ALLOWED_TURVO_STATUS_KEYS))
+def test_pod_email_status_eligible_allowed_keys(status_key: str) -> None:
+    shipment = {"details": {"status": {"code": {"key": status_key}}}}
+    assert pod_email_status_eligible_from_turvo_payload(shipment) is True
+
+
+def test_pod_email_status_eligible_covered_false() -> None:
+    shipment = {"details": {"status": {"code": {"key": "2102"}}}}
+    assert pod_email_status_eligible_from_turvo_payload(shipment) is False

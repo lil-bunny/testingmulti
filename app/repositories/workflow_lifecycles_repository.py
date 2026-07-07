@@ -594,6 +594,29 @@ class WorkflowLifecyclesRepository:
         ).first()
         return row is not None
 
+    def patch_metadata(
+        self,
+        *,
+        lifecycle_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """Merge ``metadata_patch`` into ``workflow_lifecycles.metadata``."""
+        rowcount = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb),
+                    updated_at = NOW()
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {
+                "lifecycle_id": lifecycle_id,
+                "metadata_patch": jsonb_param(metadata_patch or {}),
+            },
+        ).rowcount
+        return rowcount > 0
+
     def insert_driver_assignment_lifecycle(
         self,
         *,

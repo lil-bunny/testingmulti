@@ -6,6 +6,7 @@ from app.domain.load_tendering_settings import (
     resolve_load_type,
     routing_guide_max_attempts,
 )
+from app.domain.pod_lifecycle_guards import pod_email_status_eligible_from_turvo_payload
 from app.domain.load_tendering_state import get_tender, get_tender_products
 from app.models.status import StatusSubType, StatusType
 from app.tools.driver_details import (
@@ -45,14 +46,7 @@ def shipment_router(state):
 
     if event_type in ("email_received", "manual_pod_upload"):
         shipment = state.data.get("shipment") or {}
-        status_key = (
-            shipment.get("details", {})
-            .get("status", {})
-            .get("code", {})
-            .get("key")
-        )
-        allowed_status_codes = {"2116", "2106", "2105"} # Route Complete, EnRoute, At Delivery
-        status_ok = str(status_key) in allowed_status_codes
+        status_ok = pod_email_status_eligible_from_turvo_payload(shipment)
         if event_type == "manual_pod_upload":
             if not status_ok:
                 return "invalid_shipment_status"
@@ -122,6 +116,14 @@ def event_type_router(state):
 def driver_assignment_eligibility_router(state):
     if state.data.get("driver_assignment_eligible"):
         return "eligible"
+    return "skip"
+
+
+def driver_assignment_delayed_eligibility_router(state):
+    if state.data.get("driver_assignment_eligible"):
+        return "eligible"
+    if state.data.get("driver_assignment_skip_reason") == "driver_already_assigned":
+        return "driver_already_assigned"
     return "skip"
 
 
