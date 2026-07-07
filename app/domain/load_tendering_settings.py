@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.core.logger import get_logger
+from app.domain.gelita.routing_guide import GELITA_MAX_CARRIER_ATTEMPTS
 from app.domain.tenant_settings.gelita import (
     GelitaDomesticDeliverySettings,
     GelitaEscalateTenderSettings,
@@ -14,6 +16,8 @@ from app.domain.tenant_settings.gelita import (
     GelitaTenderCalculateSettings,
     GelitaTenantSettings,
 )
+
+logger = get_logger(__name__)
 from app.exceptions import WorkflowException
 from app.domain.error_catalog import SystemError
 from app.services.tender_service import TenderService
@@ -257,6 +261,31 @@ def require_gelita_tender_calculate_settings(
     except ValidationError as exc:
         system_error = _system_error_for_tender_calculate_validation(exc)
         raise WorkflowException(system_error) from None
+
+
+def routing_guide_max_attempts(state_or_data: Any) -> int:
+    default = GELITA_MAX_CARRIER_ATTEMPTS
+    try:
+        settings = parse_gelita_tenant_settings(state_or_data)
+        raw = settings.load_tendering.ftl.max_attempts
+    except ValidationError:
+        return default
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if value < 1:
+        return default
+    if value > default:
+        logger.warning(
+            "routing_guide_max_attempts exceeds enum ceiling configured=%s ceiling=%s; clamping",
+            value,
+            default,
+        )
+        return default
+    return value
 
 
 def gelita_domestic_delivery_settings(

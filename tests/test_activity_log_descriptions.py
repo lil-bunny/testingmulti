@@ -50,6 +50,20 @@ def test_generate_sub_status_change_description() -> None:
     assert text == "Sub-status changed from Tender Sent To Shipper to Escalated"
 
 
+def test_generate_sub_status_change_routing_guide_tenant_carrier() -> None:
+    text = generate_activity_log_description(
+        activity_type=ActivityType.SUB_STATUS_CHANGE,
+        from_status=StatusType.PROCESSING,
+        to_status=StatusType.PROCESSING,
+        from_sub_status=StatusSubType.TENDER_SENT_TO_TENANT_FOR_CARRIER_1,
+        to_sub_status=StatusSubType.TENDER_SENT_TO_TENANT_FOR_CARRIER_2,
+    )
+    assert text == (
+        "Sub-status changed from Tender Sent To Shipper For Carrier 1 "
+        "to Tender Sent To Shipper For Carrier 2"
+    )
+
+
 def test_generate_action_returns_none() -> None:
     assert (
         generate_activity_log_description(

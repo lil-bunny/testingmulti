@@ -1,6 +1,7 @@
 {
     "load_tendering": {
         "ftl": {
+            "max_attempts": 3,
             "escalate_tender": {
                 "emails": {
                     "to": [
@@ -21,7 +22,7 @@
                     "bcc": []
                 },
                 "email_subject": "PICK UP REQUEST # {order_number} PO# {po_number}",
-                "email_template_html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Request</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n{reason_for_failure}\n<p style=\"margin-bottom: 18px;\">{delivery_to_header}<br />{delivery_address}</p>\n<p style=\"margin-bottom: 12px;\">Order # {order_number}<br />Customer PO # {customer_po}</p>\n<p style=\"margin-bottom: 12px;\">Ship date: {ship_date}<br />Delivery date: {delivery_date}</p>\n<p style=\"margin-bottom: 12px;\">{products_block}</p>\n</body>\n</html>"
+                "email_template_html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Request</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n{reason_for_failure}\n{carrier_note}\n<p style=\"margin-bottom: 18px;\">{delivery_to_header}<br />{delivery_address}</p>\n<p style=\"margin-bottom: 12px;\">Order # {order_number}<br />Customer PO # {customer_po}</p>\n<p style=\"margin-bottom: 12px;\">Ship date: {ship_date}<br />Delivery date: {delivery_date}</p>\n<p style=\"margin-bottom: 12px;\">{products_block}</p>\n</body>\n</html>"
             },
             "send_tender_reminder": {
                 "reminder_body": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /></head><body><p>Following up on the request.</p><p>Thanks</p></body></html>"
@@ -63,13 +64,8 @@
                         "delay_hours": 0.016
                     },
                     {
-                        "step": 2,
-                        "event_type": "reminder_due",
-                        "delay_hours": 0.05
-                    },
-                    {
                         "event_type": "escalation_due",
-                        "delay_hours": 0.06
+                        "delay_hours": 0.03
                     }
                 ],
                 "ltl": [
@@ -179,5 +175,5 @@
     "inbound_routing_emails": [
         "ayush@freightx.ai"
     ],
-    "ana_at_gelita_account_id": "umo3hTOoQ4KXxkZ1uKnIPg"
+    "ana_at_gelita_account_id": "uSEHjmCXTyGxoinKa3CwOw"
 }

@@ -14,7 +14,7 @@ SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE = (
 # ACTION description templates
 
 TENDER_CREATED_ACTION_TEMPLATE = "Tender {order_number} created for {customer_name}"
-TENDER_SENT_TO_VENDOR_ACTION = "Tender email sent to Shipper"
+TENDER_SENT_TO_TENANT_ACTION = "Tender email sent to Shipper"
 CARRIER_ACK_LLM_ACTION_TEMPLATE = (
     "Carrier ack LLM classified reply as {decision}{confidence_suffix}: {reason}"
 )

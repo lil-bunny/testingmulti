@@ -62,6 +62,22 @@ def test_tender_metadata_source_patch_omits_when_resolved() -> None:
     )
 
 
+def test_tender_metadata_source_patch_includes_liefmatch_when_resolved() -> None:
+    row = {"delivery_address_code": "44154704", "liefmatch": "PHARMAVITE"}
+    assert tender_metadata_source_patch(
+        row,
+        delivery_address={"city": "Chicago"},
+        customer_name_source="delivery_location",
+    ) == {"source": {"liefmatch": "PHARMAVITE"}}
+
+
+def test_source_liefmatch_reads_metadata() -> None:
+    from app.domain.ingest_source_fields import source_liefmatch
+
+    tender = {"metadata": {"source": {"liefmatch": "ARIZONA NU"}}}
+    assert source_liefmatch(tender) == "ARIZONA NU"
+
+
 def test_merge_metadata_merges_source_keys() -> None:
     base = {"po_number": "PO1", "source": {"delivery_address_code": "1"}}
     patch = {"source": {"delivery_address_code": "2"}}

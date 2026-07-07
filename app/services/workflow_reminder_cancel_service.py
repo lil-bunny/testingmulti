@@ -8,6 +8,7 @@ from typing import Any
 from app.celery_app import celery_app
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
+from app.domain.gelita.routing_guide_lifecycle import optional_routing_guide_attempt
 from app.domain.pending_reminder_tasks import (
     clear_pending_reminder_tasks,
     filter_pending_reminder_tasks,
@@ -37,6 +38,9 @@ class WorkflowReminderCancelService:
             if not task_id:
                 continue
             row: dict[str, Any] = {"task_id": task_id}
+            attempt = optional_routing_guide_attempt(entry.get("attempt"))
+            if attempt is not None:
+                row["attempt"] = attempt
             event_type = str(entry.get("event_type") or "").strip()
             if event_type:
                 row["event_type"] = event_type
@@ -68,6 +72,15 @@ class WorkflowReminderCancelService:
                 "workflow_reminder_cancel register failed lifecycle_id=%s",
                 lid,
             )
+
+    def cancel_for_attempt(self, *, lifecycle_id: str, attempt: int) -> int:
+        """Revoke pending tasks stamped for a routing-guide attempt."""
+        target = int(attempt)
+
+        def _match(item: dict[str, Any]) -> bool:
+            return optional_routing_guide_attempt(item.get("attempt")) == target
+
+        return self._cancel_matching(lifecycle_id=lifecycle_id, match=_match)
 
     def cancel_all(self, *, lifecycle_id: str) -> int:
         """Revoke every pending reminder task for a lifecycle."""

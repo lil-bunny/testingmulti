@@ -8,6 +8,7 @@ from html import escape
 from typing import Any
 
 from app.models.pack_type import PackType
+from app.domain.delivery_address import format_usps_mailing_address
 from app.models.weight_unit import WeightUnit
 
 _MISSING_LABEL_STYLE = "color: red;"
@@ -99,6 +100,24 @@ def _address_html(value: Any) -> str:
     return _html_address_block(value or "")
 
 
+def _delivery_address_display_text(tender: dict[str, Any]) -> str:
+    """Prefer pre-formatted delivery block; fall back to structured JSON."""
+    formatted = tender.get("delivery_address_formatted")
+    if isinstance(formatted, str) and formatted.strip():
+        return formatted.strip()
+    raw = tender.get("delivery_address")
+    if isinstance(raw, dict):
+        return format_usps_mailing_address(raw)
+    return str(raw or "").strip()
+
+
+def _delivery_address_html(tender: dict[str, Any]) -> str:
+    """Render delivery address HTML; used by ``build_tender_email_input_from_tender``."""
+    if is_missing_address_value(tender.get("delivery_address")):
+        return ""
+    return _html_address_block(_delivery_address_display_text(tender))
+
+
 def _str_field(data: dict[str, Any], key: str) -> str:
     raw = data.get(key)
     if raw is None:
@@ -160,7 +179,7 @@ def build_tender_email_input_from_tender(tender: dict[str, Any]) -> TenderEmailB
         delivery_date=_str_field(tender, "delivery_date"),
         order_value=order_value,
         pickup_address=_address_html(tender.get("pickup_address")),
-        delivery_address=_address_html(tender.get("delivery_address")),
+        delivery_address=_delivery_address_html(tender),
         pieces_count=pieces,
         pallets_count=pallets,
         gross_weight_lbs=gross,
@@ -515,6 +534,7 @@ def build_ftl_tender_email_from_tender(
     subject_template: str,
     *,
     reason_for_failure: str = "",
+    carrier_note: str = "",
 ) -> dict[str, str]:
     """Fill FTL template from ``state.data['tender']``."""
     ctx = build_tender_email_input_from_tender(tender)
@@ -534,6 +554,7 @@ def build_ftl_tender_email_from_tender(
         delivery_address=ctx.delivery_address,
         products_block=products_block,
         reason_for_failure=reason_for_failure,
+        carrier_note=carrier_note,
     )
 
     subject = format_tender_email_subject(subject_template, ctx)

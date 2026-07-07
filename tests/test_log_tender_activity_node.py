@@ -44,7 +44,7 @@ def test_log_tender_activity_success_uses_record_sequence(
     assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
-    assert sequence.steps[0].description == "Tender email sent to vendor"
+    assert sequence.steps[0].description == "Tender email sent to Shipper"
     assert sequence.steps[1].description is None
     assert sequence.steps[1].to_status is None
     assert sequence.steps[1].to_sub_status == StatusSubType.TENDER_SENT_TO_TENANT

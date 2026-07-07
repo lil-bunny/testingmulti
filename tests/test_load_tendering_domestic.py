@@ -95,6 +95,9 @@ def test_post_read_tender_router_delegates_by_event_type() -> None:
     }
     assert post_read_tender_router(state) == "reminder_due"
 
+    state.data = {"event_type": "ack_received", "routing_guide_failover": True}
+    assert post_read_tender_router(state) == "routing_guide_failover"
+
 
 def _complete_international_state() -> WorkflowState:
     return WorkflowState(

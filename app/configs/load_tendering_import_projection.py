@@ -34,6 +34,7 @@ LOAD_TENDERING_ROW_PROJECTION: Final[dict[str, tuple[str, ...]]] = {
     "order_position": ("Order position", "Order Position", "order position", "POSIT"),
     "pack_code": ("Pack code", "pack_code", "Pack Code", "ARTSPEZ"),
     "delivery_address_code": ("LIEFAN", "Liefan"),
+    "liefmatch": ("LIEFMATCH", "Liefmatch", "Customer Match Code"),
     "po_number": ("BESTTXT",),
     "price_per_unit": ("VKPREIS",),
     "weight_unit": ("ME", "Unit of measure", "unit of measure"),

@@ -47,6 +47,31 @@ def test_automatic_reply_ack_router(flag: bool, expected_route: str) -> None:
     assert automatic_reply_ack_router(state) == expected_route
 
 
+def test_automatic_reply_ack_router_skips_retired_carrier_thread() -> None:
+    state = _state()
+    state.data["retired_carrier_thread_ack"] = True
+    assert automatic_reply_ack_router(state) == "skipped"
+
+
+@patch("app.workflows.nodes.record_ack_received.CommunicationsService")
+@patch("app.workflows.nodes.record_ack_received.WorkflowLifecycleService")
+def test_guard_automatic_reply_ack_skips_retired_carrier_thread(
+    mock_lifecycle_cls: MagicMock,
+    mock_comms_cls: MagicMock,
+) -> None:
+    mock_lifecycle_cls.return_value.read_lifecycle_row_by_id.return_value = {
+        "metadata": {"routing_guide_attempt": 3},
+    }
+    mock_comms_cls.return_value.is_retired_carrier_thread.return_value = True
+
+    state = _state(tender={"load_type": "FTL"})
+    out = guard_automatic_reply_ack(state)
+
+    assert out is state
+    assert state.data["retired_carrier_thread_ack"] is True
+    mock_comms_cls.return_value.is_retired_carrier_thread.assert_called_once()
+
+
 @patch("app.workflows.nodes.record_ack_received.ActivityLogService")
 def test_guard_automatic_reply_ack_records_exception(mock_svc_cls: MagicMock) -> None:
     mock_svc = mock_svc_cls.return_value

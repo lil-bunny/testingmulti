@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - staging
+      - feat/gelita/ftl-routing-guide
 
 env:
   AWS_REGION: us-east-2

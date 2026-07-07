@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import load_type_bucket, resolve_load_type
 from app.domain.reminder_schedule import ReminderStepSpec, WorkflowRemindersConfig
+from app.domain.gelita.routing_guide_lifecycle import optional_routing_guide_attempt
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 from app.tasks.reminders import trigger_workflow_reminder
@@ -34,6 +35,7 @@ _DEFAULT_PAYLOAD_KEYS: tuple[str, ...] = (
     "to",
     "subject",
     "body",
+    "routing_guide_attempt",
 )
 
 _REQUIRED_SCHEDULE_KEYS: tuple[str, ...] = (
@@ -208,6 +210,7 @@ class WorkflowReminderService:
         wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
         if not wl_id or not queued:
             return
+        attempt = optional_routing_guide_attempt(data.get("routing_guide_attempt"))
         entries: list[dict[str, Any]] = []
         for result, step in zip(queued, steps, strict=False):
             task_id = getattr(result, "id", None)
@@ -217,15 +220,15 @@ class WorkflowReminderService:
                 "task_id": str(task_id),
                 "event_type": step.event_type,
             }
+            if attempt is not None:
+                entry["attempt"] = attempt
             if step.step is not None:
                 entry["step"] = int(step.step)
             entries.append(entry)
         if not entries:
             return
-        WorkflowReminderCancelService().register_tasks(
-            lifecycle_id=wl_id,
-            entries=entries,
-        )
+        cancel_service = WorkflowReminderCancelService()
+        cancel_service.register_tasks(lifecycle_id=wl_id, entries=entries)
 
     def schedule(self, data: dict[str, Any], *, workflow_name: str) -> None:
         wf = (workflow_name or "").strip()

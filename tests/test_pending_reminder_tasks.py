@@ -1,4 +1,6 @@
-"""Tests for lifecycle metadata pending reminder task helpers."""
+"""Tests for pending reminder task metadata helpers."""
+
+from __future__ import annotations
 
 from app.domain.pending_reminder_tasks import (
     PENDING_REMINDER_TASKS_KEY,
@@ -9,6 +11,21 @@ from app.domain.pending_reminder_tasks import (
 )
 
 
+def test_merge_and_filter_pending_reminder_tasks() -> None:
+    meta = merge_pending_reminder_tasks(
+        {},
+        new_entries=[{"task_id": "task-1", "attempt": 1}],
+    )
+    assert len(pending_reminder_tasks_from_metadata(meta)) == 1
+
+    filtered = filter_pending_reminder_tasks(
+        meta,
+        remove_task_ids=frozenset({"task-1"}),
+    )
+    assert pending_reminder_tasks_from_metadata(filtered) == []
+
+    cleared = clear_pending_reminder_tasks()
+    assert pending_reminder_tasks_from_metadata(cleared) == []
 def test_pending_reminder_tasks_from_metadata_empty():
     assert pending_reminder_tasks_from_metadata(None) == []
     assert pending_reminder_tasks_from_metadata({}) == []
