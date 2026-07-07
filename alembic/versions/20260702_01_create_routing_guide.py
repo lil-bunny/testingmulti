@@ -11,8 +11,10 @@ Creates ``routing_guide`` for zip-first lane lookup (tenant + customer_name + zi
 ``city`` / ``state``: lane location from seed CSV; not used in lookup.
 ``customer_aliases``: LIEFMATCH strings; ``carriers``: ``{a|b|c: {name, email}}``.
 
-Routing attempt counter lives in ``tenders.metadata.ftl.routing_guide.attempt`` (JSONB;
-no column change). Application guards must compare by value, not enum sort order.
+Routing attempt counter lives in ``workflow_lifecycles.metadata.routing_guide_attempt``
+(JSONB on the load_tendering lifecycle row). Application guards must compare by value,
+not enum sort order. Denormalized carrier display: ``tenders.carrier_name`` (see
+``20260707_01_add_tenders_carrier_name``).
 """
 
 from __future__ import annotations
