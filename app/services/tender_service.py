@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.repositories.tender_products_repository import TenderProductsRepository
 from app.repositories.tenders_repository import TendersRepository
+
+logger = get_logger(__name__)
 
 
 class TenderOrderPlusProducts(TypedDict):
@@ -80,3 +83,81 @@ class TenderService:
                 load_type=load_type,
             )
         )
+
+    def update_carrier_name(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        carrier_name: str | None,
+    ) -> bool:
+        if self._tenders_repo is not None:
+            return self._tenders_repo.update_carrier_name(
+                tenant_id=tenant_id,
+                tender_id=tender_id,
+                carrier_name=carrier_name,
+            )
+        return run_with_repos(
+            lambda repos: repos.tenders.update_carrier_name(
+                tenant_id=tenant_id,
+                tender_id=tender_id,
+                carrier_name=carrier_name,
+            )
+        )
+
+    def assign_carrier_from_routing_guide(self, state: Any) -> bool:
+        """FTL only: resolve plan carrier for current attempt and persist on the tender row."""
+        # Lazy imports: load_tendering_settings imports TenderService at module load.
+        from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
+        from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
+        from app.domain.load_tendering_state import get_tender
+        from app.tools.routing_guide_carrier import resolve_carrier_for_tender
+
+        # LTL has no routing-guide waterfall; carrier_name stays NULL.
+        if not is_ftl_load_type(resolve_load_type(state)):
+            return False
+
+        data = getattr(state, "data", None) or {}
+        tenant_id = str(
+            getattr(state, "tenant_id", None) or data.get("tenant_id") or ""
+        ).strip()
+        tender_id = str(data.get("tender_id") or "").strip()
+        if not tenant_id or not tender_id:
+            logger.warning(
+                "assign_carrier_from_routing_guide skipped missing tenant_id or tender_id"
+            )
+            return False
+
+        # Called from record_tender_sent_to_carrier after read_tender_row loaded tender + attempt.
+        tender = dict(get_tender(data) or {})
+        attempt = routing_guide_attempt_from_state(data)  # workflow_lifecycles.metadata.routing_guide_attempt
+        tenant_slug = str(
+            getattr(state, "tenant_slug", None) or data.get("tenant_slug") or ""
+        ).strip() or None
+
+        # Plan A/B/C name from routing_guide for this waterfall attempt (not inbound From address).
+        resolution = resolve_carrier_for_tender(
+            tenant_id=tenant_id,
+            tenant_slug=tenant_slug,
+            tender=tender,
+            attempt=attempt,
+        )
+        if resolution.lane_miss or resolution.missing_carrier_email:
+            carrier_name = None  # Explicit NULL when guide cannot resolve a carrier.
+        else:
+            name = str(resolution.plan_carrier_name or "").strip()
+            carrier_name = name or None
+
+        # Overwrites prior carrier_name when a later attempt's first inbound email arrives.
+        updated = self.update_carrier_name(
+            tenant_id=tenant_id,
+            tender_id=tender_id,
+            carrier_name=carrier_name,
+        )
+        if not updated:
+            logger.warning(
+                "assign_carrier_from_routing_guide failed tender_id=%s attempt=%s",
+                tender_id,
+                attempt,
+            )
+        return updated

@@ -11,6 +11,7 @@ from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_ty
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+from app.services.tender_service import TenderService
 
 logger = get_logger(__name__)
 
@@ -48,5 +49,9 @@ def record_tender_sent_to_carrier(state):
         activity_type=ActivityType.SUB_STATUS_CHANGE,
         actor_type=ActorType.SYSTEM
     )
+
+    if is_ftl_load_type(resolve_load_type(state)):
+        tender_service = TenderService()
+        tender_service.assign_carrier_from_routing_guide(state)
 
     return state
