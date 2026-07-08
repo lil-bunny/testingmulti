@@ -94,25 +94,30 @@ def classify_attachments(state):
     )
 
     norm = state.data.get("attachment_normalization") or {}
-    if not norm.get("success"):
-        raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
+    try:
+        if not norm.get("success"):
+            raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
 
-    merged_key = state.data.get("pod_merged_pdf_object_key")
-    if merged_key:
-        source_keys = _collect_source_object_keys(state)
-        persist = insert_document(
-            DocumentType.POD,
-            storage_key=merged_key,
-            shipments_row_id=resolve_shipments_row_id_for_db(state.data),
-            metadata={"source_object_keys": source_keys},
-        )
-        state.data["documents_pod"] = persist
-        logger.info(
-            "classify_attachments: documents pod stored=%s id=%s source_keys=%s",
-            persist.get("stored"),
-            persist.get("id"),
-            len(source_keys),
-        )
+        merged_key = state.data.get("pod_merged_pdf_object_key")
+        if merged_key:
+            source_keys = _collect_source_object_keys(state)
+            persist = insert_document(
+                DocumentType.POD,
+                storage_key=merged_key,
+                shipments_row_id=resolve_shipments_row_id_for_db(state.data),
+                metadata={"source_object_keys": source_keys},
+            )
+            state.data["documents_pod"] = persist
+            logger.info(
+                "classify_attachments: documents pod stored=%s id=%s source_keys=%s",
+                persist.get("stored"),
+                persist.get("id"),
+                len(source_keys),
+            )
+    finally:
+        # Ephemeral ingress bytes must not reach Postgres checkpoints.
+        state.data.pop("attachment_bytes_by_id", None)
+        state.data.pop("get_email_attachments_results", None)
     return state
 
 

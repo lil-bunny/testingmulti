@@ -35,7 +35,9 @@ def test_pod_lifecycle_pod_request_graph():
     assert routers["check_pod_reminder_eligibility"]["map"]["skip"] == "end"
 
     edges = [tuple(e) for e in graph["edges"]]
-    assert ("get_email_attachments", "load_ratecon_analysis") in edges
+    assert ("get_email_attachments", "load_ratecon_analysis") not in edges
+    assert "get_email_attachments" not in names
+    assert routers["get_shipment"]["map"]["valid_shipment_status"] == "load_ratecon_analysis"
     assert ("ratecon_analysis", "classify_attachments") not in edges
     assert routers["get_shipment"]["map"]["manual_pod_stored"] == "upload_to_turvo"
     assert routers["get_shipment"]["map"]["manual_pod_process"] == "load_ratecon_analysis"

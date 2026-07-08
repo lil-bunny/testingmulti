@@ -52,3 +52,5 @@ def test_classify_attachments_persists_merged_pod_with_source_keys(
     assert kwargs["metadata"]["source_object_keys"] == ["pod_attachments/merged.pdf"]
     assert state.data["documents_pod"]["id"] == "doc-1"
     assert state.data["pod_object_keys"] == ["pod_attachments/merged.pdf"]
+    assert "attachment_bytes_by_id" not in state.data
+    assert "get_email_attachments_results" not in state.data

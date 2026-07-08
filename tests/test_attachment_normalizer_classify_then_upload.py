@@ -37,7 +37,7 @@ def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):
     monkeypatch.setattr(
         AttachmentNormalizerService,
         "_classify_image",
-        lambda self, image_bytes: {
+        lambda self, image_bytes, **kwargs: {
             "is_valid_document": True,
             "confidence": 0.9,
             "reasoning": "pod photo",
@@ -70,7 +70,7 @@ def test_normalize_from_bytes_rejected_image_skips_s3_upload(monkeypatch):
     monkeypatch.setattr(
         AttachmentNormalizerService,
         "_classify_image",
-        lambda self, image_bytes: {
+        lambda self, image_bytes, **kwargs: {
             "is_valid_document": False,
             "confidence": 0.95,
             "reasoning": "truck photo",

@@ -65,6 +65,7 @@ def test_classify_attachments_failure_sets_error(mock_svc_cls):
     result = classify_attachments(state)
 
     _assert_error(result, BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
+    assert "attachment_bytes_by_id" not in result["data"]
 
 
 @patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
@@ -83,6 +84,7 @@ def test_classify_attachments_success_does_not_set_error(mock_row, mock_insert, 
     classify_attachments(state)
 
     assert "error" not in state.data
+    assert "attachment_bytes_by_id" not in state.data
 
 
 # ---------------------------------------------------------------------------

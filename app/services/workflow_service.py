@@ -212,7 +212,7 @@ class WorkflowService:
         if (
             workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "email_received"
-            and not payload.get("pod_email_ingress_prepared")
+            # and not payload.get("pod_email_ingress_prepared")
         ):
             try:
                 payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
@@ -240,6 +240,8 @@ class WorkflowService:
                 )
             if gate.normalization:
                 payload["attachment_normalization"] = gate.normalization
+            if gate.valid_bytes_by_id:
+                payload["attachment_bytes_by_id"] = gate.valid_bytes_by_id
 
         if (
             workflow_name == "pod_lifecycle"

@@ -32,12 +32,15 @@ from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 
 def _eligible_pod_attachment_gate_result() -> PodAttachmentIngressGateResult:
+    pdf_bytes = b"%PDF-1.4 mock pod file"
     return PodAttachmentIngressGateResult(
         eligible=True,
         normalization={
             "success": True,
+            "source_attachment_ids": ["att-1"],
             "classification_by_attachment_id": {"att-1": {"is_valid_document": True}},
         },
+        valid_bytes_by_id={"att-1": pdf_bytes},
     )
 
 
@@ -79,7 +82,10 @@ def mock_attachment_upload(monkeypatch):
         }
 
     monkeypatch.setattr(email_nodes, "get_email_attachments_tool", fake_get_attachment)
-    monkeypatch.setattr(email_nodes.bucket, "upload_file", fake_upload_file)
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.bucket.upload_file",
+        fake_upload_file,
+    )
 
 
 @pytest.mark.asyncio
@@ -536,6 +542,7 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
     lifecycle_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     gate_norm = {
         "success": True,
+        "source_attachment_ids": ["att-1"],
         "classification_by_attachment_id": {
             "att-1": {"is_valid_document": True, "confidence": 0.95},
         },
@@ -567,6 +574,7 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
             return_value=PodAttachmentIngressGateResult(
                 eligible=True,
                 normalization=gate_norm,
+                valid_bytes_by_id={"att-1": b"%PDF-1.4 pod"},
             )
         )
         monkeypatch.setattr(service.execution, "execute", fake_execute)
@@ -590,6 +598,7 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
         )
 
     assert captured_payload.get("attachment_normalization") == gate_norm
+    assert captured_payload.get("attachment_bytes_by_id") == {"att-1": b"%PDF-1.4 pod"}
 
 
 @pytest.mark.asyncio

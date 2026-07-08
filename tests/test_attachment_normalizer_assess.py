@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 from app.core.config import settings
-from app.services.attachment_normalizer import AttachmentNormalizerService
+from app.services.attachment_normalizer import (
+    AttachmentNormalizerService,
+    in_memory_attachment_ref,
+    valid_attachment_bytes_from_normalization,
+)
 
 
 def _large_png_bytes() -> bytes:
@@ -25,7 +29,7 @@ def test_assess_attachments_valid_image_without_upload(monkeypatch):
     png = _large_png_bytes()
     classify_calls: list[bytes] = []
 
-    def fake_classify(self, image_bytes: bytes):
+    def fake_classify(self, image_bytes: bytes, **kwargs):
         classify_calls.append(image_bytes)
         return {
             "is_valid_document": True,
@@ -84,6 +88,71 @@ def test_assess_attachments_pdf_skips_classifier(monkeypatch):
 
     classify.assert_not_called()
     assert result["success"] is True
+
+
+def test_valid_attachment_bytes_from_normalization_matches_long_unipile_ids(monkeypatch):
+    """Fetch keys stay full Unipile ids; normalization refs are sanitized/truncated."""
+    ship = "1000324895"
+    pdf_id = (
+        "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jK"
+        "KfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8ho"
+        "HTdAABtxhgBAAABEgAQAGojg59oeR5IgnWr2dmnUPw="
+    )
+    image_id = (
+        "AAMkAGMwYzU5OTEzLWYzODItNGY5YS04MDE3LTllZDkwOWE3OGQ3ZgBGAAAAAAClF6jK"
+        "KfRfrR4-6-rgcaKH-BwBEIbgorl1AQ6KrZa8hoHTdAAAAAAEMAABEIbgorl1AQ6KrZa8ho"
+        "HTdAABtxhgBAAABEgAQACvijcZRtixIicAz-xbusXM="
+    )
+    pdf_bytes = b"%PDF-1.4 pod"
+    png = _large_png_bytes()
+    bytes_by_id = {pdf_id: pdf_bytes, image_id: png}
+
+    monkeypatch.setattr(
+        AttachmentNormalizerService,
+        "_classify_image",
+        lambda self, image_bytes, **kwargs: {
+            "is_valid_document": True,
+            "confidence": 0.9,
+            "reasoning": "pod photo",
+            "detected_document_type": "POD",
+        },
+    )
+
+    svc = AttachmentNormalizerService()
+    normalization = svc.assess_attachments(bytes_by_id, shipment_number=ship)
+
+    assert normalization["success"] is True
+    valid_bytes = valid_attachment_bytes_from_normalization(
+        bytes_by_id,
+        normalization,
+        shipment_number=ship,
+    )
+    assert valid_bytes == bytes_by_id
+
+
+def test_valid_attachment_bytes_from_normalization_excludes_rejected_ref():
+    ship = "1003"
+    good_id = "att-valid"
+    bad_id = "att-bad"
+    good_ref = in_memory_attachment_ref(good_id, ship)
+    bad_ref = in_memory_attachment_ref(bad_id, ship)
+    normalization = {
+        "success": True,
+        "rejected": [{"attachment_ref": bad_ref, "rejection_reason": "truck photo"}],
+        "source_attachments_cleanup": {
+            "valid_source": [{"attachment_ref": good_ref}],
+            "rejected": [{"attachment_ref": bad_ref}],
+        },
+    }
+    bytes_by_id = {good_id: b"%PDF-1.4 valid", bad_id: b"\x89PNG bad"}
+
+    valid_bytes = valid_attachment_bytes_from_normalization(
+        bytes_by_id,
+        normalization,
+        shipment_number=ship,
+    )
+
+    assert valid_bytes == {good_id: b"%PDF-1.4 valid"}
 
 
 def test_normalize_reuses_prior_classification_skips_llm(monkeypatch):

@@ -13,6 +13,7 @@ import io
 import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -85,6 +86,51 @@ def ratecon_shipment_object_basename(shipment_id: Optional[str]) -> str:
 def pod_merged_filename(shipment_id: Optional[str]) -> str:
     """Final merged POD PDF basename: ``pod_{shipmentId}.pdf``."""
     return f"pod_{_sanitize_path_segment(shipment_id or 'unknown')}.pdf"
+
+
+def in_memory_attachment_ref(
+    attachment_id: str,
+    shipment_number: str | None,
+) -> str:
+    """Synthetic S3 ref for in-memory normalize/assess (must match ``normalize_from_bytes``)."""
+    ship_token = _sanitize_path_segment(shipment_number or "unknown")
+    att_token = _sanitize_path_segment(attachment_id)
+    return f"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_{att_token}_{ship_token}.bin"
+
+
+def valid_attachment_bytes_from_normalization(
+    bytes_by_id: dict[str, bytes],
+    normalization: dict[str, Any],
+    *,
+    shipment_number: str | None = None,
+) -> dict[str, bytes]:
+    """Keep fetch-keyed bytes for attachments that survived assess (match by synthetic ref)."""
+    if not normalization.get("success"):
+        return {}
+
+    rejected_refs = {
+        str(item.get("attachment_ref") or "").strip()
+        for item in (normalization.get("rejected") or [])
+        if isinstance(item, dict) and str(item.get("attachment_ref") or "").strip()
+    }
+    cleanup = normalization.get("source_attachments_cleanup") or {}
+    valid_refs = {
+        str(item.get("attachment_ref") or "").strip()
+        for item in (cleanup.get("valid_source") or [])
+        if isinstance(item, dict) and str(item.get("attachment_ref") or "").strip()
+    }
+
+    out: dict[str, bytes] = {}
+    for attachment_id, file_bytes in bytes_by_id.items():
+        if not file_bytes:
+            continue
+        ref = in_memory_attachment_ref(attachment_id, shipment_number)
+        if ref in rejected_refs:
+            continue
+        if valid_refs and ref not in valid_refs:
+            continue
+        out[attachment_id] = file_bytes
+    return out
 
 
 class AttachmentNormalizerService:
@@ -327,6 +373,7 @@ class AttachmentNormalizerService:
         shipment_number: str | None = None,
         prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
+        classify_context: str = "graph",
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
@@ -340,16 +387,12 @@ class AttachmentNormalizerService:
                 "error": "No attachments provided",
             }
 
-        ship_token = _sanitize_path_segment(shipment_number or "unknown")
         refs: list[str] = []
         bytes_by_ref: dict[str, bytes] = {}
         for attachment_id, file_bytes in attachment_bytes_by_id.items():
             if not file_bytes:
                 continue
-            att_token = _sanitize_path_segment(attachment_id)
-            ref = (
-                f"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_{att_token}_{ship_token}.bin"
-            )
+            ref = in_memory_attachment_ref(attachment_id, shipment_number)
             refs.append(ref)
             bytes_by_ref[ref] = file_bytes
 
@@ -366,6 +409,7 @@ class AttachmentNormalizerService:
             }
 
         processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
+        processor._classify_log_context = classify_context
         return processor.normalize(
             refs,
             shipment_number=shipment_number,
@@ -384,6 +428,7 @@ class AttachmentNormalizerService:
             attachment_bytes_by_id,
             shipment_number=shipment_number,
             upload_merged=False,
+            classify_context="ingress_gate",
         )
 
     def _normalize_single_attachment(
@@ -601,10 +646,20 @@ class AttachmentNormalizerService:
             "single_attachment_short_circuit": True,
         }
 
-    def _classify_image(self, image_bytes: bytes) -> Dict[str, Any]:
+    def _classify_image(
+        self,
+        image_bytes: bytes,
+        *,
+        attachment_id: str | None = None,
+    ) -> Dict[str, Any]:
+        context = getattr(self, "_classify_log_context", "graph")
         api_key = settings.LLM_API_KEY
         if not api_key:
-            logger.warning("attachment_normalizer.no_classifier_key; accepting image")
+            logger.warning(
+                "attachment.classify_llm_skip context=%s attachment_id=%s reason=no_api_key",
+                context,
+                attachment_id or "-",
+            )
             return {
                 "is_valid_document": True,
                 "confidence": 0.0,
@@ -619,12 +674,23 @@ class AttachmentNormalizerService:
             or settings.LLM_MODEL
         )
 
+        mime = "image/jpeg"
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            mime = "image/png"
+
+        logger.info(
+            "attachment.classify_llm_start context=%s attachment_id=%s model=%s bytes=%s mime=%s",
+            context,
+            attachment_id or "-",
+            model,
+            len(image_bytes),
+            mime,
+        )
+        started = time.monotonic()
+
         try:
             client = OpenAI(api_key=api_key, base_url=base_url)
             b64 = base64.b64encode(image_bytes).decode("utf-8")
-            mime = "image/jpeg"
-            if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-                mime = "image/png"
 
             response = client.chat.completions.create(
                 model=model,
@@ -650,11 +716,17 @@ class AttachmentNormalizerService:
 
             raw_text = (response.choices[0].message.content or "").strip()
             result = json.loads(raw_text)
+            elapsed_ms = (time.monotonic() - started) * 1000
 
             logger.info(
-                "attachment.classified is_valid=%s confidence=%s",
+                "attachment.classify_llm_done context=%s attachment_id=%s is_valid=%s "
+                "confidence=%s doc_type=%s ms=%.0f",
+                context,
+                attachment_id or "-",
                 result.get("is_valid_document"),
                 result.get("confidence"),
+                result.get("detected_document_type"),
+                elapsed_ms,
             )
 
             return {
@@ -666,7 +738,14 @@ class AttachmentNormalizerService:
             }
 
         except Exception as e:
-            logger.exception("attachment_normalizer.classify_error: %s", e)
+            elapsed_ms = (time.monotonic() - started) * 1000
+            logger.exception(
+                "attachment.classify_llm_error context=%s attachment_id=%s ms=%.0f err=%s",
+                context,
+                attachment_id or "-",
+                elapsed_ms,
+                e,
+            )
             return {
                 "is_valid_document": True,
                 "confidence": 0.0,
@@ -805,7 +884,10 @@ class AttachmentNormalizerService:
                 "attachment_ref": attachment_ref,
                 "from_ingress_gate": True,
             }
-        cls_result = self._classify_image(image_bytes)
+        cls_result = self._classify_image(
+            image_bytes,
+            attachment_id=attachment_id,
+        )
         cls_result["attachment_ref"] = attachment_ref
         return cls_result
 

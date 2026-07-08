@@ -13,7 +13,6 @@ WORKFLOW_CONFIGS = {
             "record_and_schedule_pod_request",
             "record_pod_started_activity",
             "record_pod_reminder_activity",
-            "get_email_attachments",
             "load_ratecon_analysis",
             "classify_attachments",
             "record_pod_upload_activity",
@@ -28,7 +27,6 @@ WORKFLOW_CONFIGS = {
             "end",
         ],
         "edges": [
-            ["get_email_attachments", "load_ratecon_analysis"],
             ["classify_attachments", "record_pod_upload_activity"],
             ["record_pod_upload_activity", "pod_analysis"],
             ["pod_analysis", "record_pod_extraction_activity"],
@@ -61,7 +59,7 @@ WORKFLOW_CONFIGS = {
                     "convoy": "end",
                     "non_convoy": "check_existing_pod",
                     # Pod reply workflow
-                    "valid_shipment_status": "get_email_attachments",
+                    "valid_shipment_status": "load_ratecon_analysis",
                     "manual_pod_stored": "upload_to_turvo",
                     "manual_pod_process": "load_ratecon_analysis",
                     "invalid_shipment_status": "end",
