@@ -58,18 +58,18 @@ class RouteCompletedDuplicateResult:
     lifecycle_id: str | None = None
     shipments_row_id: str | None = None
 
-
 @dataclass(frozen=True)
 class RouteCompletedIngressGateResult:
     skip: bool
     reason: str | None = None
+
+@dataclass(frozen=True)
 class PodEmailReceivedPrepareResult:
     workflow_payload: dict[str, Any] | None = None
     is_duplicate: bool = False
     skipped: bool = False
     skip_reason: str | None = None
     shipments_row_id: str | None = None
-
 
 @dataclass(frozen=True)
 class PodEmailReceivedResolution:

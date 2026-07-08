@@ -53,7 +53,7 @@ from app.models.document import DocumentType
 from app.models.document_analysis import DocumentAnalysisType
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle.ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_runs_service import WorkflowRunsService
 from tests.e2e.fixtures.pod_email_e2e import (

@@ -27,7 +27,6 @@ from app.services.pod_lifecycle.ingress_service import (
 )
 from app.domain.unipile_email import extract_email_id_or_none
 from app.services.inbound_webhook_enqueue import enqueue_inbound_unipile_email
-from app.services.pod_lifecycle.ingress_service import PodLifecycleIngressService
 from app.services.shipments_service import ShipmentsService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.integrations.turvo.workflow_cancel import shipment_tendered_trigger_from_turvo
