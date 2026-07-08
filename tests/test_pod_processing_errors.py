@@ -54,36 +54,33 @@ def _assert_error(result, expected_code):
 # classify_attachments
 # ---------------------------------------------------------------------------
 
-@patch("app.workflows.nodes.pod.get_normalized_attachments")
-def test_classify_attachments_failure_sets_error(mock_normalize):
-    def _set_failure(state):
-        state.data["attachment_normalization"] = {"success": False, "rejected": ["bad.txt"]}
-        state.data["pod_object_keys"] = []
-        state.data["has_attachments"] = False
-
-    mock_normalize.side_effect = _set_failure
-    state = _state(pod_object_keys=["bad.txt"])
+@patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
+def test_classify_attachments_failure_sets_error(mock_svc_cls):
+    mock_svc_cls.return_value.normalize_from_state_data.return_value = {
+        "success": False,
+        "rejected": ["bad.txt"],
+    }
+    state = _state(attachment_bytes_by_id={"att-1": b"not-a-doc"})
 
     result = classify_attachments(state)
 
     _assert_error(result, BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
 
 
-@patch("app.workflows.nodes.pod.get_normalized_attachments")
+@patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
 @patch("app.workflows.nodes.pod.insert_document")
 @patch("app.workflows.nodes.pod.resolve_shipments_row_id_for_db", return_value="row-1")
-def test_classify_attachments_success_does_not_set_error(mock_row, mock_insert, mock_normalize):
-    def _set_success(state):
-        state.data["attachment_normalization"] = {"success": True}
-        state.data["pod_merged_pdf_object_key"] = "merged.pdf"
-        state.data["pod_object_keys"] = ["merged.pdf"]
-        state.data["has_attachments"] = True
-
-    mock_normalize.side_effect = _set_success
+def test_classify_attachments_success_does_not_set_error(mock_row, mock_insert, mock_svc_cls):
+    mock_svc_cls.return_value.normalize_from_state_data.return_value = {
+        "success": True,
+        "pod_merged_pdf_object_key": "merged.pdf",
+        "classification_results": [],
+        "rejected": [],
+    }
     mock_insert.return_value = {"stored": True, "id": "doc-1"}
-    state = _state(pod_object_keys=["a.pdf"])
+    state = _state(attachment_bytes_by_id={"att-1": b"%PDF-1.4"})
 
-    result = classify_attachments(state)
+    classify_attachments(state)
 
     assert "error" not in state.data
 

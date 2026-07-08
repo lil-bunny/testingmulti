@@ -1,14 +1,8 @@
 """
 POD attachment normalizer — port of old.services.attachment_normalizer.
 
-Downloads each attachment reference (HTTPS or S3 object key), classifies by MIME: PDFs pass through; images are
-prefiltered then optionally vision-classified; unsupported types rejected.
-Valid PDFs and images merge into one PDF and upload to S3 as a private object; the
-returned ``pod_merged_pdf_object_key`` field holds the S3 object key.
-
-**Single attachment:** PDFs skip merge/classifier and are re-uploaded as
-``pod_{shipmentId}.pdf``. Images use the same classify + PDF conversion path
-as multi-attachment flows, then upload as ``pod_{shipmentId}.pdf``.
+Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME, merges
+valid PDFs/images, uploads merged PDF to S3 as ``pod_merged_pdf_object_key``.
 """
 
 from __future__ import annotations
@@ -326,13 +320,14 @@ class AttachmentNormalizerService:
             shipment_number,
         )
 
-    def assess_attachments(
+    def normalize_from_bytes(
         self,
         attachment_bytes_by_id: dict[str, bytes],
         *,
         shipment_number: str | None = None,
+        prior_classification_by_attachment_id: dict[str, dict] | None = None,
+        upload_merged: bool = True,
     ) -> dict[str, Any]:
-        """Ingress gate: classify in memory without S3 upload."""
         if not attachment_bytes_by_id:
             return {
                 "success": False,
@@ -349,6 +344,8 @@ class AttachmentNormalizerService:
         refs: list[str] = []
         bytes_by_ref: dict[str, bytes] = {}
         for attachment_id, file_bytes in attachment_bytes_by_id.items():
+            if not file_bytes:
+                continue
             att_token = _sanitize_path_segment(attachment_id)
             ref = (
                 f"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_{att_token}_{ship_token}.bin"
@@ -356,9 +353,35 @@ class AttachmentNormalizerService:
             refs.append(ref)
             bytes_by_ref[ref] = file_bytes
 
-        assessor = _InMemoryAttachmentNormalizer(bytes_by_ref)
-        return assessor.normalize(
+        if not refs:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "source_attachment_ids": [],
+                "classification_results": [],
+                "classification_by_attachment_id": {},
+                "rejected": [],
+                "source_attachments_cleanup": {"rejected": [], "valid_source": []},
+                "error": "No attachments provided",
+            }
+
+        processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
+        return processor.normalize(
             refs,
+            shipment_number=shipment_number,
+            prior_classification_by_attachment_id=prior_classification_by_attachment_id,
+            upload_merged=upload_merged,
+        )
+
+    def assess_attachments(
+        self,
+        attachment_bytes_by_id: dict[str, bytes],
+        *,
+        shipment_number: str | None = None,
+    ) -> dict[str, Any]:
+        """Ingress gate: classify in memory without S3 upload."""
+        return self.normalize_from_bytes(
+            attachment_bytes_by_id,
             shipment_number=shipment_number,
             upload_merged=False,
         )

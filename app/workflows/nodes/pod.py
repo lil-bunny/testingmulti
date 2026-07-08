@@ -15,6 +15,7 @@ from app.tools.pod import (
 )
 from app.services.pod_lifecycle.attachment_normalize_service import (
     PodAttachmentNormalizeService,
+    attachment_bytes_by_id_from_state,
 )
 from app.services.ratecon_document_service import RateconDocumentService
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
@@ -49,6 +50,10 @@ def _collect_source_object_keys(state) -> list[str]:
     if keys:
         return keys
 
+    merged = state.data.get("pod_merged_pdf_object_key")
+    if merged and str(merged).strip():
+        return [str(merged).strip()]
+
     for item in state.data.get("get_email_attachments_results") or []:
         if not isinstance(item, dict) or not item.get("success"):
             continue
@@ -60,13 +65,7 @@ def _collect_source_object_keys(state) -> list[str]:
 
 @safe_node
 def classify_attachments(state):
-    """
-    Normalize POD attachments and persist one merged ``documents`` row.
-
-    Ensures ``state.data['pod_object_keys']`` lists S3 object keys for uploaded
-    attachments and aligns ``has_attachments`` for downstream processing.
-    Raises ``WorkflowException(POD_ATTACHMENT_UPLOAD_FAILED)`` when normalization fails.
-    """
+    """Classify attachments, upload merged PDF, persist ``documents`` row."""
     state.data["pod_source_object_keys"] = list(state.data.get("pod_object_keys") or [])
 
     result = PodAttachmentNormalizeService().normalize_from_state_data(state.data)
@@ -82,10 +81,13 @@ def classify_attachments(state):
         state.data.pop("pod_merged_pdf_object_key", None)
         state.data["has_attachments"] = False
 
+    input_count = len(attachment_bytes_by_id_from_state(state.data)) or len(
+        state.data.get("pod_source_object_keys") or []
+    )
     logger.info(
-        "classify_attachments: shipment_id=%s input_keys=%s success=%s merged=%s rejected=%s",
+        "classify_attachments: shipment_id=%s input_attachments=%s success=%s merged=%s rejected=%s",
         resolve_shipment_id(state.data),
-        len(state.data.get("pod_source_object_keys") or []),
+        input_count,
         result.get("success"),
         bool(merged),
         len(result.get("rejected") or []),

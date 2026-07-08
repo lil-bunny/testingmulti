@@ -8,18 +8,29 @@ from app.domain.state import WorkflowState
 
 
 @patch("app.workflows.nodes.pod.insert_document")
-@patch("app.workflows.nodes.pod.get_normalized_attachments")
-def test_classify_attachments_persists_single_pod_with_source_keys(
-    mock_normalize: MagicMock,
+@patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
+def test_classify_attachments_persists_merged_pod_with_source_keys(
+    mock_svc_cls: MagicMock,
     mock_insert: MagicMock,
 ) -> None:
     from app.workflows.nodes.pod import classify_attachments
 
-    mock_normalize.side_effect = lambda state: state
+    mock_svc_cls.return_value.normalize_from_state_data.return_value = {
+        "success": True,
+        "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
+        "classification_results": [
+            {
+                "attachment_ref": "pod_attachments/pod_att-1_SHIP.bin",
+                "is_valid_document": True,
+            }
+        ],
+        "source_attachment_ids": ["att-1"],
+        "rejected": [],
+    }
     mock_insert.return_value = {
         "stored": True,
         "id": "doc-1",
-        "metadata": {"source_object_keys": ["pod_attachments/a.pdf"]},
+        "metadata": {"source_object_keys": ["pod_attachments/merged.pdf"]},
     }
 
     state = WorkflowState(
@@ -27,9 +38,9 @@ def test_classify_attachments_persists_single_pod_with_source_keys(
         tenant_slug="t3ra",
         execution_id="run-1",
         data={
-            "pod_object_keys": ["pod_attachments/a.pdf"],
-            "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
+            "attachment_bytes_by_id": {"att-1": b"%PDF-1.4 x"},
             "shipments_row_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            "shipment_id": "SHIP",
         },
     )
 
@@ -37,5 +48,7 @@ def test_classify_attachments_persists_single_pod_with_source_keys(
 
     mock_insert.assert_called_once()
     kwargs = mock_insert.call_args.kwargs
-    assert kwargs["metadata"] == {"source_object_keys": ["pod_attachments/a.pdf"]}
+    assert kwargs["storage_key"] == "pod_attachments/merged.pdf"
+    assert kwargs["metadata"]["source_object_keys"] == ["pod_attachments/merged.pdf"]
     assert state.data["documents_pod"]["id"] == "doc-1"
+    assert state.data["pod_object_keys"] == ["pod_attachments/merged.pdf"]

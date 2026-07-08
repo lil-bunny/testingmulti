@@ -9,6 +9,36 @@ from app.services.pod_lifecycle.attachment_normalize_service import (
 )
 
 
+def test_normalize_from_state_data_uses_bytes_path_when_present():
+    prior = {"att-1": {"is_valid_document": True, "confidence": 0.91}}
+    normalizer = MagicMock()
+    normalizer.normalize_from_bytes.return_value = {
+        "success": True,
+        "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
+        "classification_results": [{"from_ingress_gate": True}],
+    }
+
+    svc = PodAttachmentNormalizeService(normalizer=normalizer)
+    data = {
+        "attachment_bytes_by_id": {"att-1": b"%PDF-1.4 x"},
+        "shipment_id": "SHIP",
+        "attachment_normalization": {
+            "classification_by_attachment_id": prior,
+        },
+    }
+
+    out = svc.normalize_from_state_data(data)
+
+    normalizer.normalize_from_bytes.assert_called_once_with(
+        {"att-1": b"%PDF-1.4 x"},
+        shipment_number="SHIP",
+        prior_classification_by_attachment_id=prior,
+        upload_merged=True,
+    )
+    normalizer.normalize.assert_not_called()
+    assert out["success"] is True
+
+
 def test_normalize_from_state_data_passes_prior_map():
     prior = {"att-1": {"is_valid_document": True, "confidence": 0.91}}
     normalizer = MagicMock()
