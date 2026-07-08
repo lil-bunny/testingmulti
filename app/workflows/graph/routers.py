@@ -6,7 +6,7 @@ from app.domain.load_tendering_settings import (
     resolve_load_type,
     routing_guide_max_attempts,
 )
-from app.domain.pod_lifecycle_guards import pod_email_status_eligible_from_turvo_payload
+from app.domain.pod_lifecycle.guards import pod_email_status_eligible_from_turvo_payload
 from app.domain.load_tendering_state import get_tender, get_tender_products
 from app.models.status import StatusSubType, StatusType
 from app.tools.driver_details import (
@@ -33,6 +33,8 @@ def pod_missing_dispatch_router(state):
     - anything else: no send; only scheduled reminders may mail.
     """
     if state.data.get("pod_exists"):
+        if state.data.get("event_type") == "reminder_due":
+            return "exists_on_reminder"
         return "exists"
     if state.data.get("event_type") == "route_completed":
         return "schedule_initial"

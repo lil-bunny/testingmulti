@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.domain.pod_lifecycle_guards import is_pod_processing_complete_sub_status
+from app.domain.pod_lifecycle.guards import (
+    is_pod_processing_complete_sub_status,
+    pod_reminder_skip_sub_statuses,
+)
 from app.models.status import StatusSubType
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle.ingress_service import PodLifecycleIngressService
 
 
 def test_is_pod_processing_complete_sub_status():
@@ -15,6 +18,10 @@ def test_is_pod_processing_complete_sub_status():
     assert is_pod_processing_complete_sub_status(StatusSubType.RESOLVED_MANUALLY)
     assert not is_pod_processing_complete_sub_status(StatusSubType.DOCUMENT_UPLOADED)
     assert not is_pod_processing_complete_sub_status(None)
+
+
+def test_pod_reminder_skip_sub_statuses_includes_document_processed():
+    assert StatusSubType.DOCUMENT_PROCESSED.value in pod_reminder_skip_sub_statuses()
 
 
 def test_is_duplicate_email_pod_ingest_when_processing_complete():

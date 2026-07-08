@@ -17,7 +17,7 @@ from app.models.tenants import TenantSlug
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
 )
-from app.services.pod_lifecycle_ingress_service import (
+from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
     PodLifecycleIngressService,
 )

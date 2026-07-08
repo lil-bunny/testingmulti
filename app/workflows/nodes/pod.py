@@ -9,10 +9,12 @@ from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.tools.document_analysis import upsert_document_analysis
 from app.tools.documents import insert_document
 from app.tools.pod import (
-    classify_attachments as get_normalized_attachments,
     load_ratecon_analysis as load_ratecon_analysis_tool,
     pod_analysis as get_pod_analysis,
     pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
+)
+from app.services.pod_lifecycle.attachment_normalize_service import (
+    PodAttachmentNormalizeService,
 )
 from app.services.ratecon_document_service import RateconDocumentService
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
@@ -67,7 +69,27 @@ def classify_attachments(state):
     """
     state.data["pod_source_object_keys"] = list(state.data.get("pod_object_keys") or [])
 
-    get_normalized_attachments(state)
+    result = PodAttachmentNormalizeService().normalize_from_state_data(state.data)
+    state.data["attachment_normalization"] = result
+
+    merged = result.get("pod_merged_pdf_object_key")
+    if result.get("success") and merged:
+        state.data["pod_object_keys"] = [merged]
+        state.data["pod_merged_pdf_object_key"] = merged
+        state.data["has_attachments"] = True
+    else:
+        state.data["pod_object_keys"] = []
+        state.data.pop("pod_merged_pdf_object_key", None)
+        state.data["has_attachments"] = False
+
+    logger.info(
+        "classify_attachments: shipment_id=%s input_keys=%s success=%s merged=%s rejected=%s",
+        resolve_shipment_id(state.data),
+        len(state.data.get("pod_source_object_keys") or []),
+        result.get("success"),
+        bool(merged),
+        len(result.get("rejected") or []),
+    )
 
     norm = state.data.get("attachment_normalization") or {}
     if not norm.get("success"):

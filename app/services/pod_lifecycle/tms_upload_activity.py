@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
-    format_pod_already_on_tms_action,
+    format_pod_found_in_tms_info,
     format_pod_upload_to_tms_failed_action,
     format_pod_uploaded_to_tms_action,
 )
@@ -17,8 +17,8 @@ from app.domain.activity_log_write import (
     ActivityLogStep,
 )
 from app.domain.error_catalog import IntegrationError
-from app.domain.pod_activity_metadata import tms_action_metadata
-from app.domain.pod_lifecycle_guards import is_manual_pod_upload
+from app.domain.pod_lifecycle.activity_metadata import tms_action_metadata
+from app.domain.pod_lifecycle.guards import is_manual_pod_upload
 from app.domain.state import WorkflowState
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
@@ -94,6 +94,11 @@ def _completed_transition_step(
     return None
 
 
+def pod_uploaded_to_tms_completion_step(*, scope: PodLifecycleScope) -> ActivityLogStep | None:
+    """Shared completed + uploaded_to_tms transition for TMS-skip and reminder-found paths."""
+    return _completed_transition_step(scope=_completion_scope(scope, is_manual=False))
+
+
 def _completed_steps(
     *,
     outcome: PodTmsUploadOutcome,
@@ -108,13 +113,22 @@ def _completed_steps(
         normalize = _manual_normalize_step(scope)
         if normalize is not None:
             steps.append(normalize)
-    steps.append(
-        ActivityLogStep(
-            activity_type=ActivityType.ACTION,
-            description=action_description,
-            metadata=action_meta,
-        ),
-    )
+    if outcome == "skipped":
+        steps.append(
+            ActivityLogStep(
+                activity_type=ActivityType.INFO,
+                description=format_pod_found_in_tms_info(),
+                metadata=None,
+            ),
+        )
+    else:
+        steps.append(
+            ActivityLogStep(
+                activity_type=ActivityType.ACTION,
+                description=action_description,
+                metadata=action_meta,
+            ),
+        )
     completion_scope = _completion_scope(scope, is_manual=is_manual)
     transition = _completed_transition_step(scope=completion_scope)
     if transition is not None:
@@ -144,9 +158,7 @@ def record_pod_tms_upload_activity(
 
     if outcome in ("uploaded", "skipped"):
         action_description = (
-            format_pod_uploaded_to_tms_action()
-            if outcome == "uploaded"
-            else format_pod_already_on_tms_action()
+            format_pod_uploaded_to_tms_action() if outcome == "uploaded" else ""
         )
         steps = _completed_steps(
             outcome=outcome,

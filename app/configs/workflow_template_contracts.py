@@ -28,6 +28,7 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "pod_reminder_sent",
             "pod_reminder_eligible",
             "pod_reminder_skip_reason",
+            "attachment_normalization",
         ],
     ),
     "ratecon": WorkflowTemplateContract(

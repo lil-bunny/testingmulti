@@ -45,6 +45,8 @@ class WorkflowRemindersConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     expire_grace_hours: float = Field(default=2.0, gt=0)
+    min_gap_hours: float = Field(default=3.0, ge=0)
+    catch_up_missed_steps: bool = True
     schedule_mode: Literal["delay_from_start", "before_pickup"] = "delay_from_start"
     offsets_before_pickup_hours: list[float] | None = None
     steps: list[ReminderStepSpec] | None = None

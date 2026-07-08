@@ -50,6 +50,6 @@ POD_VS_RATECON_VALIDATION_SKIPPED_TEMPLATE = (
 POD_VS_RATECON_VALIDATION_FAILED_ACTION = "POD vs ratecon validation failed"
 POD_UPLOADED_TO_TMS_ACTION = "POD document uploaded to TMS"
 POD_UPLOAD_TO_TMS_FAILED_ACTION = "POD upload to TMS failed"
-POD_ALREADY_ON_TMS_ACTION = "POD already present on TMS; upload skipped"
+POD_FOUND_IN_TMS_INFO = "Pod found in TMS"
 WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION = "Workflow review acknowledged"
 WORKFLOW_REVIEW_RESOLVED_ACTION = "Workflow review resolved"

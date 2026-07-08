@@ -8,8 +8,17 @@ from PIL import Image
 
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
-from app.services import pod_extraction as pod_extraction_service
-from app.services.pod_lifecycle_ingress_service import RouteCompletedDuplicateResult
+from app.services.pod_lifecycle import extraction as pod_extraction_service
+from app.services.pod_lifecycle.ingress_service import (
+    POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+    RouteCompletedDuplicateResult,
+    RouteCompletedIngressGateResult,
+)
+from app.services.pod_lifecycle.attachment_ingress_gate_service import (
+    PodAttachmentIngressGateResult,
+)
 from app.services.workflow_lifecycle_service import LifecycleResolution
 from app.services.workflow_service import WorkflowService
 from app.workflows.compiler.compiler import compile_graph
@@ -19,6 +28,40 @@ from app.workflows.nodes import email as email_nodes
 from app.workflows.nodes import turvo as turvo_nodes
 from app.workflows import registry as workflow_registry
 from botocore.stub import Stubber
+from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
+
+
+def _eligible_pod_attachment_gate_result() -> PodAttachmentIngressGateResult:
+    return PodAttachmentIngressGateResult(
+        eligible=True,
+        normalization={
+            "success": True,
+            "classification_by_attachment_id": {"att-1": {"is_valid_document": True}},
+        },
+    )
+
+
+def _mock_t3ra_tenant(monkeypatch, *, use_db_tenant: bool = True) -> dict:
+    """Patch tenant lookup; optional real DB row id for lifecycle FK tests."""
+    if use_db_tenant:
+        from app.services.tenants_service import TenantsService
+
+        real_row = TenantsService().get_by_slug("t3ra")
+        if real_row is None:
+            pytest.skip("t3ra tenant not in test DB")
+        row = {**real_row, "settings": minimal_t3ra_tenant_settings()}
+    else:
+        row = {
+            "id": "aaaaaaaa-bbbb-cccc-dddd-000000000001",
+            "slug": "t3ra",
+            "settings": minimal_t3ra_tenant_settings(),
+        }
+
+    monkeypatch.setattr(
+        "app.services.tenants_service.TenantsService.get_by_slug",
+        lambda self, slug: row if slug == "t3ra" else None,
+    )
+    return row
 
 
 @pytest.fixture
@@ -117,9 +160,96 @@ async def test_pod_lifecycle_route_completed_duplicate_returns_early(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_pod_lifecycle_route_completed_convoy_skip_returns_early(monkeypatch):
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService"
+    ) as ingress_cls:
+        ingress_cls.return_value.check_route_completed_duplicate.return_value = (
+            RouteCompletedDuplicateResult(is_duplicate=False)
+        )
+        ingress_cls.return_value.check_route_completed_convoy_gate = AsyncMock(
+            return_value=RouteCompletedIngressGateResult(
+                skip=True,
+                reason=ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+            )
+        )
+        ingress_cls.return_value.check_route_completed_pod_gate = AsyncMock(
+            return_value=RouteCompletedIngressGateResult(skip=False)
+        )
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+
+        execute_called = False
+
+        async def fake_execute(*args, **kwargs):
+            nonlocal execute_called
+            execute_called = True
+            return {}
+
+        monkeypatch.setattr(service.execution, "execute", fake_execute)
+
+        result = await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "route_completed",
+                "shipment_id": "1000304706",
+                "load_id": "56368",
+            },
+        )
+
+    assert execute_called is False
+    assert result["data"]["skipped_convoy_load"] is True
+    assert result["data"]["route_completed_skip_reason"] == ROUTE_COMPLETED_SKIP_CONVOY_LOAD
+
+
+@pytest.mark.asyncio
+async def test_pod_lifecycle_route_completed_pod_exists_skip_returns_early(monkeypatch):
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService"
+    ) as ingress_cls:
+        ingress_cls.return_value.check_route_completed_duplicate.return_value = (
+            RouteCompletedDuplicateResult(is_duplicate=False)
+        )
+        ingress_cls.return_value.check_route_completed_convoy_gate = AsyncMock(
+            return_value=RouteCompletedIngressGateResult(skip=False)
+        )
+        ingress_cls.return_value.check_route_completed_pod_gate = AsyncMock(
+            return_value=RouteCompletedIngressGateResult(
+                skip=True,
+                reason=ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+            )
+        )
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+
+        execute_called = False
+
+        async def fake_execute(*args, **kwargs):
+            nonlocal execute_called
+            execute_called = True
+            return {}
+
+        monkeypatch.setattr(service.execution, "execute", fake_execute)
+
+        result = await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "route_completed",
+                "shipment_id": "1000304706",
+                "load_id": "56368",
+            },
+        )
+
+    assert execute_called is False
+    assert result["data"]["skipped_pod_already_exists"] is True
+    assert result["data"]["route_completed_skip_reason"] == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS
+
+
+@pytest.mark.asyncio
 async def test_pod_lifecycle_email_received_routes_to_processing(
     mock_attachment_upload, monkeypatch
 ):
+    _mock_t3ra_tenant(monkeypatch)
     ship = f"S2-{uuid.uuid4().hex[:10]}"
     monkeypatch.setattr(
         pod_extraction_service,
@@ -198,6 +328,9 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         new=AsyncMock(side_effect=lambda **kwargs: dict(kwargs["payload"])),
     ):
         service = WorkflowService(WorkflowRepository(), TenantRepository())
+        service._pod_attachment_gate.check = AsyncMock(
+            return_value=_eligible_pod_attachment_gate_result()
+        )
 
         result = await service.run(
             tenant_slug="t3ra",
@@ -221,6 +354,7 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
 async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processing(
     mock_attachment_upload, monkeypatch
 ):
+    _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
     """Ingress enriches correlation keys; graph runs without mocking read_workflow_lifecycle."""
     ship = f"S2-{uuid.uuid4().hex[:10]}"
     shipments_row_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -296,6 +430,9 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         new=AsyncMock(side_effect=fake_prepare_email_received_payload),
     ) as mock_prepare:
         service = WorkflowService(WorkflowRepository(), TenantRepository())
+        service._pod_attachment_gate.check = AsyncMock(
+            return_value=_eligible_pod_attachment_gate_result()
+        )
 
         async def fake_execute(**kwargs):
             payload = kwargs.get("payload") or {}
@@ -339,6 +476,120 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
     assert result["data"]["shipments_row_id"] == shipments_row_id
     assert result["data"]["shipment"]["shipment_id"] == ship
     assert result["data"].get("pod_object_keys")
+
+
+@pytest.mark.asyncio
+async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_gate(monkeypatch):
+    _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
+    ship = f"S-gate-{uuid.uuid4().hex[:8]}"
+
+    async def fake_prepare(**kwargs):
+        base = dict(kwargs["payload"])
+        base["shipment_id"] = ship
+        base["email_id"] = "email-gate-1"
+        base["account_id"] = "acct-1"
+        return base
+
+    execute_called = False
+
+    async def fake_execute(**kwargs):
+        nonlocal execute_called
+        execute_called = True
+        return {}
+
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService.prepare_email_received_payload",
+        new=AsyncMock(side_effect=fake_prepare),
+    ):
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+        service._pod_attachment_gate.check = AsyncMock(
+            return_value=PodAttachmentIngressGateResult(
+                eligible=False,
+                skip_reason=POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+                normalization={"success": False, "error": "No valid document"},
+            )
+        )
+        monkeypatch.setattr(service.execution, "execute", fake_execute)
+
+        result = await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "email_received",
+                "thread_id": "thread-gate",
+                "attachments": [{"id": "att-bad"}],
+                "has_attachments": True,
+            },
+        )
+
+    assert execute_called is False
+    assert result["data"]["skipped_pod_email_ingress"] is True
+    assert result["data"]["pod_email_ingress_skip_reason"] == POD_EMAIL_SKIP_INVALID_ATTACHMENT
+
+
+@pytest.mark.asyncio
+async def test_pod_lifecycle_email_received_carries_attachment_normalization_from_gate(
+    monkeypatch,
+):
+    _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
+    ship = f"S-norm-{uuid.uuid4().hex[:8]}"
+    lifecycle_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    gate_norm = {
+        "success": True,
+        "classification_by_attachment_id": {
+            "att-1": {"is_valid_document": True, "confidence": 0.95},
+        },
+    }
+
+    async def fake_prepare(**kwargs):
+        base = dict(kwargs["payload"])
+        base["shipment_id"] = ship
+        base["workflow_lifecycle_id"] = lifecycle_id
+        return base
+
+    captured_payload: dict = {}
+
+    async def fake_execute(**kwargs):
+        captured_payload.update(kwargs.get("payload") or {})
+        return {
+            "tenant_id": kwargs.get("tenant_id"),
+            "tenant_slug": kwargs.get("tenant_slug"),
+            "execution_id": (kwargs.get("payload") or {}).get("execution_id"),
+            "data": dict(kwargs.get("payload") or {}),
+        }
+
+    with patch(
+        "app.services.workflow_service.PodLifecycleIngressService.prepare_email_received_payload",
+        new=AsyncMock(side_effect=fake_prepare),
+    ):
+        service = WorkflowService(WorkflowRepository(), TenantRepository())
+        service._pod_attachment_gate.check = AsyncMock(
+            return_value=PodAttachmentIngressGateResult(
+                eligible=True,
+                normalization=gate_norm,
+            )
+        )
+        monkeypatch.setattr(service.execution, "execute", fake_execute)
+        monkeypatch.setattr(
+            service.lifecycle_service,
+            "resolve_or_create_lifecycle",
+            lambda **kw: LifecycleResolution(
+                workflow_lifecycle_id=lifecycle_id,
+                existed=True,
+            ),
+        )
+
+        await service.run(
+            tenant_slug="t3ra",
+            workflow_name="pod_lifecycle",
+            payload={
+                "event_type": "email_received",
+                "thread_id": "thread-norm",
+                "attachments": [{"id": "att-1"}],
+            },
+        )
+
+    assert captured_payload.get("attachment_normalization") == gate_norm
 
 
 @pytest.mark.asyncio

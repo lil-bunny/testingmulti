@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ValidationError
-
-from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.status_parsing import sub_status_type_from_db
 from app.models.status import StatusSubType
 from app.models.workflow_run_event_type import WorkflowRunEventType
@@ -34,6 +31,21 @@ POD_PROCESSING_COMPLETE_SUB_STATUSES = frozenset(
 
 # Route complete, EnRoute, At Delivery — same set as shipment_router email_received gate.
 POD_EMAIL_ALLOWED_TURVO_STATUS_KEYS = frozenset({"2116", "2106", "2105"})
+
+
+def is_convoy_from_turvo_shipment_payload(shipment: dict[str, Any]) -> bool:
+    """True when carrier is Convoy — mirrors ``get_shipment`` node convoy detection."""
+    if not isinstance(shipment, dict):
+        return False
+    details = shipment.get("details") or {}
+    carrier_order = details.get("carrierOrder") or []
+    carrier_name = ""
+    if carrier_order and isinstance(carrier_order[0], dict):
+        carrier = carrier_order[0].get("carrier") or {}
+        carrier_name = str(carrier.get("name") or "")
+    if carrier_name:
+        return "convoy" in carrier_name.lower()
+    return bool(shipment.get("convoy", False))
 
 
 def pod_email_status_eligible_from_turvo_payload(shipment: dict[str, Any]) -> bool:
@@ -100,16 +112,29 @@ def should_skip_idempotent_pod_activity_log(
     return sub is not None and sub in done_sub_statuses
 
 
-def pod_reminder_skip_sub_statuses(data: dict[str, Any]) -> frozenset[str]:
-    """``tenant_settings.pod_lifecycle.reminders.skip_sub_statuses`` from graph state."""
-    block = (data.get("tenant_settings") or {}).get("pod_lifecycle")
-    if not isinstance(block, dict):
-        return frozenset()
-    raw_reminders = block.get("reminders")
-    if not isinstance(raw_reminders, dict):
-        return frozenset()
-    try:
-        cfg = WorkflowRemindersConfig.model_validate(raw_reminders)
-    except ValidationError:
-        return frozenset()
-    return frozenset(s.strip() for s in cfg.skip_sub_statuses if str(s).strip())
+def pod_reminder_skip_sub_statuses(_data: dict[str, Any] | None = None) -> frozenset[str]:
+    """Hardcoded reminder skip list — same milestones as duplicate-email POD complete gate."""
+    return frozenset(s.value for s in POD_PROCESSING_COMPLETE_SUB_STATUSES)
+
+
+def pod_attachment_gate_eligible(normalization: dict[str, Any]) -> bool:
+    """True when attachment assess/normalize succeeded."""
+    return bool(normalization.get("success"))
+
+
+def pod_attachment_gate_skip_reason(normalization: dict[str, Any]) -> str | None:
+    """Skip reason from assess/normalize failure; None when eligible."""
+    if pod_attachment_gate_eligible(normalization):
+        return None
+    err = str(normalization.get("error") or "")
+    if (
+        "rejected_by_classifier" in err
+        or "No valid document" in err
+        or err.startswith("prefilter:")
+    ):
+        return "invalid_attachment"
+    if err in ("download_failed",) or "unsupported_type" in err:
+        return "unsupported_attachment"
+    if err == "No attachments provided":
+        return "no_attachments"
+    return "attachment_normalization_failed"

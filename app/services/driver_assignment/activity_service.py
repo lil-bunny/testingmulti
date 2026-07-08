@@ -28,7 +28,7 @@ from app.services.driver_assignment.shipment_driver_details_service import (
 )
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
-from app.services.workflow_reminder_service import parse_reminders_for_workflow
+from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
 from app.tools.driver_details import normalize_phone_digits
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 
@@ -94,13 +94,7 @@ class DriverAssignmentActivityService:
 
     @staticmethod
     def _skip_sub_statuses_from_state(state) -> frozenset[str]:
-        data = getattr(state, "data", None) or {}
-        if not isinstance(data, dict):
-            return frozenset()
-        cfg = parse_reminders_for_workflow(data, _DRIVER_ASSIGNMENT_WORKFLOW)
-        if cfg is None:
-            return frozenset()
-        return frozenset(s.strip() for s in cfg.skip_sub_statuses if str(s).strip())
+        return driver_assignment_reminder_skip_sub_statuses()
 
     @staticmethod
     def _sub_status_for_reminder_step(step: int) -> StatusSubType | None:

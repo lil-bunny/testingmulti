@@ -54,7 +54,7 @@ def test_upload_pod_403_when_header_tenant_conflicts(client, monkeypatch):
 
 
 def test_upload_pod_authenticated_success(client, monkeypatch):
-    from app.services.pod_manual_upload_ingress_service import PodManualUploadEnqueueResult
+    from app.services.pod_lifecycle.manual_upload_ingress_service import PodManualUploadEnqueueResult
 
     user = make_test_api_user()
     app.dependency_overrides[get_current_user] = lambda: user

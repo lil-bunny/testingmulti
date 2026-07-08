@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from app.domain.pod_lifecycle_guards import is_email_pod_event
+from app.domain.pod_lifecycle.guards import is_email_pod_event
 
 POD_ACTIVITY_METADATA_FORBIDDEN_KEYS: frozenset[str] = frozenset(
     {

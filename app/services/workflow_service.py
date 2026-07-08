@@ -3,9 +3,15 @@ from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_mode
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
-from app.services.pod_lifecycle_ingress_service import (
+from app.services.pod_lifecycle.ingress_service import (
+    POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
+)
+from app.services.pod_lifecycle.attachment_ingress_gate_service import (
+    PodAttachmentIngressGateService,
 )
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -79,6 +85,7 @@ class WorkflowService:
         self.tenants_service = TenantsService()
         self._ratecon_ingress = RateconIngressService()
         self._pod_lifecycle_ingress = PodLifecycleIngressService()
+        self._pod_attachment_gate = PodAttachmentIngressGateService()
         self._driver_assignment_ingress = DriverAssignmentIngressService()
 
     @staticmethod
@@ -109,10 +116,18 @@ class WorkflowService:
         tenant_slug: str,
         payload: dict,
         lifecycle_id: str | None,
+        reason: str | None = None,
     ) -> dict:
         execution_id = str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
         data = dict(payload)
-        data["skipped_duplicate_route_completed"] = True
+        if reason == ROUTE_COMPLETED_SKIP_CONVOY_LOAD:
+            data["skipped_convoy_load"] = True
+            data["route_completed_skip_reason"] = reason
+        elif reason == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS:
+            data["skipped_pod_already_exists"] = True
+            data["route_completed_skip_reason"] = reason
+        else:
+            data["skipped_duplicate_route_completed"] = True
         if lifecycle_id:
             data["workflow_lifecycle_id"] = lifecycle_id
         return {
@@ -214,6 +229,18 @@ class WorkflowService:
                     shipments_row_id=skip.shipments_row_id,
                 )
 
+            gate = await self._pod_attachment_gate.check(payload=payload)
+            if not gate.eligible:
+                return self._skipped_pod_email_ingress_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    reason=gate.skip_reason or POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+                    shipments_row_id=payload.get("shipments_row_id"),
+                )
+            if gate.normalization:
+                payload["attachment_normalization"] = gate.normalization
+
         if (
             workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "route_completed"
@@ -228,6 +255,32 @@ class WorkflowService:
                     tenant_slug=tenant_slug,
                     payload=payload,
                     lifecycle_id=duplicate.lifecycle_id,
+                )
+
+            convoy_gate = await self._pod_lifecycle_ingress.check_route_completed_convoy_gate(
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if convoy_gate.skip:
+                return self._skipped_route_completed_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    lifecycle_id=None,
+                    reason=convoy_gate.reason or ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+                )
+
+            pod_gate = await self._pod_lifecycle_ingress.check_route_completed_pod_gate(
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if pod_gate.skip:
+                return self._skipped_route_completed_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    lifecycle_id=None,
+                    reason=pod_gate.reason or ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
                 )
 
         lifecycle = (

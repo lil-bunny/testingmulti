@@ -20,12 +20,14 @@ def test_pod_lifecycle_pod_request_graph():
     assert "record_pod_vs_ratecon_activity" in names
     assert "record_pod_processed_activity" in names
     assert "check_pod_reminder_eligibility" in names
+    assert "complete_pod_found_in_tms" in names
 
     routers = graph["routers"]
     assert "check_pod_request_triggered" not in routers
     assert routers["route_event"]["map"]["route_completed"] == "get_shipment"
     assert "check_existing_pod" in routers
     assert routers["check_existing_pod"]["map"]["skip_send"] == "end"
+    assert routers["check_existing_pod"]["map"]["exists_on_reminder"] == "complete_pod_found_in_tms"
     assert routers["check_existing_pod"]["map"]["schedule_initial"] == "record_and_schedule_pod_request"
     assert routers["check_existing_pod"]["map"]["send_now"] == "check_pod_reminder_eligibility"
     assert routers["check_pod_reminder_eligibility"]["router"] == "pod_reminder_eligibility_router"
@@ -61,6 +63,7 @@ def test_pod_lifecycle_pod_request_graph():
     assert ("record_pod_reminder_activity", "end") in edges
     assert ("record_and_schedule_pod_request", "record_pod_started_activity") in edges
     assert ("record_pod_started_activity", "end") in edges
+    assert ("complete_pod_found_in_tms", "end") in edges
 
 
 def test_ratecon_graph():

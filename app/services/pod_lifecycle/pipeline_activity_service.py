@@ -14,12 +14,12 @@ from app.domain.activity_log_descriptions import (
     format_reminder_sent_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
-from app.domain.pod_activity_metadata import (
+from app.domain.pod_lifecycle.activity_metadata import (
     extraction_action_metadata,
     reminder_action_metadata,
     vs_ratecon_action_metadata,
 )
-from app.domain.pod_lifecycle_guards import (
+from app.domain.pod_lifecycle.guards import (
     POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
     pod_reminder_skip_sub_statuses,
     pod_upload_success_from_state,

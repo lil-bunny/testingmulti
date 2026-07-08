@@ -1,4 +1,4 @@
-"""Tests for app.services.pod_pdf_optimizer."""
+"""Tests for app.services.pod_lifecycle.pdf_optimizer."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import img2pdf
 import pytest
 from PIL import Image
 
-from app.services.pod_pdf_optimizer import (
+from app.services.pod_lifecycle.pdf_optimizer import (
     PodPdfOptimizeError,
     optimize_for_tms_upload,
 )
@@ -42,7 +42,7 @@ def test_optimize_compresses_oversized_pdf():
     fake_image = Image.new("RGB", (800, 1000), color=(255, 255, 255))
 
     with patch(
-        "app.services.pod_pdf_optimizer.convert_from_path",
+        "app.services.pod_lifecycle.pdf_optimizer.convert_from_path",
         return_value=[fake_image, fake_image],
     ):
         out, meta = optimize_for_tms_upload(
@@ -66,10 +66,10 @@ def test_optimize_raises_when_still_too_large():
     fake_image = Image.new("RGB", (2000, 2000), color=(0, 0, 0))
 
     with patch(
-        "app.services.pod_pdf_optimizer.convert_from_path",
+        "app.services.pod_lifecycle.pdf_optimizer.convert_from_path",
         return_value=[fake_image],
     ), patch(
-        "app.services.pod_pdf_optimizer.img2pdf.convert",
+        "app.services.pod_lifecycle.pdf_optimizer.img2pdf.convert",
         return_value=b"x" * 500,
     ):
         with pytest.raises(PodPdfOptimizeError):

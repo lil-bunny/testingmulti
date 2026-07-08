@@ -9,7 +9,7 @@ from typing import Any, Literal
 from app.core.logger import get_logger
 from app.models.tenants import TenantSlug
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.services.pod_tms_upload_service import (
+from app.services.pod_lifecycle.tms_upload_service import (
     POD_LIFECYCLE_WORKFLOW,
     PodLifecycleNotFoundError,
     PodTmsUploadService,

@@ -40,7 +40,6 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                     {"step": 5, "event_type": "escalation_due", "delay_hours": 0.016666666666666666},
                 ],
                 "expire_grace_hours": 2,
-                "skip_sub_statuses": ["uploaded_to_tms", "escalated"],
                 "email_template_html": "<html>driver-reminder</html>",
             },
             "confirmation_email": {

@@ -15,11 +15,11 @@ from app.api.deps import (
 from app.api.security import portal_bearer
 from app.core.logger import get_logger
 from app.domain.api_user import ApiUser
-from app.services.pod_manual_upload_ingress_service import (
+from app.services.pod_lifecycle.manual_upload_ingress_service import (
     PodLifecycleNotFoundError,
     PodManualUploadIngressService,
 )
-from app.services.pod_tms_upload_service import (
+from app.services.pod_lifecycle.tms_upload_service import (
     PodDocumentNotFoundError,
     PodTmsUploadService,
 )

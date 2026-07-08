@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.reminder_schedule import WorkflowRemindersConfig
+from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
 
 
 class DriverAssignmentEscalateSettings(BaseModel):
@@ -54,19 +54,7 @@ def parse_driver_assignment_escalate_settings(
 def skip_sub_statuses_from_driver_assignment_settings(
     tenant_settings: dict[str, Any] | None,
 ) -> frozenset[str]:
-    if not isinstance(tenant_settings, dict):
-        return frozenset()
-    block = tenant_settings.get("driver_assignment")
-    if not isinstance(block, dict):
-        return frozenset()
-    raw = block.get("reminders")
-    if not isinstance(raw, dict):
-        return frozenset()
-    try:
-        cfg = WorkflowRemindersConfig.model_validate(raw)
-    except Exception:
-        return frozenset()
-    return frozenset(s.strip() for s in cfg.skip_sub_statuses if str(s).strip())
+    return driver_assignment_reminder_skip_sub_statuses(tenant_settings)
 
 
 def format_driver_escalation_title(

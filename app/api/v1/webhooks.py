@@ -20,9 +20,14 @@ from app.integrations.turvo.webhook_mapping import (
 )
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
+from app.services.pod_lifecycle.ingress_service import (
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+    PodLifecycleIngressService,
+)
 from app.domain.unipile_email import extract_email_id_or_none
 from app.services.inbound_webhook_enqueue import enqueue_inbound_unipile_email
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle.ingress_service import PodLifecycleIngressService
 from app.services.shipments_service import ShipmentsService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.integrations.turvo.workflow_cancel import shipment_tendered_trigger_from_turvo
@@ -245,6 +250,40 @@ async def listen_turvo_status(
                 content={
                     "skipped": "duplicate_route_completed",
                     "lifecycle_id": duplicate.lifecycle_id,
+                },
+            )
+
+        convoy_gate = await pod_lifecycle_ingress_service.check_route_completed_convoy_gate(
+            tenant_slug=workflow_tenant,
+            payload=payload,
+        )
+        if convoy_gate.skip:
+            logger.info(
+                "Turvo webhook skipped: convoy load shipment_number=%s",
+                external_shipment_number,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "skipped": ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+                    "shipment_id": external_shipment_number,
+                },
+            )
+
+        pod_gate = await pod_lifecycle_ingress_service.check_route_completed_pod_gate(
+            tenant_slug=workflow_tenant,
+            payload=payload,
+        )
+        if pod_gate.skip:
+            logger.info(
+                "Turvo webhook skipped: POD already exists shipment_number=%s",
+                external_shipment_number,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "skipped": ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+                    "shipment_id": external_shipment_number,
                 },
             )
 

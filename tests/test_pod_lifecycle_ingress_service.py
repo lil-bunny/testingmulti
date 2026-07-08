@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pod_lifecycle_ingress_service import (
+from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
     POD_EMAIL_SKIP_TURVO_FETCH_FAILED,
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
 )
@@ -32,7 +34,7 @@ def _valid_turvo_shipment(status_key: str = "2116") -> dict:
 
 def _patch_valid_turvo_get():
     return patch(
-        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
         new_callable=AsyncMock,
         return_value=_valid_turvo_shipment(),
     )
@@ -132,6 +134,102 @@ def test_check_route_completed_duplicate_resolves_shipments_row_from_turvo_numbe
         tenant_id=_TENANT_UUID,
         shipment_number=_TURVO_SHIPMENT,
     )
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_convoy_gate_skips_convoy_carrier() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        return_value={
+            "details": {"carrierOrder": [{"carrier": {"name": "Convoy Platform"}}]},
+        },
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_convoy_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is True
+    assert result.reason == ROUTE_COMPLETED_SKIP_CONVOY_LOAD
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_convoy_gate_proceeds_for_non_convoy() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        return_value={
+            "details": {"carrierOrder": [{"carrier": {"name": "Acme Trucking"}}]},
+        },
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_convoy_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_convoy_gate_fail_open_on_turvo_error() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("turvo down"),
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_convoy_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_pod_gate_skips_when_pod_exists() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        new_callable=AsyncMock,
+        return_value={"success": True, "pod_exists": True},
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_pod_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is True
+    assert result.reason == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_pod_gate_proceeds_when_no_pod() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        new_callable=AsyncMock,
+        return_value={"success": True, "pod_exists": False},
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_pod_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_pod_gate_fail_open_on_turvo_error() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        new_callable=AsyncMock,
+        return_value={"success": False, "pod_exists": False},
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_pod_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
 
 
 @pytest.mark.asyncio
@@ -352,7 +450,7 @@ async def test_prepare_email_received_payload_skips_invalid_shipment_status() ->
     )
 
     with patch(
-        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
         new_callable=AsyncMock,
         return_value=_valid_turvo_shipment("2102"),
     ):
@@ -386,7 +484,7 @@ async def test_prepare_email_received_payload_skips_turvo_fetch_failed() -> None
     )
 
     with patch(
-        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
         new_callable=AsyncMock,
         side_effect=RuntimeError("turvo timeout"),
     ):

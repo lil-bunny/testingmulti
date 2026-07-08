@@ -13,7 +13,7 @@ from app.domain.tenant_settings.workflow_shadow_mode import (
     parse_shadow_mail_recipients,
     workflow_shadow_active,
 )
-from app.domain.pod_lifecycle_settings import resolve_mikey_mailbox
+from app.domain.pod_lifecycle.settings import resolve_mikey_mailbox
 from app.tools.driver_details import render_driver_confirmation_html
 from app.services.driver_assignment.ingress_types import SendReminderResult
 from app.services.unipile_service import UnipileException

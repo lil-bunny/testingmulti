@@ -12,11 +12,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle_guards import (
+from app.domain.pod_lifecycle.guards import (
+    is_convoy_from_turvo_shipment_payload,
     is_pod_processing_complete_sub_status,
     pod_email_status_eligible_from_turvo_payload,
 )
 from app.domain.status_parsing import sub_status_type_from_db
+from app.integrations.turvo.documents import check_pod_by_shipment_id
 from app.domain.unipile_email_thread import resolve_primary_shipment_from_thread_rows
 from app.integrations.turvo.shipments import get_shipment
 from app.models.workflow_run_event_type import WorkflowRunEventType
@@ -31,6 +33,9 @@ POD_LIFECYCLE_WORKFLOW = "pod_lifecycle"
 RATECON_GATE_WORKFLOW = "ratecon"
 POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS = "invalid_shipment_status"
 POD_EMAIL_SKIP_TURVO_FETCH_FAILED = "turvo_shipment_fetch_failed"
+POD_EMAIL_SKIP_INVALID_ATTACHMENT = "invalid_attachment"
+ROUTE_COMPLETED_SKIP_CONVOY_LOAD = "convoy_load"
+ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS = "pod_already_exists"
 
 
 class PodEmailIngressSkipped(Exception):
@@ -55,6 +60,9 @@ class RouteCompletedDuplicateResult:
 
 
 @dataclass(frozen=True)
+class RouteCompletedIngressGateResult:
+    skip: bool
+    reason: str | None = None
 class PodEmailReceivedPrepareResult:
     workflow_payload: dict[str, Any] | None = None
     is_duplicate: bool = False
@@ -423,6 +431,73 @@ class PodLifecycleIngressService:
             lifecycle_id=lifecycle_id,
             shipments_row_id=shipments_row_id,
         )
+
+    async def check_route_completed_convoy_gate(
+        self,
+        *,
+        tenant_slug: str,
+        payload: dict[str, Any],
+    ) -> RouteCompletedIngressGateResult:
+        """Skip route_completed ingress when Turvo shipment is a Convoy load."""
+        if self._clean(payload.get("event_type")) != WorkflowRunEventType.ROUTE_COMPLETED.value:
+            return RouteCompletedIngressGateResult(skip=False)
+
+        slug = self._clean(tenant_slug)
+        shipment_id = self._clean(payload.get("shipment_id"))
+        if not slug or not shipment_id:
+            return RouteCompletedIngressGateResult(skip=False)
+
+        try:
+            shipment = await get_shipment(slug, shipment_id)
+        except Exception as exc:
+            logger.warning(
+                "pod route_completed ingress: turvo get_shipment failed tenant_slug=%s "
+                "shipment_id=%s error=%s",
+                slug,
+                shipment_id,
+                exc,
+            )
+            return RouteCompletedIngressGateResult(skip=False)
+
+        if is_convoy_from_turvo_shipment_payload(shipment):
+            logger.info(
+                "pod route_completed ingress: convoy load skipped tenant_slug=%s shipment_id=%s",
+                slug,
+                shipment_id,
+            )
+            return RouteCompletedIngressGateResult(
+                skip=True,
+                reason=ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+            )
+        return RouteCompletedIngressGateResult(skip=False)
+
+    async def check_route_completed_pod_gate(
+        self,
+        *,
+        tenant_slug: str,
+        payload: dict[str, Any],
+    ) -> RouteCompletedIngressGateResult:
+        """Skip route_completed ingress when Turvo documents list already has POD."""
+        if self._clean(payload.get("event_type")) != WorkflowRunEventType.ROUTE_COMPLETED.value:
+            return RouteCompletedIngressGateResult(skip=False)
+
+        slug = self._clean(tenant_slug)
+        shipment_id = self._clean(payload.get("shipment_id"))
+        if not slug or not shipment_id:
+            return RouteCompletedIngressGateResult(skip=False)
+
+        result = await check_pod_by_shipment_id(slug, shipment_id)
+        if result.get("success") and result.get("pod_exists"):
+            logger.info(
+                "pod route_completed ingress: POD already exists tenant_slug=%s shipment_id=%s",
+                slug,
+                shipment_id,
+            )
+            return RouteCompletedIngressGateResult(
+                skip=True,
+                reason=ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+            )
+        return RouteCompletedIngressGateResult(skip=False)
 
     def _resolve_email_pod_lifecycle_id(
         self,

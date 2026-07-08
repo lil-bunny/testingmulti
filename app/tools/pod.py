@@ -10,9 +10,9 @@ from app.services.attachment_normalizer import (
     AttachmentNormalizerService,
     _sanitize_path_segment,
 )
-from app.services.pod_extraction import extract_from_pdf_path as extract_pod_from_pdf_path
-from app.services.pod_extraction import pod_confidence_score
-from app.services.pod_vs_ratecon_validation import (
+from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
+from app.services.pod_lifecycle.extraction import pod_confidence_score
+from app.services.pod_lifecycle.vs_ratecon_validation import (
     generate_validation_summary,
     validate_pod_against_ratecon,
 )

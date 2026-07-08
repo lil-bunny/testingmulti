@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle_settings import resolve_mikey_mailbox
+from app.domain.pod_lifecycle.settings import resolve_mikey_mailbox
 from app.domain.tenant_settings.workflow_shadow_mode import (
     parse_shadow_mail_recipients,
     workflow_shadow_active,

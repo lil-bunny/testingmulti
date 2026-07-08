@@ -9,7 +9,10 @@ from typing import Any, Callable
 from pydantic import ValidationError
 
 from app.core.logger import get_logger
+from app.domain.before_pickup_reminder_plan import plan_before_pickup_reminders
+from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
 from app.domain.load_tendering_settings import load_type_bucket, resolve_load_type
+from app.domain.pod_lifecycle.guards import pod_reminder_skip_sub_statuses
 from app.domain.reminder_schedule import ReminderStepSpec, WorkflowRemindersConfig
 from app.domain.gelita.routing_guide_lifecycle import optional_routing_guide_attempt
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -67,6 +70,17 @@ def _reminder_offset_label(hours: float) -> str:
 def _tenant_settings_root(data: dict[str, Any]) -> dict[str, Any]:
     raw = data.get("tenant_settings")
     return raw if isinstance(raw, dict) else {}
+
+
+def _reminder_skip_sub_statuses(
+    workflow_name: str, reminders: WorkflowRemindersConfig
+) -> frozenset[str]:
+    wf = (workflow_name or "").strip()
+    if wf == "pod_lifecycle":
+        return pod_reminder_skip_sub_statuses()
+    if wf == "driver_assignment":
+        return driver_assignment_reminder_skip_sub_statuses()
+    return frozenset(s.strip() for s in reminders.skip_sub_statuses if str(s).strip())
 
 
 def parse_reminders_for_workflow(
@@ -199,6 +213,16 @@ def _parse_pickup_appointment_at(data: dict[str, Any]) -> datetime | None:
         return None
 
 
+def _resolve_step_num(steps: list[ReminderStepSpec], step: ReminderStepSpec) -> int:
+    for index, candidate in enumerate(steps, start=1):
+        if (
+            float(candidate.delay_hours) == float(step.delay_hours)
+            and candidate.event_type == step.event_type
+        ):
+            return step.step if step.step is not None else index
+    return step.step if step.step is not None else 1
+
+
 class WorkflowReminderService:
     def _register_queued_tasks(
         self,
@@ -256,7 +280,8 @@ class WorkflowReminderService:
                 return
 
         wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
-        if reminders.skip_sub_statuses:
+        skip_sub_statuses = _reminder_skip_sub_statuses(wf, reminders)
+        if skip_sub_statuses:
             lifecycle_service = WorkflowLifecycleService()
             row = lifecycle_service.read_lifecycle_row_by_id(wl_id)
             if not row:
@@ -267,7 +292,7 @@ class WorkflowReminderService:
                 )
                 return
             current_sub = str(row.get("sub_status") or "").strip()
-            if current_sub in frozenset(reminders.skip_sub_statuses):
+            if current_sub in skip_sub_statuses:
                 data["reminders_scheduled"] = True
                 return
 
@@ -337,37 +362,51 @@ class WorkflowReminderService:
             return
 
         now = datetime.now(timezone.utc)
+        plan = plan_before_pickup_reminders(
+            pickup_at=pickup_at,
+            now=now,
+            steps=steps,
+            min_gap_hours=float(reminders.min_gap_hours),
+            catch_up_enabled=reminders.catch_up_missed_steps,
+        )
+
         base_payload = build_enqueue_payload(
             data, workflow_name=workflow_name, reminders=reminders
         )
-        reminder_steps: list[dict[str, Any]] = []
-        skipped_steps: list[dict[str, Any]] = []
-        to_enqueue: list[tuple[datetime, dict[str, Any], ReminderStepSpec]] = []
+        tz = data.get("pickup_appointment_timezone")
+        tz_str = str(tz).strip() if tz is not None and str(tz).strip() else None
 
-        for index, step in enumerate(steps, start=1):
-            step_num = step.step if step.step is not None else index
-            offset = float(step.delay_hours)
-            fire_at = pickup_at - timedelta(hours=offset)
-            step_info = {
-                "step": step_num,
-                "delay_hours": offset,
-                "fire_at": fire_at.isoformat(),
-            }
-            if fire_at <= now:
-                skipped_steps.append(step_info)
-                continue
-
-            reminder_steps.append(step_info)
+        def _step_payload(step: ReminderStepSpec, step_num: int) -> dict[str, Any]:
             payload = enrich_step_payload(
                 base_payload, step=step, reminders=reminders, data=data
             )
             if step.step is None:
                 payload["reminder_step"] = step_num
             payload["pickup_appointment_at"] = pickup_at.isoformat()
-            tz = data.get("pickup_appointment_timezone")
-            if tz is not None and str(tz).strip():
-                payload["pickup_appointment_timezone"] = str(tz).strip()
-            to_enqueue.append((fire_at, payload, step))
+            if tz_str:
+                payload["pickup_appointment_timezone"] = tz_str
+            return payload
+
+        to_enqueue: list[tuple[datetime, dict[str, Any], ReminderStepSpec]] = []
+
+        if plan.catch_up is not None:
+            catch_num = _resolve_step_num(steps, plan.catch_up)
+            to_enqueue.append(
+                (now, _step_payload(plan.catch_up, catch_num), plan.catch_up)
+            )
+
+        for step, fire_at in plan.scheduled:
+            step_num = _resolve_step_num(steps, step)
+            to_enqueue.append((fire_at, _step_payload(step, step_num), step))
+
+        reminder_steps = [
+            {
+                "step": _resolve_step_num(steps, step),
+                "delay_hours": float(step.delay_hours),
+                "fire_at": fire_at.isoformat(),
+            }
+            for step, fire_at in plan.scheduled
+        ]
 
         if to_enqueue:
             latest_fire_at = max(fire_at for fire_at, _, _ in to_enqueue)
@@ -405,10 +444,21 @@ class WorkflowReminderService:
             return
 
         self._register_queued_tasks(data, queued=queued, steps=enqueued_steps)
+
+        catch_up_info: dict[str, Any] | None = None
+        if plan.catch_up is not None:
+            catch_up_info = {
+                "step": _resolve_step_num(steps, plan.catch_up),
+                "delay_hours": float(plan.catch_up.delay_hours),
+            }
+
         data["driver_reminder_schedule"] = {
             "pickup_appointment_at": pickup_at.isoformat(),
             "pickup_appointment_timezone": data.get("pickup_appointment_timezone"),
+            "hours_remaining_at_schedule": plan.hours_remaining,
+            "catch_up": catch_up_info,
             "reminder_steps": reminder_steps,
-            "skipped_steps": skipped_steps,
+            "suppressed_steps": plan.suppressed,
+            "skipped_steps": plan.skipped,
         }
         data["reminders_scheduled"] = True

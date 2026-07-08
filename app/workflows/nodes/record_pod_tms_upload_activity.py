@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.pod_tms_upload_activity import record_pod_tms_upload_from_state
+from app.services.pod_lifecycle.tms_upload_activity import record_pod_tms_upload_from_state
 
 
 def record_pod_tms_upload_activity(state):

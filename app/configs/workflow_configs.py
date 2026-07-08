@@ -7,6 +7,7 @@ WORKFLOW_CONFIGS = {
             "get_shipment",
             "read_workflow_lifecycle",
             "check_existing_pod",
+            "complete_pod_found_in_tms",
             "check_pod_reminder_eligibility",
             "send_email",
             "record_and_schedule_pod_request",
@@ -41,6 +42,7 @@ WORKFLOW_CONFIGS = {
             ["record_pod_reminder_activity", "end"],
             ["record_and_schedule_pod_request", "record_pod_started_activity"],
             ["record_pod_started_activity", "end"],
+            ["complete_pod_found_in_tms", "end"],
         ],
         "routers": {
             "route_event": {
@@ -69,6 +71,7 @@ WORKFLOW_CONFIGS = {
                 "router": "pod_missing_dispatch",
                 "map": {
                     "exists": "end",
+                    "exists_on_reminder": "complete_pod_found_in_tms",
                     "schedule_initial": "record_and_schedule_pod_request",  # no send_email on initial
                     "send_now": "check_pod_reminder_eligibility",  # reminder_due path
                     "skip_send": "end",
