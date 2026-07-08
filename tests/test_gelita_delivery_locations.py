@@ -14,9 +14,6 @@ from app.repositories.tenders_repository import TenderInsertResult
 from app.services.delivery_locations_data_import import (
     load_delivery_location_rows_from_data_import,
 )
-from app.services.delivery_locations_email_ingest_service import (
-    process_delivery_locations_from_email_webhook,
-)
 from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.gelita_email_ingress_service import GelitaEmailIngressService
 from app.services.tenders_ingest_service import TendersIngestService
@@ -65,16 +62,15 @@ def _ingest_svc_with_products(repo: MagicMock) -> TendersIngestService:
 
 
 @patch("app.services.gelita_email_ingress_service.process_tender_created_from_email_webhook", new_callable=AsyncMock)
-@patch("app.services.gelita_email_ingress_service.process_delivery_locations_from_email_webhook", new_callable=AsyncMock)
+@patch(
+    "app.services.gelita_email_ingress_service.process_email_webhook_attachment_import_for_attachment",
+    new_callable=AsyncMock,
+)
 def test_gelita_dl_only_email_runs_delivery_locations_not_tender(
-    mock_dl_process: AsyncMock,
-    mock_tender_process: AsyncMock,
+    mock_delivery_locations_attachment_import: AsyncMock,
+    mock_tender_created_ingest: AsyncMock,
 ) -> None:
-    mock_dl_process.return_value = {
-        "message": "success",
-        "event_type": "delivery_locations_updated",
-        "data_import_id": "import-1",
-    }
+    mock_delivery_locations_attachment_import.return_value = "import-1"
     payload = {
         "webhook_name": "gelita",
         "has_attachments": True,
@@ -93,22 +89,23 @@ def test_gelita_dl_only_email_runs_delivery_locations_not_tender(
 
     assert result.outcome == "processed"
     assert result.event_type == "delivery_locations_updated"
-    mock_dl_process.assert_called_once()
-    mock_tender_process.assert_not_called()
+    mock_delivery_locations_attachment_import.assert_called_once()
+    import_call_kwargs = mock_delivery_locations_attachment_import.call_args.kwargs
+    assert import_call_kwargs["attachment"]["name"] == "delivery_location.xlsx"
+    mock_tender_created_ingest.assert_not_called()
 
 
 @patch("app.services.gelita_email_ingress_service.process_tender_created_from_email_webhook", new_callable=AsyncMock)
-@patch("app.services.gelita_email_ingress_service.process_delivery_locations_from_email_webhook", new_callable=AsyncMock)
+@patch(
+    "app.services.gelita_email_ingress_service.process_email_webhook_attachment_import_for_attachment",
+    new_callable=AsyncMock,
+)
 def test_gelita_email_with_dl_and_tender_runs_both(
-    mock_dl_process: AsyncMock,
-    mock_tender_process: AsyncMock,
+    mock_delivery_locations_attachment_import: AsyncMock,
+    mock_tender_created_ingest: AsyncMock,
 ) -> None:
-    mock_dl_process.return_value = {
-        "message": "success",
-        "event_type": "delivery_locations_updated",
-        "data_import_id": "import-1",
-    }
-    mock_tender_process.return_value = {
+    mock_delivery_locations_attachment_import.return_value = "import-1"
+    mock_tender_created_ingest.return_value = {
         "message": "success",
         "event_type": "tender_created",
         "execution_ids": ["exec-1"],
@@ -130,28 +127,38 @@ def test_gelita_email_with_dl_and_tender_runs_both(
         )
     )
 
-    mock_dl_process.assert_called_once()
-    mock_tender_process.assert_called_once()
+    mock_delivery_locations_attachment_import.assert_called_once()
+    mock_tender_created_ingest.assert_called_once()
+    tender_created_call_kwargs = mock_tender_created_ingest.call_args.kwargs
+    assert (
+        tender_created_call_kwargs["attachment"]["name"]
+        == "customers_orders_ship_schedule.xlsx"
+    )
 
 
 @pytest.mark.asyncio
-async def test_process_delivery_locations_from_email_webhook_persists_import() -> None:
+async def test_gelita_process_persists_delivery_locations_import() -> None:
     with patch(
-        "app.services.delivery_locations_email_ingest_service."
-        "process_delivery_locations_attachment_import",
+        "app.services.gelita_email_ingress_service."
+        "process_email_webhook_attachment_import_for_attachment",
         new_callable=AsyncMock,
         return_value=_DATA_IMPORT_ID,
-    ):
-        result = await process_delivery_locations_from_email_webhook(
-            payload={"email_id": "e1"},
-            tenant_uuid=_TENANT_UUID,
+    ) as mock_import:
+        svc = GelitaEmailIngressService()
+        result = await svc.process(
+            payload={
+                "has_attachments": True,
+                "attachments": [
+                    {"id": "1", "extension": "xlsx", "name": "delivery_location.xlsx"},
+                ],
+            },
+            tenant=_gelita_tenant(),
+            communication_id="comm-1",
         )
 
-    assert result == {
-        "message": "success",
-        "event_type": "delivery_locations_updated",
-        "data_import_id": _DATA_IMPORT_ID,
-    }
+    assert result.outcome == "processed"
+    assert result.event_type == "delivery_locations_updated"
+    mock_import.assert_called_once()
 
 
 def test_gelita_wide_column_mapping_materializes_address_fields() -> None:

@@ -7,7 +7,7 @@ from typing import Any
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.domain.delivery_locations import rows_from_spreadsheet_sheets
-from app.domain.delivery_locations_import import (
+from app.domain.gelita.email_attachments import (
     DELIVERY_LOCATIONS_FILE_NAME,
     DELIVERY_LOCATIONS_SHEET_NAME,
 )

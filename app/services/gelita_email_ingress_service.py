@@ -10,10 +10,10 @@ from app.domain.status_parsing import status_type_from_db
 from app.models.status import StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
-from app.domain.delivery_locations_import import unipile_delivery_locations_attachment
-from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
-from app.services.delivery_locations_email_ingest_service import (
-    process_delivery_locations_from_email_webhook,
+from app.domain.gelita.email_attachments import classify_gelita_email_xlsx_attachments
+from app.models.data_import import DataImportDataType, DataImportSourceType
+from app.services.email_webhook_attachment_ingestion import (
+    process_email_webhook_attachment_import_for_attachment,
 )
 from app.services.load_tendering_email_ingest_service import (
     WORKFLOW_NAME,
@@ -37,22 +37,6 @@ logger = get_logger(__name__)
 
 class GelitaCarrierEmailIngressError(Exception):
     """``carrier_email_received`` preconditions failed (lifecycle must exist from ``tender_created``)."""
-
-
-def _has_delivery_locations_attachment(payload: dict[str, Any]) -> bool:
-    if not payload.get("has_attachments"):
-        return False
-    if not isinstance(payload.get("attachments"), list):
-        return False
-    return unipile_delivery_locations_attachment(payload) is not None
-
-
-def _has_load_tender_xlsx_attachment(payload: dict[str, Any]) -> bool:
-    if not payload.get("has_attachments"):
-        return False
-    if not isinstance(payload.get("attachments"), list):
-        return False
-    return email_load_tender_xlsx_attachment(payload) is not None
 
 
 def _has_in_reply_to(payload: dict[str, Any]) -> bool:
@@ -125,24 +109,31 @@ class GelitaEmailIngressService:
             if ack_result is not None:
                 return ack_result
 
-        has_dl = _has_delivery_locations_attachment(payload)
-        has_tender_xlsx = _has_load_tender_xlsx_attachment(payload)
+        classified_attachments = classify_gelita_email_xlsx_attachments(payload)
+        delivery_locations_attachment = (
+            classified_attachments.delivery_locations_attachment
+        )
+        load_tendering_xlsx_attachment = (
+            classified_attachments.load_tendering_xlsx_attachment
+        )
 
         # 2. delivery_location.xlsx — upsert reference data (may coexist with tender xlsx on same mail).
-        if has_dl:
-            dl_result = await self._process_delivery_locations_import(
+        if delivery_locations_attachment is not None:
+            delivery_locations_result = await self._process_delivery_locations_import(
                 payload=payload,
                 tenant=tenant,
+                attachment=delivery_locations_attachment,
             )
-            if not has_tender_xlsx:
-                return dl_result
+            if load_tendering_xlsx_attachment is None:
+                return delivery_locations_result
 
         # 3. customers_orders_loads.xlsx — ingest rows and enqueue one workflow per new tender.
-        if has_tender_xlsx:
+        if load_tendering_xlsx_attachment is not None:
             return await self._process_tender_created_ingest(
                 payload=payload,
                 tenant=tenant,
                 graph_slug=graph_slug,
+                attachment=load_tendering_xlsx_attachment,
             )
 
         # 4. Carrier reply on inbox — Order # in body links to tender_created lifecycle.
@@ -153,15 +144,15 @@ class GelitaEmailIngressService:
                 graph_slug=graph_slug,
                 communication_id=communication_id,
             )
-        except GelitaCarrierEmailIngressError as exc:
+        except GelitaCarrierEmailIngressError as carrier_error:
             logger.warning(
                 "gelita carrier_email_received skipped tenant=%s reason=%s",
                 tenant.tenant_uuid,
-                exc,
+                carrier_error,
             )
             return _ingress_skip_result(
                 event_type="carrier_email_received",
-                reason=str(exc),
+                reason=str(carrier_error),
             )
 
     async def _process_delivery_locations_import(
@@ -169,11 +160,27 @@ class GelitaEmailIngressService:
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
+        attachment: dict[str, Any],
     ) -> IngressResult:
         """Fetch delivery_location.xlsx and persist delivery-location reference import."""
-        await process_delivery_locations_from_email_webhook(
+        data_import_id = await process_email_webhook_attachment_import_for_attachment(
             payload=payload,
-            tenant_uuid=tenant.tenant_uuid,
+            attachment=attachment,
+            workflow_name=WORKFLOW_NAME,
+            data_import_tenant_id=tenant.tenant_uuid,
+            data_import_data_type=DataImportDataType.DELIVERY_LOCATION,
+            ingest_source_type=DataImportSourceType.EMAIL,
+            skip_fetch_if_existing=False,
+        )
+        if not data_import_id:
+            raise RuntimeError(
+                "delivery locations ingest: no data_import_id "
+                "(missing delivery_location.xlsx or fetch failed)"
+            )
+        logger.info(
+            "delivery locations ingest complete tenant_id=%s data_import_id=%s",
+            tenant.tenant_uuid,
+            data_import_id,
         )
         return IngressResult(
             outcome="processed",
@@ -186,6 +193,7 @@ class GelitaEmailIngressService:
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
         graph_slug: str,
+        attachment: dict[str, Any],
     ) -> IngressResult:
         """
         Ingest tender xlsx inline (formerly a separate Celery handler).
@@ -197,6 +205,7 @@ class GelitaEmailIngressService:
             tenant_uuid=tenant.tenant_uuid,
             tenant_slug=tenant.tenant_slug,
             graph_slug=graph_slug,
+            attachment=attachment,
         )
         execution_ids = tuple(str(eid) for eid in (result.get("execution_ids") or []))
         return IngressResult(
