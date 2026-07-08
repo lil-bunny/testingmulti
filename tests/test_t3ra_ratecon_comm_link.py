@@ -39,18 +39,22 @@ async def test_t3ra_ratecon_payload_includes_communication_id(monkeypatch) -> No
         "thread_id": "thread-abc",
     }
 
-    with patch(
-        "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
-    ) as cls:
-        svc = T3raEmailIngressService()
-        svc._driver_assignment_ingress = MagicMock()
-        svc._driver_assignment_ingress.try_driver_details_email_received.return_value = None
-        cls.return_value.classify_workflow_type.return_value = {
-            "workflow_name": "ratecon",
-            "load_id": "30389",
-        }
+    email_classification = MagicMock()
+    email_classification.workflow_name = "ratecon"
+    email_classification.to_ratecon_enqueue_payload.return_value = {
+        "workflow_name": "ratecon",
+        "load_id": "30389",
+    }
 
-        result = await svc.process(
+    with patch(
+        "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email",
+        return_value=email_classification,
+    ):
+        ingress_service = T3raEmailIngressService()
+        ingress_service._driver_details_email_ingress = MagicMock()
+        ingress_service._driver_details_email_ingress.try_driver_details_email_received.return_value = None
+
+        result = await ingress_service.process(
             payload=payload,
             tenant=tenant,
             communication_id=_COMM_UUID,

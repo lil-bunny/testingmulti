@@ -13,8 +13,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.gelita.email_attachments import DELIVERY_LOCATIONS_FILE_NAME
-from app.domain.unipile_email_attachments import first_unipile_xlsx_attachment
-from app.domain.ratecon_import import is_pdf_attachment
+from app.domain.unipile_email_attachments import first_unipile_xlsx_attachment, is_pdf_attachment
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
 from app.services.data_imports_service import DataImportsService

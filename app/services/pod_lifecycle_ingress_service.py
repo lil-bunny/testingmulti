@@ -17,6 +17,7 @@ from app.domain.pod_lifecycle_guards import (
     pod_email_status_eligible_from_turvo_payload,
 )
 from app.domain.status_parsing import sub_status_type_from_db
+from app.domain.unipile_email_thread import resolve_primary_shipment_from_thread_rows
 from app.integrations.turvo.shipments import get_shipment
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
@@ -50,6 +51,15 @@ class PodEmailIngressSkipped(Exception):
 class RouteCompletedDuplicateResult:
     is_duplicate: bool
     lifecycle_id: str | None = None
+    shipments_row_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PodEmailReceivedPrepareResult:
+    workflow_payload: dict[str, Any] | None = None
+    is_duplicate: bool = False
+    skipped: bool = False
+    skip_reason: str | None = None
     shipments_row_id: str | None = None
 
 
@@ -161,35 +171,17 @@ class PodLifecycleIngressService:
         self,
         rows: list[dict[str, Any]],
     ) -> tuple[str, str, str | None] | None:
-        if not rows:
+        thread_shipment_context = resolve_primary_shipment_from_thread_rows(
+            rows,
+            pod_workflow_name=POD_LIFECYCLE_WORKFLOW,
+        )
+        if thread_shipment_context is None:
             return None
-
-        distinct_shipments = {
-            self._clean(r.get("shipments_row_id"))
-            for r in rows
-            if self._clean(r.get("shipments_row_id"))
-        }
-        if len(distinct_shipments) > 1:
-            logger.warning(
-                "pod email ingress: multiple shipments on thread shipments=%s",
-                sorted(distinct_shipments),
-            )
-
-        primary = rows[0]
-        shipments_row_id = self._clean(primary.get("shipments_row_id"))
-        shipment_number = self._clean(primary.get("shipment_number"))
-        if not shipments_row_id or not shipment_number:
-            return None
-
-        pod_lifecycle_id: str | None = None
-        for row in rows:
-            if self._clean(row.get("shipments_row_id")) != shipments_row_id:
-                continue
-            if self._clean(row.get("workflow_name")) == POD_LIFECYCLE_WORKFLOW:
-                pod_lifecycle_id = self._clean(row.get("lifecycle_id"))
-                break
-
-        return shipments_row_id, shipment_number, pod_lifecycle_id
+        return (
+            thread_shipment_context.shipments_row_id,
+            thread_shipment_context.shipment_number,
+            thread_shipment_context.pod_lifecycle_id,
+        )
 
     def _apply_resolution(
         self,
@@ -198,11 +190,11 @@ class PodLifecycleIngressService:
         tenant_id: str,
         resolution: PodEmailReceivedResolution,
     ) -> dict[str, Any]:
-        out = dict(payload)
-        out["shipments_row_id"] = resolution.shipments_row_id
-        out["shipment_id"] = resolution.shipment_number
+        enriched_payload = dict(payload)
+        enriched_payload["shipments_row_id"] = resolution.shipments_row_id
+        enriched_payload["shipment_id"] = resolution.shipment_number
         if resolution.workflow_lifecycle_id:
-            out["workflow_lifecycle_id"] = resolution.workflow_lifecycle_id
+            enriched_payload["workflow_lifecycle_id"] = resolution.workflow_lifecycle_id
         logger.info(
             "pod email ingress resolved tenant_id=%s thread_id=%s source=%s "
             "shipments_row_id=%s shipment_id=%s workflow_lifecycle_id=%s",
@@ -213,7 +205,7 @@ class PodLifecycleIngressService:
             resolution.shipment_number,
             resolution.workflow_lifecycle_id,
         )
-        return out
+        return enriched_payload
 
     async def _finish_email_resolution(
         self,
@@ -234,18 +226,18 @@ class PodLifecycleIngressService:
             )
         try:
             turvo_payload = await get_shipment(slug, resolution.shipment_number)
-        except Exception as exc:
+        except Exception as turvo_error:
             logger.warning(
                 "pod email ingress: turvo get_shipment failed tenant_slug=%s "
                 "shipment_id=%s error=%s",
                 slug,
                 resolution.shipment_number,
-                exc,
+                turvo_error,
             )
             raise PodEmailIngressSkipped(
                 POD_EMAIL_SKIP_TURVO_FETCH_FAILED,
                 shipments_row_id=resolution.shipments_row_id,
-            ) from exc
+            ) from turvo_error
         if not pod_email_status_eligible_from_turvo_payload(turvo_payload):
             raise PodEmailIngressSkipped(
                 POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
@@ -271,14 +263,16 @@ class PodLifecycleIngressService:
         Mirrors manual upload keys: ``shipments_row_id``, Turvo ``shipment_id``,
         and ``workflow_lifecycle_id`` when a pod lifecycle already exists.
         """
-        tid = self._clean(tenant_id)
-        if not tid:
+        tenant_id_clean = self._clean(tenant_id)
+        if not tenant_id_clean:
             raise Exception("pod_lifecycle email_received: missing tenant_id")
 
-        existing_row_id = self._resolve_shipments_row_id(tenant_id=tid, payload=payload)
+        existing_row_id = self._resolve_shipments_row_id(
+            tenant_id=tenant_id_clean, payload=payload
+        )
         if existing_row_id:
             shipment_number = self._shipment_number_for_row(
-                tenant_id=tid,
+                tenant_id=tenant_id_clean,
                 shipments_row_id=existing_row_id,
                 payload=payload,
             )
@@ -287,44 +281,46 @@ class PodLifecycleIngressService:
                     "pod_lifecycle email_received: could not resolve Turvo shipment_number "
                     f"for shipments_row_id={existing_row_id!r}"
                 )
-            pod_lc_id = self._pod_lifecycle_id_for_shipment(
-                tenant_id=tid,
+            pod_lifecycle_id = self._pod_lifecycle_id_for_shipment(
+                tenant_id=tenant_id_clean,
                 shipments_row_id=existing_row_id,
             )
             return await self._finish_email_resolution(
                 payload,
-                tenant_id=tid,
+                tenant_id=tenant_id_clean,
                 tenant_slug=tenant_slug,
                 resolution=PodEmailReceivedResolution(
                     shipments_row_id=existing_row_id,
                     shipment_number=shipment_number,
-                    workflow_lifecycle_id=pod_lc_id,
+                    workflow_lifecycle_id=pod_lifecycle_id,
                     resolution_source="payload",
                 ),
             )
 
         thread_id = self._clean(payload.get("thread_id"))
         if thread_id:
-            rows = self._communications.find_shipment_context_for_thread(
-                tenant_id=tid,
+            thread_context_rows = self._communications.find_shipment_context_for_thread(
+                tenant_id=tenant_id_clean,
                 thread_id=thread_id,
             )
-            picked = self._pick_thread_context(rows)
-            if picked:
-                shipments_row_id, shipment_number, pod_lc_id = picked
-                if not pod_lc_id:
-                    pod_lc_id = self._pod_lifecycle_id_for_shipment(
-                        tenant_id=tid,
+            thread_shipment_context = self._pick_thread_context(thread_context_rows)
+            if thread_shipment_context:
+                shipments_row_id, shipment_number, pod_lifecycle_id = (
+                    thread_shipment_context
+                )
+                if not pod_lifecycle_id:
+                    pod_lifecycle_id = self._pod_lifecycle_id_for_shipment(
+                        tenant_id=tenant_id_clean,
                         shipments_row_id=shipments_row_id,
                     )
                 return await self._finish_email_resolution(
                     payload,
-                    tenant_id=tid,
+                    tenant_id=tenant_id_clean,
                     tenant_slug=tenant_slug,
                     resolution=PodEmailReceivedResolution(
                         shipments_row_id=shipments_row_id,
                         shipment_number=shipment_number,
-                        workflow_lifecycle_id=pod_lc_id,
+                        workflow_lifecycle_id=pod_lifecycle_id,
                         resolution_source="thread",
                     ),
                 )
@@ -332,6 +328,43 @@ class PodLifecycleIngressService:
         raise PodEmailIngressSkipped(
             "no_shipment_context",
             shipments_row_id=None,
+        )
+
+    async def prepare_pod_email_received_for_ingress(
+        self,
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict[str, Any],
+    ) -> PodEmailReceivedPrepareResult:
+        """
+        Single ingress pass: resolve shipment, Turvo guards, and duplicate check.
+
+        Sets ``pod_email_ingress_prepared`` on the returned payload so ``WorkflowService.run``
+        can skip a second prepare when the email already passed L2 ingress.
+        """
+        workflow_payload = {**payload, "event_type": "email_received"}
+        try:
+            prepared_payload = await self.prepare_email_received_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=workflow_payload,
+            )
+        except PodEmailIngressSkipped as skip:
+            return PodEmailReceivedPrepareResult(
+                skipped=True,
+                skip_reason=skip.reason,
+                shipments_row_id=skip.shipments_row_id,
+            )
+
+        is_duplicate = self.is_duplicate_email_pod_ingest(
+            tenant_id=tenant_id,
+            payload=prepared_payload,
+        )
+        prepared_payload["pod_email_ingress_prepared"] = True
+        return PodEmailReceivedPrepareResult(
+            workflow_payload=prepared_payload,
+            is_duplicate=is_duplicate,
         )
 
     def check_route_completed_duplicate(
@@ -349,19 +382,19 @@ class PodLifecycleIngressService:
         if event_type != WorkflowRunEventType.ROUTE_COMPLETED.value:
             return RouteCompletedDuplicateResult(is_duplicate=False)
 
-        tid = self._clean(tenant_id)
-        if not tid:
+        tenant_id_clean = self._clean(tenant_id)
+        if not tenant_id_clean:
             return RouteCompletedDuplicateResult(is_duplicate=False)
 
         shipments_row_id = self._resolve_shipments_row_id(
-            tenant_id=tid,
+            tenant_id=tenant_id_clean,
             payload=payload,
         )
         if not shipments_row_id:
             return RouteCompletedDuplicateResult(is_duplicate=False)
 
         lifecycle = self._lifecycle_service.check_lifecycle_exists(
-            tenant_id=tid,
+            tenant_id=tenant_id_clean,
             workflow_name=POD_LIFECYCLE_WORKFLOW,
             shipment_id=shipments_row_id,
         )
@@ -379,7 +412,7 @@ class PodLifecycleIngressService:
             )
 
         blocked = self._runs_service.is_workflow_initial_path_blocked(
-            tenant_id=tid,
+            tenant_id=tenant_id_clean,
             event_type=WorkflowRunEventType.ROUTE_COMPLETED.value,
             workflow_lifecycle_id=lifecycle_id,
             shipment_id=shipments_row_id,
@@ -398,14 +431,16 @@ class PodLifecycleIngressService:
         payload: dict[str, Any],
     ) -> str | None:
         """Read-only shipment/thread resolution for duplicate email gate (no upserts)."""
-        tid = self._clean(tenant_id)
-        if not tid:
+        tenant_id_clean = self._clean(tenant_id)
+        if not tenant_id_clean:
             return None
 
-        existing_row_id = self._resolve_shipments_row_id(tenant_id=tid, payload=payload)
+        existing_row_id = self._resolve_shipments_row_id(
+            tenant_id=tenant_id_clean, payload=payload
+        )
         if existing_row_id:
             return self._pod_lifecycle_id_for_shipment(
-                tenant_id=tid,
+                tenant_id=tenant_id_clean,
                 shipments_row_id=existing_row_id,
             )
 
@@ -413,19 +448,19 @@ class PodLifecycleIngressService:
         if not thread_id:
             return None
 
-        rows = self._communications.find_shipment_context_for_thread(
-            tenant_id=tid,
+        thread_context_rows = self._communications.find_shipment_context_for_thread(
+            tenant_id=tenant_id_clean,
             thread_id=thread_id,
         )
-        picked = self._pick_thread_context(rows)
-        if not picked:
+        thread_shipment_context = self._pick_thread_context(thread_context_rows)
+        if not thread_shipment_context:
             return None
 
-        shipments_row_id, _, pod_lc_id = picked
-        if pod_lc_id:
-            return pod_lc_id
+        shipments_row_id, _, pod_lifecycle_id = thread_shipment_context
+        if pod_lifecycle_id:
+            return pod_lifecycle_id
         return self._pod_lifecycle_id_for_shipment(
-            tenant_id=tid,
+            tenant_id=tenant_id_clean,
             shipments_row_id=shipments_row_id,
         )
 
@@ -444,5 +479,5 @@ class PodLifecycleIngressService:
             return False
 
         row = self._lifecycle_service.read_lifecycle_row_by_id(lifecycle_id)
-        sub = sub_status_type_from_db(row.get("sub_status") if row else None)
-        return is_pod_processing_complete_sub_status(sub)
+        sub_status = sub_status_type_from_db(row.get("sub_status") if row else None)
+        return is_pod_processing_complete_sub_status(sub_status)

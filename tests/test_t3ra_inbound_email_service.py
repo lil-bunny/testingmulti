@@ -40,41 +40,43 @@ async def test_t3ra_pod_classification_skips_driver_details(monkeypatch) -> None
 
     with (
         patch(
-            "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
-        ) as cls,
+            "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email"
+        ) as classify_mock,
         patch(
             "app.services.t3ra_email_ingress_service.process_email_webhook_attachment_import",
             new_callable=AsyncMock,
             return_value="import-1",
         ),
         patch(
-            "app.services.t3ra_email_ingress_service.DriverAssignmentIngressService"
-        ) as driver_cls,
+            "app.services.t3ra_email_ingress_service.DriverDetailsEmailIngressService"
+        ) as driver_details_cls,
     ):
-        svc = T3raEmailIngressService()
-        svc._pod_lifecycle_ingress = MagicMock()
-        svc._pod_lifecycle_ingress.prepare_email_received_payload = AsyncMock(
-            return_value={
-                **payload,
-                "event_type": "email_received",
-                "shipments_row_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                "shipment_id": "1000324895",
-            }
+        ingress_service = T3raEmailIngressService()
+        ingress_service._pod_lifecycle_ingress = MagicMock()
+        ingress_service._pod_lifecycle_ingress.prepare_pod_email_received_for_ingress = AsyncMock(
+            return_value=MagicMock(
+                skipped=False,
+                is_duplicate=False,
+                workflow_payload={
+                    **payload,
+                    "event_type": "email_received",
+                    "shipments_row_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "shipment_id": "1000324895",
+                    "pod_email_ingress_prepared": True,
+                },
+            )
         )
-        svc._pod_lifecycle_ingress.is_duplicate_email_pod_ingest.return_value = False
-        cls.return_value.classify_workflow_type.return_value = {
-            "workflow_name": "pod_lifecycle",
-        }
-        driver_ingress = driver_cls.return_value
+        classify_mock.return_value = MagicMock(workflow_name="pod_lifecycle")
+        driver_details_ingress = driver_details_cls.return_value
 
-        result = await svc.process(
+        result = await ingress_service.process(
             payload=payload,
             tenant=tenant,
             communication_id=_COMM_UUID,
         )
 
     assert result.outcome == "enqueued"
-    driver_ingress.try_driver_details_email_received.assert_not_called()
+    driver_details_ingress.try_driver_details_email_received.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -89,7 +91,7 @@ async def test_t3ra_driver_details_reply_enqueued_before_ratecon(monkeypatch) ->
         "thread_id": "thread-1",
         "in_reply_to": "msg-parent",
     }
-    driver_result = IngressResult(
+    driver_details_result = IngressResult(
         outcome="enqueued",
         event_type="driver_details_email_received",
         execution_ids=("exec-driver-1",),
@@ -97,19 +99,19 @@ async def test_t3ra_driver_details_reply_enqueued_before_ratecon(monkeypatch) ->
 
     with (
         patch(
-            "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
-        ) as cls,
+            "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email"
+        ) as classify_mock,
         patch(
-            "app.services.t3ra_email_ingress_service.DriverAssignmentIngressService"
-        ) as driver_cls,
+            "app.services.t3ra_email_ingress_service.DriverDetailsEmailIngressService"
+        ) as driver_details_cls,
     ):
-        svc = T3raEmailIngressService()
-        cls.return_value.classify_workflow_type.return_value = None
-        driver_cls.return_value.try_driver_details_email_received.return_value = (
-            driver_result
+        ingress_service = T3raEmailIngressService()
+        classify_mock.return_value = MagicMock(workflow_name=None)
+        driver_details_cls.return_value.try_driver_details_email_received.return_value = (
+            driver_details_result
         )
 
-        result = await svc.process(
+        result = await ingress_service.process(
             payload=payload,
             tenant=tenant,
             communication_id=_COMM_UUID,
@@ -117,12 +119,11 @@ async def test_t3ra_driver_details_reply_enqueued_before_ratecon(monkeypatch) ->
 
     assert result.outcome == "enqueued"
     assert result.execution_ids == ("exec-driver-1",)
-    driver_cls.return_value.try_driver_details_email_received.assert_called_once()
+    driver_details_cls.return_value.try_driver_details_email_received.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_t3ra_pod_ingress_skip_without_celery(monkeypatch) -> None:
-    from app.services.pod_lifecycle_ingress_service import PodEmailIngressSkipped
     from app.services.unipile_tenant_resolution import UnipileTenantContext
 
     T3raEmailIngressService = _load_t3ra_service(monkeypatch)
@@ -137,26 +138,30 @@ async def test_t3ra_pod_ingress_skip_without_celery(monkeypatch) -> None:
 
     with (
         patch(
-            "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
-        ) as cls,
+            "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email"
+        ) as classify_mock,
         patch(
             "app.services.t3ra_email_ingress_service.process_email_webhook_attachment_import",
             new_callable=AsyncMock,
         ) as attachment_import,
         patch(
-            "app.services.t3ra_email_ingress_service.DriverAssignmentIngressService"
-        ) as driver_cls,
+            "app.services.t3ra_email_ingress_service.DriverDetailsEmailIngressService"
+        ) as driver_details_cls,
     ):
-        svc = T3raEmailIngressService()
-        svc._pod_lifecycle_ingress = MagicMock()
-        svc._pod_lifecycle_ingress.prepare_email_received_payload = AsyncMock(
-            side_effect=PodEmailIngressSkipped("no_shipment_context")
+        ingress_service = T3raEmailIngressService()
+        ingress_service._pod_lifecycle_ingress = MagicMock()
+        ingress_service._pod_lifecycle_ingress.prepare_pod_email_received_for_ingress = AsyncMock(
+            return_value=MagicMock(
+                skipped=True,
+                skip_reason="no_shipment_context",
+                shipments_row_id=None,
+                is_duplicate=False,
+                workflow_payload=None,
+            )
         )
-        cls.return_value.classify_workflow_type.return_value = {
-            "workflow_name": "pod_lifecycle",
-        }
+        classify_mock.return_value = MagicMock(workflow_name="pod_lifecycle")
 
-        result = await svc.process(
+        result = await ingress_service.process(
             payload=payload,
             tenant=tenant,
             communication_id=_COMM_UUID,
@@ -166,4 +171,4 @@ async def test_t3ra_pod_ingress_skip_without_celery(monkeypatch) -> None:
     assert result.reason == "no_shipment_context"
     attachment_import.assert_not_called()
     celery_mock.apply_async.assert_not_called()
-    driver_cls.return_value.try_driver_details_email_received.assert_not_called()
+    driver_details_cls.return_value.try_driver_details_email_received.assert_not_called()

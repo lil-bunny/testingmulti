@@ -765,7 +765,7 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -815,7 +815,7 @@ def test_try_driver_details_email_received_re_subject_fallback_enqueues():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -867,7 +867,7 @@ def test_try_driver_details_email_received_resolves_lifecycle_via_shipment_on_th
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -912,7 +912,7 @@ def test_try_driver_details_email_received_shipment_fallback_no_driver_lifecycle
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
     with patch(
-        "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+        "app.services.t3ra.driver_details_email_ingress.TenantsService"
     ) as tenants:
         tenants.return_value.get_by_slug.return_value = {
             "settings": _enabled_settings(),
@@ -955,7 +955,7 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
