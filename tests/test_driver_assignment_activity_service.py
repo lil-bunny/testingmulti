@@ -590,3 +590,44 @@ def test_record_driver_assignment_completed_skips_without_confirmation():
     svc = DriverAssignmentActivityService(activity_log_service=activity)
     svc.record_driver_assignment_completed(_state(driver_confirmation_sent=False))
     activity.record_sequence.assert_not_called()
+
+
+def test_record_escalation_sent_status_change_to_pending_review():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_escalation_sent(_state())
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert len(sequence.steps) == 2
+    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.ESCALATED
+
+
+def test_record_escalation_sent_stays_pending_review():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_escalation_sent(_state())
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.ESCALATED

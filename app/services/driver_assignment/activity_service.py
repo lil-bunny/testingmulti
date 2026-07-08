@@ -575,13 +575,9 @@ class DriverAssignmentActivityService:
             return
 
         current_status = status_type_from_db(prev.get("status")) if prev else None
-        from_sub = sub_status_type_from_db(prev.get("sub_status")) if prev else None
-        transition_step = ActivityLogStep(
-            activity_type=ActivityType.SUB_STATUS_CHANGE,
-            to_sub_status=StatusSubType.ESCALATED,
-            from_sub_status=from_sub,
-            from_status=current_status,
-            to_status=current_status,
+        transition_step = self._build_reminder_transition_step(
+            current_status=current_status,
+            new_sub=StatusSubType.ESCALATED,
         )
 
         self._activity.record_sequence(
