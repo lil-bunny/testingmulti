@@ -94,13 +94,15 @@ async def webhook_email(
         if tenant is None:
             return {"message": "invalid webhook"}
 
-        # Phase 1: Gelita + T3RA only; Diamond and others ACK without enqueue.
-        if tenant.tenant_slug not in (TenantSlug.GELITA, TenantSlug.T3RA):
-            logger.warning(
-                "unipile webhook: unsupported tenant_slug=%r",
-                tenant.tenant_slug,
-            )
-            return {"message": "invalid webhook"}
+        # No slug allowlist here: L1 (resolve_unipile_tenant) already requires
+        # tenants.slug ∈ TENANT_CONFIGS and a matching inbound_routing_emails row.
+        # L2 ingress is selected in the Celery worker from tenant_slug.
+        # if tenant.tenant_slug not in (TenantSlug.GELITA, TenantSlug.T3RA):
+        #     logger.warning(
+        #         "unipile webhook: unsupported tenant_slug=%r",
+        #         tenant.tenant_slug,
+        #     )
+        #     return {"message": "invalid webhook"}
 
         email_id = extract_email_id_or_none(payload)
         if not email_id:
