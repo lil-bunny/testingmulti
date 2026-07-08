@@ -62,7 +62,8 @@ class TendersRepository:
                     pickup_location_id::text,
                     delivery_location_id::text,
                     delivery_address,
-                    metadata
+                    metadata,
+                    carrier_name
                 FROM {self.TABLE_NAME}
                 {_WHERE_TENANT_TENDER_PK}
                 LIMIT 1
@@ -94,6 +95,7 @@ class TendersRepository:
             "delivery_location_id": row[7],
             "delivery_address": delivery_address,
             "metadata": parse_json(row[9]),
+            "carrier_name": row[10] or None,
         }
 
     def get_by_order_number(
@@ -144,6 +146,37 @@ class TendersRepository:
                 """
             ),
             {"load_type": lt, "tender_id": tr, "tenant_id": tid},
+        )
+        return result.rowcount > 0
+
+    def update_carrier_name(
+        self,
+        *,
+        tenant_id: str,
+        tender_id: str,
+        carrier_name: str | None,
+    ) -> bool:
+        """Persist denormalized routing-guide carrier name (nullable)."""
+        tid = self._clean(tenant_id)
+        tr = self._clean(tender_id)
+        if not tid or not tr:
+            return False
+
+        cleaned_name = self._clean(carrier_name)
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET carrier_name = :carrier_name, updated_at = NOW()
+                {_WHERE_TENANT_TENDER_PK}
+                """
+            ),
+            {
+                "carrier_name": cleaned_name,
+                "tender_id": tr,
+                "tenant_id": tid,
+            },
         )
         return result.rowcount > 0
 
