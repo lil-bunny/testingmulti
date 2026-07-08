@@ -5,10 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import status
-from fastapi.responses import JSONResponse
-
 from app.core.logger import get_logger
+from app.domain.ingress_result import IngressResult
 from app.domain.status_parsing import sub_status_type_from_db
 from app.domain.unipile_email import is_unipile_email_reply
 from app.models.workflow_run_event_type import WorkflowRunEventType
@@ -265,7 +263,7 @@ class IngressDriverDetailsInboundMixin:
 
         communication_id: str | None = None,
 
-        ) -> JSONResponse | None:
+        ) -> IngressResult | None:
 
         if not is_unipile_email_reply(payload):
 
@@ -305,20 +303,10 @@ class IngressDriverDetailsInboundMixin:
 
         if sub in DRIVER_DETAILS_TERMINAL_SUB_STATUSES:
 
-            return JSONResponse(
-
-                status_code=status.HTTP_200_OK,
-
-                content={
-
-                    "message": "lifecycle terminal; driver details not processed",
-
-                    "event_type": WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
-
-                    "workflow_lifecycle_id": lifecycle_id,
-
-                },
-
+            return IngressResult(
+                outcome="skipped",
+                event_type=WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
+                reason="lifecycle terminal; driver details not processed",
             )
 
         workflow_payload = self._build_driver_details_workflow_payload(
@@ -369,18 +357,8 @@ class IngressDriverDetailsInboundMixin:
 
         )
 
-        return JSONResponse(
-
-            status_code=status.HTTP_200_OK,
-
-            content={
-
-                "message": "success",
-
-                "execution_id": execution_id,
-
-                "event_type": WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
-
-            },
-
+        return IngressResult(
+            outcome="enqueued",
+            event_type=WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
+            execution_ids=(execution_id,),
         )

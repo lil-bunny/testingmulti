@@ -5,13 +5,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import status
-from fastapi.responses import JSONResponse
-
 from app.core.logger import get_logger
+from app.domain.ingress_result import IngressResult
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.models.tenants import TenantSlug
-from app.services.communications.service import CommunicationsService
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
@@ -29,47 +26,50 @@ from app.tasks.workflows import run_workflow_async
 logger = get_logger(__name__)
 
 
-class T3raInboundEmailService:
-    """L2 classification for T3RA: ratecon vs pod_lifecycle (subject + attachment rules)."""
+class T3raEmailIngressService:
+    """
+    T3RA L2 ingress: classify inbound mail and enqueue the matching workflow.
+
+    Priority when multiple rules could apply: POD lifecycle → driver-details reply → ratecon.
+    """
 
     def __init__(self) -> None:
-        self._communications = CommunicationsService()
         self._pod_lifecycle_ingress = PodLifecycleIngressService()
         self._driver_assignment_ingress = DriverAssignmentIngressService()
 
-    async def handle(
+    async def process(
         self,
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
-    ) -> JSONResponse:
-        communication_id = self._communications.record_or_resolve_inbound(
-            tenant.tenant_uuid,
-            payload,
-        )
+        communication_id: str | None,
+    ) -> IngressResult:
+        """
+        Run T3RA classification and return the first matching ingress outcome.
 
+        ``communication_id`` is passed through to workflow payloads; comm row is created upstream.
+        """
         classification = WorkflowClassifierService().classify_workflow_type(payload)
 
-        if (
-            classification
-            and classification.get("workflow_name") == "pod_lifecycle"
-        ):
-            pod_response = await self._try_enqueue_pod_lifecycle(
+        # POD takes precedence — includes Turvo shipment fetch and attachment import guards.
+        if classification and classification.get("workflow_name") == "pod_lifecycle":
+            pod_result = await self._try_enqueue_pod_lifecycle(
                 payload=payload,
                 tenant=tenant,
                 communication_id=communication_id,
             )
-            if pod_response is not None:
-                return pod_response
+            if pod_result is not None:
+                return pod_result
 
-        driver_response = self._driver_assignment_ingress.try_driver_details_email_received(
+        driver_result = self._driver_assignment_ingress.try_driver_details_email_received(
             payload=payload,
             tenant=tenant,
             communication_id=communication_id,
         )
-        if driver_response is not None:
-            return driver_response
+        if driver_result is not None:
+            return driver_result
 
+        # Subject/attachment rules matched ratecon — enqueue without extra ingress I/O.
         if classification and classification.get("workflow_name") == "ratecon":
             return self._enqueue_ratecon(
                 payload=payload,
@@ -81,10 +81,7 @@ class T3raInboundEmailService:
             "t3ra unipile: no workflow classified recipients=%r",
             extract_recipient_emails(payload),
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "no workflow classified"},
-        )
+        return IngressResult(outcome="no_match", reason="no workflow classified")
 
     async def _try_enqueue_pod_lifecycle(
         self,
@@ -92,7 +89,12 @@ class T3raInboundEmailService:
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
         communication_id: str | None,
-    ) -> JSONResponse | None:
+    ) -> IngressResult | None:
+        """
+        POD ``email_received`` path: Turvo guards, attachment import, then workflow enqueue.
+
+        Returns ``None`` when shipment status is invalid so ``process()`` can fall through to driver/ratecon.
+        """
         workflow_payload = {**payload, "event_type": "email_received"}
         try:
             prepared = await self._pod_lifecycle_ingress.prepare_email_received_payload(
@@ -111,10 +113,7 @@ class T3raInboundEmailService:
             )
             if skip.reason == POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS:
                 return None
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "skipped", "reason": skip.reason},
-            )
+            return IngressResult(outcome="skipped", reason=skip.reason)
 
         workflow_payload = prepared
 
@@ -127,11 +126,9 @@ class T3raInboundEmailService:
                 tenant.tenant_uuid,
                 payload.get("thread_id"),
             )
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "pod already processed"},
-            )
+            return IngressResult(outcome="skipped", reason="pod already processed")
 
+        # Fetch attachments to S3 / data_imports before graph runs (normalizer stays in LangGraph).
         data_import_id = await process_email_webhook_attachment_import(
             payload=payload,
             workflow_name="pod_lifecycle",
@@ -160,9 +157,10 @@ class T3raInboundEmailService:
             task.id,
             execution_id,
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "success", "execution_id": execution_id},
+        return IngressResult(
+            outcome="enqueued",
+            event_type="email_received",
+            execution_ids=(execution_id,),
         )
 
     @staticmethod
@@ -171,7 +169,13 @@ class T3raInboundEmailService:
         payload: dict[str, Any],
         classification: dict[str, Any],
         communication_id: str | None,
-    ) -> JSONResponse:
+    ) -> IngressResult:
+        """
+        Enqueue ratecon workflow from classifier output.
+
+        Classifier already resolved load id and workflow name; this method only builds
+        the Celery payload and assigns a fresh ``execution_id``.
+        """
         workflow_payload = {
             **payload,
             **classification,
@@ -195,7 +199,8 @@ class T3raInboundEmailService:
             task.id,
             execution_id,
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "success", "execution_id": execution_id},
+        return IngressResult(
+            outcome="enqueued",
+            event_type="email_received",
+            execution_ids=(execution_id,),
         )

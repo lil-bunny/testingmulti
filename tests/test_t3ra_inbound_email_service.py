@@ -6,7 +6,8 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import status
+
+from app.domain.ingress_result import IngressResult
 
 _TENANT_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 _COMM_UUID = "11111111-2222-3333-4444-555555555555"
@@ -18,17 +19,17 @@ def _load_t3ra_service(monkeypatch):
     workflows_mod = MagicMock()
     workflows_mod.run_workflow_async = celery_mock
     monkeypatch.setitem(sys.modules, "app.tasks.workflows", workflows_mod)
-    sys.modules.pop("app.services.t3ra_inbound_email_service", None)
-    from app.services.t3ra_inbound_email_service import T3raInboundEmailService
+    sys.modules.pop("app.services.t3ra_email_ingress_service", None)
+    from app.services.t3ra_email_ingress_service import T3raEmailIngressService
 
-    return T3raInboundEmailService
+    return T3raEmailIngressService
 
 
 @pytest.mark.asyncio
 async def test_t3ra_pod_classification_skips_driver_details(monkeypatch) -> None:
     from app.services.unipile_tenant_resolution import UnipileTenantContext
 
-    T3raInboundEmailService = _load_t3ra_service(monkeypatch)
+    T3raEmailIngressService = _load_t3ra_service(monkeypatch)
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_UUID, tenant_slug="t3ra")
     payload = {
         "subject": "POD load 30389",
@@ -39,20 +40,18 @@ async def test_t3ra_pod_classification_skips_driver_details(monkeypatch) -> None
 
     with (
         patch(
-            "app.services.t3ra_inbound_email_service.WorkflowClassifierService"
+            "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
         ) as cls,
         patch(
-            "app.services.t3ra_inbound_email_service.process_email_webhook_attachment_import",
+            "app.services.t3ra_email_ingress_service.process_email_webhook_attachment_import",
             new_callable=AsyncMock,
             return_value="import-1",
         ),
         patch(
-            "app.services.t3ra_inbound_email_service.DriverAssignmentIngressService"
+            "app.services.t3ra_email_ingress_service.DriverAssignmentIngressService"
         ) as driver_cls,
     ):
-        svc = T3raInboundEmailService()
-        svc._communications = MagicMock()
-        svc._communications.record_or_resolve_inbound.return_value = _COMM_UUID
+        svc = T3raEmailIngressService()
         svc._pod_lifecycle_ingress = MagicMock()
         svc._pod_lifecycle_ingress.prepare_email_received_payload = AsyncMock(
             return_value={
@@ -68,18 +67,21 @@ async def test_t3ra_pod_classification_skips_driver_details(monkeypatch) -> None
         }
         driver_ingress = driver_cls.return_value
 
-        resp = await svc.handle(payload=payload, tenant=tenant)
+        result = await svc.process(
+            payload=payload,
+            tenant=tenant,
+            communication_id=_COMM_UUID,
+        )
 
-    assert resp.status_code == status.HTTP_200_OK
+    assert result.outcome == "enqueued"
     driver_ingress.try_driver_details_email_received.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_t3ra_driver_details_reply_enqueued_before_ratecon(monkeypatch) -> None:
     from app.services.unipile_tenant_resolution import UnipileTenantContext
-    from fastapi.responses import JSONResponse
 
-    T3raInboundEmailService = _load_t3ra_service(monkeypatch)
+    T3raEmailIngressService = _load_t3ra_service(monkeypatch)
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_UUID, tenant_slug="t3ra")
     payload = {
         "subject": "Re: driver info",
@@ -87,39 +89,43 @@ async def test_t3ra_driver_details_reply_enqueued_before_ratecon(monkeypatch) ->
         "thread_id": "thread-1",
         "in_reply_to": "msg-parent",
     }
-    driver_response = JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={"message": "success", "event_type": "driver_details_email_received"},
+    driver_result = IngressResult(
+        outcome="enqueued",
+        event_type="driver_details_email_received",
+        execution_ids=("exec-driver-1",),
     )
 
     with (
         patch(
-            "app.services.t3ra_inbound_email_service.WorkflowClassifierService"
+            "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
         ) as cls,
         patch(
-            "app.services.t3ra_inbound_email_service.DriverAssignmentIngressService"
+            "app.services.t3ra_email_ingress_service.DriverAssignmentIngressService"
         ) as driver_cls,
     ):
-        svc = T3raInboundEmailService()
-        svc._communications = MagicMock()
-        svc._communications.record_or_resolve_inbound.return_value = _COMM_UUID
+        svc = T3raEmailIngressService()
         cls.return_value.classify_workflow_type.return_value = None
         driver_cls.return_value.try_driver_details_email_received.return_value = (
-            driver_response
+            driver_result
         )
 
-        resp = await svc.handle(payload=payload, tenant=tenant)
+        result = await svc.process(
+            payload=payload,
+            tenant=tenant,
+            communication_id=_COMM_UUID,
+        )
 
-    assert resp is driver_response
+    assert result.outcome == "enqueued"
+    assert result.execution_ids == ("exec-driver-1",)
     driver_cls.return_value.try_driver_details_email_received.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_t3ra_pod_ingress_skip_returns_200_without_celery(monkeypatch) -> None:
+async def test_t3ra_pod_ingress_skip_without_celery(monkeypatch) -> None:
     from app.services.pod_lifecycle_ingress_service import PodEmailIngressSkipped
     from app.services.unipile_tenant_resolution import UnipileTenantContext
 
-    T3raInboundEmailService = _load_t3ra_service(monkeypatch)
+    T3raEmailIngressService = _load_t3ra_service(monkeypatch)
     celery_mock = sys.modules["app.tasks.workflows"].run_workflow_async
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_UUID, tenant_slug="t3ra")
     payload = {
@@ -131,19 +137,17 @@ async def test_t3ra_pod_ingress_skip_returns_200_without_celery(monkeypatch) -> 
 
     with (
         patch(
-            "app.services.t3ra_inbound_email_service.WorkflowClassifierService"
+            "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
         ) as cls,
         patch(
-            "app.services.t3ra_inbound_email_service.process_email_webhook_attachment_import",
+            "app.services.t3ra_email_ingress_service.process_email_webhook_attachment_import",
             new_callable=AsyncMock,
         ) as attachment_import,
         patch(
-            "app.services.t3ra_inbound_email_service.DriverAssignmentIngressService"
+            "app.services.t3ra_email_ingress_service.DriverAssignmentIngressService"
         ) as driver_cls,
     ):
-        svc = T3raInboundEmailService()
-        svc._communications = MagicMock()
-        svc._communications.record_or_resolve_inbound.return_value = _COMM_UUID
+        svc = T3raEmailIngressService()
         svc._pod_lifecycle_ingress = MagicMock()
         svc._pod_lifecycle_ingress.prepare_email_received_payload = AsyncMock(
             side_effect=PodEmailIngressSkipped("no_shipment_context")
@@ -152,12 +156,14 @@ async def test_t3ra_pod_ingress_skip_returns_200_without_celery(monkeypatch) -> 
             "workflow_name": "pod_lifecycle",
         }
 
-        resp = await svc.handle(payload=payload, tenant=tenant)
+        result = await svc.process(
+            payload=payload,
+            tenant=tenant,
+            communication_id=_COMM_UUID,
+        )
 
-    assert resp.status_code == status.HTTP_200_OK
-    body = resp.body.decode()
-    assert "skipped" in body
-    assert "no_shipment_context" in body
+    assert result.outcome == "skipped"
+    assert result.reason == "no_shipment_context"
     attachment_import.assert_not_called()
     celery_mock.apply_async.assert_not_called()
     driver_cls.return_value.try_driver_details_email_received.assert_not_called()

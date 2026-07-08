@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 
-from fastapi.responses import JSONResponse
-
 from app.repositories.tenders_repository import TendersRepository
-from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.services.gelita_email_ingress_service import GelitaEmailIngressService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -37,7 +34,7 @@ def test_get_by_order_number_sql_orders_by_created_at_desc() -> None:
 
 def test_carrier_ingress_resolves_lifecycle_for_latest_tender_id() -> None:
     """Carrier email ingress binds to the tender returned by order-number lookup."""
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._tender_service = MagicMock()
 
@@ -75,9 +72,9 @@ def test_carrier_ingress_resolves_lifecycle_for_latest_tender_id() -> None:
     )
 
 
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_skips_stale_order_rollover_on_old_thread() -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
     svc._tender_service = MagicMock()
@@ -93,7 +90,7 @@ def test_ack_received_skips_stale_order_rollover_on_old_thread() -> None:
         "load_type": "FTL",
     }
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload={
             "thread_id": "old-thread",
             "in_reply_to": "<parent@example.com>",
@@ -103,14 +100,14 @@ def test_ack_received_skips_stale_order_rollover_on_old_thread() -> None:
         graph_slug="gelita",
     )
 
-    assert isinstance(response, JSONResponse)
-    content = json.loads(response.body)
-    assert content["reason"] == "stale_order_rollover"
+    assert result is not None
+    assert result.outcome == "skipped"
+    assert result.reason == "stale_order_rollover"
 
 
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_carrier_ingress_skips_when_lifecycle_tender_mismatch() -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._tender_service = MagicMock()
     svc._communications = MagicMock()
@@ -140,5 +137,5 @@ def test_carrier_ingress_skips_when_lifecycle_tender_mismatch() -> None:
         communication_id=COMM_ID,
     )
 
-    content = json.loads(response.body)
-    assert content["reason"] == "stale_order_rollover"
+    assert response.outcome == "skipped"
+    assert response.reason == "stale_order_rollover"

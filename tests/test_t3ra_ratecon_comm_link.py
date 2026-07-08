@@ -6,7 +6,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import status
 
 _COMM_UUID = "11111111-2222-3333-4444-555555555555"
 _TENANT_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -18,17 +17,17 @@ def _load_t3ra_service(monkeypatch):
     workflows_mod = MagicMock()
     workflows_mod.run_workflow_async = celery_mock
     monkeypatch.setitem(sys.modules, "app.tasks.workflows", workflows_mod)
-    sys.modules.pop("app.services.t3ra_inbound_email_service", None)
-    from app.services.t3ra_inbound_email_service import T3raInboundEmailService
+    sys.modules.pop("app.services.t3ra_email_ingress_service", None)
+    from app.services.t3ra_email_ingress_service import T3raEmailIngressService
 
-    return T3raInboundEmailService, celery_mock
+    return T3raEmailIngressService, celery_mock
 
 
 @pytest.mark.asyncio
 async def test_t3ra_ratecon_payload_includes_communication_id(monkeypatch) -> None:
     from app.services.unipile_tenant_resolution import UnipileTenantContext
 
-    T3raInboundEmailService, celery_task = _load_t3ra_service(monkeypatch)
+    T3raEmailIngressService, celery_task = _load_t3ra_service(monkeypatch)
     tenant = UnipileTenantContext(
         tenant_uuid=_TENANT_UUID,
         tenant_slug="t3ra",
@@ -41,19 +40,23 @@ async def test_t3ra_ratecon_payload_includes_communication_id(monkeypatch) -> No
     }
 
     with patch(
-        "app.services.t3ra_inbound_email_service.WorkflowClassifierService"
+        "app.services.t3ra_email_ingress_service.WorkflowClassifierService"
     ) as cls:
-        svc = T3raInboundEmailService()
-        svc._communications = MagicMock()
-        svc._communications.record_or_resolve_inbound.return_value = _COMM_UUID
+        svc = T3raEmailIngressService()
+        svc._driver_assignment_ingress = MagicMock()
+        svc._driver_assignment_ingress.try_driver_details_email_received.return_value = None
         cls.return_value.classify_workflow_type.return_value = {
             "workflow_name": "ratecon",
             "load_id": "30389",
         }
 
-        resp = await svc.handle(payload=payload, tenant=tenant)
+        result = await svc.process(
+            payload=payload,
+            tenant=tenant,
+            communication_id=_COMM_UUID,
+        )
 
-    assert resp.status_code == status.HTTP_200_OK
+    assert result.outcome == "enqueued"
     celery_kw = celery_task.apply_async.call_args.kwargs["kwargs"]
     assert celery_kw["workflow_name"] == "ratecon"
     assert celery_kw["payload"]["communication_id"] == _COMM_UUID

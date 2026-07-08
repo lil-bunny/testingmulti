@@ -4,23 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import status
-from fastapi.responses import JSONResponse
-
 from app.core.logger import get_logger
+from app.domain.ingress_result import IngressResult
 from app.domain.status_parsing import status_type_from_db
 from app.models.status import StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.domain.delivery_locations_import import unipile_delivery_locations_attachment
 from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
-from app.services.email_webhook_ingest_enqueue import (
-    enqueue_delivery_locations_import,
-    enqueue_load_tendering_tender_created_ingest,
+from app.services.delivery_locations_email_ingest_service import (
+    process_delivery_locations_from_email_webhook,
 )
 from app.services.load_tendering_email_ingest_service import (
     WORKFLOW_NAME,
     enqueue_gelita_load_tendering_and_link,
+    process_tender_created_from_email_webhook,
 )
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
@@ -77,47 +75,20 @@ def _is_inbox_role(payload: dict[str, Any]) -> bool:
     return str(payload.get("role") or "").strip().lower() == "inbox"
 
 
-def _ingress_skip_response(
+def _ingress_skip_result(
     *,
     event_type: str,
-    lifecycle_id: str,
-    message: str = "skipped",
-    reason: str | None = None,
-) -> JSONResponse:
-    """Standard 200 skip body for Gelita load_tendering ingress paths."""
-    content: dict[str, Any] = {
-        "message": message,
-        "event_type": event_type,
-        "workflow_lifecycle_id": lifecycle_id,
-    }
-    if reason is not None:
-        content["reason"] = reason
-    return JSONResponse(status_code=status.HTTP_200_OK, content=content)
+    reason: str,
+) -> IngressResult:
+    return IngressResult(outcome="skipped", event_type=event_type, reason=reason)
 
 
-def _ingress_comm_linked_response(
-    *,
-    event_type: str,
-    lifecycle_id: str,
-) -> JSONResponse:
-    """200 when inbound comm was already linked to a workflow run (Celery retry guard)."""
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content={
-            "message": "communication already linked; no enqueue",
-            "event_type": event_type,
-            "workflow_lifecycle_id": lifecycle_id,
-        },
-    )
-
-
-class GelitaInboundEmailService:
+class GelitaEmailIngressService:
     """
-    L2 routing for Gelita after recipient-based L1 tenant resolution:
+    Gelita L2 ingress for ``load_tendering`` (runs in the Celery ingress worker).
 
-    1. ``ack_received`` — lifecycle on ``thread_id`` + ``in_reply_to``
-    2. ``tender_created`` — ``.xlsx`` attachment → ingest → per-row enqueue
-    3. ``carrier_email_received`` — ``role`` inbox + body ``Order #`` → tender → lifecycle by ``tender_id``
+    Event order in production: ``tender_created`` → ``carrier_email_received`` → ``ack_received``.
+    Out-of-order mail is skipped (no retry). ``process()`` branches on payload shape, not tenant config.
     """
 
     def __init__(self) -> None:
@@ -125,51 +96,56 @@ class GelitaInboundEmailService:
         self._tender_service = TenderService()
         self._communications = CommunicationsService()
 
-    async def handle(
+    async def process(
         self,
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
-    ) -> JSONResponse:
+        communication_id: str | None,
+    ) -> IngressResult:
+        """
+        Classify one inbound Gelita email and run guards before workflow enqueue.
+
+        Branch order: reply/ack → delivery-locations xlsx → tender xlsx ingest → carrier inbox mail.
+        Communication is already recorded by ``process_inbound_unipile_email``; this method only routes.
+        """
         graph_slug = resolve_workflow_graph_tenant_id(
             data_import_tenant_id=tenant.tenant_uuid,
             tenant_slug_hint=tenant.tenant_slug,
         )
-        communication_id = self._communications.record_or_resolve_inbound(
-            tenant.tenant_uuid,
-            payload,
-        )
-        # 1. reply email handling
+
+        # 1. Thread replies (in_reply_to) — ack_received on an existing load_tendering lifecycle.
         if _has_in_reply_to(payload):
-            ack_response = self._try_ack_received(
+            ack_result = self._try_ack_received(
                 payload=payload,
                 tenant=tenant,
                 graph_slug=graph_slug,
                 communication_id=communication_id,
             )
-            if ack_response is not None:
-                return ack_response
+            if ack_result is not None:
+                return ack_result
 
-        # 2. new email handling
         has_dl = _has_delivery_locations_attachment(payload)
         has_tender_xlsx = _has_load_tender_xlsx_attachment(payload)
 
+        # 2. delivery_location.xlsx — upsert reference data (may coexist with tender xlsx on same mail).
         if has_dl:
-            dl_response = self._enqueue_delivery_locations_import(
+            dl_result = await self._process_delivery_locations_import(
                 payload=payload,
                 tenant=tenant,
             )
             if not has_tender_xlsx:
-                return dl_response
+                return dl_result
 
+        # 3. customers_orders_loads.xlsx — ingest rows and enqueue one workflow per new tender.
         if has_tender_xlsx:
-            return self._enqueue_tender_created_ingest(
+            return await self._process_tender_created_ingest(
                 payload=payload,
                 tenant=tenant,
                 graph_slug=graph_slug,
             )
 
-        # 2.2 carrier_email_received handling
+        # 4. Carrier reply on inbox — Order # in body links to tender_created lifecycle.
         try:
             return self._carrier_email_received(
                 payload=payload,
@@ -183,56 +159,50 @@ class GelitaInboundEmailService:
                 tenant.tenant_uuid,
                 exc,
             )
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={
-                    "message": "skipped",
-                    "event_type": "carrier_email_received",
-                    "reason": str(exc),
-                },
+            return _ingress_skip_result(
+                event_type="carrier_email_received",
+                reason=str(exc),
             )
 
-    def _enqueue_delivery_locations_import(
+    async def _process_delivery_locations_import(
         self,
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
-    ) -> JSONResponse:
-        task_id, queue_status = enqueue_delivery_locations_import(
+    ) -> IngressResult:
+        """Fetch delivery_location.xlsx and persist delivery-location reference import."""
+        await process_delivery_locations_from_email_webhook(
             payload=payload,
             tenant_uuid=tenant.tenant_uuid,
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "message": "accepted",
-                "event_type": "delivery_locations_updated",
-                "task_id": task_id,
-                "status": queue_status,
-            },
+        return IngressResult(
+            outcome="processed",
+            event_type="delivery_locations_updated",
         )
 
-    def _enqueue_tender_created_ingest(
+    async def _process_tender_created_ingest(
         self,
         *,
         payload: dict[str, Any],
         tenant: UnipileTenantContext,
         graph_slug: str,
-    ) -> JSONResponse:
-        task_id, queue_status = enqueue_load_tendering_tender_created_ingest(
+    ) -> IngressResult:
+        """
+        Ingest tender xlsx inline (formerly a separate Celery handler).
+
+        Creates tenders and enqueues one ``load_tendering`` run per new spreadsheet row.
+        """
+        result = await process_tender_created_from_email_webhook(
             payload=payload,
             tenant_uuid=tenant.tenant_uuid,
             tenant_slug=tenant.tenant_slug,
             graph_slug=graph_slug,
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "message": "accepted",
-                "event_type": "tender_created",
-                "task_id": task_id,
-                "status": queue_status,
-            },
+        execution_ids = tuple(str(eid) for eid in (result.get("execution_ids") or []))
+        return IngressResult(
+            outcome="enqueued",
+            event_type="tender_created",
+            execution_ids=execution_ids,
         )
 
     def _resolve_tender_load_type(
@@ -266,11 +236,18 @@ class GelitaInboundEmailService:
         tenant: UnipileTenantContext,
         graph_slug: str,
         communication_id: str | None = None,
-    ) -> JSONResponse | None:
+    ) -> IngressResult | None:
+        """
+        Match ``ack_received`` when the mail is a thread reply tied to a load_tendering lifecycle.
+
+        Returns ``None`` when the reply is not on a known carrier thread (caller may try other branches).
+        Skips when lifecycle is completed, order rolled over, or FTL carrier thread was retired.
+        """
         thread_id = _clean_thread_id(payload)
         if not thread_id:
             return None
 
+        # Resolve lifecycle from prior carrier_email_received comm patches on this thread.
         lifecycle_id = self._communications.resolve_lifecycle_id_for_thread(
             tenant_id=tenant.tenant_uuid,
             thread_id=thread_id,
@@ -279,6 +256,8 @@ class GelitaInboundEmailService:
         if not lifecycle_id:
             return None
         lifecycle_row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
+
+        # Guard: lifecycle already accepted — ack is a no-op.
         if status_type_from_db(lifecycle_row.get("status")) == StatusType.COMPLETED:
             logger.info(
                 "gelita ack_received skipped: lifecycle already completed "
@@ -286,15 +265,16 @@ class GelitaInboundEmailService:
                 lifecycle_id,
                 thread_id,
             )
-            return _ingress_skip_response(
+            return _ingress_skip_result(
                 event_type="ack_received",
-                lifecycle_id=lifecycle_id,
-                message="lifecycle completed; ack not processed",
+                reason="lifecycle completed; ack not processed",
             )
 
         lifecycle_tender_id = str(lifecycle_row.get("tender_id") or "").strip()
         body_html = str(payload.get("body") or "")
         order_number = extract_order_number(body_html)
+
+        # Guard: body order number points at a newer tender row (order rollover).
         if order_number:
             tender_row = self._tender_service.find_tender_by_order_number(
                 tenant_id=tenant.tenant_uuid,
@@ -312,9 +292,8 @@ class GelitaInboundEmailService:
                     lifecycle_tender_id,
                     resolved_tender_id,
                 )
-                return _ingress_skip_response(
+                return _ingress_skip_result(
                     event_type="ack_received",
-                    lifecycle_id=lifecycle_id,
                     reason="stale_order_rollover",
                 )
 
@@ -325,6 +304,8 @@ class GelitaInboundEmailService:
             order_number=order_number,
             tender_id=lifecycle_tender_id,
         )
+
+        # FTL: skip ack on a carrier thread superseded by a later routing-guide attempt.
         if is_ftl_load_type(load_type):
             if self._communications.is_retired_carrier_thread(
                 tenant_id=tenant.tenant_uuid,
@@ -339,9 +320,8 @@ class GelitaInboundEmailService:
                     thread_id,
                     live_attempt,
                 )
-                return _ingress_skip_response(
+                return _ingress_skip_result(
                     event_type="ack_received",
-                    lifecycle_id=lifecycle_id,
                     reason="retired_carrier_thread",
                 )
 
@@ -357,15 +337,16 @@ class GelitaInboundEmailService:
         if communication_id:
             workflow_payload["communication_id"] = communication_id
 
+        # Celery retry / duplicate webhook — comm already linked to a prior run.
         linked = self._skip_if_communication_linked(
             communication_id=communication_id,
             event_type="ack_received",
-            lifecycle_id=lifecycle_id,
             log_label="gelita ack_received",
         )
         if linked is not None:
             return linked
 
+        # Record workflow_run + link comm/thread before workflow worker starts (thread → lifecycle lookup).
         execution_id = enqueue_gelita_load_tendering_and_link(
             graph_slug=graph_slug,
             tenant_uuid=tenant.tenant_uuid,
@@ -375,9 +356,10 @@ class GelitaInboundEmailService:
             communication_id=communication_id,
             thread_id=thread_id,
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={"message": "success", "execution_id": execution_id, "event_type": "ack_received"},
+        return IngressResult(
+            outcome="enqueued",
+            event_type="ack_received",
+            execution_ids=(execution_id,),
         )
 
     def _skip_if_communication_linked(
@@ -385,10 +367,9 @@ class GelitaInboundEmailService:
         *,
         communication_id: str | None,
         event_type: str,
-        lifecycle_id: str,
         log_label: str,
-    ) -> JSONResponse | None:
-        """Return skip response when inbound comm is already linked to a workflow run."""
+    ) -> IngressResult | None:
+        """Return skip result when inbound comm is already linked to a workflow run."""
         if not communication_id:
             return None
         if not self._communications.is_communication_linked_to_run(
@@ -396,14 +377,13 @@ class GelitaInboundEmailService:
         ):
             return None
         logger.info(
-            "%s skipped: communication already linked comm_id=%s lifecycle_id=%s",
+            "%s skipped: communication already linked comm_id=%s",
             log_label,
             communication_id,
-            lifecycle_id,
         )
-        return _ingress_comm_linked_response(
+        return _ingress_skip_result(
             event_type=event_type,
-            lifecycle_id=lifecycle_id,
+            reason="communication already linked",
         )
 
     def _check_carrier_thread_ingress(
@@ -413,11 +393,12 @@ class GelitaInboundEmailService:
         lifecycle_id: str,
         thread_id: str,
         routing_guide_attempt: int | None,
-    ) -> JSONResponse | None:
+    ) -> IngressResult | None:
         """
-        Idempotent skip or conflict check before carrier enqueue.
+        Idempotent carrier-thread checks before ``carrier_email_received`` enqueue.
 
-        ``routing_guide_attempt`` scopes FTL lookups; ``None`` keeps LTL global thread logic.
+        FTL scopes by ``routing_guide_attempt``; LTL uses lifecycle-wide thread linkage.
+        Raises when the same attempt already has a different carrier thread.
         """
         if self._communications.is_thread_linked_to_lifecycle(
             tenant_id=tenant_id,
@@ -425,13 +406,12 @@ class GelitaInboundEmailService:
             workflow_lifecycle_id=lifecycle_id,
             routing_guide_attempt=routing_guide_attempt,
         ):
-            content: dict[str, Any] = {
-                "message": "carrier thread already linked; no enqueue",
-            }
-            if routing_guide_attempt is not None:
-                content["event_type"] = "carrier_email_received"
-            return JSONResponse(status_code=status.HTTP_200_OK, content=content)
+            return _ingress_skip_result(
+                event_type="carrier_email_received",
+                reason="carrier thread already linked",
+            )
 
+        # Same routing-guide attempt must not bind two different Unipile threads.
         linked_thread = self._communications.find_linked_thread_for_lifecycle(
             tenant_id=tenant_id,
             workflow_lifecycle_id=lifecycle_id,
@@ -454,18 +434,24 @@ class GelitaInboundEmailService:
         tenant: UnipileTenantContext,
         graph_slug: str,
         communication_id: str | None = None,
-    ) -> JSONResponse:
+    ) -> IngressResult:
+        """
+        First carrier reply after ``tender_created`` — binds thread to lifecycle and enqueues workflow.
+
+        Requires inbox role, Order # in body, existing tender + lifecycle from xlsx ingest.
+        """
         if not _is_inbox_role(payload):
             logger.info(
                 "gelita carrier: skipping non-inbox webhook role=%r folders=%r",
                 payload.get("role"),
                 payload.get("folders"),
             )
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content={"message": "non-inbox email; carrier workflow not queued"},
+            return IngressResult(
+                outcome="no_match",
+                reason="non-inbox email; carrier workflow not queued",
             )
 
+        # Body Order # → latest tender row → load_tendering lifecycle (must exist from tender_created).
         order_number, thread_id, lifecycle_id, tender_id, lifecycle_row, tender_row = (
             self._find_lifecycle_row_by_order_number(
                 payload=payload,
@@ -473,6 +459,7 @@ class GelitaInboundEmailService:
             )
         )
 
+        # Guard: load already accepted — carrier reply is too late in the sequence.
         if status_type_from_db(lifecycle_row.get("status")) == StatusType.COMPLETED:
             logger.info(
                 "gelita carrier_email_received skipped: lifecycle completed "
@@ -480,13 +467,13 @@ class GelitaInboundEmailService:
                 lifecycle_id,
                 thread_id,
             )
-            return _ingress_skip_response(
+            return _ingress_skip_result(
                 event_type="carrier_email_received",
-                lifecycle_id=lifecycle_id,
                 reason="lifecycle_completed",
             )
 
         lifecycle_tender_id = str(lifecycle_row.get("tender_id") or tender_id or "").strip()
+        # Guard: spreadsheet re-import created a newer tender for the same order number.
         if not routing_guide_order_matches_lifecycle(tender_id, lifecycle_tender_id):
             logger.info(
                 "gelita carrier_email_received skipped: stale order rollover "
@@ -495,9 +482,8 @@ class GelitaInboundEmailService:
                 lifecycle_tender_id,
                 tender_id,
             )
-            return _ingress_skip_response(
+            return _ingress_skip_result(
                 event_type="carrier_email_received",
-                lifecycle_id=lifecycle_id,
                 reason="stale_order_rollover",
             )
 
@@ -509,6 +495,7 @@ class GelitaInboundEmailService:
             tender_id=tender_id,
         )
         is_ftl = is_ftl_load_type(load_type)
+        # FTL threads are scoped per routing-guide attempt; LTL uses one thread per lifecycle.
         attempt_kwarg = live_attempt if is_ftl else None
 
         skip = self._check_carrier_thread_ingress(
@@ -523,7 +510,6 @@ class GelitaInboundEmailService:
         linked = self._skip_if_communication_linked(
             communication_id=communication_id,
             event_type="carrier_email_received",
-            lifecycle_id=lifecycle_id,
             log_label="gelita carrier_email_received",
         )
         if linked is not None:
@@ -541,6 +527,7 @@ class GelitaInboundEmailService:
         if communication_id:
             workflow_payload["communication_id"] = communication_id
 
+        # Same pre-enqueue linking as ack — enables later thread → lifecycle resolution.
         execution_id = enqueue_gelita_load_tendering_and_link(
             graph_slug=graph_slug,
             tenant_uuid=tenant.tenant_uuid,
@@ -551,13 +538,10 @@ class GelitaInboundEmailService:
             thread_id=thread_id,
             routing_guide_attempt=live_attempt if is_ftl else None,
         )
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "message": "success",
-                "execution_id": execution_id,
-                "event_type": "carrier_email_received",
-            },
+        return IngressResult(
+            outcome="enqueued",
+            event_type="carrier_email_received",
+            execution_ids=(execution_id,),
         )
 
     def _find_lifecycle_row_by_order_number(
@@ -567,11 +551,9 @@ class GelitaInboundEmailService:
         tenant_id: str,
     ) -> tuple[str, str, str, str, dict[str, Any], dict[str, Any]]:
         """
-        Parse carrier email and load the ``load_tendering`` lifecycle for the order.
+        Walk carrier mail prerequisites: Order # → tender row → load_tendering lifecycle.
 
-        Resolves the latest tender for the order number, then lifecycle by ``tender_id``.
-        Raises ``GelitaCarrierEmailIngressError`` when tender or lifecycle is missing.
-        Returns ``(order_number, thread_id, lifecycle_id, tender_id, lifecycle_row, tender_row)``.
+        Raises ``GelitaCarrierEmailIngressError`` when ingest has not created tender/lifecycle yet.
         """
         body_html = str(payload.get("body") or "")
         order_number = extract_order_number(body_html)

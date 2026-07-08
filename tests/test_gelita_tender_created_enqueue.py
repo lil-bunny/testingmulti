@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import status
-from fastapi.responses import JSONResponse
 
-from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.services.gelita_email_ingress_service import GelitaEmailIngressService
 from app.services.load_tendering_email_ingest_service import (
     process_tender_created_from_email_webhook,
 )
@@ -122,22 +119,27 @@ async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
 
 
 @pytest.mark.asyncio
-@patch("app.services.gelita_inbound_email_service.enqueue_load_tendering_tender_created_ingest")
-@patch("app.services.gelita_inbound_email_service.CommunicationsService.record_or_resolve_inbound")
-async def test_handle_xlsx_enqueues_background_ingest_not_inline_import(
-    mock_record: MagicMock,
-    mock_enqueue_ingest: MagicMock,
+@patch(
+    "app.services.gelita_email_ingress_service.process_tender_created_from_email_webhook",
+    new_callable=AsyncMock,
+)
+async def test_process_xlsx_runs_inline_tender_created_ingest(
+    mock_process_ingest: AsyncMock,
 ) -> None:
-    mock_enqueue_ingest.return_value = ("task-abc", "queued")
+    mock_process_ingest.return_value = {
+        "message": "success",
+        "event_type": "tender_created",
+        "execution_ids": ["exec-1"],
+    }
 
-    svc = GelitaInboundEmailService()
-    response = await svc.handle(payload=_xlsx_payload(), tenant=_tenant())
+    svc = GelitaEmailIngressService()
+    result = await svc.process(
+        payload=_xlsx_payload(),
+        tenant=_tenant(),
+        communication_id="comm-1",
+    )
 
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert content["message"] == "accepted"
-    assert content["event_type"] == "tender_created"
-    assert content["task_id"] == "task-abc"
-    assert content["status"] == "queued"
-    mock_enqueue_ingest.assert_called_once()
-    mock_record.assert_called_once()
+    assert result.outcome == "enqueued"
+    assert result.event_type == "tender_created"
+    assert result.execution_ids == ("exec-1",)
+    mock_process_ingest.assert_called_once()

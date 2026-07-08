@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.domain.ingress_result import IngressResult
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
@@ -971,7 +972,8 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
         )
 
     assert resp is not None
-    assert resp.status_code == 200
+    assert isinstance(resp, IngressResult)
+    assert resp.outcome == "enqueued"
     apply_async.assert_called_once()
     kwargs = apply_async.call_args.kwargs["kwargs"]
     assert kwargs["workflow_name"] == "driver_assignment"
