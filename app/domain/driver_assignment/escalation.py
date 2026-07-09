@@ -7,9 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
-
-
 class DriverAssignmentEscalateSettings(BaseModel):
     """``tenant_settings.driver_assignment.escalate_driver``."""
 
@@ -49,12 +46,6 @@ def parse_driver_assignment_escalate_settings(
         return DriverAssignmentEscalateSettings.model_validate(raw)
     except Exception:
         return None
-
-
-def skip_sub_statuses_from_driver_assignment_settings(
-    tenant_settings: dict[str, Any] | None,
-) -> frozenset[str]:
-    return driver_assignment_reminder_skip_sub_statuses(tenant_settings)
 
 
 def format_driver_escalation_title(

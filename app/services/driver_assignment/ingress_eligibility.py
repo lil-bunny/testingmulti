@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.driver_assignment.escalation import skip_sub_statuses_from_driver_assignment_settings
+from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
 from app.domain.driver_assignment.guards import (
     blocks_driver_assignment_escalation,
     blocks_driver_assignment_reminder,
@@ -214,15 +214,10 @@ class IngressEligibilityMixin:
 
                 return EligibilityResult(skip_reason="already_completed")
 
-            tenant_settings = payload.get("tenant_settings")
-
-            skip_subs = skip_sub_statuses_from_driver_assignment_settings(
-
-                tenant_settings if isinstance(tenant_settings, dict) else None
-
+            skip = delayed_workflow_step_skip_reason(
+                row,
+                skip_sub_statuses=driver_assignment_reminder_skip_sub_statuses(),
             )
-
-            skip = delayed_workflow_step_skip_reason(row, skip_sub_statuses=skip_subs)
 
             if skip:
 
