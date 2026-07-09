@@ -29,6 +29,7 @@ from app.services.driver_assignment.shipment_driver_details_service import (
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
+from app.domain.driver_assignment.reminder_ladder import schedule_reminder_step_from_payload
 from app.tools.driver_details import normalize_phone_digits
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 
@@ -270,6 +271,14 @@ class DriverAssignmentActivityService:
                 ),
             )
         )
+
+        if not state.data.get("driver_reminder_is_partial_follow_up"):
+            schedule_step = schedule_reminder_step_from_payload(state.data)
+            if schedule_step is not None:
+                self._lifecycle.append_driver_assignment_sent_schedule_step(
+                    lifecycle_id=wl_id,
+                    schedule_step=schedule_step,
+                )
 
     def record_started(self, state) -> None:
         if not state.data.get("reminders_scheduled"):

@@ -181,7 +181,9 @@ def enrich_step_payload(
     payload = copy.deepcopy(base)
     payload["event_type"] = step.event_type
     if step.step is not None:
-        payload["reminder_step"] = int(step.step)
+        schedule_step = int(step.step)
+        payload["reminder_step"] = schedule_step
+        payload["schedule_reminder_step"] = schedule_step
 
     templates = reminders.subject_templates
     if templates:

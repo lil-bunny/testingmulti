@@ -427,14 +427,24 @@ def test_send_reminder_email_success():
         "success": True,
         "communication_id": "comm-uuid-1",
     }
-    svc = DriverAssignmentIngressService(communications_service=comms)
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
 
     result = svc.send_reminder_email(
         tenant_id=_TENANT_ID,
         tenant_settings={"mikey_account_id": "acct-1"},
         payload=_base_payload(
             event_type="reminder_due",
-            reminder_step=1,
+            schedule_reminder_step=2,
+            reminder_step=2,
+            workflow_lifecycle_id=_DRIVER_LC_ID,
             body="Please send driver info",
         ),
         workflow_run_id="run-1",
@@ -442,10 +452,13 @@ def test_send_reminder_email_success():
 
     assert result.sent is True
     assert result.error is None
+    assert result.reminder_step == 1
     assert result.communication_id == "comm-uuid-1"
     comms.send_thread_reply.assert_called_once()
     call_kwargs = comms.send_thread_reply.call_args.kwargs
     assert call_kwargs["thread_id"] == "thread-1"
+    assert call_kwargs["communication_metadata"]["reminder_step"] == 1
+    assert call_kwargs["communication_metadata"]["schedule_reminder_step"] == 2
 
 
 def test_send_reminder_email_passes_from_email_when_alias_configured():
@@ -695,12 +708,18 @@ def test_check_reminder_eligibility_skips_when_step_already_sent():
     svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
     svc._lifecycle_service.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
-        "sub_status": StatusSubType.REMINDER_2_SENT.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+        "metadata": {"driver_assignment_sent_schedule_steps": [2]},
     }
 
     result = svc.check_reminder_eligibility(
         tenant_id=_TENANT_ID,
-        payload=_base_payload(event_type="reminder_due", reminder_step=2),
+        payload=_base_payload(
+            event_type="reminder_due",
+            schedule_reminder_step=2,
+            reminder_step=2,
+            workflow_lifecycle_id=_DRIVER_LC_ID,
+        ),
     )
 
     assert result.skip_reason == "reminder_step_already_sent"
@@ -712,18 +731,41 @@ def test_check_reminder_eligibility_allows_next_step_on_pending_review_ladder():
     svc._lifecycle_service.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.REMINDER_2_SENT.value,
+        "metadata": {"driver_assignment_sent_schedule_steps": [2]},
     }
 
     result = svc.check_reminder_eligibility(
         tenant_id=_TENANT_ID,
         payload=_base_payload(
             event_type="reminder_due",
+            schedule_reminder_step=3,
             reminder_step=3,
             workflow_lifecycle_id=_DRIVER_LC_ID,
         ),
     )
 
     assert result.eligible is True
+
+
+def test_check_reminder_eligibility_skips_when_at_reminder_four_on_ladder():
+    svc = _service()
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+    svc._lifecycle_service.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+        "metadata": {"driver_assignment_sent_schedule_steps": [2, 3, 4]},
+    }
+
+    result = svc.check_reminder_eligibility(
+        tenant_id=_TENANT_ID,
+        payload=_base_payload(
+            event_type="reminder_due",
+            schedule_reminder_step=4,
+            workflow_lifecycle_id=_DRIVER_LC_ID,
+        ),
+    )
+
+    assert result.skip_reason == "already_completed"
 
 
 def test_try_driver_details_email_received_rejects_non_reply_without_re_subject():

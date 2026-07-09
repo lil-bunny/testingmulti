@@ -128,13 +128,40 @@ def test_record_reminder_sent_step1_status_change_to_pending_review():
         lifecycle_service=lifecycle,
     )
 
-    svc.record_reminder_sent(_reminder_state(reminder_step=1))
+    svc.record_reminder_sent(
+        _reminder_state(reminder_step=1, schedule_reminder_step=2)
+    )
 
     sequence = activity.record_sequence.call_args.args[0]
     assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
+    lifecycle.append_driver_assignment_sent_schedule_step.assert_called_once_with(
+        lifecycle_id="driver-lc-1",
+        schedule_step=2,
+    )
+
+
+def test_record_reminder_sent_catch_up_logs_sequential_step_one_for_schedule_step_two():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(
+        _reminder_state(reminder_step=1, schedule_reminder_step=2)
+    )
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert "Driver reminder 1 sent" in sequence.steps[0].description
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
 
 
@@ -232,6 +259,7 @@ def test_record_reminder_sent_partial_follow_up_action_template():
     sequence = activity.record_sequence.call_args.args[0]
     assert "partial follow-up" in sequence.steps[0].description.lower()
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
+    lifecycle.append_driver_assignment_sent_schedule_step.assert_not_called()
 
 
 def test_record_tms_driver_success_logs_single_assign_action(_mock_reminder_cancel_service):

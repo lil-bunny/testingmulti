@@ -112,6 +112,8 @@ def send_driver_reminder(state):
     state.data["driver_reminder_sent"] = result.sent
     if result.error:
         state.data["driver_reminder_error"] = result.error
+    if result.reminder_step is not None:
+        state.data["reminder_step"] = result.reminder_step
     if result.communication_id:
         state.data["communication_id"] = result.communication_id
     return state

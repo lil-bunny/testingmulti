@@ -117,6 +117,7 @@ def test_pod_payload_enrichment_from_db() -> None:
         data={"subject": "Original"},
     )
     assert payload["reminder_step"] == step.step
+    assert payload["schedule_reminder_step"] == step.step
     assert payload.get("body") or reminders.default_body
 
 
