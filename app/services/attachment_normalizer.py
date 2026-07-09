@@ -7,10 +7,8 @@ valid PDFs/images, uploads merged PDF to S3 as ``pod_merged_pdf_object_key``.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
-import json
 import logging
 import re
 import time
@@ -21,11 +19,11 @@ from urllib.parse import urlparse
 
 import httpx
 import img2pdf
-from openai import OpenAI
 from PIL import Image
 
 from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
+from app.tools.llm_client import chat_vision_json
 
 logger = logging.getLogger(__name__)
 
@@ -652,6 +650,7 @@ class AttachmentNormalizerService:
         *,
         attachment_id: str | None = None,
     ) -> Dict[str, Any]:
+        """Classify image via shared traced ``chat_vision_json`` (LangSmith LLM span)."""
         context = getattr(self, "_classify_log_context", "graph")
         api_key = settings.LLM_API_KEY
         if not api_key:
@@ -668,7 +667,6 @@ class AttachmentNormalizerService:
                 "prefiltered": False,
             }
 
-        base_url = settings.LLM_BASE_URL
         model = (
             settings.ATTACHMENT_CLASSIFIER_MODEL
             or settings.LLM_MODEL
@@ -689,33 +687,16 @@ class AttachmentNormalizerService:
         started = time.monotonic()
 
         try:
-            client = OpenAI(api_key=api_key, base_url=base_url)
-            b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": IMAGE_CLASSIFIER_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": IMAGE_CLASSIFIER_USER_PROMPT},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime};base64,{b64}",
-                                    "detail": "low",
-                                },
-                            },
-                        ],
-                    },
-                ],
-                max_tokens=150,
+            result = chat_vision_json(
+                IMAGE_CLASSIFIER_SYSTEM_PROMPT,
+                IMAGE_CLASSIFIER_USER_PROMPT,
+                image_bytes,
                 temperature=0.1,
+                max_tokens=150,
+                model=model,
+                image_mime_type=mime,
+                timeout_s=60.0,
             )
-
-            raw_text = (response.choices[0].message.content or "").strip()
-            result = json.loads(raw_text)
             elapsed_ms = (time.monotonic() - started) * 1000
 
             logger.info(
