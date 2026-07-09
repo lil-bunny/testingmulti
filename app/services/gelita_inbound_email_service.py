@@ -346,6 +346,7 @@ class GelitaInboundEmailService:
                 )
 
         tender_id = lifecycle_tender_id
+        is_ftl = is_ftl_load_type(load_type)
 
         workflow_payload: dict[str, Any] = {
             **payload,
@@ -356,6 +357,10 @@ class GelitaInboundEmailService:
             workflow_payload["tender_id"] = tender_id
         if communication_id:
             workflow_payload["communication_id"] = communication_id
+        # FTL reject path never hits read_tender_row; seed attempt so routing_guide_router
+        # can choose exhausted vs advance (mirrors carrier_email_received).
+        if is_ftl:
+            workflow_payload["routing_guide_attempt"] = live_attempt
 
         linked = self._skip_if_communication_linked(
             communication_id=communication_id,
