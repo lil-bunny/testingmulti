@@ -23,6 +23,7 @@ from app.domain.status_parsing import status_type_from_db, sub_status_type_from_
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.tms_connection_activity_service import TmsConnectionActivityService
 from app.services.driver_assignment.shipment_driver_details_service import (
     DriverAssignmentShipmentDetailsService,
 )
@@ -384,6 +385,14 @@ class DriverAssignmentActivityService:
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
+        if state.data.get("tms_connection_timed_out"):
+            TmsConnectionActivityService(activity_log_service=self._activity).record_timeout(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                communication_id=self._communication_id(state),
+            )
+            return
         reason = str(state.data.get("tms_driver_error") or "unknown").strip() or "unknown"
         self._activity.record_sequence(
             ActivityLogSequence(

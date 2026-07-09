@@ -139,6 +139,10 @@ class IntegrationError(_CatalogError):
         "tms_pod_upload_failed",
         "Turvo POD upload failed.",
     )
+    TMS_CONNECTION_TIMED_OUT = (
+        "tms_connection_timed_out",
+        "TMS connection timed out.",
+    )
 
 
 class SystemError(_CatalogError):

@@ -95,7 +95,7 @@ async def test_turvo_api_client_request_and_401_refresh(monkeypatch: pytest.Monk
     ]
     seen_auth: list[str] = []
 
-    async def fake_send(self, method, url, headers, params, json_body, timeout_s):
+    async def fake_send(self, method, url, headers, params, json_body, timeout_s, *, files=None):
         if len(seen_auth) == 0:
             captured["method"] = method
             captured["url"] = url

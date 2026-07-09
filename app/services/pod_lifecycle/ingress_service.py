@@ -21,9 +21,11 @@ from app.domain.status_parsing import sub_status_type_from_db
 from app.integrations.turvo.documents import check_pod_by_shipment_id
 from app.domain.unipile_email_thread import resolve_primary_shipment_from_thread_rows
 from app.integrations.turvo.shipments import get_shipment
+from app.domain.tms.connection_failure import is_tms_connection_timeout
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.services.shipments_service import ShipmentsService
+from app.services.tms_connection_activity_service import TmsConnectionActivityService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_runs_service import WorkflowRunsService
 
@@ -242,6 +244,16 @@ class PodLifecycleIngressService:
                 resolution.shipment_number,
                 turvo_error,
             )
+            if (
+                is_tms_connection_timeout(turvo_error)
+                and resolution.workflow_lifecycle_id
+            ):
+                TmsConnectionActivityService().record_timeout(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=resolution.workflow_lifecycle_id,
+                    workflow_run_id=None,
+                    communication_id=self._clean(payload.get("communication_id")),
+                )
             raise PodEmailIngressSkipped(
                 POD_EMAIL_SKIP_TURVO_FETCH_FAILED,
                 shipments_row_id=resolution.shipments_row_id,
