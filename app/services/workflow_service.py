@@ -214,6 +214,8 @@ class WorkflowService:
             and payload.get("event_type") == "email_received"
             # and not payload.get("pod_email_ingress_prepared")
         ):
+            if not str(payload.get("execution_id") or "").strip():
+                payload["execution_id"] = str(uuid.uuid4())
             try:
                 payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
                     tenant_id=tenant_id,

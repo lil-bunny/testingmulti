@@ -377,6 +377,7 @@ class AttachmentNormalizerService:
         upload_merged: bool = True,
         classify_context: str = "graph",
         local_merged_path: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
@@ -413,6 +414,7 @@ class AttachmentNormalizerService:
 
         processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
         processor._classify_log_context = classify_context
+        processor._trace_metadata = dict(trace_metadata or {})
         return processor.normalize(
             refs,
             shipment_number=shipment_number,
@@ -426,6 +428,7 @@ class AttachmentNormalizerService:
         attachment_bytes_by_id: dict[str, bytes],
         *,
         shipment_number: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Ingress gate: classify in memory without S3 upload."""
         return self.normalize_from_bytes(
@@ -433,6 +436,7 @@ class AttachmentNormalizerService:
             shipment_number=shipment_number,
             upload_merged=False,
             classify_context="ingress_gate",
+            trace_metadata=trace_metadata,
         )
 
     @staticmethod
@@ -719,6 +723,19 @@ class AttachmentNormalizerService:
         )
         started = time.monotonic()
 
+        base_meta = dict(getattr(self, "_trace_metadata", {}) or {})
+        if attachment_id:
+            base_meta["attachment_id"] = attachment_id
+        base_meta.setdefault("step_key", "pod_attachment_classifier")
+        base_meta.setdefault("classify_context", context)
+        # LangSmith thread grouping: prefer lifecycle id, else execution id.
+        thread_id = (
+            str(base_meta.get("workflow_lifecycle_id") or "").strip()
+            or str(base_meta.get("execution_id") or "").strip()
+        )
+        if thread_id:
+            base_meta["thread_id"] = thread_id
+
         try:
             result = chat_vision_json(
                 IMAGE_CLASSIFIER_SYSTEM_PROMPT,
@@ -729,6 +746,8 @@ class AttachmentNormalizerService:
                 model=model,
                 image_mime_type=mime,
                 timeout_s=60.0,
+                metadata=base_meta,
+                tags=["pod_attachment_classifier", context],
             )
             elapsed_ms = (time.monotonic() - started) * 1000
 

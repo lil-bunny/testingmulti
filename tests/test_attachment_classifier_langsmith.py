@@ -11,6 +11,10 @@ from app.services.attachment_normalizer import (
     IMAGE_CLASSIFIER_USER_PROMPT,
     AttachmentNormalizerService,
 )
+from app.services.pod_lifecycle.attachment_ingress_gate_service import (
+    PodAttachmentIngressGateService,
+)
+from app.tools import llm_client
 from app.tools.llm_client import LLMClientError
 
 
@@ -63,6 +67,13 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     )
 
     svc = AttachmentNormalizerService()
+    svc._trace_metadata = {
+        "execution_id": "exec-1",
+        "workflow_lifecycle_id": "wl-1",
+        "tenant_slug": "t3ra",
+        "shipment_id": "SHIP-1",
+    }
+    svc._classify_log_context = "ingress_gate"
     result = svc._classify_image(png, attachment_id="att-1")
 
     assert result["is_valid_document"] is True
@@ -77,6 +88,14 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["image_mime_type"] == "image/png"
     assert captured["kwargs"]["temperature"] == 0.1
     assert captured["kwargs"]["max_tokens"] == 150
+    meta = captured["kwargs"]["metadata"]
+    assert meta["execution_id"] == "exec-1"
+    assert meta["workflow_lifecycle_id"] == "wl-1"
+    assert meta["thread_id"] == "wl-1"
+    assert meta["attachment_id"] == "att-1"
+    assert meta["step_key"] == "pod_attachment_classifier"
+    assert meta["classify_context"] == "ingress_gate"
+    assert captured["kwargs"]["tags"] == ["pod_attachment_classifier", "ingress_gate"]
 
 
 def test_classify_image_fail_open_on_llm_error(monkeypatch):
@@ -125,8 +144,6 @@ def test_classify_image_skips_without_api_key(monkeypatch):
 
 
 def test_chat_vision_json_passes_model_override(monkeypatch):
-    from app.tools import llm_client
-
     seen: dict = {}
 
     class FakeResponse:
@@ -180,3 +197,91 @@ def test_chat_vision_json_passes_model_override(monkeypatch):
     assert out["is_valid_document"] is True
     assert seen["json"]["model"] == "override-model"
     assert seen["json"]["max_tokens"] == 150
+
+
+def test_llm_trace_inputs_dedupes_prompt_fields():
+    shaped = llm_client._llm_trace_inputs(
+        {
+            "system_prompt": "sys",
+            "user_prompt": "user text",
+            "temperature": 0.1,
+            "timeout_s": 60.0,
+            "model": "m1",
+            "max_tokens": 150,
+            "image_jpeg_bytes": b"\x89PNG\r\n\x1a\n" + b"x" * 20,
+            "image_mime_type": "image/png",
+        }
+    )
+    assert "system_prompt" not in shaped
+    assert "user_prompt" not in shaped
+    assert shaped["messages"][0] == {"role": "system", "content": "sys"}
+    assert shaped["messages"][1]["role"] == "user"
+    assert isinstance(shaped["messages"][1]["content"], list)
+    assert shaped["image"]["mime_type"] == "image/png"
+
+
+def test_merge_langsmith_extra_keeps_minimal_metadata():
+    extra = llm_client._merge_langsmith_extra(
+        prompt_trace=None,
+        metadata={
+            "execution_id": "exec-1",
+            "workflow_lifecycle_id": "wl-1",
+            "empty": "",
+            "none": None,
+        },
+        tags=["pod_attachment_classifier", "ingress_gate", ""],
+    )
+    assert extra == {
+        "metadata": {
+            "execution_id": "exec-1",
+            "workflow_lifecycle_id": "wl-1",
+        },
+        "tags": ["pod_attachment_classifier", "ingress_gate"],
+    }
+
+
+def test_classifier_trace_metadata_minimal_fields():
+    meta = PodAttachmentIngressGateService._classifier_trace_metadata(
+        {
+            "execution_id": "exec-9",
+            "workflow_lifecycle_id": "wl-9",
+            "tenant_id": "tid",
+            "tenant_slug": "t3ra",
+            "shipment_id": "1001",
+            "email_id": "should-not-appear",
+            "communication_id": "should-not-appear",
+        }
+    )
+    assert meta == {
+        "workflow_name": "pod_lifecycle",
+        "step_key": "pod_attachment_classifier",
+        "classify_context": "ingress_gate",
+        "execution_id": "exec-9",
+        "workflow_lifecycle_id": "wl-9",
+        "tenant_id": "tid",
+        "tenant_slug": "t3ra",
+        "shipment_id": "1001",
+    }
+
+
+def test_assess_attachments_forwards_trace_metadata(monkeypatch):
+    png = _large_png_bytes()
+    seen: dict = {}
+
+    def fake_normalize_from_bytes(self, *args, **kwargs):
+        seen.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(
+        AttachmentNormalizerService,
+        "normalize_from_bytes",
+        fake_normalize_from_bytes,
+    )
+    svc = AttachmentNormalizerService()
+    svc.assess_attachments(
+        {"att-1": png},
+        shipment_number="SHIP-1",
+        trace_metadata={"execution_id": "exec-2"},
+    )
+    assert seen["trace_metadata"] == {"execution_id": "exec-2"}
+    assert seen["classify_context"] == "ingress_gate"

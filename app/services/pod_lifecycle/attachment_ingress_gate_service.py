@@ -62,6 +62,26 @@ class PodAttachmentIngressGateService:
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in token)[:120]
         return root / f"pod_email_{safe}"
 
+    @staticmethod
+    def _classifier_trace_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+        """Minimal LangSmith correlation keys for linking classifier spans to workflows/evals."""
+        meta: dict[str, Any] = {
+            "workflow_name": "pod_lifecycle",
+            "step_key": "pod_attachment_classifier",
+            "classify_context": "ingress_gate",
+        }
+        for key in (
+            "execution_id",
+            "workflow_lifecycle_id",
+            "tenant_id",
+            "tenant_slug",
+            "shipment_id",
+        ):
+            value = str(payload.get(key) or "").strip()
+            if value:
+                meta[key] = value
+        return meta
+
     async def check(self, *, payload: dict[str, Any]) -> PodAttachmentIngressGateResult:
         """
         Fetch Unipile bytes once, classify in memory, and return bytes for LangGraph carry-through.
@@ -166,6 +186,7 @@ class PodAttachmentIngressGateService:
         normalization = self._normalizer.assess_attachments(
             bytes_by_id,
             shipment_number=shipment_number,
+            trace_metadata=self._classifier_trace_metadata(payload),
         )
         if not pod_attachment_gate_eligible(normalization):
             shutil.rmtree(stage_dir, ignore_errors=True)
