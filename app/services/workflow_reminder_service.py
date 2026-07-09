@@ -13,7 +13,6 @@ from app.domain.before_pickup_reminder_plan import plan_before_pickup_reminders
 from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
 from app.domain.driver_assignment.reminder_scheduling import (
     DRIVER_ASSIGNMENT_CATCH_UP_MISSED_STEPS,
-    DRIVER_ASSIGNMENT_MIN_GAP_HOURS,
     DRIVER_ASSIGNMENT_REMINDER_EXPIRE_GRACE_HOURS,
 )
 from app.domain.driver_assignment.reminders_config import (
@@ -428,7 +427,7 @@ class WorkflowReminderService:
             pickup_at=pickup_at,
             now=now,
             steps=steps,
-            min_gap_hours=DRIVER_ASSIGNMENT_MIN_GAP_HOURS,
+            min_gap_hours=float(reminders.min_gap_hours),
             catch_up_enabled=DRIVER_ASSIGNMENT_CATCH_UP_MISSED_STEPS,
         )
 

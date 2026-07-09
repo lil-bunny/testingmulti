@@ -14,13 +14,13 @@ class DriverAssignmentRemindersConfig(BaseModel):
     Driver assignment reminder ladder.
 
     ``delay_hours`` on each step is always hours **before** pickup appointment.
-    Scheduling mode, catch-up, min gap, and Celery expiry are code constants
-    (see ``reminder_scheduling``).
+    Catch-up and Celery expiry are code constants (see ``reminder_scheduling``).
     """
 
     model_config = ConfigDict(extra="ignore")
 
     steps: list[ReminderStepSpec] = Field(min_length=1)
+    min_gap_hours: float = Field(default=3.0, ge=0)
     email_template_html: str | None = None
     default_body: str | None = None
     subject_templates: dict[str, str] | None = None

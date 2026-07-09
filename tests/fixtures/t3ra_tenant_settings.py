@@ -38,6 +38,7 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                     {"step": 4, "event_type": "reminder_due", "delay_hours": 0.03333333333333333},
                     {"step": 5, "event_type": "escalation_due", "delay_hours": 0.016666666666666666},
                 ],
+                "min_gap_hours": 3,
                 "email_template_html": "<html>driver-reminder</html>",
             },
             "confirmation_email": {
