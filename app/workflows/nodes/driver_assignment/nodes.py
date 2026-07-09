@@ -132,18 +132,9 @@ def record_driver_assignment_started(state):
 def schedule_driver_reminders(state):
     data = dict(state.data)
     WorkflowReminderService().schedule(data, workflow_name="driver_assignment")
-    if data.get("reminders_scheduled"):
-        state.data["reminders_scheduled"] = True
-    schedule = data.get("driver_reminder_schedule")
-    if isinstance(schedule, dict):
-        state.data["driver_reminder_schedule"] = schedule
-        for key in (
-            "pickup_appointment_at",
-            "pickup_appointment_timezone",
-            "pickup_appointment_source",
-        ):
-            if key in schedule and schedule[key] is not None:
-                state.data[key] = schedule[key]
+    for key in WorkflowReminderService.driver_assignment_schedule_state_keys():
+        if key in data:
+            state.data[key] = data[key]
     return state
 
 

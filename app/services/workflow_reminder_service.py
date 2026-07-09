@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from pydantic import ValidationError
 
 from app.core.logger import get_logger
 from app.domain.before_pickup_reminder_plan import plan_before_pickup_reminders
 from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
+from app.domain.driver_assignment.reminder_scheduling import (
+    DRIVER_ASSIGNMENT_CATCH_UP_MISSED_STEPS,
+    DRIVER_ASSIGNMENT_MIN_GAP_HOURS,
+    DRIVER_ASSIGNMENT_REMINDER_EXPIRE_GRACE_HOURS,
+)
+from app.domain.driver_assignment.reminders_config import (
+    DriverAssignmentRemindersConfig,
+    parse_driver_assignment_reminders,
+)
 from app.domain.load_tendering_settings import load_type_bucket, resolve_load_type
 from app.domain.pod_lifecycle.guards import pod_reminder_skip_sub_statuses
 from app.domain.reminder_schedule import ReminderStepSpec, WorkflowRemindersConfig
@@ -46,9 +55,24 @@ _REQUIRED_SCHEDULE_KEYS: tuple[str, ...] = (
     "tenant_id",
 )
 
+_DRIVER_ASSIGNMENT_STATE_KEYS: tuple[str, ...] = (
+    "reminders_scheduled",
+    "driver_reminder_schedule",
+    "pickup_appointment_at",
+    "pickup_appointment_timezone",
+    "pickup_appointment_source",
+)
+
 _VARIANT_SELECTORS: dict[str, Callable[[dict[str, Any]], str]] = {
     "load_type": lambda data: load_type_bucket(resolve_load_type(data)),
 }
+
+
+class _ReminderEmailConfig(Protocol):
+    subject_templates: dict[str, str] | None
+    payload_keys: list[str] | None
+
+    def resolve_email_body(self) -> str | None: ...
 
 
 def _reminder_offset_label(hours: float) -> str:
@@ -155,7 +179,7 @@ def build_enqueue_payload(
     data: dict[str, Any],
     *,
     workflow_name: str,
-    reminders: WorkflowRemindersConfig,
+    reminders: _ReminderEmailConfig,
 ) -> dict[str, Any]:
     keys = tuple(reminders.payload_keys) if reminders.payload_keys else _DEFAULT_PAYLOAD_KEYS
     out: dict[str, Any] = {
@@ -175,7 +199,7 @@ def enrich_step_payload(
     base: dict[str, Any],
     *,
     step: ReminderStepSpec,
-    reminders: WorkflowRemindersConfig,
+    reminders: _ReminderEmailConfig,
     data: dict[str, Any],
 ) -> dict[str, Any]:
     payload = copy.deepcopy(base)
@@ -264,14 +288,6 @@ class WorkflowReminderService:
         if data.get("reminders_scheduled"):
             return
 
-        reminders = parse_reminders_for_workflow(data, wf)
-        if reminders is None:
-            return
-
-        trigger = (reminders.schedule_on_event_type or "").strip()
-        if trigger and data.get("event_type") != trigger:
-            return
-
         for key in _REQUIRED_SCHEDULE_KEYS:
             if not str(data.get(key) or "").strip():
                 logger.warning(
@@ -282,6 +298,19 @@ class WorkflowReminderService:
                 return
 
         wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
+
+        if wf == "driver_assignment":
+            self._schedule_driver_assignment(data, workflow_lifecycle_id=wl_id)
+            return
+
+        reminders = parse_reminders_for_workflow(data, wf)
+        if reminders is None:
+            return
+
+        trigger = (reminders.schedule_on_event_type or "").strip()
+        if trigger and data.get("event_type") != trigger:
+            return
+
         skip_sub_statuses = _reminder_skip_sub_statuses(wf, reminders)
         if skip_sub_statuses:
             lifecycle_service = WorkflowLifecycleService()
@@ -297,10 +326,6 @@ class WorkflowReminderService:
             if current_sub in skip_sub_statuses:
                 data["reminders_scheduled"] = True
                 return
-
-        if reminders.schedule_mode == "before_pickup":
-            self._schedule_before_pickup(data, workflow_name=wf, reminders=reminders)
-            return
 
         steps = resolve_reminder_steps(reminders, data, workflow_name=wf)
         if not steps:
@@ -343,12 +368,47 @@ class WorkflowReminderService:
         self._register_queued_tasks(data, queued=queued, steps=steps)
         data["reminders_scheduled"] = True
 
+    def _schedule_driver_assignment(
+        self,
+        data: dict[str, Any],
+        *,
+        workflow_lifecycle_id: str,
+    ) -> None:
+        reminders = parse_driver_assignment_reminders(_tenant_settings_root(data))
+        if reminders is None:
+            logger.error(
+                "workflow_reminder invalid driver_assignment reminders lifecycle_id=%s",
+                workflow_lifecycle_id,
+            )
+            return
+
+        skip_sub_statuses = driver_assignment_reminder_skip_sub_statuses()
+        if skip_sub_statuses:
+            lifecycle_service = WorkflowLifecycleService()
+            row = lifecycle_service.read_lifecycle_row_by_id(workflow_lifecycle_id)
+            if not row:
+                logger.warning(
+                    "workflow_reminder lifecycle not found id=%s workflow=driver_assignment",
+                    workflow_lifecycle_id,
+                )
+                return
+            current_sub = str(row.get("sub_status") or "").strip()
+            if current_sub in skip_sub_statuses:
+                data["reminders_scheduled"] = True
+                return
+
+        self._schedule_before_pickup(
+            data,
+            workflow_name="driver_assignment",
+            reminders=reminders,
+        )
+
     def _schedule_before_pickup(
         self,
         data: dict[str, Any],
         *,
         workflow_name: str,
-        reminders: WorkflowRemindersConfig,
+        reminders: DriverAssignmentRemindersConfig,
     ) -> None:
         pickup_at = _parse_pickup_appointment_at(data)
         if pickup_at is None:
@@ -368,8 +428,8 @@ class WorkflowReminderService:
             pickup_at=pickup_at,
             now=now,
             steps=steps,
-            min_gap_hours=float(reminders.min_gap_hours),
-            catch_up_enabled=reminders.catch_up_missed_steps,
+            min_gap_hours=DRIVER_ASSIGNMENT_MIN_GAP_HOURS,
+            catch_up_enabled=DRIVER_ASSIGNMENT_CATCH_UP_MISSED_STEPS,
         )
 
         base_payload = build_enqueue_payload(
@@ -415,11 +475,13 @@ class WorkflowReminderService:
             expire_s = int(
                 (
                     (latest_fire_at - now)
-                    + timedelta(hours=reminders.expire_grace_hours)
+                    + timedelta(hours=DRIVER_ASSIGNMENT_REMINDER_EXPIRE_GRACE_HOURS)
                 ).total_seconds()
             )
         else:
-            expire_s = int(timedelta(hours=reminders.expire_grace_hours).total_seconds())
+            expire_s = int(
+                timedelta(hours=DRIVER_ASSIGNMENT_REMINDER_EXPIRE_GRACE_HOURS).total_seconds()
+            )
 
         queued: list[Any] = []
         enqueued_steps: list[ReminderStepSpec] = []
@@ -464,3 +526,10 @@ class WorkflowReminderService:
             "skipped_steps": plan.skipped,
         }
         data["reminders_scheduled"] = True
+        data["pickup_appointment_at"] = pickup_at.isoformat()
+        if data.get("pickup_appointment_timezone") is not None:
+            data["pickup_appointment_timezone"] = data.get("pickup_appointment_timezone")
+
+    @staticmethod
+    def driver_assignment_schedule_state_keys() -> tuple[str, ...]:
+        return _DRIVER_ASSIGNMENT_STATE_KEYS

@@ -31,7 +31,6 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
         },
         "driver_assignment": {
             "reminders": {
-                "schedule_mode": "before_pickup",
                 "steps": [
                     {"step": 1, "event_type": "reminder_due", "delay_hours": 0.16666666666666666},
                     {"step": 2, "event_type": "reminder_due", "delay_hours": 0.1},
@@ -39,7 +38,6 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                     {"step": 4, "event_type": "reminder_due", "delay_hours": 0.03333333333333333},
                     {"step": 5, "event_type": "escalation_due", "delay_hours": 0.016666666666666666},
                 ],
-                "expire_grace_hours": 2,
                 "email_template_html": "<html>driver-reminder</html>",
             },
             "confirmation_email": {

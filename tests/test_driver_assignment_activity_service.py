@@ -85,7 +85,6 @@ def _reminder_state(**data_overrides):
         "tenant_settings": {
             "driver_assignment": {
                 "reminders": {
-                    "schedule_mode": "before_pickup",
                     "steps": [
                         {"step": 1, "event_type": "reminder_due", "delay_hours": 48},
                         {"step": 2, "event_type": "reminder_due", "delay_hours": 24},
