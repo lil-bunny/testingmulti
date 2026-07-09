@@ -6,13 +6,10 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
-from app.services.attachment_normalizer import (
-    AttachmentNormalizerService,
-    _sanitize_path_segment,
-)
-from app.services.pod_extraction import extract_from_pdf_path as extract_pod_from_pdf_path
-from app.services.pod_extraction import pod_confidence_score
-from app.services.pod_vs_ratecon_validation import (
+from app.services.attachment_normalizer import _sanitize_path_segment
+from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
+from app.services.pod_lifecycle.extraction import pod_confidence_score
+from app.services.pod_lifecycle.vs_ratecon_validation import (
     generate_validation_summary,
     validate_pod_against_ratecon,
 )
@@ -26,45 +23,6 @@ from app.workflows.shipment_resolver import (
 )
 
 logger = logging.getLogger(__name__)
-
-def classify_attachments(state):
-    """
-    Full POD attachment normalization
-
-    1. Get ``pod_object_keys`` from state (S3 object keys; ``https://`` entries are still supported for external fetch).
-    2. Per attachment ref: HTTP(S) sources are downloaded with httpx; S3 object keys use ``GetObject``.
-    3. Merge valid PDFs + images to one PDF, upload merged file.
-    4. Expose merged key on ``pod_object_keys`` (single-element list) for downstream ``process_pod``.
-    """
-    pod_object_keys = state.data.get("pod_object_keys")
-
-    shipment_id = resolve_shipment_id(state.data) or None
-
-    normalizer = AttachmentNormalizerService()
-    result = normalizer.normalize(pod_object_keys, shipment_number=shipment_id)
-
-    state.data["attachment_normalization"] = result
-
-    merged = result.get("pod_merged_pdf_object_key")
-    if result.get("success") and merged:
-        state.data["pod_object_keys"] = [merged]
-        state.data["pod_merged_pdf_object_key"] = merged
-        state.data["has_attachments"] = True
-    else:
-        state.data["pod_object_keys"] = []
-        state.data.pop("pod_merged_pdf_object_key", None)
-        state.data["has_attachments"] = False
-
-    logger.info(
-        "classify_attachments: shipment_id=%s input_keys=%s success=%s merged=%s rejected=%s single_sc=%s",
-        shipment_id,
-        len(pod_object_keys or []),
-        result.get("success"),
-        bool(merged),
-        len(result.get("rejected") or []),
-        result.get("single_attachment_short_circuit"),
-    )
-    return state
 
 
 def load_ratecon_analysis(data: dict) -> dict:
@@ -288,8 +246,11 @@ def _broker_name_from_ratecon_results(data: dict) -> str | None:
 
 def pod_analysis(data: dict) -> dict:
     """
-    Download merged POD from workflow state or ``documents`` using the stored S3 object key,
-    then run vision extraction and reconciliation.
+    Run vision extraction on the merged POD PDF.
+
+    Prefer worker-local ``pod_merged_local_path`` when present (same Celery task as
+    classify); otherwise download from S3 via ``pod_merged_pdf_object_key`` / documents.
+    Never expects PDF bytes in graph state.
     """
     sid = resolve_shipment_id(data)
     if not sid:
@@ -327,34 +288,48 @@ def pod_analysis(data: dict) -> dict:
     broker_name = _broker_name_from_ratecon_results(data)
 
     tmp_path: str | None = None
+    owned_tmp = False
     try:
-        dl = bucket.download_object_bytes(object_key)
-        if not dl.get("success"):
-            return {
-                "success": False,
-                "error": dl.get("error_message") or "s3_download_failed",
-                "shipment_id": sid,
-                "pod_object_key": object_key,
-            }
-        body = dl["body"]
+        local_path = str(data.get("pod_merged_local_path") or "").strip()
+        source = "s3"
+        byte_len = 0
 
-        if body.startswith(b"%PDF"):
-            suffix = ".pdf"
+        if local_path and os.path.isfile(local_path):
+            # Prefer worker-local merged PDF (path only in state — never bytes).
+            tmp_path = local_path
+            owned_tmp = False
+            source = "local_stage"
+            try:
+                byte_len = os.path.getsize(local_path)
+            except OSError:
+                byte_len = 0
         else:
-            suffix = ".jpg"
+            dl = bucket.download_object_bytes(object_key)
+            if not dl.get("success"):
+                return {
+                    "success": False,
+                    "error": dl.get("error_message") or "s3_download_failed",
+                    "shipment_id": sid,
+                    "pod_object_key": object_key,
+                }
+            body = dl["body"]
+            source = "s3"
+            byte_len = len(body)
+            suffix = ".pdf" if body.startswith(b"%PDF") else ".jpg"
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            owned_tmp = True
+            try:
+                os.write(fd, body)
+            finally:
+                os.close(fd)
 
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-        try:
-            os.write(fd, body)
-        finally:
-            os.close(fd)
-
+        suffix = ".pdf" if (tmp_path or "").lower().endswith(".pdf") else ".bin"
         logger.info(
             "pod_analysis: extracted temp file shipment_id=%s suffix=%s bytes=%s source=%s",
             sid,
             suffix,
-            len(body),
-            url_meta.get("source"),
+            byte_len,
+            source,
         )
 
         page_results, final_pod_data, validation_issues, reconciliation_log = (
@@ -387,6 +362,7 @@ def pod_analysis(data: dict) -> dict:
                 "failed_pages": len(page_results) - ok_pages,
                 "model": settings.LLM_MODEL,
                 "pod_object_key_source": url_meta.get("source"),
+                "pod_bytes_source": source,
             },
             "pod_data": final_pod_data,
             "validation_issues": validation_issues,
@@ -422,7 +398,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_object_key": object_key,
         }
     finally:
-        if tmp_path and os.path.isfile(tmp_path):
+        if owned_tmp and tmp_path and os.path.isfile(tmp_path):
             try:
                 os.unlink(tmp_path)
             except OSError:

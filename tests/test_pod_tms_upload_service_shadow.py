@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.services.pod_tms_upload_service import PodTmsUploadService
+from app.services.pod_lifecycle.tms_upload_service import PodTmsUploadService
 
 
 def test_upload_merged_pod_shadow_skips_tool() -> None:

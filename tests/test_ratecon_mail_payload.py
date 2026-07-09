@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from app.domain.ratecon_import import unipile_ratecon_pdf_attachment
-from app.services.workflow_classifier_service import (
-    WorkflowClassifierService,
+from app.domain.t3ra.email_attachments import unipile_ratecon_pdf_attachment
+from app.domain.t3ra.email_classification import (
+    classify_workflow_type,
     extract_ratecon_metadata_from_payload,
     has_rate_confirmation_subject,
 )
@@ -92,36 +92,36 @@ def test_unipile_ratecon_pdf_attachment_selection() -> None:
 
 
 def test_extract_ratecon_metadata_attachment_uri_and_filename_keys() -> None:
-    p = _sample_unipile_payload()
-    p["attachments"][0]["url"] = "https://example.com/file.pdf"
-    assert extract_ratecon_metadata_from_payload(p)["ratecon_attachment_uri"] == (
+    payload = _sample_unipile_payload()
+    payload["attachments"][0]["url"] = "https://example.com/file.pdf"
+    assert extract_ratecon_metadata_from_payload(payload)["ratecon_attachment_uri"] == (
         "https://example.com/file.pdf"
     )
 
-    p2 = _sample_unipile_payload()
-    att = p2["attachments"][0]
-    del att["name"]
-    att["file_name"] = "Carrier_rate_confirmation_-__777.pdf"
-    assert extract_ratecon_metadata_from_payload(p2)["load_id"] == "777"
+    payload_with_file_name = _sample_unipile_payload()
+    attachment = payload_with_file_name["attachments"][0]
+    del attachment["name"]
+    attachment["file_name"] = "Carrier_rate_confirmation_-__777.pdf"
+    assert extract_ratecon_metadata_from_payload(payload_with_file_name)["load_id"] == "777"
 
 
 def test_extract_ratecon_metadata_rejects_invalid_attachments() -> None:
-    p = _sample_unipile_payload()
-    p["attachments"][0]["name"] = "other.pdf"
-    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
+    payload = _sample_unipile_payload()
+    payload["attachments"][0]["name"] = "other.pdf"
+    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
 
-    p = _sample_unipile_payload()
-    p["attachments"][0]["name"] = "Carrier_rate_confirmation_-__56368.jpg"
-    p["attachments"][0]["mime"] = "image/jpeg"
-    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
+    payload = _sample_unipile_payload()
+    payload["attachments"][0]["name"] = "Carrier_rate_confirmation_-__56368.jpg"
+    payload["attachments"][0]["mime"] = "image/jpeg"
+    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
 
-    p = _sample_unipile_payload()
-    p["attachments"][0]["name"] = "Carrier_rate_confirmation.pdf"
-    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
+    payload = _sample_unipile_payload()
+    payload["attachments"][0]["name"] = "Carrier_rate_confirmation.pdf"
+    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
 
-    p = _sample_unipile_payload()
-    p["attachments"] = {}
-    assert extract_ratecon_metadata_from_payload(p)["is_ratecon_mail"] is False
+    payload = _sample_unipile_payload()
+    payload["attachments"] = {}
+    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
 
     assert extract_ratecon_metadata_from_payload({"attachments": []})["is_ratecon_mail"] is False
 
@@ -145,4 +145,4 @@ def test_extract_ratecon_metadata_rejects_tonu_subject() -> None:
 def test_classify_workflow_type_rejects_tonu_subject() -> None:
     payload = _sample_unipile_payload()
     payload["subject"] = "Rate confirmation TONU for shipment: #59683"
-    assert WorkflowClassifierService().classify_workflow_type(payload) is None
+    assert classify_workflow_type(payload) is None

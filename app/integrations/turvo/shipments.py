@@ -693,19 +693,41 @@ def segment_id_from_order(order: dict[str, Any]) -> str | None:
     return None
 
 
-async def assign_driver_to_shipment(
-    tenant_slug: str,
-    shipment_id: Any,
-    *,
-    carrier_order_id: int,
+def driver_assignment_row_ids_from_carrier_order(order: dict[str, Any]) -> list[str]:
+    """Non-deleted ``drivers[]`` assignment row ids for Turvo ``_operation: 2`` delete."""
+    if not isinstance(order, dict) or order.get("deleted"):
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for key in ("drivers", "driver", "primaryDriver"):
+        raw = order.get(key)
+        entries: list[dict[str, Any]] = []
+        if isinstance(raw, list):
+            entries = [e for e in raw if isinstance(e, dict)]
+        elif isinstance(raw, dict):
+            entries = [raw]
+        for entry in entries:
+            if entry.get("deleted"):
+                continue
+            row_id = entry.get("id")
+            if row_id is None:
+                row_id = entry.get("driverAssignmentId")
+            if row_id is None:
+                continue
+            text = str(row_id).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            ids.append(text)
+    return ids
+
+
+def _driver_add_entry(
     contact_id: int,
-    segment_id: str | None = None,
-    send_invite: bool = False,
-    client: Optional[TurvoApiClient] = None,
+    *,
+    segment_id: str | None,
+    send_invite: bool,
 ) -> dict[str, Any]:
-    """PUT /shipments/{id} — attach driver contact to active carrier order."""
-    api = client or TurvoApiClient()
-    sid = int(shipment_id) if str(shipment_id).isdigit() else shipment_id
     driver_entry: dict[str, Any] = {
         "driverId": int(contact_id),
         "segmentSequence": 0,
@@ -719,6 +741,27 @@ async def assign_driver_to_shipment(
     if send_invite:
         # Docs: sendInvite true only when trackingMethod is Turvo Driver app.
         driver_entry["driverType"] = DRIVER_TYPE_SINGLE
+    return driver_entry
+
+
+async def assign_driver_to_shipment(
+    tenant_slug: str,
+    shipment_id: Any,
+    *,
+    carrier_order_id: int,
+    contact_id: int,
+    segment_id: str | None = None,
+    send_invite: bool = False,
+    client: Optional[TurvoApiClient] = None,
+) -> dict[str, Any]:
+    """PUT /shipments/{id} — attach driver contact to active carrier order."""
+    api = client or TurvoApiClient()
+    sid = int(shipment_id) if str(shipment_id).isdigit() else shipment_id
+    driver_entry = _driver_add_entry(
+        contact_id,
+        segment_id=segment_id,
+        send_invite=send_invite,
+    )
     body = {
         "id": sid,
         "carrierOrder": [
@@ -726,6 +769,50 @@ async def assign_driver_to_shipment(
                 "id": carrier_order_id,
                 "_operation": 1,
                 "drivers": [driver_entry],
+            }
+        ],
+    }
+    return await api.request(
+        tenant_slug,
+        "PUT",
+        f"/shipments/{shipment_id}",
+        params={"fullResponse": "true"},
+        json_body=body,
+    )
+
+
+async def replace_driver_on_shipment(
+    tenant_slug: str,
+    shipment_id: Any,
+    *,
+    carrier_order_id: int,
+    contact_id: int,
+    assignment_row_ids: list[str],
+    segment_id: str | None = None,
+    send_invite: bool = False,
+    client: Optional[TurvoApiClient] = None,
+) -> dict[str, Any]:
+    """PUT /shipments/{id} — remove existing driver rows then attach new contact."""
+    api = client or TurvoApiClient()
+    sid = int(shipment_id) if str(shipment_id).isdigit() else shipment_id
+    drivers: list[dict[str, Any]] = [
+        {"driverAssignmentId": int(row_id), "_operation": 2}
+        for row_id in assignment_row_ids
+    ]
+    drivers.append(
+        _driver_add_entry(
+            contact_id,
+            segment_id=segment_id,
+            send_invite=send_invite,
+        )
+    )
+    body = {
+        "id": sid,
+        "carrierOrder": [
+            {
+                "id": carrier_order_id,
+                "_operation": 1,
+                "drivers": drivers,
             }
         ],
     }

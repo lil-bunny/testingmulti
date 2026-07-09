@@ -28,8 +28,8 @@ def _base_state(*, data: dict | None = None) -> WorkflowState:
     )
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_started_activity_calls_record_sequence(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -59,7 +59,7 @@ def test_record_pod_started_activity_calls_record_sequence(
     assert sequence.steps[0].metadata is None
 
 
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_started_activity_skips_without_reminders_scheduled(
     mock_svc_cls: MagicMock,
 ) -> None:
@@ -69,8 +69,8 @@ def test_record_pod_started_activity_skips_without_reminders_scheduled(
     mock_svc_cls.return_value.record_sequence.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_started_activity_skips_when_already_started(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -89,8 +89,8 @@ def test_record_pod_started_activity_skips_when_already_started(
     mock_svc_cls.return_value.record_sequence.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_step1_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -126,8 +126,8 @@ def test_record_pod_reminder_activity_step1_status_change(
     assert sequence.steps[1].metadata is None
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_step2_sub_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -153,8 +153,8 @@ def test_record_pod_reminder_activity_step2_sub_status_change(
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_step3_sub_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,
@@ -180,7 +180,7 @@ def test_record_pod_reminder_activity_step3_sub_status_change(
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_3_SENT
 
 
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_reminder_activity_skips_when_not_sent(
     mock_svc_cls: MagicMock,
 ) -> None:
@@ -192,8 +192,8 @@ def test_record_pod_reminder_activity_skips_when_not_sent(
     mock_svc_cls.return_value.record_sequence.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_escalation_activity_sub_status_change(
     mock_svc_cls: MagicMock,
     mock_wl_cls: MagicMock,

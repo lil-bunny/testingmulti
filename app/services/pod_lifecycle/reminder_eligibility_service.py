@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.pod_lifecycle_guards import pod_reminder_skip_sub_statuses
+from app.domain.pod_lifecycle.guards import pod_reminder_skip_sub_statuses
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
 

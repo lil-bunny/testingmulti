@@ -28,6 +28,13 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "pod_reminder_sent",
             "pod_reminder_eligible",
             "pod_reminder_skip_reason",
+            "attachment_normalization",
+            "pod_merged_pdf_object_key",
+            "pod_source_object_keys",
+            "documents_pod",
+            "has_attachments",
+            "pod_attachment_stage_dir",
+            "pod_merged_local_path",
         ],
     ),
     "ratecon": WorkflowTemplateContract(

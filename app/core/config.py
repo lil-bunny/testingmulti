@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600 # Presigned GetObject TTL (seconds)
     BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
     BUCKET_POD_ATTACHMENTS_FOLDER: str = "pod_attachments"
+    POD_ATTACHMENT_STAGE_ROOT: str = "/tmp/freightx/pod_staging"
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str

@@ -34,11 +34,6 @@ def test_check_escalation_eligibility_skips_when_already_escalated() -> None:
             "shipment_id": "100",
             "shipments_row_id": "row-1",
             "workflow_lifecycle_id": "wl-1",
-            "tenant_settings": {
-                "driver_assignment": {
-                    "reminders": {"skip_sub_statuses": ["escalated"]},
-                }
-            },
         },
     )
     assert result.skip_reason == "already_escalated"
@@ -57,11 +52,6 @@ def test_check_escalation_eligibility_ok_without_thread_id() -> None:
             "shipment_id": "100",
             "shipments_row_id": "row-1",
             "workflow_lifecycle_id": "wl-1",
-            "tenant_settings": {
-                "driver_assignment": {
-                    "reminders": {"skip_sub_statuses": ["escalated"]},
-                }
-            },
             "shipment": _eligible_payload(),
         },
     )

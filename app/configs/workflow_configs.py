@@ -7,14 +7,13 @@ WORKFLOW_CONFIGS = {
             "get_shipment",
             "read_workflow_lifecycle",
             "check_existing_pod",
+            "complete_pod_found_in_tms",
             "check_pod_reminder_eligibility",
             "send_email",
             "record_and_schedule_pod_request",
             "record_pod_started_activity",
             "record_pod_reminder_activity",
-            "get_email_attachments",
             "load_ratecon_analysis",
-            "classify_attachments",
             "record_pod_upload_activity",
             "pod_analysis",
             "record_pod_extraction_activity",
@@ -27,8 +26,6 @@ WORKFLOW_CONFIGS = {
             "end",
         ],
         "edges": [
-            ["get_email_attachments", "load_ratecon_analysis"],
-            ["classify_attachments", "record_pod_upload_activity"],
             ["record_pod_upload_activity", "pod_analysis"],
             ["pod_analysis", "record_pod_extraction_activity"],
             ["record_pod_extraction_activity", "pod_vs_ratecon_analysis"],
@@ -41,6 +38,7 @@ WORKFLOW_CONFIGS = {
             ["record_pod_reminder_activity", "end"],
             ["record_and_schedule_pod_request", "record_pod_started_activity"],
             ["record_pod_started_activity", "end"],
+            ["complete_pod_found_in_tms", "end"],
         ],
         "routers": {
             "route_event": {
@@ -59,7 +57,7 @@ WORKFLOW_CONFIGS = {
                     "convoy": "end",
                     "non_convoy": "check_existing_pod",
                     # Pod reply workflow
-                    "valid_shipment_status": "get_email_attachments",
+                    "valid_shipment_status": "load_ratecon_analysis",
                     "manual_pod_stored": "upload_to_turvo",
                     "manual_pod_process": "load_ratecon_analysis",
                     "invalid_shipment_status": "end",
@@ -69,6 +67,7 @@ WORKFLOW_CONFIGS = {
                 "router": "pod_missing_dispatch",
                 "map": {
                     "exists": "end",
+                    "exists_on_reminder": "complete_pod_found_in_tms",
                     "schedule_initial": "record_and_schedule_pod_request",  # no send_email on initial
                     "send_now": "check_pod_reminder_eligibility",  # reminder_due path
                     "skip_send": "end",
@@ -88,8 +87,8 @@ WORKFLOW_CONFIGS = {
             "load_ratecon_analysis": {
                 "router": "ratecon_cache_router",
                 "map": {
-                    "ready": "classify_attachments",
-                    "manual_skip": "classify_attachments",
+                    "ready": "record_pod_upload_activity",
+                    "manual_skip": "record_pod_upload_activity",
                     "missing": "end",
                 },
             },

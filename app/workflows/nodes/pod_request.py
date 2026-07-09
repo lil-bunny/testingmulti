@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle_settings import hydrate_pod_account_id
+from app.domain.pod_lifecycle.settings import hydrate_pod_account_id
 from app.services.pod_lifecycle.reminder_eligibility_service import (
     PodLifecycleReminderEligibilityService,
+)
+from app.services.pod_lifecycle.tms_found_completion_service import (
+    PodLifecycleTmsFoundCompletionService,
 )
 from app.services.workflow_reminder_service import WorkflowReminderService
 
@@ -50,4 +53,10 @@ def record_reminder_run(state):
     The run row is already recorded by ExecutionService at graph start
     with event_type=reminder_due. No additional recording needed.
     """
+    return state
+
+
+def complete_pod_found_in_tms(state):
+    """Complete POD lifecycle when Turvo already has POD on ``reminder_due``."""
+    PodLifecycleTmsFoundCompletionService().complete_on_reminder_from_state(state)
     return state

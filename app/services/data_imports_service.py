@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.core.service_db import run_with_repos
-from app.domain.delivery_locations_import import (
+from app.domain.gelita.email_attachments import (
     DELIVERY_LOCATIONS_FILE_NAME,
     is_delivery_locations_attachment,
 )

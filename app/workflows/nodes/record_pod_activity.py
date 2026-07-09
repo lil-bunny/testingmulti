@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from app.services.pod_pipeline_activity_service import PodPipelineActivityService
-from app.services.pod_processed_activity_service import PodProcessedActivityService
-from app.services.pod_upload_activity_service import PodUploadActivityService
+from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
+from app.services.pod_lifecycle.processed_activity_service import PodProcessedActivityService
+from app.services.pod_lifecycle.upload_activity_service import PodUploadActivityService
 
 
 def record_pod_started_activity(state):
@@ -26,7 +26,7 @@ def record_pod_escalation_activity(state):
 
 
 def record_pod_upload_activity(state):
-    """Log POD S3 upload outcome after ``classify_attachments``."""
+    """Log POD S3 upload outcome after the pre-graph attachment pipeline."""
     PodUploadActivityService().record_from_state(state)
     return state
 

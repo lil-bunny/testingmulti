@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.pod_activity_metadata import (
+from app.domain.pod_lifecycle.activity_metadata import (
     POD_ACTIVITY_METADATA_FORBIDDEN_KEYS,
     assert_no_forbidden_keys,
     compact,

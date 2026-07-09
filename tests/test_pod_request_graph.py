@@ -20,12 +20,14 @@ def test_pod_lifecycle_pod_request_graph():
     assert "record_pod_vs_ratecon_activity" in names
     assert "record_pod_processed_activity" in names
     assert "check_pod_reminder_eligibility" in names
+    assert "complete_pod_found_in_tms" in names
 
     routers = graph["routers"]
     assert "check_pod_request_triggered" not in routers
     assert routers["route_event"]["map"]["route_completed"] == "get_shipment"
     assert "check_existing_pod" in routers
     assert routers["check_existing_pod"]["map"]["skip_send"] == "end"
+    assert routers["check_existing_pod"]["map"]["exists_on_reminder"] == "complete_pod_found_in_tms"
     assert routers["check_existing_pod"]["map"]["schedule_initial"] == "record_and_schedule_pod_request"
     assert routers["check_existing_pod"]["map"]["send_now"] == "check_pod_reminder_eligibility"
     assert routers["check_pod_reminder_eligibility"]["router"] == "pod_reminder_eligibility_router"
@@ -33,15 +35,15 @@ def test_pod_lifecycle_pod_request_graph():
     assert routers["check_pod_reminder_eligibility"]["map"]["skip"] == "end"
 
     edges = [tuple(e) for e in graph["edges"]]
-    assert ("get_email_attachments", "load_ratecon_analysis") in edges
-    assert ("ratecon_analysis", "classify_attachments") not in edges
+    assert "get_email_attachments" not in names
+    assert "classify_attachments" not in names
+    assert routers["get_shipment"]["map"]["valid_shipment_status"] == "load_ratecon_analysis"
     assert routers["get_shipment"]["map"]["manual_pod_stored"] == "upload_to_turvo"
     assert routers["get_shipment"]["map"]["manual_pod_process"] == "load_ratecon_analysis"
     assert routers["load_ratecon_analysis"]["router"] == "ratecon_cache_router"
-    assert routers["load_ratecon_analysis"]["map"]["ready"] == "classify_attachments"
-    assert routers["load_ratecon_analysis"]["map"]["manual_skip"] == "classify_attachments"
+    assert routers["load_ratecon_analysis"]["map"]["ready"] == "record_pod_upload_activity"
+    assert routers["load_ratecon_analysis"]["map"]["manual_skip"] == "record_pod_upload_activity"
     assert routers["load_ratecon_analysis"]["map"]["missing"] == "end"
-    assert ("classify_attachments", "record_pod_upload_activity") in edges
     assert ("record_pod_upload_activity", "pod_analysis") in edges
     assert ("pod_analysis", "record_pod_extraction_activity") in edges
     assert ("record_pod_extraction_activity", "pod_vs_ratecon_analysis") in edges
@@ -54,13 +56,13 @@ def test_pod_lifecycle_pod_request_graph():
     assert routers["record_pod_processed_activity"]["map"]["manual"] == "upload_to_turvo"
     assert routers["record_pod_processed_activity"]["map"]["email"] == "update_shipment"
     assert "record_pod_tms_upload_activity" not in routers
-    assert ("classify_attachments", "pod_analysis") not in edges
     assert ("pod_vs_ratecon_analysis", "upload_to_turvo") not in edges
     assert ("check_pod_reminder_eligibility", "send_email") not in edges
     assert ("send_email", "record_pod_reminder_activity") in edges
     assert ("record_pod_reminder_activity", "end") in edges
     assert ("record_and_schedule_pod_request", "record_pod_started_activity") in edges
     assert ("record_pod_started_activity", "end") in edges
+    assert ("complete_pod_found_in_tms", "end") in edges
 
 
 def test_ratecon_graph():

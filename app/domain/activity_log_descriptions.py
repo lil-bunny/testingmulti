@@ -6,7 +6,7 @@ from app.domain.activity_log_constants import (
     AUTO_REPLY_ACK_SKIPPED_ACTION,
     CARRIER_ACK_LLM_ACTION_TEMPLATE,
     ESCALATION_SENT_ACTION,
-    POD_ALREADY_ON_TMS_ACTION,
+    POD_FOUND_IN_TMS_INFO,
     POD_DOCUMENT_PROCESSED_ACTION,
     POD_DOCUMENT_PROCESSING_FAILED_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
@@ -213,8 +213,8 @@ def format_pod_upload_to_tms_failed_action() -> str:
     return POD_UPLOAD_TO_TMS_FAILED_ACTION
 
 
-def format_pod_already_on_tms_action() -> str:
-    return POD_ALREADY_ON_TMS_ACTION
+def format_pod_found_in_tms_info() -> str:
+    return POD_FOUND_IN_TMS_INFO
 
 
 def format_workflow_review_acknowledged_action() -> str:

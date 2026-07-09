@@ -21,6 +21,7 @@ from app.services.email_import_projection import (
 )
 from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
+    process_email_webhook_attachment_import_for_attachment,
 )
 from app.services.communications.service import CommunicationsService
 from app.services.workflow_runs_service import WorkflowRunsService
@@ -116,20 +117,31 @@ async def process_tender_created_from_email_webhook(
     tenant_uuid: str,
     tenant_slug: str,
     graph_slug: str,
+    attachment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Full tender_created pipeline (attachment → DB → per-row workflow enqueue).
 
-    Celery worker entrypoint; not for HTTP handlers.
+    When ``attachment`` is provided (Gelita ingress after classification), skips
+    re-scanning ``payload["attachments"]`` for ``customers_orders_*.xlsx``.
     """
-    data_import_id = await process_email_webhook_attachment_import(
-        payload=payload,
-        workflow_name=WORKFLOW_NAME,
-        data_import_tenant_id=tenant_uuid,
-        data_import_data_type=DataImportDataType.LOAD_TENDER,
-        ingest_source_type=DataImportSourceType.EMAIL,
-        skip_fetch_if_existing=True,
-    )
+    attachment_import_kwargs = {
+        "payload": payload,
+        "workflow_name": WORKFLOW_NAME,
+        "data_import_tenant_id": tenant_uuid,
+        "data_import_data_type": DataImportDataType.LOAD_TENDER,
+        "ingest_source_type": DataImportSourceType.EMAIL,
+        "skip_fetch_if_existing": True,
+    }
+    if attachment is not None:
+        data_import_id = await process_email_webhook_attachment_import_for_attachment(
+            attachment=attachment,
+            **attachment_import_kwargs,
+        )
+    else:
+        data_import_id = await process_email_webhook_attachment_import(
+            **attachment_import_kwargs
+        )
     if not data_import_id:
         raise RuntimeError(
             "load_tendering ingest: no data_import_id (missing attachment or fetch failed)"

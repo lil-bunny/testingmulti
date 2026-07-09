@@ -44,14 +44,14 @@ def test_record_pod_extraction_activity_delegates_to_service(
     mock_service.record_extraction_from_state.assert_called_once_with(state)
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_extraction_activity_success(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
@@ -87,11 +87,11 @@ def test_record_pod_extraction_activity_success(
     assert sequence.steps[0].metadata == {"document_analysis_id": "analysis-pod-1"}
 
 
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_extraction_activity_skips_when_analysis_not_stored(
     mock_svc_cls: MagicMock,
 ) -> None:
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     state = _base_state(
         data={
@@ -108,13 +108,13 @@ def test_record_pod_extraction_activity_skips_when_analysis_not_stored(
     mock_svc_cls.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_extraction_activity_idempotent_skip(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_lc_cls.return_value.read_lifecycle_row_by_id.return_value = {
         "status": "processing",
@@ -135,13 +135,13 @@ def test_record_pod_extraction_activity_idempotent_skip(
     mock_svc_cls.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_extraction_activity_manual_reupload_logs_when_already_processed(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc

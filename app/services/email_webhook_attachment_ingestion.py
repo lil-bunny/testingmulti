@@ -12,12 +12,8 @@ from collections.abc import Callable
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.delivery_locations_import import (
-    DELIVERY_LOCATIONS_FILE_NAME,
-    unipile_delivery_locations_attachment,
-)
-from app.domain.load_tendering_import import email_load_tender_xlsx_attachment
-from app.domain.ratecon_import import is_pdf_attachment
+from app.domain.gelita.email_attachments import DELIVERY_LOCATIONS_FILE_NAME
+from app.domain.unipile_email_attachments import first_unipile_xlsx_attachment, is_pdf_attachment
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services import ingest_service
 from app.services.data_imports_service import DataImportsService
@@ -262,50 +258,26 @@ async def process_email_webhook_attachment_import(
     """
     If the payload has an ingestible attachment, fetch bytes and persist import rows.
 
-    When ``attachment`` is omitted, uses the first ``customers_orders_*.xlsx`` attachment.
+    When ``attachment`` is omitted, uses the first valid xlsx attachment on the payload.
+    Tenant ingress services should classify attachments and pass ``attachment`` explicitly.
     """
     tid = data_import_tenant_id.strip()
     if not tid:
         raise ValueError("data_import_tenant_id is required")
 
-    chosen = attachment
-    if chosen is None:
-        if data_import_data_type == DataImportDataType.DELIVERY_LOCATION:
-            chosen = unipile_delivery_locations_attachment(payload)
-        else:
-            chosen = email_load_tender_xlsx_attachment(payload)
+    chosen_attachment = attachment
+    if chosen_attachment is None:
+        chosen_attachment = first_unipile_xlsx_attachment(payload)
 
-    if chosen is None:
+    if chosen_attachment is None:
         return None
 
     return await process_email_webhook_attachment_import_for_attachment(
         payload=payload,
-        attachment=chosen,
+        attachment=chosen_attachment,
         workflow_name=workflow_name,
         data_import_tenant_id=tid,
         data_import_data_type=data_import_data_type,
         ingest_source_type=ingest_source_type,
         skip_fetch_if_existing=skip_fetch_if_existing,
-    )
-
-
-async def process_delivery_locations_attachment_import(
-    *,
-    payload: dict[str, Any],
-    workflow_name: str,
-    data_import_tenant_id: str,
-) -> str | None:
-    """Fetch ``delivery_location.xlsx`` and upsert the tenant delivery-locations import."""
-    attachment = unipile_delivery_locations_attachment(payload)
-    if attachment is None:
-        return None
-
-    return await process_email_webhook_attachment_import_for_attachment(
-        payload=payload,
-        attachment=attachment,
-        workflow_name=workflow_name,
-        data_import_tenant_id=data_import_tenant_id,
-        data_import_data_type=DataImportDataType.DELIVERY_LOCATION,
-        ingest_source_type=DataImportSourceType.EMAIL,
-        skip_fetch_if_existing=False,
     )

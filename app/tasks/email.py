@@ -8,7 +8,7 @@ from typing import Any
 from app.celery_app import celery_app
 from app.core.logger import get_logger
 from app.services.unipile_service import UnipileException
-from app.tasks.email_handlers import HANDLERS
+from app.tasks.email_handlers import get_email_webhook_handler
 
 logger = get_logger(__name__)
 
@@ -36,9 +36,7 @@ def run_email_webhook(self, handler: str, **kwargs: Any) -> None:
     Import/tender steps are idempotent; partial workflow enqueue on crash+retry is a
     known edge case (see load_tendering_email_ingest_service).
     """
-    fn = HANDLERS.get(handler)
-    if fn is None:
-        raise ValueError(f"unknown email webhook handler: {handler!r}")
+    fn = get_email_webhook_handler(handler)
 
     logger.info(
         "run_email_webhook start handler=%s tenant_uuid=%s celery_retry=%s",

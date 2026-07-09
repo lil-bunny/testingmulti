@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.domain.pod_lifecycle_settings import (
+from app.domain.pod_lifecycle.settings import (
     MikeyMailbox,
     hydrate_pod_account_id,
     mikey_unipile_from,
@@ -69,7 +69,7 @@ def test_resolve_uses_mikey_account_id_from_tenant_settings() -> None:
 
 
 def test_resolve_falls_back_to_env_when_tenant_missing() -> None:
-    with patch("app.domain.pod_lifecycle_settings.settings.UNIPILE_ACCOUNT_ID", "env-account"):
+    with patch("app.domain.pod_lifecycle.settings.settings.UNIPILE_ACCOUNT_ID", "env-account"):
         assert resolve_pod_sender_account_id({}) == "env-account"
 
 

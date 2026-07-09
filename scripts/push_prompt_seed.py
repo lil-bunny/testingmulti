@@ -27,7 +27,7 @@ from app.domain.prompt_hub_refs import (  # noqa: E402
     RATECON_PAGE_EXTRACTION_PROMPT,
     hub_prompt_id,
 )
-from app.domain.pod_vs_ratecon_prompt_templates import (  # noqa: E402
+from app.domain.pod_lifecycle.vs_ratecon_prompt_templates import (  # noqa: E402
     build_pod_vs_ratecon_semantic_match_seed_prompt,
     build_pod_vs_ratecon_summary_seed_prompt,
 )

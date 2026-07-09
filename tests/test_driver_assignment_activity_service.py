@@ -85,7 +85,6 @@ def _reminder_state(**data_overrides):
         "tenant_settings": {
             "driver_assignment": {
                 "reminders": {
-                    "schedule_mode": "before_pickup",
                     "steps": [
                         {"step": 1, "event_type": "reminder_due", "delay_hours": 48},
                         {"step": 2, "event_type": "reminder_due", "delay_hours": 24},
@@ -128,13 +127,40 @@ def test_record_reminder_sent_step1_status_change_to_pending_review():
         lifecycle_service=lifecycle,
     )
 
-    svc.record_reminder_sent(_reminder_state(reminder_step=1))
+    svc.record_reminder_sent(
+        _reminder_state(reminder_step=1, schedule_reminder_step=2)
+    )
 
     sequence = activity.record_sequence.call_args.args[0]
     assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.ACTION
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
+    lifecycle.append_driver_assignment_sent_schedule_step.assert_called_once_with(
+        lifecycle_id="driver-lc-1",
+        schedule_step=2,
+    )
+
+
+def test_record_reminder_sent_catch_up_logs_sequential_step_one_for_schedule_step_two():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reminder_sent(
+        _reminder_state(reminder_step=1, schedule_reminder_step=2)
+    )
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert "Driver reminder 1 sent" in sequence.steps[0].description
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_1_SENT
 
 
@@ -232,6 +258,7 @@ def test_record_reminder_sent_partial_follow_up_action_template():
     sequence = activity.record_sequence.call_args.args[0]
     assert "partial follow-up" in sequence.steps[0].description.lower()
     assert sequence.steps[1].to_sub_status == StatusSubType.REMINDER_2_SENT
+    lifecycle.append_driver_assignment_sent_schedule_step.assert_not_called()
 
 
 def test_record_tms_driver_success_logs_single_assign_action(_mock_reminder_cancel_service):
@@ -321,6 +348,38 @@ def test_record_tms_driver_success_created_logs_single_assign_action():
     assert action_steps[0].metadata["tms_contact_created"] is True
     assert action_steps[0].metadata["tms_contact_id"] == 640861
     assert action_steps[0].metadata["driver_name"] == "Lily Potter"
+
+
+def test_record_tms_driver_success_replaced_logs_assign_action():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_2_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        tms_resolution="replaced",
+        tms_contact_id=640637,
+        tms_search_match_by="name_and_phone",
+        tms_driver_outcome="assigned",
+        driver_details_extraction={
+            "driver": {"name": "Other", "phone": "5122691730"},
+        },
+    )
+
+    svc.record_tms_driver_success(state)
+
+    sequence = activity.record_sequence.call_args.args[0]
+    action_steps = [
+        step for step in sequence.steps if step.activity_type == ActivityType.ACTION
+    ]
+    assert len(action_steps) == 1
+    assert "assigned to shipment in tms" in action_steps[0].description.lower()
+    assert action_steps[0].metadata["tms_contact_id"] == 640637
 
 
 def test_record_tms_driver_success_insufficient_still_logs_assign():
@@ -590,3 +649,44 @@ def test_record_driver_assignment_completed_skips_without_confirmation():
     svc = DriverAssignmentActivityService(activity_log_service=activity)
     svc.record_driver_assignment_completed(_state(driver_confirmation_sent=False))
     activity.record_sequence.assert_not_called()
+
+
+def test_record_escalation_sent_status_change_to_pending_review():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_escalation_sent(_state())
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert len(sequence.steps) == 2
+    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.ESCALATED
+
+
+def test_record_escalation_sent_stays_pending_review():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_escalation_sent(_state())
+
+    sequence = activity.record_sequence.call_args.args[0]
+    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.PENDING_REVIEW
+    assert sequence.steps[1].to_sub_status == StatusSubType.ESCALATED

@@ -24,7 +24,7 @@ from app.integrations.turvo.load_to_shipment import (
     load_id_to_shipment_id_async,
 )
 from app.integrations.turvo.shipments import get_shipment as get_shipment_async
-from app.services.pod_pdf_optimizer import PodPdfOptimizeError, optimize_for_tms_upload
+from app.services.pod_lifecycle.pdf_optimizer import PodPdfOptimizeError, optimize_for_tms_upload
 from app.services.s3bucket_service import bucket
 from app.tools.documents import resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import resolve_shipment_id

@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from app.domain.state import WorkflowState
-from app.services.pod_upload_activity_service import PodUploadActivityService
+from app.services.pod_lifecycle.upload_activity_service import PodUploadActivityService
 
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"

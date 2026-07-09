@@ -45,14 +45,14 @@ def test_record_pod_vs_ratecon_activity_delegates_to_service(
     mock_service.record_vs_ratecon_from_state.assert_called_once_with(state)
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_vs_ratecon_activity_validation_stored(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
@@ -92,14 +92,14 @@ def test_record_pod_vs_ratecon_activity_validation_stored(
     assert sequence.steps[0].metadata == {"document_analysis_id": "analysis-vs-1"}
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_vs_ratecon_activity_validation_skipped(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
@@ -132,14 +132,14 @@ def test_record_pod_vs_ratecon_activity_validation_skipped(
     assert sequence.steps[0].metadata == {"validation_skip_reason": "comparison_skipped"}
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_vs_ratecon_activity_validation_failed(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
@@ -168,11 +168,11 @@ def test_record_pod_vs_ratecon_activity_validation_failed(
     assert sequence.steps[0].metadata == {"error": "cross validation failed"}
 
 
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_vs_ratecon_activity_skips_without_extraction(
     mock_svc_cls: MagicMock,
 ) -> None:
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     state = _base_state()
     state.data.pop("document_analysis_pod")
@@ -183,13 +183,13 @@ def test_record_pod_vs_ratecon_activity_skips_without_extraction(
     mock_svc_cls.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_vs_ratecon_activity_idempotent_skip_email(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_lc_cls.return_value.read_lifecycle_row_by_id.return_value = {
         "status": "processing",
@@ -218,13 +218,13 @@ def test_record_pod_vs_ratecon_activity_idempotent_skip_email(
     mock_svc_cls.assert_not_called()
 
 
-@patch("app.services.pod_pipeline_activity_service.WorkflowLifecycleService")
-@patch("app.services.pod_pipeline_activity_service.ActivityLogService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.WorkflowLifecycleService")
+@patch("app.services.pod_lifecycle.pipeline_activity_service.ActivityLogService")
 def test_record_pod_vs_ratecon_activity_manual_reupload_logs_when_already_processed(
     mock_svc_cls: MagicMock,
     mock_lc_cls: MagicMock,
 ) -> None:
-    from app.services.pod_pipeline_activity_service import PodPipelineActivityService
+    from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc

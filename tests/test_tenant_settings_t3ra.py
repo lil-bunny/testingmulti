@@ -17,9 +17,7 @@ def test_t3ra_fixture_validates() -> None:
     assert model.mikey_account_id.email_alias == "ops@example.com"
     assert "driver_assignment" in model.enabledProcesses
     assert model.driver_assignment is not None
-    assert model.driver_assignment.reminders.schedule_mode == "before_pickup"
     da_steps = model.driver_assignment.reminders.steps
-    assert da_steps is not None
     assert len(da_steps) == 5
     assert da_steps[-1].event_type == "escalation_due"
     assert model.driver_assignment.escalate_driver is not None
@@ -42,7 +40,10 @@ def test_t3ra_fixture_validates() -> None:
 def test_normalize_preserves_driver_assignment_settings() -> None:
     normalized = normalize_tenant_settings_dict("t3ra", _T3RA_SETTINGS)
     assert "driver_assignment" in normalized["enabledProcesses"]
-    assert normalized["driver_assignment"]["reminders"]["schedule_mode"] == "before_pickup"
+    da_reminders = normalized["driver_assignment"]["reminders"]
+    assert "schedule_mode" not in da_reminders
+    assert "expire_grace_hours" not in da_reminders
+    assert len(da_reminders["steps"]) == 5
     conf = normalized["driver_assignment"]["confirmation_email"]
     assert conf["tracking_customer_names"] == ["USCS CSC"]
     assert conf["tracking_template_html"]

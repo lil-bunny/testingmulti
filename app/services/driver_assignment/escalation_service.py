@@ -14,9 +14,11 @@ from app.domain.driver_assignment.escalation import (
     format_driver_escalation_body,
     format_driver_escalation_title,
     parse_driver_assignment_escalate_settings,
-    skip_sub_statuses_from_driver_assignment_settings,
 )
-from app.domain.driver_assignment.guards import blocks_driver_assignment_escalation
+from app.domain.driver_assignment.guards import (
+    blocks_driver_assignment_escalation,
+    driver_assignment_reminder_skip_sub_statuses,
+)
 from app.integrations.teams.webhook import TeamsWebhookError, post_message_card
 from app.integrations.turvo.shipments import (
     driver_assigned_from_payload,
@@ -77,8 +79,10 @@ class DriverAssignmentEscalationService:
 
         wl_id = str(payload.get("workflow_lifecycle_id") or "").strip()
         row = self._lifecycle.read_lifecycle_row_by_id(wl_id) if wl_id else None
-        skip_subs = skip_sub_statuses_from_driver_assignment_settings(tenant_settings)
-        skip = delayed_workflow_step_skip_reason(row, skip_sub_statuses=skip_subs)
+        skip = delayed_workflow_step_skip_reason(
+            row,
+            skip_sub_statuses=driver_assignment_reminder_skip_sub_statuses(),
+        )
         if skip:
             return EscalationResult(skipped=True, skip_reason=skip)
         if blocks_driver_assignment_escalation(row):
