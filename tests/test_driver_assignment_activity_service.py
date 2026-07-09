@@ -350,6 +350,38 @@ def test_record_tms_driver_success_created_logs_single_assign_action():
     assert action_steps[0].metadata["driver_name"] == "Lily Potter"
 
 
+def test_record_tms_driver_success_replaced_logs_assign_action():
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_2_SENT.value,
+    }
+    svc = DriverAssignmentActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+    state = _state(
+        tms_resolution="replaced",
+        tms_contact_id=640637,
+        tms_search_match_by="name_and_phone",
+        tms_driver_outcome="assigned",
+        driver_details_extraction={
+            "driver": {"name": "Other", "phone": "5122691730"},
+        },
+    )
+
+    svc.record_tms_driver_success(state)
+
+    sequence = activity.record_sequence.call_args.args[0]
+    action_steps = [
+        step for step in sequence.steps if step.activity_type == ActivityType.ACTION
+    ]
+    assert len(action_steps) == 1
+    assert "assigned to shipment in tms" in action_steps[0].description.lower()
+    assert action_steps[0].metadata["tms_contact_id"] == 640637
+
+
 def test_record_tms_driver_success_insufficient_still_logs_assign():
     activity = MagicMock()
     lifecycle = MagicMock()

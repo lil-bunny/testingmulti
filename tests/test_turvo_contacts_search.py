@@ -10,6 +10,7 @@ from app.integrations.turvo.contacts import (
     search_carrier_driver_contacts,
 )
 from app.integrations.turvo.shipments import (
+    driver_assignment_row_ids_from_carrier_order,
     driver_contact_ids_from_carrier_order,
     driver_contact_ids_from_shipment,
 )
@@ -44,6 +45,17 @@ def test_driver_contact_ids_from_carrier_order_collects_context_ids() -> None:
         ],
     }
     assert driver_contact_ids_from_carrier_order(order) == [640635, 640637]
+
+
+def test_driver_assignment_row_ids_from_carrier_order() -> None:
+    order = {
+        "deleted": False,
+        "drivers": [
+            {"deleted": False, "id": "abc-1", "driverId": 640635},
+            {"deleted": True, "id": "abc-2"},
+        ],
+    }
+    assert driver_assignment_row_ids_from_carrier_order(order) == ["abc-1"]
 
 
 def test_driver_contact_ids_from_shipment_scopes_to_carrier() -> None:

@@ -1094,6 +1094,37 @@ def test_check_reminder_eligibility_skips_when_driver_assigned():
     assert result.error == "skipped_already_assigned"
 
 
+def test_send_driver_details_confirmation_allows_replaced_resolution() -> None:
+    comms = MagicMock()
+    comms.send_thread_reply.return_value = {
+        "success": True,
+        "communication_id": "comm-out-1",
+    }
+    svc = DriverAssignmentIngressService(communications_service=comms)
+    result = svc.send_driver_details_confirmation_email(
+        tenant_id=_TENANT_ID,
+        tenant_settings={
+            "mikey_account_id": "acct-1",
+            "driver_assignment": {
+                "confirmation_email": {
+                    "default_template_html": "<p>{driver_name} {driver_phone}</p>",
+                }
+            },
+        },
+        payload={
+            "tms_resolution": "replaced",
+            "tms_driver_outcome": "assigned",
+            "workflow_lifecycle_id": _DRIVER_LC_ID,
+            "thread_id": "thread-1",
+            "driver_details_extraction": {
+                "driver": {"name": "Other", "phone": "5122691730"},
+            },
+        },
+        workflow_run_id="run-1",
+    )
+    assert result.sent is True
+
+
 def test_send_driver_details_confirmation_picks_turvo_template() -> None:
     comms = MagicMock()
     comms.send_thread_reply.return_value = {

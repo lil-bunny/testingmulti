@@ -20,8 +20,11 @@ from app.integrations.turvo.shipments import (
     carrier_from_order,
     customer_name_from_payload,
     driver_assigned_from_payload,
+    driver_assignment_row_ids_from_carrier_order,
+    driver_contact_ids_from_carrier_order,
     first_active_carrier_order,
     get_shipment,
+    replace_driver_on_shipment,
     segment_id_from_order,
 )
 from app.domain.driver_assignment.confirmation_email import (
@@ -49,6 +52,7 @@ TmsResolution = Literal[
     "created",
     "assigned",
     "skipped_already_assigned",
+    "replaced",
     "failed",
 ]
 
@@ -190,18 +194,6 @@ class DriverAssignmentTurvoService:
             else not is_tracking
         )
 
-        if driver_assigned_from_payload(shipment):
-            order = first_active_carrier_order(shipment) or {}
-            carrier_id, _ = carrier_from_order(order)
-            return TmsDriverResolution(
-                outcome="assigned",
-                tms_resolution="skipped_already_assigned",
-                tms_shipment_id=sid,
-                tms_carrier_id=carrier_id,
-                tms_customer_name=customer_name,
-                tms_is_tracking_customer=is_tracking,
-            )
-
         order = first_active_carrier_order(shipment)
         if not order:
             return TmsDriverResolution(
@@ -266,19 +258,42 @@ class DriverAssignmentTurvoService:
                 )
             return resolution  # type: ignore[return-value]
 
+        already_assigned = driver_assigned_from_payload(shipment)
+        existing_contact_ids = (
+            driver_contact_ids_from_carrier_order(order) if already_assigned else []
+        )
+
+        if already_assigned and contact_id in existing_contact_ids:
+            return TmsDriverResolution(
+                outcome="assigned",
+                tms_resolution="skipped_already_assigned",
+                tms_shipment_id=sid,
+                tms_carrier_id=carrier_id,
+                tms_contact_id=contact_id,
+                tms_customer_name=customer_name,
+                tms_is_tracking_customer=is_tracking,
+                tms_matched_driver_name=resolution.tms_matched_driver_name,
+                tms_matched_driver_phone=resolution.tms_matched_driver_phone,
+            )
+
         if shadow:
             logger.info(
                 "shadow_mode skipped TMS assign driver shipment_id=%s contact_id=%s",
                 sid,
                 contact_id,
             )
-            return TmsDriverResolution(
-                outcome="assigned",
-                tms_resolution=(
+            shadow_resolution: TmsResolution = (
+                "replaced"
+                if already_assigned
+                else (
                     "created"
                     if resolution.tms_contact_created
                     else ("found" if resolution.tms_resolution == "found" else "assigned")
-                ),
+                )
+            )
+            return TmsDriverResolution(
+                outcome="assigned",
+                tms_resolution=shadow_resolution,
                 tms_shipment_id=sid,
                 tms_carrier_id=carrier_id,
                 tms_contact_id=contact_id,
@@ -292,14 +307,32 @@ class DriverAssignmentTurvoService:
             )
 
         try:
-            await assign_driver_to_shipment(
-                slug,
-                sid,
-                carrier_order_id=int(carrier_order_id),
-                contact_id=contact_id,
-                segment_id=segment_id,
-                send_invite=send_invite,
-            )
+            if already_assigned:
+                row_ids = driver_assignment_row_ids_from_carrier_order(order)
+                await replace_driver_on_shipment(
+                    slug,
+                    sid,
+                    carrier_order_id=int(carrier_order_id),
+                    contact_id=contact_id,
+                    assignment_row_ids=row_ids,
+                    segment_id=segment_id,
+                    send_invite=send_invite,
+                )
+                put_resolution: TmsResolution = "replaced"
+            else:
+                await assign_driver_to_shipment(
+                    slug,
+                    sid,
+                    carrier_order_id=int(carrier_order_id),
+                    contact_id=contact_id,
+                    segment_id=segment_id,
+                    send_invite=send_invite,
+                )
+                put_resolution = (
+                    "created"
+                    if resolution.tms_contact_created
+                    else ("found" if resolution.tms_resolution == "found" else "assigned")
+                )
         except TurvoApiError as e:
             logger.warning(
                 "TMS assign driver failed shipment_id=%s contact_id=%s status=%s",
@@ -318,11 +351,7 @@ class DriverAssignmentTurvoService:
 
         return TmsDriverResolution(
             outcome="assigned",
-            tms_resolution=(
-                "created"
-                if resolution.tms_contact_created
-                else ("found" if resolution.tms_resolution == "found" else "assigned")
-            ),
+            tms_resolution=put_resolution,
             tms_shipment_id=sid,
             tms_carrier_id=carrier_id,
             tms_contact_id=contact_id,

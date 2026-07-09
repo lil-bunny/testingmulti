@@ -336,7 +336,7 @@ class IngressEmailMixin:
             return SendReminderResult(sent=False, error="skipped_already_assigned")
         if str(payload.get("tms_driver_outcome") or "").strip() != "assigned":
             return SendReminderResult(sent=False, error="not_assigned")
-        if resolution not in ("found", "created", "assigned"):
+        if resolution not in ("found", "created", "assigned", "replaced"):
             return SendReminderResult(sent=False, error="not_assigned")
 
         conf = parse_driver_assignment_confirmation_email(tenant_settings)
