@@ -15,7 +15,8 @@ from app.services.pod_lifecycle.ingress_service import POD_EMAIL_SKIP_INVALID_AT
 
 
 @pytest.mark.asyncio
-async def test_gate_skips_invalid_attachment():
+async def test_gate_skips_invalid_attachment(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.pod_lifecycle.attachment_ingress_gate_service.settings.POD_ATTACHMENT_STAGE_ROOT", str(tmp_path))
     normalizer = MagicMock()
     normalizer.assess_attachments.return_value = {
         "success": False,
@@ -44,7 +45,8 @@ async def test_gate_skips_invalid_attachment():
 
 
 @pytest.mark.asyncio
-async def test_gate_passes_and_returns_normalization():
+async def test_gate_passes_and_returns_normalization(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.pod_lifecycle.attachment_ingress_gate_service.settings.POD_ATTACHMENT_STAGE_ROOT", str(tmp_path))
     normalization = {
         "success": True,
         "source_attachment_ids": ["att-1"],
@@ -72,15 +74,17 @@ async def test_gate_passes_and_returns_normalization():
     ):
         result = await gate.check(payload=payload)
 
-    assert result == PodAttachmentIngressGateResult(
-        eligible=True,
-        normalization=normalization,
-        valid_bytes_by_id={"att-1": pdf_bytes},
-    )
+    assert result.eligible is True
+    assert result.normalization == normalization
+    assert result.stage_dir
+    assert result.valid_stage_files == [
+        {"attachment_id": "att-1", "path": str(tmp_path / "pod_email_email-2" / "att-1.bin")}
+    ]
 
 
 @pytest.mark.asyncio
-async def test_gate_returns_valid_bytes_only():
+async def test_gate_returns_valid_stage_files_only(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.pod_lifecycle.attachment_ingress_gate_service.settings.POD_ATTACHMENT_STAGE_ROOT", str(tmp_path))
     ship = "1003"
     good_ref = in_memory_attachment_ref("att-valid", ship)
     bad_ref = in_memory_attachment_ref("att-bad", ship)
@@ -118,8 +122,13 @@ async def test_gate_returns_valid_bytes_only():
         result = await gate.check(payload=payload)
 
     assert result.eligible is True
-    assert result.valid_bytes_by_id == {"att-valid": b"%PDF-1.4 valid"}
-    assert "att-bad" not in (result.valid_bytes_by_id or {})
+    assert result.valid_stage_files == [
+        {
+            "attachment_id": "att-valid",
+            "path": str(tmp_path / "pod_email_email-3" / "att-valid.bin"),
+        }
+    ]
+    assert not (tmp_path / "pod_email_email-3" / "att-bad.bin").exists()
 
 
 @pytest.mark.asyncio

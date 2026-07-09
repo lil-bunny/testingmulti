@@ -18,6 +18,7 @@ def test_classify_attachments_persists_merged_pod_with_source_keys(
     mock_svc_cls.return_value.normalize_from_state_data.return_value = {
         "success": True,
         "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
+        "pod_merged_local_path": "/tmp/freightx/pod_staging/pod_email_mock/pod_SHIP.pdf",
         "classification_results": [
             {
                 "attachment_ref": "pod_attachments/pod_att-1_SHIP.bin",
@@ -39,6 +40,8 @@ def test_classify_attachments_persists_merged_pod_with_source_keys(
         execution_id="run-1",
         data={
             "attachment_bytes_by_id": {"att-1": b"%PDF-1.4 x"},
+            "pod_attachment_stage_dir": "/tmp/freightx/pod_staging/pod_email_mock",
+            "pod_attachment_stage_files": [{"attachment_id": "att-1", "path": "/tmp/freightx/pod_staging/pod_email_mock/att-1.bin"}],
             "shipments_row_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
             "shipment_id": "SHIP",
         },
@@ -54,3 +57,10 @@ def test_classify_attachments_persists_merged_pod_with_source_keys(
     assert state.data["pod_object_keys"] == ["pod_attachments/merged.pdf"]
     assert "attachment_bytes_by_id" not in state.data
     assert "get_email_attachments_results" not in state.data
+    # Keep stage dir + path-only merged ref for pod_analysis; never store PDF bytes.
+    assert state.data["pod_attachment_stage_dir"] == "/tmp/freightx/pod_staging/pod_email_mock"
+    assert state.data["pod_merged_local_path"] == (
+        "/tmp/freightx/pod_staging/pod_email_mock/pod_SHIP.pdf"
+    )
+    assert "pod_attachment_stage_files" not in state.data
+    assert "pod_merged_pdf_bytes" not in state.data

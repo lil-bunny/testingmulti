@@ -34,6 +34,44 @@ def test_normalize_from_state_data_uses_bytes_path_when_present():
         shipment_number="SHIP",
         prior_classification_by_attachment_id=prior,
         upload_merged=True,
+        local_merged_path=None,
+    )
+    normalizer.normalize.assert_not_called()
+    assert out["success"] is True
+
+
+def test_normalize_from_state_data_uses_stage_files_when_present(tmp_path):
+    prior = {"att-1": {"is_valid_document": True, "confidence": 0.91}}
+    normalizer = MagicMock()
+    normalizer.normalize_from_bytes.return_value = {
+        "success": True,
+        "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
+        "classification_results": [{"from_ingress_gate": True}],
+    }
+    stage_file = tmp_path / "att-1.bin"
+    stage_file.write_bytes(b"%PDF-1.4 x")
+
+    svc = PodAttachmentNormalizeService(normalizer=normalizer)
+    data = {
+        "pod_attachment_stage_dir": str(tmp_path),
+        "pod_attachment_stage_files": [
+            {"attachment_id": "att-1", "path": str(stage_file)},
+        ],
+        "attachment_bytes_by_id": {"att-1": b"old"},
+        "shipment_id": "SHIP",
+        "attachment_normalization": {
+            "classification_by_attachment_id": prior,
+        },
+    }
+
+    out = svc.normalize_from_state_data(data)
+
+    normalizer.normalize_from_bytes.assert_called_once_with(
+        {"att-1": b"%PDF-1.4 x"},
+        shipment_number="SHIP",
+        prior_classification_by_attachment_id=prior,
+        upload_merged=True,
+        local_merged_path=str(tmp_path / "pod_SHIP.pdf"),
     )
     normalizer.normalize.assert_not_called()
     assert out["success"] is True
@@ -64,6 +102,7 @@ def test_normalize_from_state_data_passes_prior_map():
         shipment_number="SHIP",
         prior_classification_by_attachment_id=prior,
         upload_merged=True,
+        local_merged_path=None,
     )
     assert out["success"] is True
 
@@ -82,4 +121,5 @@ def test_normalize_from_state_data_without_prior_map():
         shipment_number="S1",
         prior_classification_by_attachment_id=None,
         upload_merged=True,
+        local_merged_path=None,
     )

@@ -30,6 +30,9 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "pod_reminder_skip_reason",
             "attachment_normalization",
             "attachment_bytes_by_id",
+            "pod_attachment_stage_dir",
+            "pod_attachment_stage_files",
+            "pod_merged_local_path",
         ],
     ),
     "ratecon": WorkflowTemplateContract(

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from app.services.attachment_normalizer import AttachmentNormalizerService
+from app.services.attachment_normalizer import (
+    AttachmentNormalizerService,
+    pod_merged_filename,
+)
 from app.workflows.shipment_resolver import resolve_shipment_id
 
 
@@ -28,6 +32,32 @@ def attachment_bytes_by_id_from_state(data: dict[str, Any]) -> dict[str, bytes]:
     return out
 
 
+def attachment_bytes_by_id_from_stage_files(data: dict[str, Any]) -> dict[str, bytes]:
+    out: dict[str, bytes] = {}
+    for item in data.get("pod_attachment_stage_files") or []:
+        if not isinstance(item, dict):
+            continue
+        att_id = str(item.get("attachment_id") or "").strip()
+        path = str(item.get("path") or "").strip()
+        if not att_id or not path:
+            continue
+        try:
+            file_bytes = Path(path).read_bytes()
+        except Exception:
+            continue
+        if file_bytes:
+            out[att_id] = file_bytes
+    return out
+
+
+def local_merged_path_for_stage(data: dict[str, Any], shipment_id: str | None) -> str | None:
+    """Worker-local path for merged PDF under the ingress stage dir (path only, never bytes)."""
+    stage_dir = str(data.get("pod_attachment_stage_dir") or "").strip()
+    if not stage_dir:
+        return None
+    return str(Path(stage_dir) / pod_merged_filename(shipment_id))
+
+
 class PodAttachmentNormalizeService:
     """Merge/upload POD attachments; reuse ingress ``classification_by_attachment_id`` when set."""
 
@@ -48,13 +78,17 @@ class PodAttachmentNormalizeService:
             if isinstance(raw_prior, dict) and raw_prior:
                 prior = raw_prior
 
-        bytes_by_id = attachment_bytes_by_id_from_state(data)
+        local_merged_path = local_merged_path_for_stage(data, shipment_id)
+        bytes_by_id = attachment_bytes_by_id_from_stage_files(data)
+        if not bytes_by_id:
+            bytes_by_id = attachment_bytes_by_id_from_state(data)
         if bytes_by_id:
             return self._normalizer.normalize_from_bytes(
                 bytes_by_id,
                 shipment_number=shipment_id,
                 prior_classification_by_attachment_id=prior,
                 upload_merged=True,
+                local_merged_path=local_merged_path,
             )
 
         pod_object_keys = data.get("pod_object_keys") or []
@@ -63,4 +97,5 @@ class PodAttachmentNormalizeService:
             shipment_number=shipment_id,
             prior_classification_by_attachment_id=prior,
             upload_merged=True,
+            local_merged_path=local_merged_path,
         )

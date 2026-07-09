@@ -1,4 +1,6 @@
 import logging
+import shutil
+from pathlib import Path
 
 from app.core.config import settings
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
@@ -63,6 +65,25 @@ def _collect_source_object_keys(state) -> list[str]:
     return keys
 
 
+def _cleanup_pod_attachment_stage(state) -> None:
+    """Remove worker-local stage dir; only paths live in state, never PDF bytes."""
+    state.data.pop("attachment_bytes_by_id", None)
+    state.data.pop("get_email_attachments_results", None)
+    state.data.pop("pod_attachment_stage_files", None)
+    state.data.pop("pod_merged_local_path", None)
+    stage_dir = str(state.data.pop("pod_attachment_stage_dir", "") or "").strip()
+    if not stage_dir:
+        return
+    try:
+        shutil.rmtree(Path(stage_dir), ignore_errors=True)
+    except Exception:
+        logger.warning(
+            "pod_stage_cleanup_failed shipment_id=%s dir=%s",
+            resolve_shipment_id(state.data),
+            stage_dir,
+        )
+
+
 @safe_node
 def classify_attachments(state):
     """Classify attachments, upload merged PDF, persist ``documents`` row."""
@@ -72,13 +93,18 @@ def classify_attachments(state):
     state.data["attachment_normalization"] = result
 
     merged = result.get("pod_merged_pdf_object_key")
+    local_merged = str(result.get("pod_merged_local_path") or "").strip()
     if result.get("success") and merged:
         state.data["pod_object_keys"] = [merged]
         state.data["pod_merged_pdf_object_key"] = merged
         state.data["has_attachments"] = True
+        if local_merged:
+            # Path only — never store merged PDF bytes in graph state/checkpoints.
+            state.data["pod_merged_local_path"] = local_merged
     else:
         state.data["pod_object_keys"] = []
         state.data.pop("pod_merged_pdf_object_key", None)
+        state.data.pop("pod_merged_local_path", None)
         state.data["has_attachments"] = False
 
     input_count = len(attachment_bytes_by_id_from_state(state.data)) or len(
@@ -115,9 +141,13 @@ def classify_attachments(state):
                 len(source_keys),
             )
     finally:
-        # Ephemeral ingress bytes must not reach Postgres checkpoints.
+        # Drop raw attachment payloads from state; keep stage_dir + merged local path
+        # until pod_analysis so LLM can reuse the local merged PDF without S3 re-download.
         state.data.pop("attachment_bytes_by_id", None)
         state.data.pop("get_email_attachments_results", None)
+        state.data.pop("pod_attachment_stage_files", None)
+        if not state.data.get("pod_merged_local_path"):
+            _cleanup_pod_attachment_stage(state)
     return state
 
 
@@ -182,49 +212,52 @@ def _manual_pod_analysis_soft_fail(out: dict) -> bool:
 
 @safe_node
 def pod_analysis(state):
-    out = get_pod_analysis(state.data)
-    state.data["pod_analysis_results"] = out
+    try:
+        out = get_pod_analysis(state.data)
+        state.data["pod_analysis_results"] = out
 
-    if _is_manual_pod_upload(state.data) and _manual_pod_analysis_soft_fail(out):
-        logger.warning(
-            "pod_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s skipped=%s",
-            state.data.get("shipment_id"),
-            state.data.get("workflow_lifecycle_id"),
-            out.get("error"),
-            out.get("skipped"),
-        )
+        if _is_manual_pod_upload(state.data) and _manual_pod_analysis_soft_fail(out):
+            logger.warning(
+                "pod_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s skipped=%s",
+                state.data.get("shipment_id"),
+                state.data.get("workflow_lifecycle_id"),
+                out.get("error"),
+                out.get("skipped"),
+            )
+            return state
+
+        _raise_on_tool_failure(out, _POD_ANALYSIS_ERRORS)
+
+        if out.get("skipped"):
+            raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
+
+        if out.get("success") and not (out.get("findings") or {}).get("pod_data"):
+            raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
+
+        shipments_row_id = resolve_shipments_row_id_for_db(state.data)
+        if (
+            out.get("success")
+            and not out.get("skipped")
+            and out.get("findings")
+            and shipments_row_id
+        ):
+            persist = upsert_document_analysis(
+                shipments_row_id,
+                DocumentAnalysisType.POD_EXTRACTION,
+                results=out["findings"],
+                confidence_score=out.get("confidence_score"),
+                llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
+                document_id=out.get("document_id"),
+            )
+            state.data["document_analysis_pod"] = persist
+            logger.info(
+                "pod_analysis: document_analysis stored=%s id=%s",
+                persist.get("stored"),
+                persist.get("id"),
+            )
         return state
-
-    _raise_on_tool_failure(out, _POD_ANALYSIS_ERRORS)
-
-    if out.get("skipped"):
-        raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
-
-    if out.get("success") and not (out.get("findings") or {}).get("pod_data"):
-        raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
-
-    shipments_row_id = resolve_shipments_row_id_for_db(state.data)
-    if (
-        out.get("success")
-        and not out.get("skipped")
-        and out.get("findings")
-        and shipments_row_id
-    ):
-        persist = upsert_document_analysis(
-            shipments_row_id,
-            DocumentAnalysisType.POD_EXTRACTION,
-            results=out["findings"],
-            confidence_score=out.get("confidence_score"),
-            llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
-            document_id=out.get("document_id"),
-        )
-        state.data["document_analysis_pod"] = persist
-        logger.info(
-            "pod_analysis: document_analysis stored=%s id=%s",
-            persist.get("stored"),
-            persist.get("id"),
-        )
-    return state
+    finally:
+        _cleanup_pod_attachment_stage(state)
 
 
 @safe_node

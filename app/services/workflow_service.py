@@ -240,8 +240,10 @@ class WorkflowService:
                 )
             if gate.normalization:
                 payload["attachment_normalization"] = gate.normalization
-            if gate.valid_bytes_by_id:
-                payload["attachment_bytes_by_id"] = gate.valid_bytes_by_id
+            if gate.stage_dir:
+                payload["pod_attachment_stage_dir"] = gate.stage_dir
+            if gate.valid_stage_files:
+                payload["pod_attachment_stage_files"] = gate.valid_stage_files
 
         if (
             workflow_name == "pod_lifecycle"

@@ -14,6 +14,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -141,6 +142,7 @@ class AttachmentNormalizerService:
         *,
         prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
+        local_merged_path: str | None = None,
     ) -> Dict[str, Any]:
         if not pod_object_keys:
             return {
@@ -161,6 +163,7 @@ class AttachmentNormalizerService:
                     shipment_number=shipment_number,
                     prior_classification_by_attachment_id=prior_classification_by_attachment_id,
                     upload_merged=upload_merged,
+                    local_merged_path=local_merged_path,
                 ),
                 shipment_number,
             )
@@ -346,23 +349,24 @@ class AttachmentNormalizerService:
                 "error": upload_result.get("error_message") or "Failed to upload merged PDF to S3",
             }
 
+        local_path = self._write_local_merged_pdf(merged_bytes, local_merged_path)
         valid_source = [
             self._valid_source_entry(ref) for ref, _ in valid_pdfs
         ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
         cleanup = {"rejected": rejected, "valid_source": valid_source}
 
-        return self._with_classification_index(
-            {
-                "success": True,
-                "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
-                "source_attachment_ids": source_attachment_ids,
-                "classification_results": classification_results,
-                "rejected": rejected,
-                "source_attachments_cleanup": cleanup,
-                "error": None,
-            },
-            shipment_number,
-        )
+        out: Dict[str, Any] = {
+            "success": True,
+            "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
+            "source_attachment_ids": source_attachment_ids,
+            "classification_results": classification_results,
+            "rejected": rejected,
+            "source_attachments_cleanup": cleanup,
+            "error": None,
+        }
+        if local_path:
+            out["pod_merged_local_path"] = local_path
+        return self._with_classification_index(out, shipment_number)
 
     def normalize_from_bytes(
         self,
@@ -372,6 +376,7 @@ class AttachmentNormalizerService:
         prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
         classify_context: str = "graph",
+        local_merged_path: str | None = None,
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
@@ -413,6 +418,7 @@ class AttachmentNormalizerService:
             shipment_number=shipment_number,
             prior_classification_by_attachment_id=prior_classification_by_attachment_id,
             upload_merged=upload_merged,
+            local_merged_path=local_merged_path,
         )
 
     def assess_attachments(
@@ -429,6 +435,28 @@ class AttachmentNormalizerService:
             classify_context="ingress_gate",
         )
 
+    @staticmethod
+    def _write_local_merged_pdf(
+        pdf_bytes: bytes,
+        local_merged_path: str | None,
+    ) -> str | None:
+        """Write merged PDF to a worker-local path; never put bytes into graph state."""
+        path = (local_merged_path or "").strip()
+        if not path or not pdf_bytes:
+            return None
+        try:
+            out = Path(path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(pdf_bytes)
+            return str(out)
+        except Exception as exc:
+            logger.warning(
+                "attachment_normalizer.local_merged_write_failed path=%s err=%s",
+                path,
+                exc,
+            )
+            return None
+
     def _normalize_single_attachment(
         self,
         attachment_ref: str,
@@ -436,6 +464,7 @@ class AttachmentNormalizerService:
         *,
         prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
+        local_merged_path: str | None = None,
     ) -> Dict[str, Any]:
         """
         Business rules for exactly one attachment:
@@ -630,10 +659,11 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
+        local_path = self._write_local_merged_pdf(pdf_bytes, local_merged_path)
         valid_source = [self._valid_source_entry(attachment_ref)]
         cleanup = {"rejected": rejected, "valid_source": valid_source}
 
-        return {
+        out: Dict[str, Any] = {
             "success": True,
             "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
             "source_attachment_ids": source_attachment_ids,
@@ -643,6 +673,9 @@ class AttachmentNormalizerService:
             "error": None,
             "single_attachment_short_circuit": True,
         }
+        if local_path:
+            out["pod_merged_local_path"] = local_path
+        return out
 
     def _classify_image(
         self,

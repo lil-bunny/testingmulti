@@ -288,8 +288,11 @@ def _broker_name_from_ratecon_results(data: dict) -> str | None:
 
 def pod_analysis(data: dict) -> dict:
     """
-    Download merged POD from workflow state or ``documents`` using the stored S3 object key,
-    then run vision extraction and reconciliation.
+    Run vision extraction on the merged POD PDF.
+
+    Prefer worker-local ``pod_merged_local_path`` when present (same Celery task as
+    classify); otherwise download from S3 via ``pod_merged_pdf_object_key`` / documents.
+    Never expects PDF bytes in graph state.
     """
     sid = resolve_shipment_id(data)
     if not sid:
@@ -327,34 +330,48 @@ def pod_analysis(data: dict) -> dict:
     broker_name = _broker_name_from_ratecon_results(data)
 
     tmp_path: str | None = None
+    owned_tmp = False
     try:
-        dl = bucket.download_object_bytes(object_key)
-        if not dl.get("success"):
-            return {
-                "success": False,
-                "error": dl.get("error_message") or "s3_download_failed",
-                "shipment_id": sid,
-                "pod_object_key": object_key,
-            }
-        body = dl["body"]
+        local_path = str(data.get("pod_merged_local_path") or "").strip()
+        source = "s3"
+        byte_len = 0
 
-        if body.startswith(b"%PDF"):
-            suffix = ".pdf"
+        if local_path and os.path.isfile(local_path):
+            # Prefer worker-local merged PDF (path only in state — never bytes).
+            tmp_path = local_path
+            owned_tmp = False
+            source = "local_stage"
+            try:
+                byte_len = os.path.getsize(local_path)
+            except OSError:
+                byte_len = 0
         else:
-            suffix = ".jpg"
+            dl = bucket.download_object_bytes(object_key)
+            if not dl.get("success"):
+                return {
+                    "success": False,
+                    "error": dl.get("error_message") or "s3_download_failed",
+                    "shipment_id": sid,
+                    "pod_object_key": object_key,
+                }
+            body = dl["body"]
+            source = "s3"
+            byte_len = len(body)
+            suffix = ".pdf" if body.startswith(b"%PDF") else ".jpg"
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            owned_tmp = True
+            try:
+                os.write(fd, body)
+            finally:
+                os.close(fd)
 
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-        try:
-            os.write(fd, body)
-        finally:
-            os.close(fd)
-
+        suffix = ".pdf" if (tmp_path or "").lower().endswith(".pdf") else ".bin"
         logger.info(
             "pod_analysis: extracted temp file shipment_id=%s suffix=%s bytes=%s source=%s",
             sid,
             suffix,
-            len(body),
-            url_meta.get("source"),
+            byte_len,
+            source,
         )
 
         page_results, final_pod_data, validation_issues, reconciliation_log = (
@@ -387,6 +404,7 @@ def pod_analysis(data: dict) -> dict:
                 "failed_pages": len(page_results) - ok_pages,
                 "model": settings.LLM_MODEL,
                 "pod_object_key_source": url_meta.get("source"),
+                "pod_bytes_source": source,
             },
             "pod_data": final_pod_data,
             "validation_issues": validation_issues,
@@ -422,7 +440,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_object_key": object_key,
         }
     finally:
-        if tmp_path and os.path.isfile(tmp_path):
+        if owned_tmp and tmp_path and os.path.isfile(tmp_path):
             try:
                 os.unlink(tmp_path)
             except OSError:

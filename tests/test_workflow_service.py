@@ -1,6 +1,7 @@
 import pytest
 import types
 import uuid
+import tempfile
 import boto3
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -32,7 +33,10 @@ from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 
 def _eligible_pod_attachment_gate_result() -> PodAttachmentIngressGateResult:
-    pdf_bytes = b"%PDF-1.4 mock pod file"
+    stage_dir = tempfile.mkdtemp(prefix="pod_email_test_")
+    stage_path = f"{stage_dir}/att-1.bin"
+    with open(stage_path, "wb") as fh:
+        fh.write(b"%PDF-1.4 mock pod file")
     return PodAttachmentIngressGateResult(
         eligible=True,
         normalization={
@@ -40,7 +44,13 @@ def _eligible_pod_attachment_gate_result() -> PodAttachmentIngressGateResult:
             "source_attachment_ids": ["att-1"],
             "classification_by_attachment_id": {"att-1": {"is_valid_document": True}},
         },
-        valid_bytes_by_id={"att-1": pdf_bytes},
+        stage_dir=stage_dir,
+        valid_stage_files=[
+            {
+                "attachment_id": "att-1",
+                "path": stage_path,
+            }
+        ],
     )
 
 
@@ -574,7 +584,13 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
             return_value=PodAttachmentIngressGateResult(
                 eligible=True,
                 normalization=gate_norm,
-                valid_bytes_by_id={"att-1": b"%PDF-1.4 pod"},
+                stage_dir="/tmp/freightx/pod_staging/pod_email_thread-norm",
+                valid_stage_files=[
+                    {
+                        "attachment_id": "att-1",
+                        "path": "/tmp/freightx/pod_staging/pod_email_thread-norm/att-1.bin",
+                    }
+                ],
             )
         )
         monkeypatch.setattr(service.execution, "execute", fake_execute)
@@ -598,7 +614,13 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
         )
 
     assert captured_payload.get("attachment_normalization") == gate_norm
-    assert captured_payload.get("attachment_bytes_by_id") == {"att-1": b"%PDF-1.4 pod"}
+    assert captured_payload.get("pod_attachment_stage_dir") == "/tmp/freightx/pod_staging/pod_email_thread-norm"
+    assert captured_payload.get("pod_attachment_stage_files") == [
+        {
+            "attachment_id": "att-1",
+            "path": "/tmp/freightx/pod_staging/pod_email_thread-norm/att-1.bin",
+        }
+    ]
 
 
 @pytest.mark.asyncio

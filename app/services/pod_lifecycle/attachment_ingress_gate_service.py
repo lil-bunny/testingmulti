@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.config import settings
 from app.core.logger import get_logger
 from app.domain.pod_lifecycle.guards import (
     pod_attachment_gate_eligible,
@@ -33,7 +36,8 @@ class PodAttachmentIngressGateResult:
     eligible: bool
     skip_reason: str | None = None
     normalization: dict[str, Any] | None = None
-    valid_bytes_by_id: dict[str, bytes] | None = None
+    stage_dir: str | None = None
+    valid_stage_files: list[dict[str, Any]] | None = None
 
 
 class PodAttachmentIngressGateService:
@@ -45,6 +49,18 @@ class PodAttachmentIngressGateService:
         normalizer: AttachmentNormalizerService | None = None,
     ) -> None:
         self._normalizer = normalizer or AttachmentNormalizerService()
+
+    @staticmethod
+    def _build_stage_dir(payload: dict[str, Any]) -> Path:
+        root = Path(settings.POD_ATTACHMENT_STAGE_ROOT)
+        token = (
+            str(payload.get("workflow_lifecycle_id") or "").strip()
+            or str(payload.get("execution_id") or "").strip()
+            or str(payload.get("email_id") or "").strip()
+            or "pod-email"
+        )
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in token)[:120]
+        return root / f"pod_email_{safe}"
 
     async def check(self, *, payload: dict[str, Any]) -> PodAttachmentIngressGateResult:
         """
@@ -83,7 +99,13 @@ class PodAttachmentIngressGateService:
                 normalization=normalization,
             )
 
+        stage_dir = self._build_stage_dir(payload)
+        if stage_dir.exists():
+            shutil.rmtree(stage_dir, ignore_errors=True)
+        stage_dir.mkdir(parents=True, exist_ok=True)
+
         bytes_by_id: dict[str, bytes] = {}
+        stage_files_by_id: dict[str, dict[str, Any]] = {}
         for meta in attachments:
             attachment_id = str(meta.get("id") or "").strip()
             if not attachment_id:
@@ -115,8 +137,15 @@ class PodAttachmentIngressGateService:
                 )
             if file_bytes:
                 bytes_by_id[attachment_id] = file_bytes
+                stage_path = stage_dir / f"{attachment_id}.bin"
+                stage_path.write_bytes(file_bytes)
+                stage_files_by_id[attachment_id] = {
+                    "attachment_id": attachment_id,
+                    "path": str(stage_path),
+                }
 
         if not bytes_by_id:
+            shutil.rmtree(stage_dir, ignore_errors=True)
             normalization = {
                 "success": False,
                 "error": "attachment_fetch_failed",
@@ -139,6 +168,7 @@ class PodAttachmentIngressGateService:
             shipment_number=shipment_number,
         )
         if not pod_attachment_gate_eligible(normalization):
+            shutil.rmtree(stage_dir, ignore_errors=True)
             skip = pod_attachment_gate_skip_reason(normalization)
             if skip == "invalid_attachment":
                 skip = POD_EMAIL_SKIP_INVALID_ATTACHMENT
@@ -162,7 +192,27 @@ class PodAttachmentIngressGateService:
             normalization,
             shipment_number=shipment_number,
         )
+        valid_ids = set(valid_bytes.keys())
+        for attachment_id, stage_file in stage_files_by_id.items():
+            if attachment_id in valid_ids:
+                continue
+            try:
+                Path(stage_file["path"]).unlink(missing_ok=True)
+            except Exception:
+                logger.warning(
+                    "attachment.ingress_gate.cleanup_failed shipment_id=%s attachment_id=%s",
+                    payload.get("shipment_id"),
+                    attachment_id,
+                )
+
+        valid_stage_files = [
+            stage_files_by_id[attachment_id]
+            for attachment_id in valid_ids
+            if attachment_id in stage_files_by_id
+        ]
+
         if not valid_bytes:
+            shutil.rmtree(stage_dir, ignore_errors=True)
             logger.warning(
                 "attachment.ingress_gate.done shipment_id=%s eligible=false reason=no_valid_bytes "
                 "fetched=%s source_ids=%s",
@@ -177,13 +227,14 @@ class PodAttachmentIngressGateService:
             )
 
         logger.info(
-            "attachment.ingress_gate.done shipment_id=%s eligible=true valid_bytes=%s rejected=%s",
+            "attachment.ingress_gate.done shipment_id=%s eligible=true staged_valid=%s rejected=%s",
             payload.get("shipment_id"),
-            len(valid_bytes),
+            len(valid_stage_files),
             len(normalization.get("rejected") or []),
         )
         return PodAttachmentIngressGateResult(
             eligible=True,
             normalization=normalization,
-            valid_bytes_by_id=valid_bytes,
+            stage_dir=str(stage_dir),
+            valid_stage_files=valid_stage_files,
         )

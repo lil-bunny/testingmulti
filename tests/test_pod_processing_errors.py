@@ -60,12 +60,18 @@ def test_classify_attachments_failure_sets_error(mock_svc_cls):
         "success": False,
         "rejected": ["bad.txt"],
     }
-    state = _state(attachment_bytes_by_id={"att-1": b"not-a-doc"})
+    state = _state(
+        attachment_bytes_by_id={"att-1": b"not-a-doc"},
+        pod_attachment_stage_dir="/tmp/freightx/pod_staging/pod_email_mock",
+        pod_attachment_stage_files=[{"attachment_id": "att-1", "path": "/tmp/freightx/pod_staging/pod_email_mock/att-1.bin"}],
+    )
 
     result = classify_attachments(state)
 
     _assert_error(result, BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
     assert "attachment_bytes_by_id" not in result["data"]
+    assert "pod_attachment_stage_dir" not in result["data"]
+    assert "pod_attachment_stage_files" not in result["data"]
 
 
 @patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
@@ -75,16 +81,54 @@ def test_classify_attachments_success_does_not_set_error(mock_row, mock_insert, 
     mock_svc_cls.return_value.normalize_from_state_data.return_value = {
         "success": True,
         "pod_merged_pdf_object_key": "merged.pdf",
+        "pod_merged_local_path": "/tmp/freightx/pod_staging/pod_email_mock/pod_SHIP.pdf",
         "classification_results": [],
         "rejected": [],
     }
     mock_insert.return_value = {"stored": True, "id": "doc-1"}
-    state = _state(attachment_bytes_by_id={"att-1": b"%PDF-1.4"})
+    state = _state(
+        attachment_bytes_by_id={"att-1": b"%PDF-1.4"},
+        pod_attachment_stage_dir="/tmp/freightx/pod_staging/pod_email_mock",
+        pod_attachment_stage_files=[{"attachment_id": "att-1", "path": "/tmp/freightx/pod_staging/pod_email_mock/att-1.bin"}],
+    )
 
     classify_attachments(state)
 
     assert "error" not in state.data
     assert "attachment_bytes_by_id" not in state.data
+    assert state.data["pod_attachment_stage_dir"] == "/tmp/freightx/pod_staging/pod_email_mock"
+    assert state.data["pod_merged_local_path"] == (
+        "/tmp/freightx/pod_staging/pod_email_mock/pod_SHIP.pdf"
+    )
+    assert "pod_attachment_stage_files" not in state.data
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_cleans_stage_after_run(mock_tool, tmp_path):
+    mock_tool.return_value = {
+        "success": True,
+        "findings": {"pod_data": {"delivery_confirmed": True}},
+        "confidence_score": 0.9,
+    }
+    stage_dir = tmp_path / "pod_email_mock"
+    stage_dir.mkdir()
+    merged = stage_dir / "pod_SHIP.pdf"
+    merged.write_bytes(b"%PDF-1.4 merged")
+    state = _state(
+        shipment_id="SHIP",
+        pod_attachment_stage_dir=str(stage_dir),
+        pod_merged_local_path=str(merged),
+    )
+
+    with patch(
+        "app.workflows.nodes.pod.resolve_shipments_row_id_for_db",
+        return_value=None,
+    ):
+        pod_analysis(state)
+
+    assert "pod_attachment_stage_dir" not in state.data
+    assert "pod_merged_local_path" not in state.data
+    assert not stage_dir.exists()
 
 
 # ---------------------------------------------------------------------------
