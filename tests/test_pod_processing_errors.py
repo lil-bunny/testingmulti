@@ -18,7 +18,6 @@ from app.domain.error_catalog import BusinessError, IntegrationError, SystemErro
 from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType
 from app.workflows.nodes.pod import (
-    classify_attachments,
     load_ratecon_analysis,
     pod_analysis,
     pod_vs_ratecon_analysis,
@@ -51,57 +50,8 @@ def _assert_error(result, expected_code):
 
 
 # ---------------------------------------------------------------------------
-# classify_attachments
+# pod_analysis stage cleanup
 # ---------------------------------------------------------------------------
-
-@patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
-def test_classify_attachments_failure_sets_error(mock_svc_cls):
-    mock_svc_cls.return_value.normalize_from_state_data.return_value = {
-        "success": False,
-        "rejected": ["bad.txt"],
-    }
-    state = _state(
-        attachment_bytes_by_id={"att-1": b"not-a-doc"},
-        pod_attachment_stage_dir="/tmp/freightx/pod_staging/pod_email_mock",
-        pod_attachment_stage_files=[{"attachment_id": "att-1", "path": "/tmp/freightx/pod_staging/pod_email_mock/att-1.bin"}],
-    )
-
-    result = classify_attachments(state)
-
-    _assert_error(result, BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
-    assert "attachment_bytes_by_id" not in result["data"]
-    assert "pod_attachment_stage_dir" not in result["data"]
-    assert "pod_attachment_stage_files" not in result["data"]
-
-
-@patch("app.workflows.nodes.pod.PodAttachmentNormalizeService")
-@patch("app.workflows.nodes.pod.insert_document")
-@patch("app.workflows.nodes.pod.resolve_shipments_row_id_for_db", return_value="row-1")
-def test_classify_attachments_success_does_not_set_error(mock_row, mock_insert, mock_svc_cls):
-    mock_svc_cls.return_value.normalize_from_state_data.return_value = {
-        "success": True,
-        "pod_merged_pdf_object_key": "merged.pdf",
-        "pod_merged_local_path": "/tmp/freightx/pod_staging/pod_email_mock/pod_SHIP.pdf",
-        "classification_results": [],
-        "rejected": [],
-    }
-    mock_insert.return_value = {"stored": True, "id": "doc-1"}
-    state = _state(
-        attachment_bytes_by_id={"att-1": b"%PDF-1.4"},
-        pod_attachment_stage_dir="/tmp/freightx/pod_staging/pod_email_mock",
-        pod_attachment_stage_files=[{"attachment_id": "att-1", "path": "/tmp/freightx/pod_staging/pod_email_mock/att-1.bin"}],
-    )
-
-    classify_attachments(state)
-
-    assert "error" not in state.data
-    assert "attachment_bytes_by_id" not in state.data
-    assert state.data["pod_attachment_stage_dir"] == "/tmp/freightx/pod_staging/pod_email_mock"
-    assert state.data["pod_merged_local_path"] == (
-        "/tmp/freightx/pod_staging/pod_email_mock/pod_SHIP.pdf"
-    )
-    assert "pod_attachment_stage_files" not in state.data
-
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
 def test_pod_analysis_cleans_stage_after_run(mock_tool, tmp_path):
@@ -292,35 +242,43 @@ def test_pod_analysis_success_does_not_set_error(mock_row, mock_upsert, mock_too
 
 
 # ---------------------------------------------------------------------------
-# ratecon_analysis
+# ratecon_analysis (soft-fail via RateconDocumentService; not @safe_node)
 # ---------------------------------------------------------------------------
 
-@patch("app.workflows.nodes.pod.get_ratecon_analysis")
-def test_ratecon_analysis_extraction_empty_sets_error(mock_tool):
-    mock_tool.return_value = {"success": False, "error": "extraction_empty"}
+@patch("app.workflows.nodes.pod.RateconDocumentService")
+def test_ratecon_analysis_extraction_empty_soft_fails(mock_svc_cls):
+    mock_svc_cls.return_value.analyze_and_persist.return_value = {
+        "ratecon_analysis_results": {"success": False, "error": "extraction_empty"}
+    }
     state = _state()
 
-    result = ratecon_analysis(state)
+    ratecon_analysis(state)
 
-    _assert_error(result, BusinessError.RATECON_EXTRACTION_EMPTY)
+    assert "error" not in state.data
+    assert state.data["ratecon_analysis_results"]["error"] == "extraction_empty"
 
 
-@patch("app.workflows.nodes.pod.get_ratecon_analysis")
-def test_ratecon_analysis_s3_failure_sets_error(mock_tool):
-    mock_tool.return_value = {"success": False, "error": "s3_download_failed"}
+@patch("app.workflows.nodes.pod.RateconDocumentService")
+def test_ratecon_analysis_s3_failure_soft_fails(mock_svc_cls):
+    mock_svc_cls.return_value.analyze_and_persist.return_value = {
+        "ratecon_analysis_results": {"success": False, "error": "s3_download_failed"}
+    }
     state = _state()
 
-    result = ratecon_analysis(state)
+    ratecon_analysis(state)
 
-    _assert_error(result, IntegrationError.POD_S3_DOWNLOAD_FAILED)
+    assert "error" not in state.data
+    assert state.data["ratecon_analysis_results"]["error"] == "s3_download_failed"
 
 
-@patch("app.workflows.nodes.pod.get_ratecon_analysis")
-def test_ratecon_analysis_skip_does_not_set_error(mock_tool):
-    mock_tool.return_value = {
-        "success": True,
-        "skipped": True,
-        "reason": "no_ratecon_document_in_db",
+@patch("app.workflows.nodes.pod.RateconDocumentService")
+def test_ratecon_analysis_skip_does_not_set_error(mock_svc_cls):
+    mock_svc_cls.return_value.analyze_and_persist.return_value = {
+        "ratecon_analysis_results": {
+            "success": True,
+            "skipped": True,
+            "reason": "no_ratecon_document_in_db",
+        }
     }
     state = _state()
 
@@ -438,27 +396,3 @@ def test_pod_analysis_failure_flows_to_record_workflow_failure(
     assert metadata["error_description"] == BusinessError.POD_EXTRACTION_EMPTY.description
     mock_enqueue.assert_called_once()
 
-
-@patch("app.workflows.nodes.error_handler.enqueue_workflow_error_alert_from_state")
-@patch("app.workflows.nodes.error_handler.LifecycleTransitionService")
-@patch("app.workflows.nodes.pod.get_ratecon_analysis")
-def test_ratecon_analysis_failure_flows_to_record_workflow_failure(
-    mock_tool: MagicMock,
-    mock_svc_cls: MagicMock,
-    mock_enqueue: MagicMock,
-) -> None:
-    mock_tool.return_value = {"success": False, "error": "extraction_empty"}
-    mock_svc = MagicMock()
-    mock_svc_cls.return_value = mock_svc
-
-    state = _state(workflow_lifecycle_id=LIFECYCLE_ID)
-
-    ratecon_analysis(state)
-
-    assert state.data["error"]["code"] == BusinessError.RATECON_EXTRACTION_EMPTY.value
-
-    record_workflow_failure_node(state)
-
-    metadata = _exception_metadata(mock_svc)
-    assert metadata["error"] == BusinessError.RATECON_EXTRACTION_EMPTY.value
-    mock_enqueue.assert_called_once()

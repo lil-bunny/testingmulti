@@ -347,9 +347,6 @@ class PodLifecycleIngressService:
     ) -> PodEmailReceivedPrepareResult:
         """
         Single ingress pass: resolve shipment, Turvo guards, and duplicate check.
-
-        Sets ``pod_email_ingress_prepared`` on the returned payload so ``WorkflowService.run``
-        can skip a second prepare when the email already passed L2 ingress.
         """
         workflow_payload = {**payload, "event_type": "email_received"}
         try:
@@ -369,7 +366,6 @@ class PodLifecycleIngressService:
             tenant_id=tenant_id,
             payload=prepared_payload,
         )
-        prepared_payload["pod_email_ingress_prepared"] = True
         return PodEmailReceivedPrepareResult(
             workflow_payload=prepared_payload,
             is_duplicate=is_duplicate,

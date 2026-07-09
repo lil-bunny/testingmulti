@@ -10,8 +10,8 @@ from app.services.pod_lifecycle.ingress_service import (
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
 )
-from app.services.pod_lifecycle.attachment_ingress_gate_service import (
-    PodAttachmentIngressGateService,
+from app.services.pod_lifecycle.attachment_pipeline_service import (
+    PodAttachmentPipelineService,
 )
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -85,7 +85,7 @@ class WorkflowService:
         self.tenants_service = TenantsService()
         self._ratecon_ingress = RateconIngressService()
         self._pod_lifecycle_ingress = PodLifecycleIngressService()
-        self._pod_attachment_gate = PodAttachmentIngressGateService()
+        self._pod_attachment_pipeline = PodAttachmentPipelineService()
         self._driver_assignment_ingress = DriverAssignmentIngressService()
 
     @staticmethod
@@ -212,7 +212,6 @@ class WorkflowService:
         if (
             workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "email_received"
-            # and not payload.get("pod_email_ingress_prepared")
         ):
             if not str(payload.get("execution_id") or "").strip():
                 payload["execution_id"] = str(uuid.uuid4())
@@ -231,21 +230,44 @@ class WorkflowService:
                     shipments_row_id=skip.shipments_row_id,
                 )
 
-            gate = await self._pod_attachment_gate.check(payload=payload)
-            if not gate.eligible:
+            pipeline = await self._pod_attachment_pipeline.run_for_email_payload(
+                payload=payload,
+            )
+            if not pipeline.success:
                 return self._skipped_pod_email_ingress_result(
                     tenant_id=tenant_id,
                     tenant_slug=tenant_slug,
                     payload=payload,
-                    reason=gate.skip_reason or POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+                    reason=pipeline.skip_reason or POD_EMAIL_SKIP_INVALID_ATTACHMENT,
                     shipments_row_id=payload.get("shipments_row_id"),
                 )
-            if gate.normalization:
-                payload["attachment_normalization"] = gate.normalization
-            if gate.stage_dir:
-                payload["pod_attachment_stage_dir"] = gate.stage_dir
-            if gate.valid_stage_files:
-                payload["pod_attachment_stage_files"] = gate.valid_stage_files
+            if pipeline.state_patch:
+                payload.update(pipeline.state_patch)
+
+        if (
+            workflow_name == "pod_lifecycle"
+            and payload.get("event_type") == "manual_pod_upload"
+            and payload.get("manual_pod_upload_source") != "stored"
+            and not (
+                isinstance(payload.get("documents_pod"), dict)
+                and payload["documents_pod"].get("stored")
+            )
+        ):
+            pipeline = self._pod_attachment_pipeline.run_for_object_keys(
+                pod_object_keys=list(payload.get("pod_object_keys") or []),
+                shipment_id=str(payload.get("shipment_id") or "").strip() or None,
+                shipments_row_id=str(payload.get("shipments_row_id") or "").strip()
+                or None,
+                stage_token=str(payload.get("execution_id") or "").strip() or None,
+                trace_payload=payload,
+            )
+            if not pipeline.success:
+                raise Exception(
+                    "pod_lifecycle manual_pod_upload: attachment pipeline failed: "
+                    f"{pipeline.skip_reason or 'unknown'}"
+                )
+            if pipeline.state_patch:
+                payload.update(pipeline.state_patch)
 
         if (
             workflow_name == "pod_lifecycle"

@@ -1,12 +1,11 @@
 from app.workflows.nodes.ratecon import upload_ratecon_attachments
 from app.workflows.nodes.pod import (
-    classify_attachments,
     load_ratecon_analysis,
     pod_analysis,
     pod_vs_ratecon_analysis,
     ratecon_analysis,
 )
-from app.workflows.nodes.email import send_email, get_email_attachments
+from app.workflows.nodes.email import send_email
 from app.workflows.nodes.pod_request import (
     check_pod_reminder_eligibility,
     complete_pod_found_in_tms,
@@ -114,8 +113,6 @@ NODE_REGISTRY = {
     "check_pod_reminder_eligibility": check_pod_reminder_eligibility,
     "complete_pod_found_in_tms": complete_pod_found_in_tms,
     "record_reminder_run": record_reminder_run,
-    "get_email_attachments": get_email_attachments,
-    "classify_attachments": classify_attachments,
     "load_ratecon_analysis": load_ratecon_analysis,
     "ratecon_analysis": ratecon_analysis,
     "pod_analysis": pod_analysis,

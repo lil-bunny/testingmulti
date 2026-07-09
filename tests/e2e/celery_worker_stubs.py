@@ -29,23 +29,24 @@ def install_pod_e2e_stubs() -> None:
 
         email_tools = importlib.import_module("app.tools.email")
         email_tools.get_email_attachments = _stub_get_email_attachments
+
+        def _stub_fetch_with_retry(*, email_id, attachment_id, account_id, **kwargs):
+            return e2e_io_stubs.read_attachment_bytes(str(attachment_id or ""))
+
         for mod_name in (
             "app.services.email_webhook_attachment_ingestion",
-            "app.workflows.nodes.email",
             "app.tools.ratecon",
             "app.services.ratecon_document_service",
+            "app.services.pod_lifecycle.attachment_pipeline_service",
         ):
             try:
                 mod = importlib.import_module(mod_name)
                 if hasattr(mod, "get_email_attachments"):
                     mod.get_email_attachments = _stub_get_email_attachments
+                if hasattr(mod, "fetch_email_attachment_bytes_with_retry"):
+                    mod.fetch_email_attachment_bytes_with_retry = _stub_fetch_with_retry
             except ImportError:
                 pass
-        try:
-            email_nodes = importlib.import_module("app.workflows.nodes.email")
-            email_nodes.get_email_attachments_tool = _stub_get_email_attachments
-        except ImportError:
-            pass
 
     if e2e_io_stubs.e2e_stub_s3_enabled():
         from app.core.config import settings as app_settings

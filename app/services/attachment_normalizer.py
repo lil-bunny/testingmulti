@@ -91,45 +91,10 @@ def in_memory_attachment_ref(
     attachment_id: str,
     shipment_number: str | None,
 ) -> str:
-    """Synthetic S3 ref for in-memory normalize/assess (must match ``normalize_from_bytes``)."""
+    """Synthetic S3 ref for in-memory normalize (must match ``normalize_from_bytes``)."""
     ship_token = _sanitize_path_segment(shipment_number or "unknown")
     att_token = _sanitize_path_segment(attachment_id)
     return f"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_{att_token}_{ship_token}.bin"
-
-
-def valid_attachment_bytes_from_normalization(
-    bytes_by_id: dict[str, bytes],
-    normalization: dict[str, Any],
-    *,
-    shipment_number: str | None = None,
-) -> dict[str, bytes]:
-    """Keep fetch-keyed bytes for attachments that survived assess (match by synthetic ref)."""
-    if not normalization.get("success"):
-        return {}
-
-    rejected_refs = {
-        str(item.get("attachment_ref") or "").strip()
-        for item in (normalization.get("rejected") or [])
-        if isinstance(item, dict) and str(item.get("attachment_ref") or "").strip()
-    }
-    cleanup = normalization.get("source_attachments_cleanup") or {}
-    valid_refs = {
-        str(item.get("attachment_ref") or "").strip()
-        for item in (cleanup.get("valid_source") or [])
-        if isinstance(item, dict) and str(item.get("attachment_ref") or "").strip()
-    }
-
-    out: dict[str, bytes] = {}
-    for attachment_id, file_bytes in bytes_by_id.items():
-        if not file_bytes:
-            continue
-        ref = in_memory_attachment_ref(attachment_id, shipment_number)
-        if ref in rejected_refs:
-            continue
-        if valid_refs and ref not in valid_refs:
-            continue
-        out[attachment_id] = file_bytes
-    return out
 
 
 class AttachmentNormalizerService:
@@ -140,10 +105,12 @@ class AttachmentNormalizerService:
         pod_object_keys: List[str],
         shipment_number: Optional[str] = None,
         *,
-        prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
         local_merged_path: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
+        if trace_metadata:
+            self._trace_metadata = dict(trace_metadata)
         if not pod_object_keys:
             return {
                 "success": False,
@@ -161,7 +128,6 @@ class AttachmentNormalizerService:
                 self._normalize_single_attachment(
                     non_empty[0],
                     shipment_number=shipment_number,
-                    prior_classification_by_attachment_id=prior_classification_by_attachment_id,
                     upload_merged=upload_merged,
                     local_merged_path=local_merged_path,
                 ),
@@ -233,12 +199,11 @@ class AttachmentNormalizerService:
                     )
                     continue
 
-                cls_result = self._resolve_image_classification(
-                    image_bytes=image_bytes,
-                    attachment_ref=attachment_ref,
+                cls_result = self._classify_image(
+                    image_bytes,
                     attachment_id=attachment_id,
-                    prior_classification_by_attachment_id=prior_classification_by_attachment_id,
                 )
+                cls_result["attachment_ref"] = attachment_ref
                 classification_results.append(cls_result)
 
                 if self._accept_image(cls_result):
@@ -373,9 +338,7 @@ class AttachmentNormalizerService:
         attachment_bytes_by_id: dict[str, bytes],
         *,
         shipment_number: str | None = None,
-        prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
-        classify_context: str = "graph",
         local_merged_path: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -413,30 +376,12 @@ class AttachmentNormalizerService:
             }
 
         processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
-        processor._classify_log_context = classify_context
         processor._trace_metadata = dict(trace_metadata or {})
         return processor.normalize(
             refs,
             shipment_number=shipment_number,
-            prior_classification_by_attachment_id=prior_classification_by_attachment_id,
             upload_merged=upload_merged,
             local_merged_path=local_merged_path,
-        )
-
-    def assess_attachments(
-        self,
-        attachment_bytes_by_id: dict[str, bytes],
-        *,
-        shipment_number: str | None = None,
-        trace_metadata: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Ingress gate: classify in memory without S3 upload."""
-        return self.normalize_from_bytes(
-            attachment_bytes_by_id,
-            shipment_number=shipment_number,
-            upload_merged=False,
-            classify_context="ingress_gate",
-            trace_metadata=trace_metadata,
         )
 
     @staticmethod
@@ -466,7 +411,6 @@ class AttachmentNormalizerService:
         attachment_ref: str,
         shipment_number: Optional[str] = None,
         *,
-        prior_classification_by_attachment_id: dict[str, dict] | None = None,
         upload_merged: bool = True,
         local_merged_path: str | None = None,
     ) -> Dict[str, Any]:
@@ -563,12 +507,11 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                 }
 
-            cls_result = self._resolve_image_classification(
-                image_bytes=image_bytes,
-                attachment_ref=attachment_ref,
+            cls_result = self._classify_image(
+                image_bytes,
                 attachment_id=attachment_id,
-                prior_classification_by_attachment_id=prior_classification_by_attachment_id,
             )
+            cls_result["attachment_ref"] = attachment_ref
             classification_results.append(cls_result)
 
             if not self._accept_image(cls_result):
@@ -688,12 +631,10 @@ class AttachmentNormalizerService:
         attachment_id: str | None = None,
     ) -> Dict[str, Any]:
         """Classify image via shared traced ``chat_vision_json`` (LangSmith LLM span)."""
-        context = getattr(self, "_classify_log_context", "graph")
         api_key = settings.LLM_API_KEY
         if not api_key:
             logger.warning(
-                "attachment.classify_llm_skip context=%s attachment_id=%s reason=no_api_key",
-                context,
+                "attachment.classify_llm_skip attachment_id=%s reason=no_api_key",
                 attachment_id or "-",
             )
             return {
@@ -714,8 +655,7 @@ class AttachmentNormalizerService:
             mime = "image/png"
 
         logger.info(
-            "attachment.classify_llm_start context=%s attachment_id=%s model=%s bytes=%s mime=%s",
-            context,
+            "attachment.classify_llm_start attachment_id=%s model=%s bytes=%s mime=%s",
             attachment_id or "-",
             model,
             len(image_bytes),
@@ -727,7 +667,6 @@ class AttachmentNormalizerService:
         if attachment_id:
             base_meta["attachment_id"] = attachment_id
         base_meta.setdefault("step_key", "pod_attachment_classifier")
-        base_meta.setdefault("classify_context", context)
         # LangSmith thread grouping: prefer lifecycle id, else execution id.
         thread_id = (
             str(base_meta.get("workflow_lifecycle_id") or "").strip()
@@ -747,14 +686,13 @@ class AttachmentNormalizerService:
                 image_mime_type=mime,
                 timeout_s=60.0,
                 metadata=base_meta,
-                tags=["pod_attachment_classifier", context],
+                tags=["pod_attachment_classifier"],
             )
             elapsed_ms = (time.monotonic() - started) * 1000
 
             logger.info(
-                "attachment.classify_llm_done context=%s attachment_id=%s is_valid=%s "
+                "attachment.classify_llm_done attachment_id=%s is_valid=%s "
                 "confidence=%s doc_type=%s ms=%.0f",
-                context,
                 attachment_id or "-",
                 result.get("is_valid_document"),
                 result.get("confidence"),
@@ -773,8 +711,7 @@ class AttachmentNormalizerService:
         except Exception as e:
             elapsed_ms = (time.monotonic() - started) * 1000
             logger.exception(
-                "attachment.classify_llm_error context=%s attachment_id=%s ms=%.0f err=%s",
-                context,
+                "attachment.classify_llm_error attachment_id=%s ms=%.0f err=%s",
                 attachment_id or "-",
                 elapsed_ms,
                 e,
@@ -899,30 +836,6 @@ class AttachmentNormalizerService:
     @staticmethod
     def _accept_image(cls_result: Dict[str, Any]) -> bool:
         return bool(cls_result.get("is_valid_document", False))
-
-    def _resolve_image_classification(
-        self,
-        *,
-        image_bytes: bytes,
-        attachment_ref: str,
-        attachment_id: str | None,
-        prior_classification_by_attachment_id: dict[str, dict] | None,
-    ) -> Dict[str, Any]:
-        prior = None
-        if prior_classification_by_attachment_id and attachment_id:
-            prior = prior_classification_by_attachment_id.get(attachment_id)
-        if prior:
-            return {
-                **prior,
-                "attachment_ref": attachment_ref,
-                "from_ingress_gate": True,
-            }
-        cls_result = self._classify_image(
-            image_bytes,
-            attachment_id=attachment_id,
-        )
-        cls_result["attachment_ref"] = attachment_ref
-        return cls_result
 
     @staticmethod
     def _with_classification_index(

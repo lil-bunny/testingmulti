@@ -11,9 +11,6 @@ from app.services.attachment_normalizer import (
     IMAGE_CLASSIFIER_USER_PROMPT,
     AttachmentNormalizerService,
 )
-from app.services.pod_lifecycle.attachment_ingress_gate_service import (
-    PodAttachmentIngressGateService,
-)
 from app.tools import llm_client
 from app.tools.llm_client import LLMClientError
 
@@ -73,7 +70,6 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
         "tenant_slug": "t3ra",
         "shipment_id": "SHIP-1",
     }
-    svc._classify_log_context = "ingress_gate"
     result = svc._classify_image(png, attachment_id="att-1")
 
     assert result["is_valid_document"] is True
@@ -94,8 +90,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert meta["thread_id"] == "wl-1"
     assert meta["attachment_id"] == "att-1"
     assert meta["step_key"] == "pod_attachment_classifier"
-    assert meta["classify_context"] == "ingress_gate"
-    assert captured["kwargs"]["tags"] == ["pod_attachment_classifier", "ingress_gate"]
+    assert captured["kwargs"]["tags"] == ["pod_attachment_classifier"]
 
 
 def test_classify_image_fail_open_on_llm_error(monkeypatch):
@@ -229,59 +224,45 @@ def test_merge_langsmith_extra_keeps_minimal_metadata():
             "empty": "",
             "none": None,
         },
-        tags=["pod_attachment_classifier", "ingress_gate", ""],
+        tags=["pod_attachment_classifier", ""],
     )
     assert extra == {
         "metadata": {
             "execution_id": "exec-1",
             "workflow_lifecycle_id": "wl-1",
         },
-        "tags": ["pod_attachment_classifier", "ingress_gate"],
+        "tags": ["pod_attachment_classifier"],
     }
 
 
-def test_classifier_trace_metadata_minimal_fields():
-    meta = PodAttachmentIngressGateService._classifier_trace_metadata(
-        {
-            "execution_id": "exec-9",
-            "workflow_lifecycle_id": "wl-9",
-            "tenant_id": "tid",
-            "tenant_slug": "t3ra",
-            "shipment_id": "1001",
-            "email_id": "should-not-appear",
-            "communication_id": "should-not-appear",
-        }
-    )
-    assert meta == {
-        "workflow_name": "pod_lifecycle",
-        "step_key": "pod_attachment_classifier",
-        "classify_context": "ingress_gate",
-        "execution_id": "exec-9",
-        "workflow_lifecycle_id": "wl-9",
-        "tenant_id": "tid",
-        "tenant_slug": "t3ra",
-        "shipment_id": "1001",
-    }
-
-
-def test_assess_attachments_forwards_trace_metadata(monkeypatch):
+def test_normalize_from_bytes_forwards_trace_metadata(monkeypatch):
     png = _large_png_bytes()
     seen: dict = {}
 
-    def fake_normalize_from_bytes(self, *args, **kwargs):
-        seen.update(kwargs)
-        return {"success": True}
+    from app.services.attachment_normalizer import _InMemoryAttachmentNormalizer
 
-    monkeypatch.setattr(
-        AttachmentNormalizerService,
-        "normalize_from_bytes",
-        fake_normalize_from_bytes,
-    )
+    def tracking_normalize(self, refs, shipment_number=None, **kwargs):
+        seen["trace_metadata"] = dict(getattr(self, "_trace_metadata", {}) or {})
+        return {
+            "success": True,
+            "pod_merged_pdf_object_key": None,
+            "source_attachment_ids": [],
+            "classification_results": [],
+            "classification_by_attachment_id": {},
+            "rejected": [],
+            "source_attachments_cleanup": {"rejected": [], "valid_source": []},
+        }
+
+    monkeypatch.setattr(_InMemoryAttachmentNormalizer, "normalize", tracking_normalize)
+
     svc = AttachmentNormalizerService()
-    svc.assess_attachments(
+    svc.normalize_from_bytes(
         {"att-1": png},
         shipment_number="SHIP-1",
-        trace_metadata={"execution_id": "exec-2"},
+        upload_merged=False,
+        trace_metadata={"execution_id": "exec-2", "tenant_slug": "t3ra"},
     )
-    assert seen["trace_metadata"] == {"execution_id": "exec-2"}
-    assert seen["classify_context"] == "ingress_gate"
+    assert seen["trace_metadata"] == {
+        "execution_id": "exec-2",
+        "tenant_slug": "t3ra",
+    }

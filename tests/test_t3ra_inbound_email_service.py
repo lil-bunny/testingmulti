@@ -62,7 +62,6 @@ async def test_t3ra_pod_classification_skips_driver_details(monkeypatch) -> None
                     "event_type": "email_received",
                     "shipments_row_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                     "shipment_id": "1000324895",
-                    "pod_email_ingress_prepared": True,
                 },
             )
         )

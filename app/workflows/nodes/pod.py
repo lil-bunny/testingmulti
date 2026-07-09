@@ -5,19 +5,13 @@ from pathlib import Path
 from app.core.config import settings
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
 from app.exceptions import WorkflowException
-from app.models.document import DocumentType
 from app.models.document_analysis import DocumentAnalysisType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.tools.document_analysis import upsert_document_analysis
-from app.tools.documents import insert_document
 from app.tools.pod import (
     load_ratecon_analysis as load_ratecon_analysis_tool,
     pod_analysis as get_pod_analysis,
     pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
-)
-from app.services.pod_lifecycle.attachment_normalize_service import (
-    PodAttachmentNormalizeService,
-    attachment_bytes_by_id_from_state,
 )
 from app.services.ratecon_document_service import RateconDocumentService
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
@@ -37,6 +31,7 @@ _POD_ANALYSIS_ERRORS = {
     "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
 }
 
+
 def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
     if out.get("skipped") or out.get("success"):
         return
@@ -44,32 +39,8 @@ def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
     raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
 
 
-def _collect_source_object_keys(state) -> list[str]:
-    keys: list[str] = []
-    for raw in state.data.get("pod_source_object_keys") or []:
-        if raw and str(raw).strip():
-            keys.append(str(raw).strip())
-    if keys:
-        return keys
-
-    merged = state.data.get("pod_merged_pdf_object_key")
-    if merged and str(merged).strip():
-        return [str(merged).strip()]
-
-    for item in state.data.get("get_email_attachments_results") or []:
-        if not isinstance(item, dict) or not item.get("success"):
-            continue
-        key = item.get("object_key")
-        if key and str(key).strip():
-            keys.append(str(key).strip())
-    return keys
-
-
 def _cleanup_pod_attachment_stage(state) -> None:
     """Remove worker-local stage dir; only paths live in state, never PDF bytes."""
-    state.data.pop("attachment_bytes_by_id", None)
-    state.data.pop("get_email_attachments_results", None)
-    state.data.pop("pod_attachment_stage_files", None)
     state.data.pop("pod_merged_local_path", None)
     stage_dir = str(state.data.pop("pod_attachment_stage_dir", "") or "").strip()
     if not stage_dir:
@@ -82,73 +53,6 @@ def _cleanup_pod_attachment_stage(state) -> None:
             resolve_shipment_id(state.data),
             stage_dir,
         )
-
-
-@safe_node
-def classify_attachments(state):
-    """Classify attachments, upload merged PDF, persist ``documents`` row."""
-    state.data["pod_source_object_keys"] = list(state.data.get("pod_object_keys") or [])
-
-    result = PodAttachmentNormalizeService().normalize_from_state_data(state.data)
-    state.data["attachment_normalization"] = result
-
-    merged = result.get("pod_merged_pdf_object_key")
-    local_merged = str(result.get("pod_merged_local_path") or "").strip()
-    if result.get("success") and merged:
-        state.data["pod_object_keys"] = [merged]
-        state.data["pod_merged_pdf_object_key"] = merged
-        state.data["has_attachments"] = True
-        if local_merged:
-            # Path only — never store merged PDF bytes in graph state/checkpoints.
-            state.data["pod_merged_local_path"] = local_merged
-    else:
-        state.data["pod_object_keys"] = []
-        state.data.pop("pod_merged_pdf_object_key", None)
-        state.data.pop("pod_merged_local_path", None)
-        state.data["has_attachments"] = False
-
-    input_count = len(attachment_bytes_by_id_from_state(state.data)) or len(
-        state.data.get("pod_source_object_keys") or []
-    )
-    logger.info(
-        "classify_attachments: shipment_id=%s input_attachments=%s success=%s merged=%s rejected=%s",
-        resolve_shipment_id(state.data),
-        input_count,
-        result.get("success"),
-        bool(merged),
-        len(result.get("rejected") or []),
-    )
-
-    norm = state.data.get("attachment_normalization") or {}
-    try:
-        if not norm.get("success"):
-            raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
-
-        merged_key = state.data.get("pod_merged_pdf_object_key")
-        if merged_key:
-            source_keys = _collect_source_object_keys(state)
-            persist = insert_document(
-                DocumentType.POD,
-                storage_key=merged_key,
-                shipments_row_id=resolve_shipments_row_id_for_db(state.data),
-                metadata={"source_object_keys": source_keys},
-            )
-            state.data["documents_pod"] = persist
-            logger.info(
-                "classify_attachments: documents pod stored=%s id=%s source_keys=%s",
-                persist.get("stored"),
-                persist.get("id"),
-                len(source_keys),
-            )
-    finally:
-        # Drop raw attachment payloads from state; keep stage_dir + merged local path
-        # until pod_analysis so LLM can reuse the local merged PDF without S3 re-download.
-        state.data.pop("attachment_bytes_by_id", None)
-        state.data.pop("get_email_attachments_results", None)
-        state.data.pop("pod_attachment_stage_files", None)
-        if not state.data.get("pod_merged_local_path"):
-            _cleanup_pod_attachment_stage(state)
-    return state
 
 
 @safe_node

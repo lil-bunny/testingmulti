@@ -17,40 +17,42 @@ from app.services.pod_lifecycle.ingress_service import (
     RouteCompletedDuplicateResult,
     RouteCompletedIngressGateResult,
 )
-from app.services.pod_lifecycle.attachment_ingress_gate_service import (
-    PodAttachmentIngressGateResult,
+from app.services.pod_lifecycle.attachment_pipeline_service import (
+    PodAttachmentPipelineResult,
 )
 from app.services.workflow_lifecycle_service import LifecycleResolution
 from app.services.workflow_service import WorkflowService
 from app.workflows.compiler.compiler import compile_graph
 from app.workflows.validators import validate_graph_definition
 from app.services.s3bucket_service import S3Bucket, bucket, normalize_object_key
-from app.workflows.nodes import email as email_nodes
 from app.workflows.nodes import turvo as turvo_nodes
 from app.workflows import registry as workflow_registry
 from botocore.stub import Stubber
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 
-def _eligible_pod_attachment_gate_result() -> PodAttachmentIngressGateResult:
+def _eligible_pod_attachment_pipeline_result() -> PodAttachmentPipelineResult:
     stage_dir = tempfile.mkdtemp(prefix="pod_email_test_")
-    stage_path = f"{stage_dir}/att-1.bin"
-    with open(stage_path, "wb") as fh:
+    merged_path = f"{stage_dir}/pod_SHIP.pdf"
+    with open(merged_path, "wb") as fh:
         fh.write(b"%PDF-1.4 mock pod file")
-    return PodAttachmentIngressGateResult(
-        eligible=True,
-        normalization={
-            "success": True,
-            "source_attachment_ids": ["att-1"],
-            "classification_by_attachment_id": {"att-1": {"is_valid_document": True}},
-        },
+    return PodAttachmentPipelineResult(
+        success=True,
         stage_dir=stage_dir,
-        valid_stage_files=[
-            {
-                "attachment_id": "att-1",
-                "path": stage_path,
-            }
-        ],
+        state_patch={
+            "attachment_normalization": {
+                "success": True,
+                "source_attachment_ids": ["att-1"],
+                "pod_merged_pdf_object_key": "pod_attachments/pod_SHIP.pdf",
+            },
+            "pod_merged_pdf_object_key": "pod_attachments/pod_SHIP.pdf",
+            "pod_object_keys": ["pod_attachments/pod_SHIP.pdf"],
+            "pod_source_object_keys": ["pod_attachments/pod_att1_SHIP.bin"],
+            "has_attachments": True,
+            "documents_pod": {"stored": True, "id": "doc-pipeline-1"},
+            "pod_merged_local_path": merged_path,
+            "pod_attachment_stage_dir": stage_dir,
+        },
     )
 
 
@@ -80,9 +82,6 @@ def _mock_t3ra_tenant(monkeypatch, *, use_db_tenant: bool = True) -> dict:
 @pytest.fixture
 def mock_attachment_upload(monkeypatch):
     # Keep workflow tests isolated from real Unipile and S3 calls.
-    def fake_get_attachment(email_id, attachment_id, account_id):
-        return b"%PDF-1.4 mock pod file"
-
     def fake_upload_file(**kwargs):
         # Match ``S3Bucket.upload_file`` contract: all four keys, every time.
         return {
@@ -91,7 +90,6 @@ def mock_attachment_upload(monkeypatch):
             "error_message": None,
         }
 
-    monkeypatch.setattr(email_nodes, "get_email_attachments_tool", fake_get_attachment)
     monkeypatch.setattr(
         "app.services.attachment_normalizer.bucket.upload_file",
         fake_upload_file,
@@ -344,8 +342,8 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         new=AsyncMock(side_effect=lambda **kwargs: dict(kwargs["payload"])),
     ):
         service = WorkflowService(WorkflowRepository(), TenantRepository())
-        service._pod_attachment_gate.check = AsyncMock(
-            return_value=_eligible_pod_attachment_gate_result()
+        service._pod_attachment_pipeline.run_for_email_payload = AsyncMock(
+            return_value=_eligible_pod_attachment_pipeline_result()
         )
 
         result = await service.run(
@@ -446,8 +444,8 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         new=AsyncMock(side_effect=fake_prepare_email_received_payload),
     ) as mock_prepare:
         service = WorkflowService(WorkflowRepository(), TenantRepository())
-        service._pod_attachment_gate.check = AsyncMock(
-            return_value=_eligible_pod_attachment_gate_result()
+        service._pod_attachment_pipeline.run_for_email_payload = AsyncMock(
+            return_value=_eligible_pod_attachment_pipeline_result()
         )
 
         async def fake_execute(**kwargs):
@@ -495,7 +493,9 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
 
 
 @pytest.mark.asyncio
-async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_gate(monkeypatch):
+async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_pipeline(
+    monkeypatch,
+):
     _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
     ship = f"S-gate-{uuid.uuid4().hex[:8]}"
 
@@ -518,11 +518,16 @@ async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_gate(mon
         new=AsyncMock(side_effect=fake_prepare),
     ):
         service = WorkflowService(WorkflowRepository(), TenantRepository())
-        service._pod_attachment_gate.check = AsyncMock(
-            return_value=PodAttachmentIngressGateResult(
-                eligible=False,
+        service._pod_attachment_pipeline.run_for_email_payload = AsyncMock(
+            return_value=PodAttachmentPipelineResult(
+                success=False,
                 skip_reason=POD_EMAIL_SKIP_INVALID_ATTACHMENT,
-                normalization={"success": False, "error": "No valid document"},
+                state_patch={
+                    "attachment_normalization": {
+                        "success": False,
+                        "error": "No valid document",
+                    }
+                },
             )
         )
         monkeypatch.setattr(service.execution, "execute", fake_execute)
@@ -544,19 +549,13 @@ async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_gate(mon
 
 
 @pytest.mark.asyncio
-async def test_pod_lifecycle_email_received_carries_attachment_normalization_from_gate(
+async def test_pod_lifecycle_email_received_carries_pipeline_artifact_state(
     monkeypatch,
 ):
     _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
     ship = f"S-norm-{uuid.uuid4().hex[:8]}"
     lifecycle_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-    gate_norm = {
-        "success": True,
-        "source_attachment_ids": ["att-1"],
-        "classification_by_attachment_id": {
-            "att-1": {"is_valid_document": True, "confidence": 0.95},
-        },
-    }
+    pipeline_result = _eligible_pod_attachment_pipeline_result()
 
     async def fake_prepare(**kwargs):
         base = dict(kwargs["payload"])
@@ -580,18 +579,8 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
         new=AsyncMock(side_effect=fake_prepare),
     ):
         service = WorkflowService(WorkflowRepository(), TenantRepository())
-        service._pod_attachment_gate.check = AsyncMock(
-            return_value=PodAttachmentIngressGateResult(
-                eligible=True,
-                normalization=gate_norm,
-                stage_dir="/tmp/freightx/pod_staging/pod_email_thread-norm",
-                valid_stage_files=[
-                    {
-                        "attachment_id": "att-1",
-                        "path": "/tmp/freightx/pod_staging/pod_email_thread-norm/att-1.bin",
-                    }
-                ],
-            )
+        service._pod_attachment_pipeline.run_for_email_payload = AsyncMock(
+            return_value=pipeline_result
         )
         monkeypatch.setattr(service.execution, "execute", fake_execute)
         monkeypatch.setattr(
@@ -613,14 +602,13 @@ async def test_pod_lifecycle_email_received_carries_attachment_normalization_fro
             },
         )
 
-    assert captured_payload.get("attachment_normalization") == gate_norm
-    assert captured_payload.get("pod_attachment_stage_dir") == "/tmp/freightx/pod_staging/pod_email_thread-norm"
-    assert captured_payload.get("pod_attachment_stage_files") == [
-        {
-            "attachment_id": "att-1",
-            "path": "/tmp/freightx/pod_staging/pod_email_thread-norm/att-1.bin",
-        }
-    ]
+    assert captured_payload.get("pod_merged_pdf_object_key") == (
+        "pod_attachments/pod_SHIP.pdf"
+    )
+    assert captured_payload.get("documents_pod", {}).get("stored") is True
+    assert captured_payload.get("has_attachments") is True
+    assert captured_payload.get("pod_attachment_stage_dir") == pipeline_result.stage_dir
+    assert "pod_attachment_stage_files" not in captured_payload
 
 
 @pytest.mark.asyncio

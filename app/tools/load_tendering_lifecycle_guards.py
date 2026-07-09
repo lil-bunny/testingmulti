@@ -65,13 +65,3 @@ def stale_ftl_routing_guide_reminder(state: Any) -> bool:
     from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
 
     return is_ftl_load_type(resolve_load_type(state))
-
-
-def stale_ftl_routing_guide_reminder(state: Any) -> bool:
-    """True when ``read_tender_row`` marked a stale FTL routing-guide reminder."""
-    data = getattr(state, "data", None) or {}
-    if not isinstance(data, dict) or not data.get("stale_routing_guide_reminder"):
-        return False
-    from app.domain.load_tendering_settings import is_ftl_load_type, resolve_load_type
-
-    return is_ftl_load_type(resolve_load_type(state))

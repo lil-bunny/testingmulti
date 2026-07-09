@@ -14,7 +14,6 @@ WORKFLOW_CONFIGS = {
             "record_pod_started_activity",
             "record_pod_reminder_activity",
             "load_ratecon_analysis",
-            "classify_attachments",
             "record_pod_upload_activity",
             "pod_analysis",
             "record_pod_extraction_activity",
@@ -27,7 +26,6 @@ WORKFLOW_CONFIGS = {
             "end",
         ],
         "edges": [
-            ["classify_attachments", "record_pod_upload_activity"],
             ["record_pod_upload_activity", "pod_analysis"],
             ["pod_analysis", "record_pod_extraction_activity"],
             ["record_pod_extraction_activity", "pod_vs_ratecon_analysis"],
@@ -89,8 +87,8 @@ WORKFLOW_CONFIGS = {
             "load_ratecon_analysis": {
                 "router": "ratecon_cache_router",
                 "map": {
-                    "ready": "classify_attachments",
-                    "manual_skip": "classify_attachments",
+                    "ready": "record_pod_upload_activity",
+                    "manual_skip": "record_pod_upload_activity",
                     "missing": "end",
                 },
             },

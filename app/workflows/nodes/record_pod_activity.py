@@ -26,7 +26,7 @@ def record_pod_escalation_activity(state):
 
 
 def record_pod_upload_activity(state):
-    """Log POD S3 upload outcome after ``classify_attachments``."""
+    """Log POD S3 upload outcome after the pre-graph attachment pipeline."""
     PodUploadActivityService().record_from_state(state)
     return state
 

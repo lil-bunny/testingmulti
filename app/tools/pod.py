@@ -6,10 +6,7 @@ from typing import Any
 
 from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
-from app.services.attachment_normalizer import (
-    AttachmentNormalizerService,
-    _sanitize_path_segment,
-)
+from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
 from app.services.pod_lifecycle.extraction import pod_confidence_score
 from app.services.pod_lifecycle.vs_ratecon_validation import (
@@ -26,45 +23,6 @@ from app.workflows.shipment_resolver import (
 )
 
 logger = logging.getLogger(__name__)
-
-def classify_attachments(state):
-    """
-    Full POD attachment normalization
-
-    1. Get ``pod_object_keys`` from state (S3 object keys; ``https://`` entries are still supported for external fetch).
-    2. Per attachment ref: HTTP(S) sources are downloaded with httpx; S3 object keys use ``GetObject``.
-    3. Merge valid PDFs + images to one PDF, upload merged file.
-    4. Expose merged key on ``pod_object_keys`` (single-element list) for downstream ``process_pod``.
-    """
-    pod_object_keys = state.data.get("pod_object_keys")
-
-    shipment_id = resolve_shipment_id(state.data) or None
-
-    normalizer = AttachmentNormalizerService()
-    result = normalizer.normalize(pod_object_keys, shipment_number=shipment_id)
-
-    state.data["attachment_normalization"] = result
-
-    merged = result.get("pod_merged_pdf_object_key")
-    if result.get("success") and merged:
-        state.data["pod_object_keys"] = [merged]
-        state.data["pod_merged_pdf_object_key"] = merged
-        state.data["has_attachments"] = True
-    else:
-        state.data["pod_object_keys"] = []
-        state.data.pop("pod_merged_pdf_object_key", None)
-        state.data["has_attachments"] = False
-
-    logger.info(
-        "classify_attachments: shipment_id=%s input_keys=%s success=%s merged=%s rejected=%s single_sc=%s",
-        shipment_id,
-        len(pod_object_keys or []),
-        result.get("success"),
-        bool(merged),
-        len(result.get("rejected") or []),
-        result.get("single_attachment_short_circuit"),
-    )
-    return state
 
 
 def load_ratecon_analysis(data: dict) -> dict:

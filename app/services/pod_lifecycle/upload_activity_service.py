@@ -1,4 +1,4 @@
-"""POD S3 upload activity logging after ``classify_attachments``."""
+"""POD S3 upload activity logging after the pre-graph attachment pipeline."""
 
 
 
@@ -190,7 +190,7 @@ class PodUploadActivityService:
 
         """
 
-        Log POD S3 upload outcome after ``classify_attachments``.
+        Log POD S3 upload outcome after the pre-graph attachment pipeline.
 
 
 

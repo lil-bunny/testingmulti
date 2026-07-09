@@ -4,7 +4,7 @@
 
 1. Queue ``run_workflow_async`` with ``event_type=email_received`` (same Celery entry as production
    after webhook classification — no HTTP webhook).
-2. Real ``PodLifecycleIngressService.prepare_email_received_payload`` + ``PodAttachmentIngressGateService``.
+2. Real ``PodLifecycleIngressService.prepare_email_received_payload`` + ``PodAttachmentPipelineService``.
 3. Real LangGraph ``pod_lifecycle`` with live LLM; fixture bytes via worker env stubs.
 
 **Prerequisites (staging/dev DB)**
