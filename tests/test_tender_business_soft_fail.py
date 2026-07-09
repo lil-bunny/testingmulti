@@ -1,4 +1,4 @@
-"""Gelita ``tender_created`` soft-fail: warnings, vendor email footer, activity logs."""
+"""Gelita outbound-tender soft-fail: warnings, vendor email footer, activity logs."""
 
 from __future__ import annotations
 
@@ -15,8 +15,24 @@ from app.workflows.nodes.gelita.record_tender_business_warnings import (
     record_tender_business_warnings,
 )
 from app.workflows.nodes.send_tender_email import send_tender_email
-from app.workflows.utils.gelita_soft_fail import record_business_gap
+from app.workflows.utils.gelita_soft_fail import (
+    gelita_tender_created_soft_fail_enabled,
+    record_business_gap,
+)
 from tests.fixtures.tenant_settings import load_tenant_settings_dev
+
+
+def test_soft_fail_enabled_for_tender_created_and_routing_guide_failover() -> None:
+    assert gelita_tender_created_soft_fail_enabled({"event_type": "tender_created"})
+    assert gelita_tender_created_soft_fail_enabled(
+        {"event_type": "escalation_due", "routing_guide_failover": True}
+    )
+    assert not gelita_tender_created_soft_fail_enabled(
+        {"event_type": "escalation_due"}
+    )
+    assert not gelita_tender_created_soft_fail_enabled(
+        {"event_type": "ack_received"}
+    )
 
 
 def _tender_created_state(*, tender: dict | None = None) -> WorkflowState:
@@ -54,6 +70,41 @@ def test_format_reason_for_failure_html_red_italic_header_with_suffix() -> None:
     assert "font-style: italic" in html
     assert msg in html
     assert "Please update the field highlighted in red manually." in html
+
+
+def test_format_reason_for_failure_html_omits_routing_guide_codes() -> None:
+    lane_msg = format_error_message(BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND)
+    dims_msg = format_error_message(BusinessError.MISSING_UNIT_DIMS, pack_code="5172")
+    warnings = [
+        {
+            "code": BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND.value,
+            "message": lane_msg,
+        },
+        {
+            "code": BusinessError.MISSING_UNIT_DIMS.value,
+            "message": dims_msg,
+            "context": {"pack_code": "5172"},
+        },
+    ]
+
+    html = format_reason_for_failure_html(warnings)
+
+    assert lane_msg not in html
+    assert dims_msg in html
+    assert "Please update the field highlighted in red manually." in html
+
+
+def test_format_reason_for_failure_html_empty_for_routing_guide_only() -> None:
+    lane_msg = format_error_message(BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND)
+    html = format_reason_for_failure_html(
+        [
+            {
+                "code": BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND.value,
+                "message": lane_msg,
+            }
+        ]
+    )
+    assert html == ""
 
 
 def test_filter_primary_business_warnings_collapses_duplicate_catalog_profile_gaps() -> None:

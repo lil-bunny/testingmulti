@@ -46,6 +46,8 @@ def delayed_workflow_step_skip_reason(
         {
             StatusSubType.ACCEPTED.value,
             StatusSubType.REJECTED.value,
+            # Exhausted routing-guide / timeout escalate: stop delayed reminder ETAs.
+            StatusSubType.ESCALATED.value,
         }
     )
     if sub_s in terminal_subs:

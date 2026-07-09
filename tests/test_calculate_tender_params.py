@@ -466,6 +466,82 @@ def test_calculate_tender_params_multi_product_unknown_pack_uses_source_metadata
 
 
 @patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_routing_guide_failover_soft_fails_missing_pack(
+    mock_svc_cls: MagicMock,
+) -> None:
+    """Failover recalculate must soft-warn like tender_created, not hard-fail."""
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["products"] = [
+        {
+            "id": "tp-unknown",
+            "tender_id": FTL_TENDER_ID,
+            "product_name": "275 Bloom Porkskin Gelatine 40 Mesh",
+            "order_quantity": Decimal("1750"),
+            "price_per_unit": Decimal("10"),
+            "pack_code_id": None,
+            "pack_code": "",
+            "source_pack_code": "6300",
+            "metadata": {"source": {"pack_code": "6300"}},
+            "weight_unit": "lbs",
+        },
+    ]
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "escalation_due"
+    state.data["routing_guide_failover"] = True
+    result = calculate_tender_params(state)
+
+    assert result is state
+    warnings = result.data.get("tender_business_warnings")
+    assert warnings == [
+        {
+            "code": BusinessError.MISSING_PACK_CODE.value,
+            "message": format_error_message(
+                BusinessError.MISSING_PACK_CODE, pack_code="6300"
+            ),
+            "context": {"tender_product_id": "tp-unknown", "pack_code": "6300"},
+        }
+    ]
+    mock_svc.update_load_type.assert_called_once()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
+def test_calculate_tender_params_non_soft_fail_event_hard_fails_missing_pack(
+    mock_svc_cls: MagicMock,
+) -> None:
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+    bundle = _ftl_bundle()
+    bundle["products"] = [
+        {
+            "id": "tp-unknown",
+            "tender_id": FTL_TENDER_ID,
+            "product_name": "275 Bloom Porkskin Gelatine 40 Mesh",
+            "order_quantity": Decimal("1750"),
+            "price_per_unit": Decimal("10"),
+            "pack_code_id": None,
+            "pack_code": "",
+            "source_pack_code": "6300",
+            "metadata": {"source": {"pack_code": "6300"}},
+            "weight_unit": "lbs",
+        },
+    ]
+
+    state = _workflow_state(tender_id=FTL_TENDER_ID)
+    _hydrate_state_from_bundle(state, bundle)
+    state.data["event_type"] = "escalation_due"
+    result = calculate_tender_params(state)
+
+    assert isinstance(result, dict)
+    error = result["data"]["error"]
+    assert error["code"] == BusinessError.MISSING_PACK_CODE.value
+    mock_svc.update_load_type.assert_not_called()
+
+
+@patch("app.workflows.nodes.gelita.calculate_tender_params.TenderService")
 def test_calculate_tender_params_multi_product_same_pack_missing_unit_dims_dedupes(
     mock_svc_cls: MagicMock,
 ) -> None:

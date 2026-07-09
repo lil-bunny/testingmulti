@@ -1,4 +1,4 @@
-"""Gelita ``tender_created`` soft-fail helpers for business catalog gaps."""
+"""Gelita outbound-tender soft-fail helpers for business catalog gaps."""
 
 from __future__ import annotations
 
@@ -37,8 +37,14 @@ def _business_gap_message(
 
 
 def gelita_tender_created_soft_fail_enabled(state_data: dict[str, Any]) -> bool:
-    """True when ``tender_created`` should warn instead of failing the graph."""
-    return str(state_data.get("event_type") or "").strip() == "tender_created"
+    """True when outbound tender send should warn instead of failing the graph.
+
+    Applies on initial ``tender_created`` and on FTL ``routing_guide_failover``
+    (next carrier after reject/timeout), so catalog gaps do not hard-fail the waterfall.
+    """
+    if str(state_data.get("event_type") or "").strip() == "tender_created":
+        return True
+    return bool(state_data.get("routing_guide_failover"))
 
 
 def record_business_gap(
@@ -74,7 +80,7 @@ def record_business_gap_or_raise(
     catalog_gap: bool = False,
     **format_kwargs: str,
 ) -> None:
-    """Record the gap on ``tender_created``; otherwise raise ``WorkflowException``."""
+    """Record the gap when soft-fail applies; otherwise raise ``WorkflowException``."""
     if record_business_gap(
         state_data,
         error,
