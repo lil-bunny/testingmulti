@@ -10,6 +10,7 @@ import pytest
 from app.domain.ingress_result import IngressResult
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_shadow_mail_service import WorkflowShadowMailService
 
@@ -723,6 +724,128 @@ def test_check_reminder_eligibility_skips_when_step_already_sent():
     )
 
     assert result.skip_reason == "reminder_step_already_sent"
+
+
+def test_check_reminder_eligibility_records_exception_on_fetch_timeout():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+        return_value="log-1",
+    ) as record_timeout:
+        result = svc.check_reminder_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="reminder_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                execution_id="run-uuid-1",
+                shipment={"shipment_id": "1000324895", "turvo_connection_timed_out": True},
+            ),
+        )
+
+    record_timeout.assert_called_once()
+    assert result.skip_reason == "shipment_not_in_state"
+
+
+def test_check_reminder_eligibility_no_exception_without_timeout_flag():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+    ) as record_timeout:
+        result = svc.check_reminder_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="reminder_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                shipment={"shipment_id": "1000324895"},
+            ),
+        )
+
+    record_timeout.assert_not_called()
+    assert result.skip_reason == "shipment_not_in_state"
+
+
+def test_check_escalation_eligibility_records_exception_on_fetch_timeout():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+        return_value="log-1",
+    ) as record_timeout:
+        result = svc.check_escalation_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="escalation_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                execution_id="run-uuid-1",
+                shipment={"shipment_id": "1000324895", "turvo_connection_timed_out": True},
+            ),
+        )
+
+    record_timeout.assert_called_once()
+    assert result.skip_reason == "shipment_not_in_state"
+
+
+def test_check_escalation_eligibility_no_exception_without_timeout_flag():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+    ) as record_timeout:
+        result = svc.check_escalation_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="escalation_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                shipment={"shipment_id": "1000324895"},
+            ),
+        )
+
+    record_timeout.assert_not_called()
+    assert result.skip_reason == "shipment_not_in_state"
 
 
 def test_check_reminder_eligibility_allows_next_step_on_pending_review_ladder():

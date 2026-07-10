@@ -83,6 +83,8 @@ class IngressEligibilityMixin:
 
         """Reminder_due gate: Turvo + driver-not-assigned only (no ratecon duplicate check)."""
 
+        self._activity.record_delayed_shipment_fetch_timeout(payload)
+
         for key in ("thread_id", "load_id", "shipment_id", "shipments_row_id"):
 
             if not self._clean(payload.get(key)):
@@ -177,6 +179,8 @@ class IngressEligibilityMixin:
         ) -> EligibilityResult:
 
         """Escalation_due gate: Turvo + lifecycle; no carrier thread required."""
+
+        self._activity.record_delayed_shipment_fetch_timeout(payload)
 
         for key in ("load_id", "shipment_id", "shipments_row_id", "workflow_lifecycle_id"):
 
