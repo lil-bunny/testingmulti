@@ -11,7 +11,7 @@ from app.integrations.turvo.shipments import (
 )
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.services.shipments_service import ShipmentsService
-from app.services.pod_tms_upload_service import PodTmsUploadService
+from app.services.pod_lifecycle.tms_upload_service import PodTmsUploadService
 from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool

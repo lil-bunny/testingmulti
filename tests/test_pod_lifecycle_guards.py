@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.pod_lifecycle_guards import (
+from app.domain.pod_lifecycle.guards import (
     POD_EMAIL_ALLOWED_TURVO_STATUS_KEYS,
     POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
     POD_UPLOAD_ACTIVITY_DONE_SUB_STATUSES,
+    is_convoy_from_turvo_shipment_payload,
     is_manual_fresh_pod_upload,
     is_manual_pod_upload,
     pod_email_status_eligible_from_turvo_payload,
@@ -99,3 +100,26 @@ def test_pod_email_status_eligible_allowed_keys(status_key: str) -> None:
 def test_pod_email_status_eligible_covered_false() -> None:
     shipment = {"details": {"status": {"code": {"key": "2102"}}}}
     assert pod_email_status_eligible_from_turvo_payload(shipment) is False
+
+
+def test_is_convoy_from_carrier_name() -> None:
+    shipment = {
+        "details": {
+            "carrierOrder": [{"carrier": {"name": "Convoy Platform LLC"}}],
+        },
+    }
+    assert is_convoy_from_turvo_shipment_payload(shipment) is True
+
+
+def test_is_convoy_false_for_other_carrier() -> None:
+    shipment = {
+        "details": {
+            "carrierOrder": [{"carrier": {"name": "Acme Trucking"}}],
+        },
+    }
+    assert is_convoy_from_turvo_shipment_payload(shipment) is False
+
+
+def test_is_convoy_from_top_level_flag_when_no_carrier_name() -> None:
+    assert is_convoy_from_turvo_shipment_payload({"convoy": True}) is True
+    assert is_convoy_from_turvo_shipment_payload({"convoy": False}) is False

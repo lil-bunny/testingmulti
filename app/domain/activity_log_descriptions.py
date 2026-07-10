@@ -6,7 +6,7 @@ from app.domain.activity_log_constants import (
     AUTO_REPLY_ACK_SKIPPED_ACTION,
     CARRIER_ACK_LLM_ACTION_TEMPLATE,
     ESCALATION_SENT_ACTION,
-    POD_ALREADY_ON_TMS_ACTION,
+    POD_FOUND_IN_TMS_INFO,
     POD_DOCUMENT_PROCESSED_ACTION,
     POD_DOCUMENT_PROCESSING_FAILED_ACTION,
     POD_DOCUMENT_UPLOADED_ACTION,
@@ -33,6 +33,7 @@ from app.domain.activity_log_constants import (
     TENDER_SENT_TO_TENANT_ACTION,
     WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION,
     WORKFLOW_REVIEW_RESOLVED_ACTION,
+    TMS_CONNECTION_TIMED_OUT_EXCEPTION,
 )
 from app.domain.status_display_labels import label_status, label_sub_status
 from app.models.activity_type import ActivityType
@@ -213,8 +214,8 @@ def format_pod_upload_to_tms_failed_action() -> str:
     return POD_UPLOAD_TO_TMS_FAILED_ACTION
 
 
-def format_pod_already_on_tms_action() -> str:
-    return POD_ALREADY_ON_TMS_ACTION
+def format_pod_found_in_tms_info() -> str:
+    return POD_FOUND_IN_TMS_INFO
 
 
 def format_workflow_review_acknowledged_action() -> str:
@@ -225,3 +226,8 @@ def format_workflow_review_acknowledged_action() -> str:
 def format_workflow_review_resolved_action() -> str:
     """ACTION text for portal resolve; used by ``WorkflowReviewService.resolve``."""
     return WORKFLOW_REVIEW_RESOLVED_ACTION
+
+
+def format_tms_connection_timed_out_description() -> str:
+    """EXCEPTION text when Turvo transient HTTP retries are exhausted."""
+    return TMS_CONNECTION_TIMED_OUT_EXCEPTION

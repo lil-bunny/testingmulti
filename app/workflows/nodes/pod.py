@@ -1,15 +1,14 @@
 import logging
+import shutil
+from pathlib import Path
 
 from app.core.config import settings
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
 from app.exceptions import WorkflowException
-from app.models.document import DocumentType
 from app.models.document_analysis import DocumentAnalysisType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.tools.document_analysis import upsert_document_analysis
-from app.tools.documents import insert_document
 from app.tools.pod import (
-    classify_attachments as get_normalized_attachments,
     load_ratecon_analysis as load_ratecon_analysis_tool,
     pod_analysis as get_pod_analysis,
     pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
@@ -32,6 +31,7 @@ _POD_ANALYSIS_ERRORS = {
     "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
 }
 
+
 def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
     if out.get("skipped") or out.get("success"):
         return
@@ -39,57 +39,20 @@ def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
     raise WorkflowException(error_map.get(key, SystemError.UNEXPECTED_NODE_FAILURE))
 
 
-def _collect_source_object_keys(state) -> list[str]:
-    keys: list[str] = []
-    for raw in state.data.get("pod_source_object_keys") or []:
-        if raw and str(raw).strip():
-            keys.append(str(raw).strip())
-    if keys:
-        return keys
-
-    for item in state.data.get("get_email_attachments_results") or []:
-        if not isinstance(item, dict) or not item.get("success"):
-            continue
-        key = item.get("object_key")
-        if key and str(key).strip():
-            keys.append(str(key).strip())
-    return keys
-
-
-@safe_node
-def classify_attachments(state):
-    """
-    Normalize POD attachments and persist one merged ``documents`` row.
-
-    Ensures ``state.data['pod_object_keys']`` lists S3 object keys for uploaded
-    attachments and aligns ``has_attachments`` for downstream processing.
-    Raises ``WorkflowException(POD_ATTACHMENT_UPLOAD_FAILED)`` when normalization fails.
-    """
-    state.data["pod_source_object_keys"] = list(state.data.get("pod_object_keys") or [])
-
-    get_normalized_attachments(state)
-
-    norm = state.data.get("attachment_normalization") or {}
-    if not norm.get("success"):
-        raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
-
-    merged_key = state.data.get("pod_merged_pdf_object_key")
-    if merged_key:
-        source_keys = _collect_source_object_keys(state)
-        persist = insert_document(
-            DocumentType.POD,
-            storage_key=merged_key,
-            shipments_row_id=resolve_shipments_row_id_for_db(state.data),
-            metadata={"source_object_keys": source_keys},
+def _cleanup_pod_attachment_stage(state) -> None:
+    """Remove worker-local stage dir; only paths live in state, never PDF bytes."""
+    state.data.pop("pod_merged_local_path", None)
+    stage_dir = str(state.data.pop("pod_attachment_stage_dir", "") or "").strip()
+    if not stage_dir:
+        return
+    try:
+        shutil.rmtree(Path(stage_dir), ignore_errors=True)
+    except Exception:
+        logger.warning(
+            "pod_stage_cleanup_failed shipment_id=%s dir=%s",
+            resolve_shipment_id(state.data),
+            stage_dir,
         )
-        state.data["documents_pod"] = persist
-        logger.info(
-            "classify_attachments: documents pod stored=%s id=%s source_keys=%s",
-            persist.get("stored"),
-            persist.get("id"),
-            len(source_keys),
-        )
-    return state
 
 
 @safe_node
@@ -153,49 +116,52 @@ def _manual_pod_analysis_soft_fail(out: dict) -> bool:
 
 @safe_node
 def pod_analysis(state):
-    out = get_pod_analysis(state.data)
-    state.data["pod_analysis_results"] = out
+    try:
+        out = get_pod_analysis(state.data)
+        state.data["pod_analysis_results"] = out
 
-    if _is_manual_pod_upload(state.data) and _manual_pod_analysis_soft_fail(out):
-        logger.warning(
-            "pod_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s skipped=%s",
-            state.data.get("shipment_id"),
-            state.data.get("workflow_lifecycle_id"),
-            out.get("error"),
-            out.get("skipped"),
-        )
+        if _is_manual_pod_upload(state.data) and _manual_pod_analysis_soft_fail(out):
+            logger.warning(
+                "pod_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s skipped=%s",
+                state.data.get("shipment_id"),
+                state.data.get("workflow_lifecycle_id"),
+                out.get("error"),
+                out.get("skipped"),
+            )
+            return state
+
+        _raise_on_tool_failure(out, _POD_ANALYSIS_ERRORS)
+
+        if out.get("skipped"):
+            raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
+
+        if out.get("success") and not (out.get("findings") or {}).get("pod_data"):
+            raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
+
+        shipments_row_id = resolve_shipments_row_id_for_db(state.data)
+        if (
+            out.get("success")
+            and not out.get("skipped")
+            and out.get("findings")
+            and shipments_row_id
+        ):
+            persist = upsert_document_analysis(
+                shipments_row_id,
+                DocumentAnalysisType.POD_EXTRACTION,
+                results=out["findings"],
+                confidence_score=out.get("confidence_score"),
+                llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
+                document_id=out.get("document_id"),
+            )
+            state.data["document_analysis_pod"] = persist
+            logger.info(
+                "pod_analysis: document_analysis stored=%s id=%s",
+                persist.get("stored"),
+                persist.get("id"),
+            )
         return state
-
-    _raise_on_tool_failure(out, _POD_ANALYSIS_ERRORS)
-
-    if out.get("skipped"):
-        raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
-
-    if out.get("success") and not (out.get("findings") or {}).get("pod_data"):
-        raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
-
-    shipments_row_id = resolve_shipments_row_id_for_db(state.data)
-    if (
-        out.get("success")
-        and not out.get("skipped")
-        and out.get("findings")
-        and shipments_row_id
-    ):
-        persist = upsert_document_analysis(
-            shipments_row_id,
-            DocumentAnalysisType.POD_EXTRACTION,
-            results=out["findings"],
-            confidence_score=out.get("confidence_score"),
-            llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
-            document_id=out.get("document_id"),
-        )
-        state.data["document_analysis_pod"] = persist
-        logger.info(
-            "pod_analysis: document_analysis stored=%s id=%s",
-            persist.get("stored"),
-            persist.get("id"),
-        )
-    return state
+    finally:
+        _cleanup_pod_attachment_stage(state)
 
 
 @safe_node

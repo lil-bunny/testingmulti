@@ -17,11 +17,36 @@ from app.integrations.turvo.public_api_client import TurvoApiClient
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
 from app.main import app
 from app.tools import turvo as turvo_tool
-from app.services.pod_lifecycle_ingress_service import RouteCompletedDuplicateResult
+from app.services.pod_lifecycle.ingress_service import (
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+    RouteCompletedDuplicateResult,
+    RouteCompletedIngressGateResult,
+)
 from tests.e2e.fixtures.main import ROUTE_COMPLETE_WEBHOOK_PAYLOAD
 
 _SHIPMENTS_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 _TURVO_SHIPMENT = "1000324868"
+
+
+def _wire_ingress_route_gates(
+    ingress_mock: MagicMock,
+    *,
+    convoy_skip: bool = False,
+    pod_skip: bool = False,
+) -> None:
+    ingress_mock.check_route_completed_convoy_gate = AsyncMock(
+        return_value=RouteCompletedIngressGateResult(
+            skip=convoy_skip,
+            reason=ROUTE_COMPLETED_SKIP_CONVOY_LOAD if convoy_skip else None,
+        )
+    )
+    ingress_mock.check_route_completed_pod_gate = AsyncMock(
+        return_value=RouteCompletedIngressGateResult(
+            skip=pod_skip,
+            reason=ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS if pod_skip else None,
+        )
+    )
 
 
 class _FakeOAuthService:
@@ -70,7 +95,7 @@ async def test_turvo_api_client_request_and_401_refresh(monkeypatch: pytest.Monk
     ]
     seen_auth: list[str] = []
 
-    async def fake_send(self, method, url, headers, params, json_body, timeout_s):
+    async def fake_send(self, method, url, headers, params, json_body, timeout_s, *, files=None):
         if len(seen_auth) == 0:
             captured["method"] = method
             captured["url"] = url
@@ -210,6 +235,7 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         ingress_cls.return_value.check_route_completed_duplicate.return_value = (
             RouteCompletedDuplicateResult(is_duplicate=False)
         )
+        _wire_ingress_route_gates(ingress_cls.return_value)
         celery_task.apply_async.return_value = MagicMock(id="celery-task-1")
 
         client = TestClient(app)
@@ -273,6 +299,84 @@ def test_turvo_webhook_skips_duplicate_route_completed() -> None:
     body = resp.json()
     assert body.get("skipped") == "duplicate_route_completed"
     assert body.get("lifecycle_id") == pod_lifecycle_id
+    assert "execution_id" not in body
+    celery_task.apply_async.assert_not_called()
+
+
+def test_turvo_webhook_skips_convoy_load() -> None:
+    lifecycle = {
+        "found": True,
+        "lifecycle_id": "11111111-2222-3333-4444-555555555555",
+    }
+
+    with (
+        patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
+        patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
+        patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
+        patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
+        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+        patch(
+            "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
+            return_value="tenant-uuid-1",
+        ),
+    ):
+        shipments_cls.return_value.get_by_shipment_number.return_value = {
+            "id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        }
+        lifecycle_cls.return_value.read_lifecycle.return_value = lifecycle
+        comm_cls.return_value.resolve_thread_for_lifecycle.return_value = "thread-from-comm"
+        ingress_cls.return_value.check_route_completed_duplicate.return_value = (
+            RouteCompletedDuplicateResult(is_duplicate=False)
+        )
+        _wire_ingress_route_gates(ingress_cls.return_value, convoy_skip=True)
+
+        client = TestClient(app)
+        resp = client.post("/api/v1/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("skipped") == ROUTE_COMPLETED_SKIP_CONVOY_LOAD
+    assert body.get("shipment_id") == _TURVO_SHIPMENT
+    assert "execution_id" not in body
+    celery_task.apply_async.assert_not_called()
+
+
+def test_turvo_webhook_skips_pod_already_exists() -> None:
+    lifecycle = {
+        "found": True,
+        "lifecycle_id": "11111111-2222-3333-4444-555555555555",
+    }
+
+    with (
+        patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
+        patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
+        patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
+        patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
+        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+        patch(
+            "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
+            return_value="tenant-uuid-1",
+        ),
+    ):
+        shipments_cls.return_value.get_by_shipment_number.return_value = {
+            "id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        }
+        lifecycle_cls.return_value.read_lifecycle.return_value = lifecycle
+        comm_cls.return_value.resolve_thread_for_lifecycle.return_value = "thread-from-comm"
+        ingress_cls.return_value.check_route_completed_duplicate.return_value = (
+            RouteCompletedDuplicateResult(is_duplicate=False)
+        )
+        _wire_ingress_route_gates(ingress_cls.return_value, pod_skip=True)
+
+        client = TestClient(app)
+        resp = client.post("/api/v1/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("skipped") == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS
+    assert body.get("shipment_id") == _TURVO_SHIPMENT
     assert "execution_id" not in body
     celery_task.apply_async.assert_not_called()
 

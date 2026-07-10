@@ -12,6 +12,9 @@ E2E_API_BASE_URL: str = "http://127.0.0.1:8000"
 # Turvo shipment id used for lifecycle seeding assertions and ``documents`` / ``document_analysis`` queries.
 E2E_POD_LIFECYCLE_SHIPMENT_ID: str = "1000324868"
 
+# Driver-assignment catch-up E2E uses env vars (see
+# ``tests/e2e/scenarios/test_driver_assignment_catch_up_workflow.py``); set them in the shell, not here.
+
 
 def e2e_api_base_url() -> str:
     return (E2E_API_BASE_URL or "").strip()

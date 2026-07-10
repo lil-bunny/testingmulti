@@ -10,7 +10,7 @@
                     "cc": [],
                     "bcc": []
                 },
-                "escalation_email_body": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Escalation</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p style=\"margin-bottom: 12px;\"><strong>FTL tender escalation</strong></p>\n<p style=\"margin-bottom: 8px;\">No carrier acknowledgment received within the expected window.</p>\n<p style=\"margin-bottom: 0;\">Order #: <strong>{order_number}</strong></p>\n</body>\n</html>",
+                "escalation_email_body": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Escalation</title></head><body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\"><p style=\"margin-bottom: 12px;\"><strong>FTL tender escalation</strong></p><p style=\"margin-bottom: 8px;\">No carrier acknowledgment received within the expected window.</p><p style=\"margin-bottom: 0;\">Order #: <strong>{order_number}</strong></p></body></html>",
                 "escalation_email_subject": "Tender escalation (order {order_number})"
             },
             "send_tender_email": {
@@ -22,7 +22,7 @@
                     "bcc": []
                 },
                 "email_subject": "PICK UP REQUEST # {order_number} PO# {po_number}",
-                "email_template_html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Request</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n{reason_for_failure}\n{carrier_note}\n<p style=\"margin-bottom: 18px;\">{delivery_to_header}<br />{delivery_address}</p>\n<p style=\"margin-bottom: 12px;\">Order # {order_number}<br />Customer PO # {customer_po}</p>\n<p style=\"margin-bottom: 12px;\">Ship date: {ship_date}<br />Delivery date: {delivery_date}</p>\n<p style=\"margin-bottom: 12px;\">{products_block}</p>\n</body>\n</html>"
+                "email_template_html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Gelita FTL Tender Request</title></head><body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">{reason_for_failure}{carrier_note}<p style=\"margin-bottom: 18px;\">{delivery_to_header}<br />{delivery_address}</p><p style=\"margin-bottom: 12px;\">Order # {order_number}<br />Customer PO # {customer_po}</p><p style=\"margin-bottom: 12px;\">Ship date: {ship_date}<br />Delivery date: {delivery_date}</p><p style=\"margin-bottom: 12px;\">{products_block}</p></body></html>"
             },
             "send_tender_reminder": {
                 "reminder_body": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /></head><body><p>Following up on the request.</p><p>Thanks</p></body></html>"
@@ -37,8 +37,8 @@
                     "cc": [],
                     "bcc": []
                 },
-                "escalation_email_body": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita LTL Tender Escalation</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p style=\"margin-bottom: 12px;\"><strong>LTL tender escalation</strong></p>\n<p style=\"margin-bottom: 8px;\">No carrier acknowledgment received within the expected window.</p>\n<p style=\"margin-bottom: 0;\">Order #: <strong>{order_number}</strong></p>\n</body>\n</html>",
-                "escalation_email_subject": "Tender escalation (order {order_number})"
+                "escalation_email_body": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Gelita LTL Tender Escalation</title></head><body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\"><p style=\"margin-bottom: 12px;\"><strong>LTL tender escalation</strong></p><p style=\"margin-bottom: 8px;\">No carrier acknowledgment received within the expected window.</p><p style=\"margin-bottom: 0;\">Order #: <strong>{order_number}</strong></p></body></html>",
+                "escalation_email_subject": "Tender escalation # {order_number}"
             },
             "send_tender_email": {
                 "emails": {
@@ -49,7 +49,7 @@
                     "bcc": []
                 },
                 "email_subject": "PICK UP REQUEST # {order_number} PO# {po_number}",
-                "email_template_html": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>BOL Request Template</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n{reason_for_failure}\n<p style=\"margin-bottom: 4px;\"><span style=\"background-color: #fff176; font-weight: bold; padding: 2px 4px;\">Please Provide Your BOL by 1300 CST day prior of shipment or GELITA will use their own.</span> <span style=\"color: #555;\">\"Make sure to include your sales coordinator and the whole logistics team (Chris Alter, Taylor Hudson, &amp; Tonya Jackson) when sending your BOL\"</span></p>\n<br />\n<p style=\"margin-bottom: 18px;\">{pickup_address_header}<br />{pickup_address}</p>\n<p style=\"margin-bottom: 18px;\">{delivery_to_header}<br />{delivery_address}</p>\n<p style=\"margin-bottom: 0;\">Order #{order_number}<br />Customer PO #{customer_po}<br />Ship date: {ship_date}</p>\n<br />\n<p style=\"margin-top: 0;\">{products_block}</p>\n<p style=\"margin-top: 0;\">NMFC Code 73260-00 Class 70<br />Non-Stackable<br />Non-Hazardous</p>\n<br />\n<p><strong>Loading hours 1300-1600 day of shipment.</strong></p>\n</body>\n</html>"
+                "email_template_html": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>BOL Request Template</title></head><body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">{reason_for_failure}<p style=\"margin-bottom: 4px;\"><span style=\"background-color: #fff176; font-weight: bold; padding: 2px 4px;\">Please Provide Your BOL by 1300 CST day prior of shipment or GELITA will use their own.</span> <span style=\"color: #555;\">\"Make sure to include your sales coordinator and the whole logistics team (Chris Alter, Taylor Hudson, &amp; Tonya Jackson) when sending your BOL\"</span></p><br /><p style=\"margin-bottom: 18px;\">{pickup_address_header}<br />{pickup_address}</p><p style=\"margin-bottom: 18px;\">{delivery_to_header}<br />{delivery_address}</p><p style=\"margin-bottom: 0;\">Order #{order_number}<br />Customer PO #{customer_po}<br />Ship date: {ship_date}</p><br /><p style=\"margin-top: 0;\">{products_block}</p><p style=\"margin-top: 0;\">NMFC Code 73260-00 Class 70<br />Non-Stackable<br />Non-Hazardous</p><br /><p><strong>Loading hours 1300-1600 day of shipment.</strong></p></body></html>"
             },
             "send_tender_reminder": {
                 "reminder_body": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /></head><body><p>Following up on the request.</p><p>Thanks</p></body></html>"
@@ -108,7 +108,7 @@
                     "cc": [],
                     "bcc": [],
                     "subject": "Exception: Gelita Order Processing Failure PO {customer_po}",
-                    "body_template": "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\" /><title>Gelita Order Processing Failure</title></head>\n<body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\">\n<p>Dear Team,</p>\n<p>We are unable to process the below Gelita order due to an exception.</p>\n<p><strong>Reason for Failure:</strong><br />{failure_reason}</p>\n<p><strong>Order ID:</strong> {order_number}</p>\n<p>Regards,<br />Ana</p>\n</body>\n</html>"
+                    "body_template": "<!DOCTYPE html><html><head><meta charset=\"utf-8\" /><title>Gelita Order Processing Failure</title></head><body style=\"font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5; color: #111;\"><p>Dear Team,</p><p>We are unable to process the below Gelita order due to an exception.</p><p><strong>Reason for Failure:</strong><br />{failure_reason}</p><p><strong>Order ID:</strong> {order_number}</p><p>Regards,<br />Ana</p></body></html>"
                 }
             ]
         },

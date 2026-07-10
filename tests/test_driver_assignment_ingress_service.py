@@ -7,8 +7,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.domain.ingress_result import IngressResult
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_shadow_mail_service import WorkflowShadowMailService
 
@@ -426,14 +428,24 @@ def test_send_reminder_email_success():
         "success": True,
         "communication_id": "comm-uuid-1",
     }
-    svc = DriverAssignmentIngressService(communications_service=comms)
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+    }
+    svc = DriverAssignmentIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
 
     result = svc.send_reminder_email(
         tenant_id=_TENANT_ID,
         tenant_settings={"mikey_account_id": "acct-1"},
         payload=_base_payload(
             event_type="reminder_due",
-            reminder_step=1,
+            schedule_reminder_step=2,
+            reminder_step=2,
+            workflow_lifecycle_id=_DRIVER_LC_ID,
             body="Please send driver info",
         ),
         workflow_run_id="run-1",
@@ -441,10 +453,13 @@ def test_send_reminder_email_success():
 
     assert result.sent is True
     assert result.error is None
+    assert result.reminder_step == 1
     assert result.communication_id == "comm-uuid-1"
     comms.send_thread_reply.assert_called_once()
     call_kwargs = comms.send_thread_reply.call_args.kwargs
     assert call_kwargs["thread_id"] == "thread-1"
+    assert call_kwargs["communication_metadata"]["reminder_step"] == 1
+    assert call_kwargs["communication_metadata"]["schedule_reminder_step"] == 2
 
 
 def test_send_reminder_email_passes_from_email_when_alias_configured():
@@ -694,15 +709,143 @@ def test_check_reminder_eligibility_skips_when_step_already_sent():
     svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
     svc._lifecycle_service.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
-        "sub_status": StatusSubType.REMINDER_2_SENT.value,
+        "sub_status": StatusSubType.REMINDER_1_SENT.value,
+        "metadata": {"driver_assignment_sent_schedule_steps": [2]},
     }
 
     result = svc.check_reminder_eligibility(
         tenant_id=_TENANT_ID,
-        payload=_base_payload(event_type="reminder_due", reminder_step=2),
+        payload=_base_payload(
+            event_type="reminder_due",
+            schedule_reminder_step=2,
+            reminder_step=2,
+            workflow_lifecycle_id=_DRIVER_LC_ID,
+        ),
     )
 
     assert result.skip_reason == "reminder_step_already_sent"
+
+
+def test_check_reminder_eligibility_records_exception_on_fetch_timeout():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+        return_value="log-1",
+    ) as record_timeout:
+        result = svc.check_reminder_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="reminder_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                execution_id="run-uuid-1",
+                shipment={"shipment_id": "1000324895", "turvo_connection_timed_out": True},
+            ),
+        )
+
+    record_timeout.assert_called_once()
+    assert result.skip_reason == "shipment_not_in_state"
+
+
+def test_check_reminder_eligibility_no_exception_without_timeout_flag():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.DRIVER_ASSIGNMENT_STARTED.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+    ) as record_timeout:
+        result = svc.check_reminder_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="reminder_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                shipment={"shipment_id": "1000324895"},
+            ),
+        )
+
+    record_timeout.assert_not_called()
+    assert result.skip_reason == "shipment_not_in_state"
+
+
+def test_check_escalation_eligibility_records_exception_on_fetch_timeout():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+        return_value="log-1",
+    ) as record_timeout:
+        result = svc.check_escalation_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="escalation_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                execution_id="run-uuid-1",
+                shipment={"shipment_id": "1000324895", "turvo_connection_timed_out": True},
+            ),
+        )
+
+    record_timeout.assert_called_once()
+    assert result.skip_reason == "shipment_not_in_state"
+
+
+def test_check_escalation_eligibility_no_exception_without_timeout_flag():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+        "metadata": {},
+    }
+    activity_log = MagicMock()
+    svc = DriverAssignmentIngressService(
+        activity_service=DriverAssignmentActivityService(activity_log_service=activity_log),
+        lifecycle_service=lifecycle,
+    )
+
+    with patch(
+        "app.services.driver_assignment.activity_service.TmsConnectionActivityService.record_timeout",
+    ) as record_timeout:
+        result = svc.check_escalation_eligibility(
+            tenant_id=_TENANT_ID,
+            payload=_base_payload(
+                event_type="escalation_due",
+                workflow_lifecycle_id=_DRIVER_LC_ID,
+                shipment={"shipment_id": "1000324895"},
+            ),
+        )
+
+    record_timeout.assert_not_called()
+    assert result.skip_reason == "shipment_not_in_state"
 
 
 def test_check_reminder_eligibility_allows_next_step_on_pending_review_ladder():
@@ -711,18 +854,41 @@ def test_check_reminder_eligibility_allows_next_step_on_pending_review_ladder():
     svc._lifecycle_service.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.REMINDER_2_SENT.value,
+        "metadata": {"driver_assignment_sent_schedule_steps": [2]},
     }
 
     result = svc.check_reminder_eligibility(
         tenant_id=_TENANT_ID,
         payload=_base_payload(
             event_type="reminder_due",
+            schedule_reminder_step=3,
             reminder_step=3,
             workflow_lifecycle_id=_DRIVER_LC_ID,
         ),
     )
 
     assert result.eligible is True
+
+
+def test_check_reminder_eligibility_skips_when_at_reminder_four_on_ladder():
+    svc = _service()
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
+    svc._lifecycle_service.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.REMINDER_4_SENT.value,
+        "metadata": {"driver_assignment_sent_schedule_steps": [2, 3, 4]},
+    }
+
+    result = svc.check_reminder_eligibility(
+        tenant_id=_TENANT_ID,
+        payload=_base_payload(
+            event_type="reminder_due",
+            schedule_reminder_step=4,
+            workflow_lifecycle_id=_DRIVER_LC_ID,
+        ),
+    )
+
+    assert result.skip_reason == "already_completed"
 
 
 def test_try_driver_details_email_received_rejects_non_reply_without_re_subject():
@@ -764,7 +930,7 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -814,7 +980,7 @@ def test_try_driver_details_email_received_re_subject_fallback_enqueues():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -866,7 +1032,7 @@ def test_try_driver_details_email_received_resolves_lifecycle_via_shipment_on_th
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -911,7 +1077,7 @@ def test_try_driver_details_email_received_shipment_fallback_no_driver_lifecycle
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
     with patch(
-        "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+        "app.services.t3ra.driver_details_email_ingress.TenantsService"
     ) as tenants:
         tenants.return_value.get_by_slug.return_value = {
             "settings": _enabled_settings(),
@@ -954,7 +1120,7 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
     with (
         patch_ctx,
         patch(
-            "app.services.driver_assignment.ingress_driver_details_inbound.TenantsService"
+            "app.services.t3ra.driver_details_email_ingress.TenantsService"
         ) as tenants,
     ):
         tenants.return_value.get_by_slug.return_value = {
@@ -971,7 +1137,8 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
         )
 
     assert resp is not None
-    assert resp.status_code == 200
+    assert isinstance(resp, IngressResult)
+    assert resp.outcome == "enqueued"
     apply_async.assert_called_once()
     kwargs = apply_async.call_args.kwargs["kwargs"]
     assert kwargs["workflow_name"] == "driver_assignment"
@@ -1048,6 +1215,37 @@ def test_check_reminder_eligibility_skips_when_driver_assigned():
     )
     assert result.sent is False
     assert result.error == "skipped_already_assigned"
+
+
+def test_send_driver_details_confirmation_allows_replaced_resolution() -> None:
+    comms = MagicMock()
+    comms.send_thread_reply.return_value = {
+        "success": True,
+        "communication_id": "comm-out-1",
+    }
+    svc = DriverAssignmentIngressService(communications_service=comms)
+    result = svc.send_driver_details_confirmation_email(
+        tenant_id=_TENANT_ID,
+        tenant_settings={
+            "mikey_account_id": "acct-1",
+            "driver_assignment": {
+                "confirmation_email": {
+                    "default_template_html": "<p>{driver_name} {driver_phone}</p>",
+                }
+            },
+        },
+        payload={
+            "tms_resolution": "replaced",
+            "tms_driver_outcome": "assigned",
+            "workflow_lifecycle_id": _DRIVER_LC_ID,
+            "thread_id": "thread-1",
+            "driver_details_extraction": {
+                "driver": {"name": "Other", "phone": "5122691730"},
+            },
+        },
+        workflow_run_id="run-1",
+    )
+    assert result.sent is True
 
 
 def test_send_driver_details_confirmation_picks_turvo_template() -> None:

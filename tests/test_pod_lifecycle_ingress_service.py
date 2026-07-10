@@ -6,12 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.pod_lifecycle_ingress_service import (
+from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
     POD_EMAIL_SKIP_TURVO_FETCH_FAILED,
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
 )
+from app.integrations.turvo.public_api_client import TurvoApiError
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _SHIPMENTS_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -32,7 +35,7 @@ def _valid_turvo_shipment(status_key: str = "2116") -> dict:
 
 def _patch_valid_turvo_get():
     return patch(
-        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
         new_callable=AsyncMock,
         return_value=_valid_turvo_shipment(),
     )
@@ -132,6 +135,102 @@ def test_check_route_completed_duplicate_resolves_shipments_row_from_turvo_numbe
         tenant_id=_TENANT_UUID,
         shipment_number=_TURVO_SHIPMENT,
     )
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_convoy_gate_skips_convoy_carrier() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        return_value={
+            "details": {"carrierOrder": [{"carrier": {"name": "Convoy Platform"}}]},
+        },
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_convoy_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is True
+    assert result.reason == ROUTE_COMPLETED_SKIP_CONVOY_LOAD
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_convoy_gate_proceeds_for_non_convoy() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        return_value={
+            "details": {"carrierOrder": [{"carrier": {"name": "Acme Trucking"}}]},
+        },
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_convoy_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_convoy_gate_fail_open_on_turvo_error() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("turvo down"),
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_convoy_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_pod_gate_skips_when_pod_exists() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        new_callable=AsyncMock,
+        return_value={"success": True, "pod_exists": True},
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_pod_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is True
+    assert result.reason == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_pod_gate_proceeds_when_no_pod() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        new_callable=AsyncMock,
+        return_value={"success": True, "pod_exists": False},
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_pod_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
+
+
+@pytest.mark.asyncio
+async def test_check_route_completed_pod_gate_fail_open_on_turvo_error() -> None:
+    with patch(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        new_callable=AsyncMock,
+        return_value={"success": False, "pod_exists": False},
+    ):
+        svc = PodLifecycleIngressService()
+        result = await svc.check_route_completed_pod_gate(
+            tenant_slug="t3ra",
+            payload={"event_type": "route_completed", "shipment_id": _TURVO_SHIPMENT},
+        )
+    assert result.skip is False
 
 
 @pytest.mark.asyncio
@@ -352,7 +451,7 @@ async def test_prepare_email_received_payload_skips_invalid_shipment_status() ->
     )
 
     with patch(
-        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
         new_callable=AsyncMock,
         return_value=_valid_turvo_shipment("2102"),
     ):
@@ -386,7 +485,7 @@ async def test_prepare_email_received_payload_skips_turvo_fetch_failed() -> None
     )
 
     with patch(
-        "app.services.pod_lifecycle_ingress_service.get_shipment",
+        "app.services.pod_lifecycle.ingress_service.get_shipment",
         new_callable=AsyncMock,
         side_effect=RuntimeError("turvo timeout"),
     ):
@@ -399,3 +498,105 @@ async def test_prepare_email_received_payload_skips_turvo_fetch_failed() -> None
 
     assert exc_info.value.reason == POD_EMAIL_SKIP_TURVO_FETCH_FAILED
     assert exc_info.value.shipments_row_id == _SHIPMENTS_ROW_UUID
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_records_timeout_exception_with_lifecycle() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+        {
+            "lifecycle_id": _LIFECYCLE_UUID,
+            "workflow_name": "pod_lifecycle",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    _mock_ratecon_gate_pass(lifecycle)
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+    timeout_error = TurvoApiError(
+        "TMS connection timed out after 5 attempts",
+        status_code=None,
+    )
+
+    with (
+        patch(
+            "app.services.pod_lifecycle.ingress_service.get_shipment",
+            new_callable=AsyncMock,
+            side_effect=timeout_error,
+        ),
+        patch(
+            "app.services.pod_lifecycle.ingress_service.TmsConnectionActivityService.record_timeout",
+            return_value="log-1",
+        ) as record_timeout,
+    ):
+        with pytest.raises(PodEmailIngressSkipped) as exc_info:
+            await svc.prepare_email_received_payload(
+                tenant_id=_TENANT_UUID,
+                tenant_slug="t3ra",
+                payload={
+                    "event_type": "email_received",
+                    "thread_id": "thread-abc",
+                    "communication_id": "comm-1",
+                },
+            )
+
+    assert exc_info.value.reason == POD_EMAIL_SKIP_TURVO_FETCH_FAILED
+    record_timeout.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        workflow_lifecycle_id=_LIFECYCLE_UUID,
+        workflow_run_id=None,
+        communication_id="comm-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_timeout_without_lifecycle_skips_exception() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    lifecycle.check_lifecycle_exists.return_value = {"exists": False}
+    _mock_ratecon_gate_pass(lifecycle)
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+    timeout_error = TurvoApiError(
+        "TMS connection timed out after 5 attempts",
+        status_code=None,
+    )
+
+    with (
+        patch(
+            "app.services.pod_lifecycle.ingress_service.get_shipment",
+            new_callable=AsyncMock,
+            side_effect=timeout_error,
+        ),
+        patch(
+            "app.services.pod_lifecycle.ingress_service.TmsConnectionActivityService.record_timeout",
+        ) as record_timeout,
+    ):
+        with pytest.raises(PodEmailIngressSkipped):
+            await svc.prepare_email_received_payload(
+                tenant_id=_TENANT_UUID,
+                tenant_slug="t3ra",
+                payload={"event_type": "email_received", "thread_id": "thread-abc"},
+            )
+
+    record_timeout.assert_not_called()

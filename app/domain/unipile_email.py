@@ -34,6 +34,15 @@ def is_unipile_email_reply(payload: dict[str, Any]) -> bool:
     return bool(_RE_REPLY_SUBJECT.match(subject))
 
 
+def extract_email_id_or_none(payload: dict[str, Any]) -> str | None:
+    """Unipile ``email_id`` when present; used for ingress task idempotency at the HTTP edge."""
+    raw = payload.get("email_id")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text if text else None
+
+
 def build_unipile_attachment_fetch_context(
     payload: dict[str, Any], attachment: dict[str, Any]
 ) -> dict[str, str]:

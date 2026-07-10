@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     TURVO_POD_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024
     TURVO_POD_UPLOAD_TIMEOUT_S: float = 180.0
     TURVO_POD_UPLOAD_MAX_ATTEMPTS: int = 3
+    TURVO_HTTP_MAX_ATTEMPTS: int = 5  # 1 initial try + 4 retries
+    TURVO_HTTP_RETRY_DELAY_S: float = 15.0
     TURVO_POD_OPTIMIZE_DPI: int = 150
     TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
     TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 2000
@@ -88,6 +90,7 @@ class Settings(BaseSettings):
     BUCKET_PRESIGN_EXPIRES_SECONDS: int = 600 # Presigned GetObject TTL (seconds)
     BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
     BUCKET_POD_ATTACHMENTS_FOLDER: str = "pod_attachments"
+    POD_ATTACHMENT_STAGE_ROOT: str = "/tmp/freightx/pod_staging"
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str

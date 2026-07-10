@@ -3,9 +3,15 @@ from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_mode
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
-from app.services.pod_lifecycle_ingress_service import (
+from app.services.pod_lifecycle.ingress_service import (
+    POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
+)
+from app.services.pod_lifecycle.attachment_pipeline_service import (
+    PodAttachmentPipelineService,
 )
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -79,6 +85,7 @@ class WorkflowService:
         self.tenants_service = TenantsService()
         self._ratecon_ingress = RateconIngressService()
         self._pod_lifecycle_ingress = PodLifecycleIngressService()
+        self._pod_attachment_pipeline = PodAttachmentPipelineService()
         self._driver_assignment_ingress = DriverAssignmentIngressService()
 
     @staticmethod
@@ -109,10 +116,18 @@ class WorkflowService:
         tenant_slug: str,
         payload: dict,
         lifecycle_id: str | None,
+        reason: str | None = None,
     ) -> dict:
         execution_id = str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
         data = dict(payload)
-        data["skipped_duplicate_route_completed"] = True
+        if reason == ROUTE_COMPLETED_SKIP_CONVOY_LOAD:
+            data["skipped_convoy_load"] = True
+            data["route_completed_skip_reason"] = reason
+        elif reason == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS:
+            data["skipped_pod_already_exists"] = True
+            data["route_completed_skip_reason"] = reason
+        else:
+            data["skipped_duplicate_route_completed"] = True
         if lifecycle_id:
             data["workflow_lifecycle_id"] = lifecycle_id
         return {
@@ -198,6 +213,8 @@ class WorkflowService:
             workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "email_received"
         ):
+            if not str(payload.get("execution_id") or "").strip():
+                payload["execution_id"] = str(uuid.uuid4())
             try:
                 payload = await self._pod_lifecycle_ingress.prepare_email_received_payload(
                     tenant_id=tenant_id,
@@ -213,6 +230,45 @@ class WorkflowService:
                     shipments_row_id=skip.shipments_row_id,
                 )
 
+            pipeline = await self._pod_attachment_pipeline.run_for_email_payload(
+                payload=payload,
+            )
+            if not pipeline.success:
+                return self._skipped_pod_email_ingress_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    reason=pipeline.skip_reason or POD_EMAIL_SKIP_INVALID_ATTACHMENT,
+                    shipments_row_id=payload.get("shipments_row_id"),
+                )
+            if pipeline.state_patch:
+                payload.update(pipeline.state_patch)
+
+        if (
+            workflow_name == "pod_lifecycle"
+            and payload.get("event_type") == "manual_pod_upload"
+            and payload.get("manual_pod_upload_source") != "stored"
+            and not (
+                isinstance(payload.get("documents_pod"), dict)
+                and payload["documents_pod"].get("stored")
+            )
+        ):
+            pipeline = self._pod_attachment_pipeline.run_for_object_keys(
+                pod_object_keys=list(payload.get("pod_object_keys") or []),
+                shipment_id=str(payload.get("shipment_id") or "").strip() or None,
+                shipments_row_id=str(payload.get("shipments_row_id") or "").strip()
+                or None,
+                stage_token=str(payload.get("execution_id") or "").strip() or None,
+                trace_payload=payload,
+            )
+            if not pipeline.success:
+                raise Exception(
+                    "pod_lifecycle manual_pod_upload: attachment pipeline failed: "
+                    f"{pipeline.skip_reason or 'unknown'}"
+                )
+            if pipeline.state_patch:
+                payload.update(pipeline.state_patch)
+
         if (
             workflow_name == "pod_lifecycle"
             and payload.get("event_type") == "route_completed"
@@ -227,6 +283,32 @@ class WorkflowService:
                     tenant_slug=tenant_slug,
                     payload=payload,
                     lifecycle_id=duplicate.lifecycle_id,
+                )
+
+            convoy_gate = await self._pod_lifecycle_ingress.check_route_completed_convoy_gate(
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if convoy_gate.skip:
+                return self._skipped_route_completed_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    lifecycle_id=None,
+                    reason=convoy_gate.reason or ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+                )
+
+            pod_gate = await self._pod_lifecycle_ingress.check_route_completed_pod_gate(
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if pod_gate.skip:
+                return self._skipped_route_completed_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    lifecycle_id=None,
+                    reason=pod_gate.reason or ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
                 )
 
         lifecycle = (

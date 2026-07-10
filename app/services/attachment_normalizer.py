@@ -1,36 +1,30 @@
 """
 POD attachment normalizer — port of old.services.attachment_normalizer.
 
-Downloads each attachment reference (HTTPS or S3 object key), classifies by MIME: PDFs pass through; images are
-prefiltered then optionally vision-classified; unsupported types rejected.
-Valid PDFs and images merge into one PDF and upload to S3 as a private object; the
-returned ``pod_merged_pdf_object_key`` field holds the S3 object key.
-
-**Single attachment:** PDFs skip merge/classifier and are re-uploaded as
-``pod_{shipmentId}.pdf``. Images use the same classify + PDF conversion path
-as multi-attachment flows, then upload as ``pod_{shipmentId}.pdf``.
+Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME, merges
+valid PDFs/images, uploads merged PDF to S3 as ``pod_merged_pdf_object_key``.
 """
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import io
-import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
 import img2pdf
-from openai import OpenAI
 from PIL import Image
 
 from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
+from app.tools.llm_client import chat_vision_json
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +87,16 @@ def pod_merged_filename(shipment_id: Optional[str]) -> str:
     return f"pod_{_sanitize_path_segment(shipment_id or 'unknown')}.pdf"
 
 
+def in_memory_attachment_ref(
+    attachment_id: str,
+    shipment_number: str | None,
+) -> str:
+    """Synthetic S3 ref for in-memory normalize (must match ``normalize_from_bytes``)."""
+    ship_token = _sanitize_path_segment(shipment_number or "unknown")
+    att_token = _sanitize_path_segment(attachment_id)
+    return f"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_{att_token}_{ship_token}.bin"
+
+
 class AttachmentNormalizerService:
     """Download, classify by type, merge POD attachments into a single PDF."""
 
@@ -100,7 +104,13 @@ class AttachmentNormalizerService:
         self,
         pod_object_keys: List[str],
         shipment_number: Optional[str] = None,
+        *,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
+        if trace_metadata:
+            self._trace_metadata = dict(trace_metadata)
         if not pod_object_keys:
             return {
                 "success": False,
@@ -114,8 +124,14 @@ class AttachmentNormalizerService:
 
         non_empty = [(u or "").strip() for u in pod_object_keys if (u or "").strip()]
         if len(non_empty) == 1:
-            return self._normalize_single_attachment(
-                non_empty[0], shipment_number=shipment_number
+            return self._with_classification_index(
+                self._normalize_single_attachment(
+                    non_empty[0],
+                    shipment_number=shipment_number,
+                    upload_merged=upload_merged,
+                    local_merged_path=local_merged_path,
+                ),
+                shipment_number,
             )
 
         valid_pdfs: List[Tuple[str, bytes]] = []
@@ -183,7 +199,10 @@ class AttachmentNormalizerService:
                     )
                     continue
 
-                cls_result = self._classify_image(image_bytes)
+                cls_result = self._classify_image(
+                    image_bytes,
+                    attachment_id=attachment_id,
+                )
                 cls_result["attachment_ref"] = attachment_ref
                 classification_results.append(cls_result)
 
@@ -211,15 +230,39 @@ class AttachmentNormalizerService:
             )
 
         if not valid_pdfs and not valid_images:
-            return {
-                "success": False,
-                "pod_merged_pdf_object_key": None,
-                "source_attachment_ids": source_attachment_ids,
-                "classification_results": classification_results,
-                "rejected": rejected,
-                "source_attachments_cleanup": {"rejected": rejected, "valid_source": []},
-                "error": "No valid document attachments after classification",
-            }
+            return self._with_classification_index(
+                {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {"rejected": rejected, "valid_source": []},
+                    "error": "No valid document attachments after classification",
+                },
+                shipment_number,
+            )
+
+        if not upload_merged:
+            valid_source = [
+                self._valid_source_entry(ref) for ref, _ in valid_pdfs
+            ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
+            return self._with_classification_index(
+                {
+                    "success": True,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": valid_source,
+                    },
+                    "error": None,
+                    "assess_only": True,
+                },
+                shipment_number,
+            )
 
         merged_bytes = self._merge_attachments(
             [pdf_bytes for _, pdf_bytes in valid_pdfs],
@@ -271,12 +314,13 @@ class AttachmentNormalizerService:
                 "error": upload_result.get("error_message") or "Failed to upload merged PDF to S3",
             }
 
+        local_path = self._write_local_merged_pdf(merged_bytes, local_merged_path)
         valid_source = [
             self._valid_source_entry(ref) for ref, _ in valid_pdfs
         ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
         cleanup = {"rejected": rejected, "valid_source": valid_source}
 
-        return {
+        out: Dict[str, Any] = {
             "success": True,
             "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
             "source_attachment_ids": source_attachment_ids,
@@ -285,11 +329,90 @@ class AttachmentNormalizerService:
             "source_attachments_cleanup": cleanup,
             "error": None,
         }
+        if local_path:
+            out["pod_merged_local_path"] = local_path
+        return self._with_classification_index(out, shipment_number)
+
+    def normalize_from_bytes(
+        self,
+        attachment_bytes_by_id: dict[str, bytes],
+        *,
+        shipment_number: str | None = None,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not attachment_bytes_by_id:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "source_attachment_ids": [],
+                "classification_results": [],
+                "classification_by_attachment_id": {},
+                "rejected": [],
+                "source_attachments_cleanup": {"rejected": [], "valid_source": []},
+                "error": "No attachments provided",
+            }
+
+        refs: list[str] = []
+        bytes_by_ref: dict[str, bytes] = {}
+        for attachment_id, file_bytes in attachment_bytes_by_id.items():
+            if not file_bytes:
+                continue
+            ref = in_memory_attachment_ref(attachment_id, shipment_number)
+            refs.append(ref)
+            bytes_by_ref[ref] = file_bytes
+
+        if not refs:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "source_attachment_ids": [],
+                "classification_results": [],
+                "classification_by_attachment_id": {},
+                "rejected": [],
+                "source_attachments_cleanup": {"rejected": [], "valid_source": []},
+                "error": "No attachments provided",
+            }
+
+        processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
+        processor._trace_metadata = dict(trace_metadata or {})
+        return processor.normalize(
+            refs,
+            shipment_number=shipment_number,
+            upload_merged=upload_merged,
+            local_merged_path=local_merged_path,
+        )
+
+    @staticmethod
+    def _write_local_merged_pdf(
+        pdf_bytes: bytes,
+        local_merged_path: str | None,
+    ) -> str | None:
+        """Write merged PDF to a worker-local path; never put bytes into graph state."""
+        path = (local_merged_path or "").strip()
+        if not path or not pdf_bytes:
+            return None
+        try:
+            out = Path(path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(pdf_bytes)
+            return str(out)
+        except Exception as exc:
+            logger.warning(
+                "attachment_normalizer.local_merged_write_failed path=%s err=%s",
+                path,
+                exc,
+            )
+            return None
 
     def _normalize_single_attachment(
         self,
         attachment_ref: str,
         shipment_number: Optional[str] = None,
+        *,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
     ) -> Dict[str, Any]:
         """
         Business rules for exactly one attachment:
@@ -384,7 +507,10 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                 }
 
-            cls_result = self._classify_image(image_bytes)
+            cls_result = self._classify_image(
+                image_bytes,
+                attachment_id=attachment_id,
+            )
             cls_result["attachment_ref"] = attachment_ref
             classification_results.append(cls_result)
 
@@ -407,7 +533,10 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                 }
 
-            pdf_bytes = self._merge_attachments([], [image_bytes])
+            if upload_merged:
+                pdf_bytes = self._merge_attachments([], [image_bytes])
+            else:
+                pdf_bytes = b"%PDF-assess-placeholder"
         else:
             rejected.append(
                 self._rejection_entry(
@@ -437,6 +566,25 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
+        if not upload_merged:
+            return self._with_classification_index(
+                {
+                    "success": True,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [self._valid_source_entry(attachment_ref)],
+                    },
+                    "error": None,
+                    "single_attachment_short_circuit": True,
+                    "assess_only": True,
+                },
+                shipment_number,
+            )
+
         upload_result = bucket.upload_file(
             file_content=pdf_bytes,
             filename=merged_filename,
@@ -458,10 +606,11 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
+        local_path = self._write_local_merged_pdf(pdf_bytes, local_merged_path)
         valid_source = [self._valid_source_entry(attachment_ref)]
         cleanup = {"rejected": rejected, "valid_source": valid_source}
 
-        return {
+        out: Dict[str, Any] = {
             "success": True,
             "pod_merged_pdf_object_key": pod_merged_pdf_object_key,
             "source_attachment_ids": source_attachment_ids,
@@ -471,11 +620,23 @@ class AttachmentNormalizerService:
             "error": None,
             "single_attachment_short_circuit": True,
         }
+        if local_path:
+            out["pod_merged_local_path"] = local_path
+        return out
 
-    def _classify_image(self, image_bytes: bytes) -> Dict[str, Any]:
+    def _classify_image(
+        self,
+        image_bytes: bytes,
+        *,
+        attachment_id: str | None = None,
+    ) -> Dict[str, Any]:
+        """Classify image via shared traced ``chat_vision_json`` (LangSmith LLM span)."""
         api_key = settings.LLM_API_KEY
         if not api_key:
-            logger.warning("attachment_normalizer.no_classifier_key; accepting image")
+            logger.warning(
+                "attachment.classify_llm_skip attachment_id=%s reason=no_api_key",
+                attachment_id or "-",
+            )
             return {
                 "is_valid_document": True,
                 "confidence": 0.0,
@@ -484,48 +645,59 @@ class AttachmentNormalizerService:
                 "prefiltered": False,
             }
 
-        base_url = settings.LLM_BASE_URL
         model = (
             settings.ATTACHMENT_CLASSIFIER_MODEL
             or settings.LLM_MODEL
         )
 
+        mime = "image/jpeg"
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            mime = "image/png"
+
+        logger.info(
+            "attachment.classify_llm_start attachment_id=%s model=%s bytes=%s mime=%s",
+            attachment_id or "-",
+            model,
+            len(image_bytes),
+            mime,
+        )
+        started = time.monotonic()
+
+        base_meta = dict(getattr(self, "_trace_metadata", {}) or {})
+        if attachment_id:
+            base_meta["attachment_id"] = attachment_id
+        base_meta.setdefault("step_key", "pod_attachment_classifier")
+        # LangSmith thread grouping: prefer lifecycle id, else execution id.
+        thread_id = (
+            str(base_meta.get("workflow_lifecycle_id") or "").strip()
+            or str(base_meta.get("execution_id") or "").strip()
+        )
+        if thread_id:
+            base_meta["thread_id"] = thread_id
+
         try:
-            client = OpenAI(api_key=api_key, base_url=base_url)
-            b64 = base64.b64encode(image_bytes).decode("utf-8")
-            mime = "image/jpeg"
-            if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-                mime = "image/png"
-
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": IMAGE_CLASSIFIER_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": IMAGE_CLASSIFIER_USER_PROMPT},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime};base64,{b64}",
-                                    "detail": "low",
-                                },
-                            },
-                        ],
-                    },
-                ],
-                max_tokens=150,
+            result = chat_vision_json(
+                IMAGE_CLASSIFIER_SYSTEM_PROMPT,
+                IMAGE_CLASSIFIER_USER_PROMPT,
+                image_bytes,
                 temperature=0.1,
+                max_tokens=150,
+                model=model,
+                image_mime_type=mime,
+                timeout_s=60.0,
+                metadata=base_meta,
+                tags=["pod_attachment_classifier"],
             )
-
-            raw_text = (response.choices[0].message.content or "").strip()
-            result = json.loads(raw_text)
+            elapsed_ms = (time.monotonic() - started) * 1000
 
             logger.info(
-                "attachment.classified is_valid=%s confidence=%s",
+                "attachment.classify_llm_done attachment_id=%s is_valid=%s "
+                "confidence=%s doc_type=%s ms=%.0f",
+                attachment_id or "-",
                 result.get("is_valid_document"),
                 result.get("confidence"),
+                result.get("detected_document_type"),
+                elapsed_ms,
             )
 
             return {
@@ -537,7 +709,13 @@ class AttachmentNormalizerService:
             }
 
         except Exception as e:
-            logger.exception("attachment_normalizer.classify_error: %s", e)
+            elapsed_ms = (time.monotonic() - started) * 1000
+            logger.exception(
+                "attachment.classify_llm_error attachment_id=%s ms=%.0f err=%s",
+                attachment_id or "-",
+                elapsed_ms,
+                e,
+            )
             return {
                 "is_valid_document": True,
                 "confidence": 0.0,
@@ -657,10 +835,33 @@ class AttachmentNormalizerService:
 
     @staticmethod
     def _accept_image(cls_result: Dict[str, Any]) -> bool:
-        if cls_result.get("is_valid_document", True):
-            return True
-        confidence = float(cls_result.get("confidence", 0.0))
-        return confidence < 0.7
+        return bool(cls_result.get("is_valid_document", False))
+
+    @staticmethod
+    def _with_classification_index(
+        result: Dict[str, Any],
+        shipment_number: Optional[str],
+    ) -> Dict[str, Any]:
+        by_id: Dict[str, Dict[str, Any]] = {}
+        for row in result.get("classification_results") or []:
+            if not isinstance(row, dict):
+                continue
+            ref = str(row.get("attachment_ref") or "").strip()
+            if not ref:
+                continue
+            att_id = AttachmentNormalizerService._extract_attachment_id(
+                ref, shipment_number
+            )
+            if not att_id:
+                continue
+            by_id[att_id] = {
+                k: v for k, v in row.items() if k != "attachment_ref"
+            }
+        if by_id:
+            result["classification_by_attachment_id"] = by_id
+        elif "classification_by_attachment_id" not in result:
+            result["classification_by_attachment_id"] = {}
+        return result
 
     @staticmethod
     def _extract_attachment_id(
@@ -740,3 +941,13 @@ class AttachmentNormalizerService:
             "reason": reason,
             "flagged_at": datetime.now(timezone.utc).isoformat(),
         }
+
+
+class _InMemoryAttachmentNormalizer(AttachmentNormalizerService):
+    """Assess-only normalizer: ``_download`` reads pre-fetched bytes by ref."""
+
+    def __init__(self, bytes_by_ref: dict[str, bytes]) -> None:
+        self._bytes_by_ref = bytes_by_ref
+
+    def _download(self, attachment_ref: str) -> Optional[bytes]:
+        return self._bytes_by_ref.get((attachment_ref or "").strip())

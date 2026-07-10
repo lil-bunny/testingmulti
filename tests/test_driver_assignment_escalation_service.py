@@ -11,7 +11,6 @@ from tests.test_turvo_driver_request_eligibility import _eligible_payload
 
 _TENANT_SETTINGS = {
     "driver_assignment": {
-        "reminders": {"skip_sub_statuses": ["uploaded_to_tms", "escalated"]},
         "escalate_driver": {
             "teams_webhook_url": "https://example.webhook.office.com/test",
             "message_title": "Escalation load {load_id}",

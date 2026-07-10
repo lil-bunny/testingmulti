@@ -9,11 +9,11 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_current_user, get_tenant_slug_for_user
 from app.main import app
-from app.services.pod_manual_upload_ingress_service import (
+from app.services.pod_lifecycle.manual_upload_ingress_service import (
     PodLifecycleNotFoundError,
     PodManualUploadEnqueueResult,
 )
-from app.services.pod_tms_upload_service import PodDocumentNotFoundError
+from app.services.pod_lifecycle.tms_upload_service import PodDocumentNotFoundError
 from tests.helpers.auth_tokens import bearer_headers, make_test_api_user
 
 _MIN_PDF = b"%PDF-1.4\n1 0 obj\n"

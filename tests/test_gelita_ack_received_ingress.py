@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import status
-from fastapi.responses import JSONResponse
 
-from app.services.gelita_inbound_email_service import GelitaInboundEmailService
+from app.domain.ingress_result import IngressResult
+from app.services.gelita_email_ingress_service import GelitaEmailIngressService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from tests.fixtures.outlook_auto_reply_emails import ack_received_ooo_webhook_payload
 
@@ -35,12 +33,12 @@ def _reply_payload() -> dict:
     }
 
 
-@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch("app.services.gelita_email_ingress_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_skips_enqueue_when_lifecycle_completed(
     mock_enqueue: MagicMock,
 ) -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
 
@@ -51,26 +49,24 @@ def test_ack_received_skips_enqueue_when_lifecycle_completed(
         "tender_id": "22222222-2222-2222-2222-222222222222",
     }
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload=_reply_payload(),
         tenant=_tenant(),
         graph_slug="gelita",
     )
 
-    assert isinstance(response, JSONResponse)
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert content["message"] == "lifecycle completed; ack not processed"
-    assert content["event_type"] == "ack_received"
-    assert content["workflow_lifecycle_id"] == LIFECYCLE_ID
-    assert "execution_id" not in content
+    assert isinstance(result, IngressResult)
+    assert result.outcome == "skipped"
+    assert result.event_type == "ack_received"
+    assert result.reason == "lifecycle completed; ack not processed"
+    assert result.execution_ids == ()
     mock_enqueue.assert_not_called()
 
 
-@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch("app.services.gelita_email_ingress_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_skips_retired_carrier_thread(mock_enqueue: MagicMock) -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
     svc._tender_service = MagicMock()
@@ -87,23 +83,24 @@ def test_ack_received_skips_retired_carrier_thread(mock_enqueue: MagicMock) -> N
     }
     svc._communications.is_retired_carrier_thread.return_value = True
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload=_reply_payload(),
         tenant=_tenant(),
         graph_slug="gelita",
     )
 
-    content = json.loads(response.body)
-    assert content["reason"] == "retired_carrier_thread"
+    assert result is not None
+    assert result.outcome == "skipped"
+    assert result.reason == "retired_carrier_thread"
     mock_enqueue.assert_not_called()
 
 
-@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch("app.services.gelita_email_ingress_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_enqueues_when_lifecycle_not_completed(
     mock_enqueue: MagicMock,
 ) -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
     svc._tender_service = MagicMock()
@@ -123,18 +120,17 @@ def test_ack_received_enqueues_when_lifecycle_not_completed(
 
     mock_enqueue.return_value = "exec-ack-1"
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload=_reply_payload(),
         tenant=_tenant(),
         graph_slug="gelita",
         communication_id=COMM_ID,
     )
 
-    assert isinstance(response, JSONResponse)
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert content["event_type"] == "ack_received"
-    assert content["execution_id"] == "exec-ack-1"
+    assert isinstance(result, IngressResult)
+    assert result.outcome == "enqueued"
+    assert result.event_type == "ack_received"
+    assert result.execution_ids == ("exec-ack-1",)
     mock_enqueue.assert_called_once()
     assert mock_enqueue.call_args.kwargs["event_type"] == "ack_received"
     wp = mock_enqueue.call_args.kwargs["payload"]
@@ -142,15 +138,16 @@ def test_ack_received_enqueues_when_lifecycle_not_completed(
     assert wp["tender_id"] == "22222222-2222-2222-2222-222222222222"
     assert wp["communication_id"] == COMM_ID
     assert "routing_guide_attempt" not in wp
+    assert "routing_guide_attempt" not in wp
     assert mock_enqueue.call_args.kwargs["communication_id"] == COMM_ID
     assert mock_enqueue.call_args.kwargs["thread_id"] == THREAD_ID
 
 
-@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch("app.services.gelita_email_ingress_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_ftl_seeds_routing_guide_attempt(mock_enqueue: MagicMock) -> None:
     """FTL reject path never hits read_tender_row; attempt must be on the payload."""
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
     svc._tender_service = MagicMock()
@@ -170,29 +167,25 @@ def test_ack_received_ftl_seeds_routing_guide_attempt(mock_enqueue: MagicMock) -
     svc._communications.is_communication_linked_to_run.return_value = False
     mock_enqueue.return_value = "exec-ack-ftl-3"
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload=_reply_payload(),
         tenant=_tenant(),
         graph_slug="gelita",
         communication_id=COMM_ID,
     )
 
-    assert isinstance(response, JSONResponse)
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert content["event_type"] == "ack_received"
-    assert content["execution_id"] == "exec-ack-ftl-3"
-    mock_enqueue.assert_called_once()
+    assert result is not None
+    assert result.outcome == "enqueued"
     wp = mock_enqueue.call_args.kwargs["payload"]
     assert wp["routing_guide_attempt"] == 3
 
 
-@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch("app.services.gelita_email_ingress_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_enqueues_automatic_reply_for_worker_guard(
     mock_enqueue: MagicMock,
 ) -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
     svc._tender_service = MagicMock()
@@ -211,44 +204,43 @@ def test_ack_received_enqueues_automatic_reply_for_worker_guard(
     svc._communications.is_communication_linked_to_run.return_value = False
     mock_enqueue.return_value = "exec-ooo-1"
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload=ack_received_ooo_webhook_payload(thread_id=THREAD_ID),
         tenant=_tenant(),
         graph_slug="gelita",
         communication_id=COMM_ID,
     )
 
-    assert isinstance(response, JSONResponse)
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert content["execution_id"] == "exec-ooo-1"
+    assert isinstance(result, IngressResult)
+    assert result.outcome == "enqueued"
+    assert result.execution_ids == ("exec-ooo-1",)
     mock_enqueue.assert_called_once()
     wp = mock_enqueue.call_args.kwargs["payload"]
     assert wp["subject"].startswith("Automatic reply:")
 
 
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
 def test_ack_received_returns_none_when_thread_unlinked() -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
     svc._communications.resolve_lifecycle_id_for_thread.return_value = None
 
-    response = svc._try_ack_received(
+    result = svc._try_ack_received(
         payload=_reply_payload(),
         tenant=_tenant(),
         graph_slug="gelita",
     )
-    assert response is None
+    assert result is None
 
 
 @pytest.mark.asyncio
-@patch("app.services.gelita_inbound_email_service.enqueue_gelita_load_tendering_and_link")
-@patch.object(GelitaInboundEmailService, "__init__", lambda self: None)
-async def test_handle_records_comms_but_skips_ack_when_completed(
+@patch("app.services.gelita_email_ingress_service.enqueue_gelita_load_tendering_and_link")
+@patch.object(GelitaEmailIngressService, "__init__", lambda self: None)
+async def test_process_skips_ack_when_lifecycle_completed(
     mock_enqueue: MagicMock,
 ) -> None:
-    svc = GelitaInboundEmailService()
+    svc = GelitaEmailIngressService()
     svc._lifecycle = MagicMock()
     svc._communications = MagicMock()
 
@@ -258,19 +250,17 @@ async def test_handle_records_comms_but_skips_ack_when_completed(
         "sub_status": "accepted",
         "tender_id": "22222222-2222-2222-2222-222222222222",
     }
-    svc._communications.record_or_resolve_inbound.return_value = COMM_ID
 
     with patch(
-        "app.services.gelita_inbound_email_service.resolve_workflow_graph_tenant_id",
+        "app.services.gelita_email_ingress_service.resolve_workflow_graph_tenant_id",
         return_value="gelita",
     ):
-        response = await svc.handle(
+        result = await svc.process(
             payload=_reply_payload(),
             tenant=_tenant(),
+            communication_id=COMM_ID,
         )
 
-    svc._communications.record_or_resolve_inbound.assert_called_once()
     mock_enqueue.assert_not_called()
-    assert response.status_code == status.HTTP_200_OK
-    content = json.loads(response.body)
-    assert content["message"] == "lifecycle completed; ack not processed"
+    assert result.outcome == "skipped"
+    assert result.reason == "lifecycle completed; ack not processed"

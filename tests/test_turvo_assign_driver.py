@@ -11,6 +11,8 @@ from app.integrations.turvo.shipments import (
     TRACKING_METHOD_NONE,
     TRACKING_METHOD_TURVO_APP,
     assign_driver_to_shipment,
+    driver_assignment_row_ids_from_carrier_order,
+    replace_driver_on_shipment,
 )
 
 
@@ -51,3 +53,49 @@ async def test_assign_driver_no_invite_uses_none_tracking_without_driver_type() 
     assert driver["sendInvite"] is False
     assert driver["trackingMethod"] == TRACKING_METHOD_NONE
     assert "driverType" not in driver
+
+
+def test_driver_assignment_row_ids_ignores_deleted_and_missing_id() -> None:
+    order = {
+        "deleted": False,
+        "drivers": [
+            {"deleted": False, "id": "row-a", "context": {"id": 640635}},
+            {"deleted": True, "id": "row-b"},
+            {"deleted": False, "context": {"id": 640637}},
+            {"deleted": False, "id": "row-c", "driverId": 640638},
+        ],
+    }
+    assert driver_assignment_row_ids_from_carrier_order(order) == ["row-a", "row-c"]
+
+
+def test_driver_assignment_row_ids_uses_driver_assignment_id_fallback() -> None:
+    order = {
+        "deleted": False,
+        "drivers": [
+            {"deleted": False, "driverAssignmentId": 37477, "context": {"id": 640635}},
+        ],
+    }
+    assert driver_assignment_row_ids_from_carrier_order(order) == ["37477"]
+
+
+@pytest.mark.asyncio
+async def test_replace_driver_builds_delete_and_add_operations() -> None:
+    client = AsyncMock()
+    client.request = AsyncMock(return_value={"Status": "SUCCESS"})
+    await replace_driver_on_shipment(
+        "t3ra",
+        "1000324895",
+        carrier_order_id=653902,
+        contact_id=640637,
+        assignment_row_ids=["100", "101"],
+        segment_id="seg-1",
+        send_invite=False,
+        client=client,
+    )
+    drivers = client.request.await_args.kwargs["json_body"]["carrierOrder"][0]["drivers"]
+    assert drivers[0] == {"driverAssignmentId": 100, "_operation": 2}
+    assert drivers[1] == {"driverAssignmentId": 101, "_operation": 2}
+    add = drivers[2]
+    assert add["driverId"] == 640637
+    assert add["_operation"] == 0
+    assert add["trackingMethod"] == TRACKING_METHOD_NONE

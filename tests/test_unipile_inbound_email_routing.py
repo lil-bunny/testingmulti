@@ -150,37 +150,25 @@ def seed_inbound_routing_tenants() -> Iterator[dict[str, dict[str, Any]]]:
 
 
 @pytest.fixture
-def gelita_ingest_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+def ingress_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     captured: list[dict] = []
 
     def _enqueue(**kwargs: object) -> tuple[str, str]:
         captured.append(dict(kwargs))  # type: ignore[arg-type]
-        return "test-ingest-task-id", "queued"
+        return "test-ingress-task-id", "queued"
 
     monkeypatch.setattr(
-        "app.services.gelita_inbound_email_service.enqueue_load_tendering_tender_created_ingest",
+        "app.api.v1.webhooks.enqueue_inbound_unipile_email",
         _enqueue,
     )
     return captured
-
-
-@pytest.fixture(autouse=True)
-def noop_communications(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "app.services.gelita_inbound_email_service.CommunicationsService",
-        lambda: MagicMock(record_or_resolve_inbound=MagicMock(return_value="comm-test-id")),
-    )
-    monkeypatch.setattr(
-        "app.services.t3ra_inbound_email_service.CommunicationsService",
-        lambda: MagicMock(record_or_resolve_inbound=MagicMock(return_value="comm-test-id")),
-    )
 
 
 @pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or gelita/t3ra tenants missing")
 @pytest.mark.usefixtures("seed_inbound_routing_tenants")
 def test_webhook_routes_gelita_by_recipient_email(
     webhook_headers: dict[str, str],
-    gelita_ingest_capture: list[dict],
+    ingress_capture: list[dict],
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
@@ -188,18 +176,19 @@ def test_webhook_routes_gelita_by_recipient_email(
         json=_gelita_xlsx_payload(_GELITA_EMAIL),
         headers=webhook_headers,
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 202, r.text
     body = r.json()
-    assert body["message"] == "accepted"
-    assert body["event_type"] == "tender_created"
-    assert len(gelita_ingest_capture) == 1
-    assert gelita_ingest_capture[0]["tenant_slug"] == "gelita"
+    assert body["accepted"] is True
+    assert body["status"] == "queued"
+    assert len(ingress_capture) == 1
+    assert ingress_capture[0]["tenant_slug"] == "gelita"
 
 
 @pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or gelita/t3ra tenants missing")
 @pytest.mark.usefixtures("seed_inbound_routing_tenants")
 def test_webhook_routes_t3ra_by_recipient_email(
     webhook_headers: dict[str, str],
+    ingress_capture: list[dict],
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
@@ -207,8 +196,12 @@ def test_webhook_routes_t3ra_by_recipient_email(
         json=_payload_with_to(_T3RA_EMAIL, subject="hello", has_attachments=False),
         headers=webhook_headers,
     )
-    assert r.status_code == 200, r.text
-    assert r.json() == {"message": "no workflow classified"}
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["accepted"] is True
+    assert body["status"] == "queued"
+    assert len(ingress_capture) == 1
+    assert ingress_capture[0]["tenant_slug"] == "t3ra"
 
 
 @pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or gelita/t3ra tenants missing")

@@ -1,4 +1,4 @@
-"""Gelita xlsx webhook accepts fast and queues background ingest."""
+"""Gelita xlsx webhook accepts fast and queues unified ingress."""
 
 from __future__ import annotations
 
@@ -36,15 +36,15 @@ def webhook_headers() -> dict[str, str]:
 
 
 @pytest.fixture
-def ingest_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+def ingress_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     captured: list[dict] = []
 
     def _enqueue(**kwargs: object) -> tuple[str, str]:
         captured.append(dict(kwargs))  # type: ignore[arg-type]
-        return "test-ingest-task-id", "queued"
+        return "test-ingress-task-id", "queued"
 
     monkeypatch.setattr(
-        "app.services.gelita_inbound_email_service.enqueue_load_tendering_tender_created_ingest",
+        "app.api.v1.webhooks.enqueue_inbound_unipile_email",
         _enqueue,
     )
     return captured
@@ -61,18 +61,10 @@ def gelita_tenant_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture(autouse=True)
-def no_db_workflow_graph_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "app.repositories.tenants_db_repository.get_slug_for_tenant_uuid",
-        lambda _tid: "gelita",
-    )
-
-
-@pytest.mark.usefixtures("gelita_tenant_stub", "ingest_capture")
-def test_gelita_xlsx_webhook_returns_accepted_and_queues_ingest(
+@pytest.mark.usefixtures("gelita_tenant_stub", "ingress_capture")
+def test_gelita_xlsx_webhook_returns_accepted_and_queues_ingress(
     webhook_headers: dict[str, str],
-    ingest_capture: list[dict],
+    ingress_capture: list[dict],
 ) -> None:
     client = TestClient(create_app())
     r = client.post(
@@ -80,12 +72,11 @@ def test_gelita_xlsx_webhook_returns_accepted_and_queues_ingest(
         json=_load_tender_payload(),
         headers=webhook_headers,
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 202, r.text
     body = r.json()
-    assert body["message"] == "accepted"
-    assert body["event_type"] == "tender_created"
-    assert body["task_id"] == "test-ingest-task-id"
+    assert body["accepted"] is True
+    assert body["ingress_task_id"] == "test-ingress-task-id"
     assert body["status"] == "queued"
-    assert len(ingest_capture) == 1
-    assert ingest_capture[0]["tenant_slug"] == "gelita"
-    assert ingest_capture[0]["payload"]["email_id"] == "mail-1"
+    assert len(ingress_capture) == 1
+    assert ingress_capture[0]["tenant_slug"] == "gelita"
+    assert ingress_capture[0]["payload"]["email_id"] == "mail-1"

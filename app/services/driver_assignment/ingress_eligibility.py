@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.driver_assignment.escalation import skip_sub_statuses_from_driver_assignment_settings
+from app.domain.driver_assignment.guards import driver_assignment_reminder_skip_sub_statuses
 from app.domain.driver_assignment.guards import (
     blocks_driver_assignment_escalation,
     blocks_driver_assignment_reminder,
+)
+from app.domain.driver_assignment.reminder_ladder import (
+    MAX_SEQUENTIAL_REMINDER_STEP,
+    schedule_reminder_step_from_payload,
+    sent_schedule_steps_from_metadata,
+    sequential_reminder_step_from_sub_status,
 )
 from app.domain.status_parsing import sub_status_type_from_db
 from app.integrations.turvo.shipments import driver_assigned_from_payload
@@ -77,6 +83,8 @@ class IngressEligibilityMixin:
 
         """Reminder_due gate: Turvo + driver-not-assigned only (no ratecon duplicate check)."""
 
+        self._activity.record_delayed_shipment_fetch_timeout(payload)
+
         for key in ("thread_id", "load_id", "shipment_id", "shipments_row_id"):
 
             if not self._clean(payload.get(key)):
@@ -101,11 +109,13 @@ class IngressEligibilityMixin:
 
         wl_id = self._clean(payload.get("workflow_lifecycle_id"))
 
+        row_for_gate: dict[str, Any] | None = None
+
         if wl_id:
 
-            row = self._lifecycle_service.read_lifecycle_row_by_id(wl_id)
+            row_for_gate = self._lifecycle_service.read_lifecycle_row_by_id(wl_id)
 
-            if blocks_driver_assignment_reminder(row):
+            if blocks_driver_assignment_reminder(row_for_gate):
 
                 return EligibilityResult(skip_reason="already_completed")
 
@@ -128,23 +138,29 @@ class IngressEligibilityMixin:
 
         lifecycle_id = self._clean(lifecycle.get("lifecycle_id")) if lifecycle else None
 
-        if lifecycle_id:
+        gate_wl_id = wl_id or lifecycle_id
 
-            row = self._lifecycle_service.read_lifecycle_row_by_id(lifecycle_id)
+        if gate_wl_id:
 
-            current_step = self._reminder_step_from_lifecycle_row(row)
+            row = (
+                row_for_gate
+                if gate_wl_id == wl_id and row_for_gate is not None
+                else self._lifecycle_service.read_lifecycle_row_by_id(gate_wl_id)
+            )
 
-            raw_step = payload.get("reminder_step")
+            current_seq = sequential_reminder_step_from_sub_status(
+                (row or {}).get("sub_status")
+            )
 
-            try:
+            if current_seq >= MAX_SEQUENTIAL_REMINDER_STEP:
 
-                requested_step = int(raw_step) if raw_step is not None else None
+                return EligibilityResult(skip_reason="reminder_cap_reached")
 
-            except (TypeError, ValueError):
+            schedule_step = schedule_reminder_step_from_payload(payload)
 
-                requested_step = None
-
-            if requested_step is not None and requested_step <= current_step:
+            if schedule_step is not None and schedule_step in sent_schedule_steps_from_metadata(
+                (row or {}).get("metadata")
+            ):
 
                 return EligibilityResult(skip_reason="reminder_step_already_sent")
 
@@ -163,6 +179,8 @@ class IngressEligibilityMixin:
         ) -> EligibilityResult:
 
         """Escalation_due gate: Turvo + lifecycle; no carrier thread required."""
+
+        self._activity.record_delayed_shipment_fetch_timeout(payload)
 
         for key in ("load_id", "shipment_id", "shipments_row_id", "workflow_lifecycle_id"):
 
@@ -200,15 +218,10 @@ class IngressEligibilityMixin:
 
                 return EligibilityResult(skip_reason="already_completed")
 
-            tenant_settings = payload.get("tenant_settings")
-
-            skip_subs = skip_sub_statuses_from_driver_assignment_settings(
-
-                tenant_settings if isinstance(tenant_settings, dict) else None
-
+            skip = delayed_workflow_step_skip_reason(
+                row,
+                skip_sub_statuses=driver_assignment_reminder_skip_sub_statuses(),
             )
-
-            skip = delayed_workflow_step_skip_reason(row, skip_sub_statuses=skip_subs)
 
             if skip:
 
@@ -227,26 +240,3 @@ class IngressEligibilityMixin:
             return EligibilityResult(skip_reason="already_completed")
 
         return EligibilityResult(skip_reason=None)
-
-    @staticmethod
-    def _reminder_step_from_lifecycle_row(row: dict[str, Any] | None) -> int:
-
-        if not row:
-
-            return 0
-
-        sub = sub_status_type_from_db(row.get("sub_status"))
-
-        mapping = {
-
-            StatusSubType.REMINDER_1_SENT: 1,
-
-            StatusSubType.REMINDER_2_SENT: 2,
-
-            StatusSubType.REMINDER_3_SENT: 3,
-
-            StatusSubType.REMINDER_4_SENT: 4,
-
-        }
-
-        return mapping.get(sub, 0)

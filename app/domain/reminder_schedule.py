@@ -34,19 +34,19 @@ class DeliveryCutoffSpec(BaseModel):
 
 class WorkflowRemindersConfig(BaseModel):
     """
-    ``tenant_settings.<workflow_subkey>.reminders`` — schedule + optional email copy.
+    ``tenant_settings.<workflow_subkey>.reminders`` — delay-from-start schedule + email copy.
 
     Use flat ``steps`` or ``variants`` + ``variant_selector`` (e.g. load_type → ltl/ftl).
-    ``delay_hours`` means hours after schedule when ``schedule_mode=delay_from_start`` (POD),
-    or hours before pickup when ``schedule_mode=before_pickup`` (driver assignment).
-    Email HTML: prefer ``email_template_html``; ``default_body`` is legacy fallback.
+    ``delay_hours`` is hours after the schedule anchor (POD, load_tendering).
+    Driver assignment uses ``DriverAssignmentRemindersConfig`` instead.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     expire_grace_hours: float = Field(default=2.0, gt=0)
-    schedule_mode: Literal["delay_from_start", "before_pickup"] = "delay_from_start"
-    offsets_before_pickup_hours: list[float] | None = None
+    min_gap_hours: float = Field(default=3.0, ge=0)
+    catch_up_missed_steps: bool = True
+    schedule_mode: Literal["delay_from_start"] = "delay_from_start"
     steps: list[ReminderStepSpec] | None = None
     variants: dict[str, list[ReminderStepSpec]] | None = None
     variant_selector: Literal["load_type"] | None = None
@@ -71,16 +71,6 @@ class WorkflowRemindersConfig(BaseModel):
         if not isinstance(data, dict):
             return data
         out = dict(data)
-        if (
-            out.get("schedule_mode") == "before_pickup"
-            and not out.get("steps")
-            and out.get("offsets_before_pickup_hours")
-        ):
-            offsets = out["offsets_before_pickup_hours"]
-            out["steps"] = [
-                {"step": i, "event_type": "reminder_due", "delay_hours": h}
-                for i, h in enumerate(offsets, start=1)
-            ]
         raw_variants = out.get("variants")
         if not isinstance(raw_variants, dict):
             return out
@@ -95,12 +85,6 @@ class WorkflowRemindersConfig(BaseModel):
 
     @model_validator(mode="after")
     def _steps_or_variants(self) -> WorkflowRemindersConfig:
-        if self.schedule_mode == "before_pickup":
-            if self.variants:
-                raise ValueError("variants is not supported when schedule_mode is before_pickup")
-            if not self.steps:
-                raise ValueError("steps is required when schedule_mode is before_pickup")
-            return self
         has_steps = bool(self.steps)
         has_variants = bool(self.variants)
         if has_steps == has_variants:

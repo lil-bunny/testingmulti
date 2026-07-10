@@ -6,6 +6,10 @@ from typing import Any, Optional
 
 from app.core.service_db import run_with_repos
 from app.core.logger import get_logger
+from app.domain.driver_assignment.reminder_ladder import (
+    append_sent_schedule_step,
+    sent_schedule_steps_from_metadata,
+)
 from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 from app.models.status import StatusSubType, StatusType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
@@ -584,3 +588,37 @@ class WorkflowLifecycleService:
         if self._lifecycles_repo is not None:
             return _insert(self._lifecycles_repo)
         return run_with_repos(lambda repos: _insert(self._repo(repos)))
+
+    def append_driver_assignment_sent_schedule_step(
+        self,
+        *,
+        lifecycle_id: str,
+        schedule_step: int,
+    ) -> bool:
+        """Track which schedule slots already sent (eligibility dedup after catch-up)."""
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            return False
+        try:
+            step = int(schedule_step)
+        except (TypeError, ValueError):
+            return False
+
+        row = self.read_lifecycle_row_by_id(lid)
+        merged = append_sent_schedule_step(
+            sorted(sent_schedule_steps_from_metadata((row or {}).get("metadata") or {})),
+            step,
+        )
+        patch = {"driver_assignment_sent_schedule_steps": merged}
+
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.patch_metadata(
+                lifecycle_id=lid,
+                metadata_patch=patch,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).patch_metadata(
+                lifecycle_id=lid,
+                metadata_patch=patch,
+            )
+        )

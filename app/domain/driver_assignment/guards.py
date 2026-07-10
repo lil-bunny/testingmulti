@@ -20,6 +20,19 @@ _REMINDER_LADDER_SUB_STATUSES = frozenset(
     }
 )
 
+DRIVER_ASSIGNMENT_REMINDER_SKIP_SUB_STATUSES = frozenset(
+    {
+        StatusSubType.UPLOADED_TO_TMS.value,
+        StatusSubType.ESCALATED.value,
+    }
+)
+
+
+def driver_assignment_reminder_skip_sub_statuses(
+    _tenant_settings: dict[str, Any] | None = None,
+) -> frozenset[str]:
+    return DRIVER_ASSIGNMENT_REMINDER_SKIP_SUB_STATUSES
+
 
 def is_driver_assignment_cancelled(
     status: StatusType | None,

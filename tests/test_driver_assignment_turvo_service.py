@@ -672,7 +672,7 @@ async def test_shadow_mode_skips_assign_driver_to_shipment() -> None:
             return_value=False,
         ),
         patch(
-            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts",
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
             new=AsyncMock(return_value=[_virat_match()]),
         ),
         patch(
@@ -695,3 +695,109 @@ async def test_shadow_mode_skips_assign_driver_to_shipment() -> None:
     assert result.tms_contact_id == 640635
     assign_mock.assert_not_awaited()
     create_mock.assert_not_awaited()
+
+
+def _shipment_with_driver(*, driver_contact_id=640635, row_id="row-1", order_id=653902):
+    return {
+        "details": {
+            "customerOrder": [
+                {
+                    "deleted": False,
+                    "customer": {"id": 1, "name": "DIAMOND PET FOODS"},
+                }
+            ],
+            "carrierOrder": [
+                {
+                    "deleted": False,
+                    "id": order_id,
+                    "carrier": {"id": 848297, "name": "Test Carrier"},
+                    "segmentId": "seg-1",
+                    "drivers": [
+                        {
+                            "deleted": False,
+                            "id": row_id,
+                            "context": {"id": driver_contact_id, "name": "Old Driver"},
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_same_contact_on_shipment_skips_assign_and_replace() -> None:
+    svc = DriverAssignmentTurvoService()
+    assign_mock = AsyncMock()
+    replace_mock = AsyncMock()
+    with (
+        patch(
+            "app.services.driver_assignment.turvo_service.get_shipment",
+            new=AsyncMock(return_value=_shipment_with_driver(driver_contact_id=640635)),
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
+            new=AsyncMock(return_value=[_virat_match()]),
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
+            assign_mock,
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.replace_driver_on_shipment",
+            replace_mock,
+        ),
+    ):
+        result = await svc.resolve_and_assign(
+            tenant_slug="t3ra",
+            shipment_id="1000324895",
+            driver={"name": "Virat", "phone": "9989239823", "email": None},
+        )
+    assert result.outcome == "assigned"
+    assert result.tms_resolution == "skipped_already_assigned"
+    assert result.tms_contact_id == 640635
+    assign_mock.assert_not_awaited()
+    replace_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_different_contact_on_shipment_calls_replace() -> None:
+    svc = DriverAssignmentTurvoService()
+    replace_mock = AsyncMock(return_value={"Status": "SUCCESS"})
+    other_match = {
+        "id": 640637,
+        "name": "Other",
+        "phones": ["5122691730"],
+        "emails": [],
+        "raw": {
+            "id": 640637,
+            "name": "Other",
+            "context": [{"id": "848297", "type": "CARRIER"}],
+        },
+    }
+    with (
+        patch(
+            "app.services.driver_assignment.turvo_service.get_shipment",
+            new=AsyncMock(return_value=_shipment_with_driver(driver_contact_id=640635)),
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
+            new=AsyncMock(return_value=[other_match]),
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.replace_driver_on_shipment",
+            replace_mock,
+        ),
+    ):
+        result = await svc.resolve_and_assign(
+            tenant_slug="t3ra",
+            shipment_id="1000324895",
+            driver={"name": "Other", "phone": "5122691730", "email": None},
+        )
+    assert result.outcome == "assigned"
+    assert result.tms_resolution == "replaced"
+    assert result.tms_contact_id == 640637
+    replace_mock.assert_awaited_once()
+    kwargs = replace_mock.await_args.kwargs
+    assert kwargs["assignment_row_ids"] == ["row-1"]
+    assert kwargs["contact_id"] == 640637

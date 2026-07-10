@@ -5,19 +5,20 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from app.services.delivery_locations_email_ingest_service import (
-    process_delivery_locations_from_email_webhook,
-)
-from app.services.load_tendering_email_ingest_service import (
-    process_tender_created_from_email_webhook,
-)
-
-HANDLER_LOAD_TENDERING_TENDER_CREATED = "load_tendering.tender_created"
-HANDLER_DELIVERY_LOCATIONS_IMPORT = "load_tendering.delivery_locations"
+HANDLER_INBOUND_UNIPILE_EMAIL = "inbound.unipile_email"
 
 EmailWebhookHandler = Callable[..., Awaitable[Any]]
 
-HANDLERS: dict[str, EmailWebhookHandler] = {
-    HANDLER_LOAD_TENDERING_TENDER_CREATED: process_tender_created_from_email_webhook,
-    HANDLER_DELIVERY_LOCATIONS_IMPORT: process_delivery_locations_from_email_webhook,
-}
+
+def get_email_webhook_handler(handler: str) -> EmailWebhookHandler:
+    """
+    Resolve Celery handler by key.
+
+    Lazy import of ``process_inbound_unipile_email`` avoids import cycles between
+    enqueue (API) and ingress services at worker startup.
+    """
+    if handler == HANDLER_INBOUND_UNIPILE_EMAIL:
+        from app.services.inbound_unipile_email_handler import process_inbound_unipile_email
+
+        return process_inbound_unipile_email
+    raise ValueError(f"unknown email webhook handler: {handler!r}")

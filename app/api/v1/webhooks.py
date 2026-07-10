@@ -20,10 +20,14 @@ from app.integrations.turvo.webhook_mapping import (
 )
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
-from app.services.gelita_inbound_email_service import GelitaInboundEmailService
-from app.services.pod_lifecycle_ingress_service import PodLifecycleIngressService
+from app.services.pod_lifecycle.ingress_service import (
+    ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+    ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+    PodLifecycleIngressService,
+)
+from app.domain.unipile_email import extract_email_id_or_none
+from app.services.inbound_webhook_enqueue import enqueue_inbound_unipile_email
 from app.services.shipments_service import ShipmentsService
-from app.services.t3ra_inbound_email_service import T3raInboundEmailService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.integrations.turvo.workflow_cancel import shipment_tendered_trigger_from_turvo
 from app.services.workflow_lifecycle_cancel_orchestrator import (
@@ -68,7 +72,15 @@ async def webhook_email(
         Security(unipile_webhook_bearer),
     ],
 ):
+    """
+    Unipile email webhook — L1 edge only (auth, tenant resolve, enqueue Celery).
+
+    Returns ``202`` when a new ingress task is queued, ``200`` when the same
+    ``{tenant_uuid}:{email_id}`` was already queued (Unipile retry). L2 classification
+    and workflow enqueue run in ``inbound.unipile_email`` worker handler.
+    """
     try:
+        # Bearer auth — reject before parsing body on bad credentials.
         if (
             credentials is None
             or credentials.scheme.lower() != "bearer"
@@ -77,6 +89,7 @@ async def webhook_email(
             raise HTTPException(status_code=401, detail="Unauthorized")
         payload = await request.json()
 
+        # Map connected Unipile account → FreightX tenant (recipient / account metadata).
         try:
             tenant = resolve_unipile_tenant(payload=payload)
         except TenantResolutionError as e:
@@ -85,18 +98,34 @@ async def webhook_email(
         if tenant is None:
             return {"message": "invalid webhook"}
 
-        if tenant.tenant_slug == TenantSlug.GELITA:
-            gelita_inbound_email_service = GelitaInboundEmailService()
-            return await gelita_inbound_email_service.handle(payload=payload, tenant=tenant)
-        if tenant.tenant_slug == TenantSlug.T3RA:
-            t3ra_inbound_email_service = T3raInboundEmailService()
-            return await t3ra_inbound_email_service.handle(payload=payload, tenant=tenant)
+        # No slug allowlist here: L1 (resolve_unipile_tenant) already requires
+        # tenants.slug ∈ TENANT_CONFIGS and a matching inbound_routing_emails row.
+        # L2 ingress is selected in the Celery worker from tenant_slug.
+        # if tenant.tenant_slug not in (TenantSlug.GELITA, TenantSlug.T3RA):
+        #     logger.warning(
+        #         "unipile webhook: unsupported tenant_slug=%r",
+        #         tenant.tenant_slug,
+        #     )
+        #     return {"message": "invalid webhook"}
 
-        logger.warning(
-            "unipile webhook: unsupported tenant_slug=%r",
-            tenant.tenant_slug,
+        email_id = extract_email_id_or_none(payload)
+        if not email_id:
+            return {"message": "invalid webhook"}
+
+        # Deterministic Celery task_id — duplicate Unipile delivery → already_queued.
+        ingress_task_id, queue_status = enqueue_inbound_unipile_email(
+            tenant_uuid=tenant.tenant_uuid,
+            tenant_slug=tenant.tenant_slug,
+            payload=payload,
         )
-        return {"message": "invalid webhook"}
+        content = {
+            "accepted": True,
+            "ingress_task_id": ingress_task_id,
+            "status": queue_status,
+        }
+        if queue_status == "queued":
+            return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=content)
+        return JSONResponse(status_code=status.HTTP_200_OK, content=content)
     except HTTPException:
         raise
     except Exception as e:
@@ -220,6 +249,40 @@ async def listen_turvo_status(
                 content={
                     "skipped": "duplicate_route_completed",
                     "lifecycle_id": duplicate.lifecycle_id,
+                },
+            )
+
+        convoy_gate = await pod_lifecycle_ingress_service.check_route_completed_convoy_gate(
+            tenant_slug=workflow_tenant,
+            payload=payload,
+        )
+        if convoy_gate.skip:
+            logger.info(
+                "Turvo webhook skipped: convoy load shipment_number=%s",
+                external_shipment_number,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "skipped": ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
+                    "shipment_id": external_shipment_number,
+                },
+            )
+
+        pod_gate = await pod_lifecycle_ingress_service.check_route_completed_pod_gate(
+            tenant_slug=workflow_tenant,
+            payload=payload,
+        )
+        if pod_gate.skip:
+            logger.info(
+                "Turvo webhook skipped: POD already exists shipment_number=%s",
+                external_shipment_number,
+            )
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "skipped": ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
+                    "shipment_id": external_shipment_number,
                 },
             )
 

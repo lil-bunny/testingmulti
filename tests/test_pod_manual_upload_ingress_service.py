@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.services.pod_manual_upload_ingress_service import PodManualUploadIngressService
-from app.services.pod_tms_upload_service import (
+from app.services.pod_lifecycle.manual_upload_ingress_service import PodManualUploadIngressService
+from app.services.pod_lifecycle.tms_upload_service import (
     PodAttachmentStageResult,
     PodDocumentNotFoundError,
     PodLifecycleNotFoundError,

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
-from app.services.pod_tms_upload_activity import (
+from app.services.pod_lifecycle.tms_upload_activity import (
     PodLifecycleScope,
     record_pod_tms_upload_activity,
 )
@@ -61,6 +61,8 @@ def test_record_skipped_activity_completes_lifecycle_with_single_status_change()
 
     sequence = svc.record_sequence.call_args[0][0]
     assert len(sequence.steps) == 2
+    assert sequence.steps[0].activity_type == ActivityType.INFO
+    assert sequence.steps[0].description == "Pod found in TMS"
     assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert sequence.steps[1].to_status == StatusType.COMPLETED
     assert sequence.steps[1].to_sub_status == StatusSubType.UPLOADED_TO_TMS
@@ -87,7 +89,7 @@ def test_record_skipped_when_already_completed_only_sub_status_change():
     assert sequence.steps[1].to_sub_status == StatusSubType.UPLOADED_TO_TMS
 
 
-def test_record_skipped_when_already_on_tms_action_only():
+def test_record_skipped_when_already_on_tms_info_only():
     svc = MagicMock()
     svc.record_sequence.return_value = MagicMock()
 
@@ -103,7 +105,8 @@ def test_record_skipped_when_already_on_tms_action_only():
 
     sequence = svc.record_sequence.call_args[0][0]
     assert len(sequence.steps) == 1
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
+    assert sequence.steps[0].activity_type == ActivityType.INFO
+    assert sequence.steps[0].description == "Pod found in TMS"
 
 
 def test_record_uploaded_activity_with_null_workflow_run_id():

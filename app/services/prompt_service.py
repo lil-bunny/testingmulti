@@ -131,7 +131,7 @@ def resolve_pod_vs_ratecon_summary_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
-    from app.domain.pod_vs_ratecon_prompt_templates import (
+    from app.domain.pod_lifecycle.vs_ratecon_prompt_templates import (
         render_inline_pod_vs_ratecon_summary_prompts,
         summary_prompt_variables,
     )
@@ -157,7 +157,7 @@ def resolve_pod_vs_ratecon_semantic_match_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
-    from app.domain.pod_vs_ratecon_prompt_templates import (
+    from app.domain.pod_lifecycle.vs_ratecon_prompt_templates import (
         render_inline_pod_vs_ratecon_semantic_match_prompts,
         semantic_match_prompt_variables,
     )
