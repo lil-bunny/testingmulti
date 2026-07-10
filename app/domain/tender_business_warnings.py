@@ -17,6 +17,15 @@ TENDER_BUSINESS_WARNINGS_KEY = "tender_business_warnings"
 
 _REASON_SUFFIX = "Please update the field highlighted in red manually."
 
+# Routing-guide gaps belong in ``carrier_note`` (and activity logs), not the
+# catalog ``reason_for_failure`` header (which adds the red-field suffix).
+ROUTING_GUIDE_EMAIL_CODES = frozenset(
+    {
+        BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND.value,
+        BusinessError.MISSING_ROUTING_GUIDE_CARRIER_EMAIL.value,
+    }
+)
+
 _CATALOG_PROFILE_CODES = frozenset(
     {
         BusinessError.MISSING_QTY_PER_UNIT.value,
@@ -160,10 +169,13 @@ def filter_primary_business_warnings(
 
 
 def format_reason_for_failure_html(warnings: list[dict[str, Any]]) -> str:
-    """Vendor email header HTML for root-cause gaps; empty when there are none."""
+    """Catalog-gap email header HTML; omits routing-guide codes (see ``carrier_note``)."""
     seen_messages: set[str] = set()
     messages: list[str] = []
     for warning in filter_primary_business_warnings(warnings):
+        code = warning_code(warning)
+        if code in ROUTING_GUIDE_EMAIL_CODES:
+            continue
         message = str(warning.get("message") or "").strip()
         if not message or message in seen_messages:
             continue

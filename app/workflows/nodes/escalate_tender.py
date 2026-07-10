@@ -18,8 +18,10 @@ from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.tender_service import TenderService
 from app.services.unipile_service import UnipileException
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
 from app.tools.communication_metadata import stash_communication_id
 from app.tools.email import send_email
 from app.tools.load_tendering_lifecycle_guards import (
@@ -43,6 +45,28 @@ def _lifecycle_skip(
     )
 
 
+def _resolve_order_number(
+    state: Any,
+    *,
+    tenant_id: str,
+    tender_id: str,
+) -> str:
+    """Prefer hydrated state; fall back to tender row (reject→exhausted never hits read_tender_row)."""
+    order_number = order_number_from_data(state.data)
+    if order_number:
+        return order_number
+    if not tender_id:
+        return ""
+    tender_service = TenderService()
+    bundle = tender_service.read_order(tenant_id=tenant_id, tender_id=tender_id)
+    if not bundle:
+        return ""
+    order_number = str(bundle["tender"].get("order_number") or "").strip()
+    if order_number:
+        state.data["order_number"] = order_number
+    return order_number
+
+
 def escalate_tender(state):
     """
     ``escalation_due``: notify operations by email (TO/body from ``tenant_settings``), then set
@@ -60,6 +84,10 @@ def escalate_tender(state):
         return state
 
     workflow_lifecycle_service = WorkflowLifecycleService()
+    # Always revoke pending ETAs on escalate entry (including already-escalated re-entry).
+    reminder_cancel_service = WorkflowReminderCancelService()
+    reminder_cancel_service.cancel_all(lifecycle_id=wl_id)
+
     skip = _lifecycle_skip(
         state,
         workflow_lifecycle_service=workflow_lifecycle_service,
@@ -95,7 +123,11 @@ def escalate_tender(state):
         )
         return state
 
-    order_number = order_number_from_data(state.data)
+    order_number = _resolve_order_number(
+        state,
+        tenant_id=tenant_id,
+        tender_id=tender_id,
+    )
 
     fmt_ctx = {"order_number": order_number or "unknown"}
     subject_template = escalate_cfg.escalation_email_subject.strip()

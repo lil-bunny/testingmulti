@@ -27,16 +27,28 @@ def test_delayed_step_skips_accepted_sub_status() -> None:
     )
 
 
+def test_delayed_step_skips_escalated_sub_status() -> None:
+    assert (
+        delayed_workflow_step_skip_reason(
+            {
+                "status": StatusType.PENDING_REVIEW.value,
+                "sub_status": StatusSubType.ESCALATED.value,
+            },
+        )
+        == "terminal_sub_status_escalated"
+    )
+
+
 def test_delayed_step_skips_configured_sub_status() -> None:
     assert (
         delayed_workflow_step_skip_reason(
             {
                 "status": StatusType.PENDING_REVIEW.value,
-                "sub_status": "escalated",
+                "sub_status": "reminder_1_sent",
             },
             skip_sub_statuses=frozenset({"escalated", "reminder_1_sent"}),
         )
-        == "skip_sub_status_escalated"
+        == "skip_sub_status_reminder_1_sent"
     )
 
 

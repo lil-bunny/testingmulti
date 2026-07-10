@@ -5,6 +5,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from app.domain.error_catalog import BusinessError, format_error_message
 from app.services.routing_guide_lookup_service import (
     RoutingGuideCarrierResolution,
     RoutingGuideLookupService,
@@ -50,10 +51,17 @@ def build_carrier_note_from_resolution(
     attempt: int,
     resolution: RoutingGuideCarrierResolution,
 ) -> str:
-    """Build HTML carrier note including business-gap highlighting."""
+    """Build HTML carrier note; RG gaps use catalog messages (not reason_for_failure)."""
     if resolution.lane_miss:
-        return _highlight_carrier_note("Route guide lane not found")
+        return _highlight_carrier_note(
+            format_error_message(BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND)
+        )
     if resolution.missing_carrier_email:
         label = resolution.plan_carrier_name or f"attempt {attempt}"
-        return _highlight_carrier_note(f"Carrier email missing for {label}")
+        return _highlight_carrier_note(
+            format_error_message(
+                BusinessError.MISSING_ROUTING_GUIDE_CARRIER_EMAIL,
+                plan_carrier=label,
+            )
+        )
     return build_carrier_note(attempt, resolution.carrier_email)
