@@ -138,6 +138,7 @@ def test_ack_received_enqueues_when_lifecycle_not_completed(
     assert wp["tender_id"] == "22222222-2222-2222-2222-222222222222"
     assert wp["communication_id"] == COMM_ID
     assert "routing_guide_attempt" not in wp
+    assert "routing_guide_attempt" not in wp
     assert mock_enqueue.call_args.kwargs["communication_id"] == COMM_ID
     assert mock_enqueue.call_args.kwargs["thread_id"] == THREAD_ID
 
