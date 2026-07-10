@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from app.domain.error_catalog import BusinessError, format_error_message
 from app.domain.routing_guide import RoutingGuideRow, routing_guide_policy_for
 from app.domain.routing_guide.types import PlanCarrierSlot
 from app.models.tenants import TenantSlug
@@ -117,7 +118,8 @@ def test_resolve_carrier_lane_miss(mock_run: MagicMock) -> None:
     )
     assert resolution.lane_miss is True
     note = build_carrier_note_from_resolution(attempt=1, resolution=resolution)
-    assert "Route guide lane not found" in note
+    assert format_error_message(BusinessError.ROUTING_GUIDE_LANE_NOT_FOUND) in note
+    assert "Please update the field highlighted in red manually." not in note
 
 
 def test_resolve_carrier_unknown_tenant_fails_closed() -> None:
