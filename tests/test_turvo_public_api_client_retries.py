@@ -54,8 +54,7 @@ def _httpx_response(status_code: int, body: dict | str | None = None) -> httpx.R
 def _wire_client(monkeypatch: pytest.MonkeyPatch) -> TurvoApiClient:
     monkeypatch.setattr(TurvoApiClient, "_load_tms", lambda self, slug: _fake_tms())
     monkeypatch.setattr(settings, "TURVO_HTTP_MAX_ATTEMPTS", 5)
-    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_BASE_S", 0.0)
-    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_MAX_S", 0.0)
+    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_DELAY_S", 0.0)
     monkeypatch.setattr("app.integrations.turvo.public_api_client.asyncio.sleep", AsyncMock())
     return TurvoApiClient(oauth_service=_FakeOAuthService())
 
@@ -89,6 +88,24 @@ async def test_500_exhaustion_raises_normalized_timeout(monkeypatch: pytest.Monk
         await client.request("t3ra", "GET", "/shipments/1")
     assert exc_info.value.status_code is None
     assert "TMS connection timed out after 5 attempts" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_500_retries_use_fixed_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _wire_client(monkeypatch)
+    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_DELAY_S", 15.0)
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr("app.integrations.turvo.public_api_client.asyncio.sleep", sleep_mock)
+    responses = [_httpx_response(500), _httpx_response(500), _httpx_response(200, {"ok": True})]
+
+    async def fake_send(self, method, url, headers, params, json_body, timeout_s, *, files=None):
+        return responses.pop(0)
+
+    monkeypatch.setattr(TurvoApiClient, "_send", fake_send)
+    out = await client.request("t3ra", "GET", "/shipments/1")
+    assert out == {"ok": True}
+    assert sleep_mock.await_count == 2
+    sleep_mock.assert_awaited_with(15.0)
 
 
 @pytest.mark.asyncio
@@ -129,8 +146,7 @@ async def test_401_refresh_does_not_consume_transient_budget(monkeypatch: pytest
     )
     monkeypatch.setattr(TurvoApiClient, "_load_tms", lambda self, slug: _fake_tms())
     monkeypatch.setattr(settings, "TURVO_HTTP_MAX_ATTEMPTS", 5)
-    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_BASE_S", 0.0)
-    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_MAX_S", 0.0)
+    monkeypatch.setattr(settings, "TURVO_HTTP_RETRY_DELAY_S", 0.0)
     monkeypatch.setattr("app.integrations.turvo.public_api_client.asyncio.sleep", AsyncMock())
     client = TurvoApiClient(oauth_service=oauth)
     responses = [_httpx_response(401), _httpx_response(200, {"id": 1})]

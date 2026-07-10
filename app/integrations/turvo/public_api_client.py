@@ -9,7 +9,7 @@ delegate here for HTTP.
 
 ``TurvoApiClient`` centralizes bearer token resolution via ``TurvoOAuthService``,
 required headers (e.g. ``x-api-key``), 401/403 refresh + retry, transient retries
-with exponential backoff, and JSON parsing. Other modules under
+with fixed delay between attempts, and JSON parsing. Other modules under
 ``app.integrations.turvo`` use this client and must not build ``Authorization``
 headers themselves.
 """
@@ -137,10 +137,8 @@ class TurvoApiClient:
         return max(1, settings.TURVO_HTTP_MAX_ATTEMPTS)
 
     @staticmethod
-    def _retry_backoff_s(attempt: int) -> float:
-        base = max(0.0, settings.TURVO_HTTP_RETRY_BASE_S)
-        cap = max(base, settings.TURVO_HTTP_RETRY_MAX_S)
-        return min(base * (2 ** (attempt - 1)), cap)
+    def _retry_delay_s() -> float:
+        return max(0.0, settings.TURVO_HTTP_RETRY_DELAY_S)
 
     @staticmethod
     def _connection_timed_out_error(max_attempts: int) -> TurvoApiError:
@@ -192,7 +190,7 @@ class TurvoApiClient:
                     max_attempts,
                     e,
                 )
-                await asyncio.sleep(self._retry_backoff_s(transient_attempt))
+                await asyncio.sleep(self._retry_delay_s())
                 continue
 
             if resp.status_code in (401, 403) and not auth_refresh_used:
@@ -228,7 +226,7 @@ class TurvoApiClient:
                     transient_attempt,
                     max_attempts,
                 )
-                await asyncio.sleep(self._retry_backoff_s(transient_attempt))
+                await asyncio.sleep(self._retry_delay_s())
                 continue
 
             self._raise_for_status(method, path, resp)
