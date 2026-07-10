@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from app.core.config import settings
 from app.core.logger import get_logger
+from app.domain.tms.connection_failure import is_tms_connection_timeout
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.documents import (
     check_pod_by_shipment_id as check_pod_by_shipment_id_async,
@@ -93,7 +94,10 @@ def get_shipment(
             e.status_code,
             e.body,
         )
-        return _stub_shipment(shipment_id, error=str(e))
+        stub = _stub_shipment(shipment_id, error=str(e))
+        if is_tms_connection_timeout(e):
+            stub["turvo_connection_timed_out"] = True
+        return stub
     except ValueError as e:
         logger.warning("Invalid Turvo get_shipment call: %s", e)
         return _stub_shipment(shipment_id, error=str(e))

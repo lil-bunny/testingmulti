@@ -23,6 +23,7 @@ from app.domain.status_parsing import status_type_from_db, sub_status_type_from_
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
+from app.services.tms_connection_activity_service import TmsConnectionActivityService
 from app.services.driver_assignment.shipment_driver_details_service import (
     DriverAssignmentShipmentDetailsService,
 )
@@ -379,11 +380,42 @@ class DriverAssignmentActivityService:
             )
         )
 
+    def record_delayed_shipment_fetch_timeout(self, payload: dict[str, Any]) -> None:
+        """Audit EXCEPTION when reminder/escalation ``get_shipment`` hit transport timeout."""
+        event_type = str(payload.get("event_type") or "").strip()
+        if event_type not in ("reminder_due", "escalation_due"):
+            return
+        shipment = payload.get("shipment")
+        if not isinstance(shipment, dict) or not shipment.get("turvo_connection_timed_out"):
+            return
+        wl_id = str(payload.get("workflow_lifecycle_id") or "").strip()
+        tenant_id = str(payload.get("tenant_id") or "").strip()
+        if not wl_id or not tenant_id:
+            return
+        run_id = str(payload.get("execution_id") or "").strip() or None
+        comm_raw = payload.get("communication_id")
+        comm_id = str(comm_raw).strip() if comm_raw is not None else None
+        communication_id = comm_id or None
+        TmsConnectionActivityService(activity_log_service=self._activity).record_timeout(
+            tenant_id=tenant_id,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            communication_id=communication_id,
+        )
+
     def record_tms_driver_error(self, state) -> None:
         scope = self._scope_ids(state)
         if scope is None:
             return
         wl_id, tenant_id, run_id = scope
+        if state.data.get("tms_connection_timed_out"):
+            TmsConnectionActivityService(activity_log_service=self._activity).record_timeout(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                communication_id=self._communication_id(state),
+            )
+            return
         reason = str(state.data.get("tms_driver_error") or "unknown").strip() or "unknown"
         self._activity.record_sequence(
             ActivityLogSequence(

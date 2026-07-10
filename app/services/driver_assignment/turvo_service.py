@@ -15,6 +15,7 @@ from app.integrations.turvo.ui_accounts import (
     search_carrier_driver_contacts_by_phone,
 )
 from app.integrations.turvo.public_api_client import TurvoApiError
+from app.domain.tms.connection_failure import is_tms_connection_timeout
 from app.integrations.turvo.shipments import (
     assign_driver_to_shipment,
     carrier_from_order,
@@ -73,6 +74,7 @@ class TmsDriverResolution:
     tms_is_tracking_customer: bool = False
     tms_matched_driver_name: str | None = None
     tms_matched_driver_phone: str | None = None
+    tms_connection_timed_out: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_state_patch(self) -> dict[str, Any]:
@@ -102,6 +104,8 @@ class TmsDriverResolution:
             patch["tms_matched_driver_name"] = self.tms_matched_driver_name
         if self.tms_matched_driver_phone:
             patch["tms_matched_driver_phone"] = self.tms_matched_driver_phone
+        if self.tms_connection_timed_out:
+            patch["tms_connection_timed_out"] = True
         return patch
 
 
@@ -177,6 +181,7 @@ class DriverAssignmentTurvoService:
                 tms_resolution="failed",
                 tms_shipment_id=sid,
                 tms_driver_error="tms_shipment_fetch_failed",
+                tms_connection_timed_out=is_tms_connection_timeout(e),
             )
 
         customer_name = customer_name_from_payload(shipment)
@@ -236,6 +241,7 @@ class DriverAssignmentTurvoService:
                 tms_shipment_id=sid,
                 tms_carrier_id=carrier_id,
                 tms_driver_error="tms_contact_resolve_failed",
+                tms_connection_timed_out=is_tms_connection_timeout(e),
             )
 
         if contact_id is None:
@@ -347,6 +353,7 @@ class DriverAssignmentTurvoService:
                 tms_carrier_id=carrier_id,
                 tms_contact_id=contact_id,
                 tms_driver_error="tms_assign_failed",
+                tms_connection_timed_out=is_tms_connection_timeout(e),
             )
 
         return TmsDriverResolution(

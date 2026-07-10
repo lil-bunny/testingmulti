@@ -14,6 +14,7 @@ from app.services.pod_lifecycle.ingress_service import (
     PodEmailIngressSkipped,
     PodLifecycleIngressService,
 )
+from app.integrations.turvo.public_api_client import TurvoApiError
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _SHIPMENTS_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -497,3 +498,105 @@ async def test_prepare_email_received_payload_skips_turvo_fetch_failed() -> None
 
     assert exc_info.value.reason == POD_EMAIL_SKIP_TURVO_FETCH_FAILED
     assert exc_info.value.shipments_row_id == _SHIPMENTS_ROW_UUID
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_records_timeout_exception_with_lifecycle() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+        {
+            "lifecycle_id": _LIFECYCLE_UUID,
+            "workflow_name": "pod_lifecycle",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    _mock_ratecon_gate_pass(lifecycle)
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+    timeout_error = TurvoApiError(
+        "TMS connection timed out after 5 attempts",
+        status_code=None,
+    )
+
+    with (
+        patch(
+            "app.services.pod_lifecycle.ingress_service.get_shipment",
+            new_callable=AsyncMock,
+            side_effect=timeout_error,
+        ),
+        patch(
+            "app.services.pod_lifecycle.ingress_service.TmsConnectionActivityService.record_timeout",
+            return_value="log-1",
+        ) as record_timeout,
+    ):
+        with pytest.raises(PodEmailIngressSkipped) as exc_info:
+            await svc.prepare_email_received_payload(
+                tenant_id=_TENANT_UUID,
+                tenant_slug="t3ra",
+                payload={
+                    "event_type": "email_received",
+                    "thread_id": "thread-abc",
+                    "communication_id": "comm-1",
+                },
+            )
+
+    assert exc_info.value.reason == POD_EMAIL_SKIP_TURVO_FETCH_FAILED
+    record_timeout.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        workflow_lifecycle_id=_LIFECYCLE_UUID,
+        workflow_run_id=None,
+        communication_id="comm-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_email_received_payload_timeout_without_lifecycle_skips_exception() -> None:
+    comms = MagicMock()
+    comms.find_shipment_context_for_thread.return_value = [
+        {
+            "lifecycle_id": "ratecon-lc-1",
+            "workflow_name": "ratecon",
+            "shipments_row_id": _SHIPMENTS_ROW_UUID,
+            "shipment_number": _TURVO_SHIPMENT,
+        },
+    ]
+    lifecycle = MagicMock()
+    lifecycle.check_lifecycle_exists.return_value = {"exists": False}
+    _mock_ratecon_gate_pass(lifecycle)
+    svc = PodLifecycleIngressService(
+        communications_service=comms,
+        lifecycle_service=lifecycle,
+    )
+    timeout_error = TurvoApiError(
+        "TMS connection timed out after 5 attempts",
+        status_code=None,
+    )
+
+    with (
+        patch(
+            "app.services.pod_lifecycle.ingress_service.get_shipment",
+            new_callable=AsyncMock,
+            side_effect=timeout_error,
+        ),
+        patch(
+            "app.services.pod_lifecycle.ingress_service.TmsConnectionActivityService.record_timeout",
+        ) as record_timeout,
+    ):
+        with pytest.raises(PodEmailIngressSkipped):
+            await svc.prepare_email_received_payload(
+                tenant_id=_TENANT_UUID,
+                tenant_slug="t3ra",
+                payload={"event_type": "email_received", "thread_id": "thread-abc"},
+            )
+
+    record_timeout.assert_not_called()

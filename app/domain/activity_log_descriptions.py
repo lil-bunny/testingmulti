@@ -33,6 +33,7 @@ from app.domain.activity_log_constants import (
     TENDER_SENT_TO_TENANT_ACTION,
     WORKFLOW_REVIEW_ACKNOWLEDGED_ACTION,
     WORKFLOW_REVIEW_RESOLVED_ACTION,
+    TMS_CONNECTION_TIMED_OUT_EXCEPTION,
 )
 from app.domain.status_display_labels import label_status, label_sub_status
 from app.models.activity_type import ActivityType
@@ -225,3 +226,8 @@ def format_workflow_review_acknowledged_action() -> str:
 def format_workflow_review_resolved_action() -> str:
     """ACTION text for portal resolve; used by ``WorkflowReviewService.resolve``."""
     return WORKFLOW_REVIEW_RESOLVED_ACTION
+
+
+def format_tms_connection_timed_out_description() -> str:
+    """EXCEPTION text when Turvo transient HTTP retries are exhausted."""
+    return TMS_CONNECTION_TIMED_OUT_EXCEPTION
