@@ -171,22 +171,38 @@ def _ensure_commit_tags(
             print(f"Tag already present {prompt_name}:{tag}")
 
 
+def _ensure_repo_tags(client: Client, prompt_name: str, *, tags: list[str]) -> None:
+    """Ensure Hub repo tags include required labels (e.g. ChatPromptTemplate)."""
+    desired = [t for t in tags if t]
+    if not desired:
+        return
+    try:
+        client.update_prompt(prompt_name, tags=desired)
+        print(f"Updated repo tags {prompt_name}: {desired}")
+    except Exception as exc:
+        print(f"Failed to update repo tags {prompt_name}: {exc}", file=sys.stderr)
+
+
 def push_prompt(client: Client, prompt_name: str, template: ChatPromptTemplate) -> str:
     prompt_id = _hub_id(prompt_name)
+    # Repo tags (Hub UI / list_prompts). Commit tags are separate version pins.
+    repo_tags = ["staging", "ChatPromptTemplate"]
     commit_tags = ["staging", "production"]
     try:
         url = client.push_prompt(
             prompt_id,
             object=template,
-            tags=["staging"],
+            tags=repo_tags,
             commit_tags=commit_tags,
             commit_description="FreightX managed vision extraction prompt",
         )
     except LangSmithConflictError:
         print(f"Skipped {prompt_id}: unchanged since latest commit")
         _ensure_commit_tags(client, prompt_name, tags=commit_tags)
+        _ensure_repo_tags(client, prompt_name, tags=repo_tags)
         return prompt_id
     print(f"Pushed {prompt_id} -> {url}")
+    _ensure_repo_tags(client, prompt_name, tags=repo_tags)
     return prompt_id
 
 

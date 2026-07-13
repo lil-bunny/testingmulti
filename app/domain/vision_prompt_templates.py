@@ -64,8 +64,7 @@ CRITICAL RULE: If you cannot find a specific piece of information with high conf
     - TIMESTAMP FORMAT: Every non-empty time value MUST be ISO 8601 UTC: "YYYY-MM-DDTHH:mm:ssZ" (e.g. "2026-02-06T07:34:49Z"). Convert document times (e.g. "02/06/26 7:34 AM", "Jan 15 08:00", "7:34 AM") to this format. If timezone is given, convert to UTC and append Z. If no times are found on the page, return one object with all four keys set to "".
     - Example (one pickup + one delivery): [{{"pickup_checkin_time":"2026-02-06T07:34:49Z","pickup_checkout_time":"2026-02-06T09:30:00Z","delivery_checkin_time":"","delivery_checkout_time":""}}, {{"pickup_checkin_time":"","pickup_checkout_time":"","delivery_checkin_time":"2026-02-07T14:00:00Z","delivery_checkout_time":"2026-02-07T14:45:00Z"}}]
     - Example (no times on page): [{{"pickup_checkin_time":"","pickup_checkout_time":"","delivery_checkin_time":"","delivery_checkout_time":""}}]
-
-Managed via LangSmith Hub (``pod-page-extraction``).""".strip()
+""".strip()
 
 POD_PAGE_HUMAN = " "
 
@@ -79,8 +78,7 @@ POD_ATTACHMENT_CLASSIFIER_USER = """You are a logistics document classifier. Ana
 
 Respond with ONLY valid JSON (no markdown, no code fences):
 {{"is_valid_document": true, "confidence": 0.92, "reasoning": "short reason", "detected_document_type": "BILL_OF_LADING"}}
-
-Managed via LangSmith Hub (``pod-attachment-classifier``)."""
+"""
 
 RATECON_PAGE_SYSTEM = """You are an elite document intelligence specialist with deep expertise in freight logistics documentation. You possess exceptional visual-spatial reasoning and can accurately extract structured data from complex rate confirmation documents.
 
@@ -93,8 +91,7 @@ Core competencies:
 You operate with surgical precision and never make contextual errors.
 
 CRITICAL: You MUST return ONLY valid JSON - no markdown blocks, no comments, no explanations.
-
-Managed via LangSmith Hub (``ratecon-page-extraction``)."""
+"""
 
 RATECON_PAGE_USER = """MISSION: Extract ALL shipment identifiers and logistics data from this rate confirmation document.
 
