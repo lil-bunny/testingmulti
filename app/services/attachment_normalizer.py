@@ -2,8 +2,10 @@
 POD attachment normalizer — port of old.services.attachment_normalizer.
 
 Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME.
-Assess-only mode stages accepted PDFs/images under a worker-local directory.
-Merge/upload of staged files (or full normalize with upload_merged=True) produces
+Assess-only mode stages accepted PDFs/images once under ``sources/`` in a
+worker-local directory. Image paths are reused for vision extraction via
+``pod_vision_image_paths`` (same file, no second copy). Merge/upload of staged
+files (or full normalize with upload_merged=True) produces
 ``pod_merged_pdf_object_key`` on S3.
 """
 
@@ -504,15 +506,17 @@ class AttachmentNormalizerService:
         stage_dir: str | None,
         shipment_number: Optional[str],
     ) -> tuple[list[str], list[str]]:
-        """Write accepted PDFs/images under stage_dir; return merge + vision paths."""
+        """Write accepted PDFs/images under ``sources/`` once; return merge + vision paths.
+
+        Images are written only under ``sources/``. The same path is listed in both
+        return lists so merge and extraction share one file (no ``vision/`` copy).
+        """
         root = (stage_dir or "").strip()
         if not root:
             return [], []
         sources = Path(root) / "sources"
-        vision = Path(root) / "vision"
         try:
             sources.mkdir(parents=True, exist_ok=True)
-            vision.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             logger.warning(
                 "attachment_normalizer.stage_mkdir_failed dir=%s err=%s",
@@ -557,10 +561,8 @@ class AttachmentNormalizerService:
             if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                 ext = "png"
             path = sources / f"{index:03d}_{_sanitize_path_segment(att_id)}.{ext}"
-            vision_path = vision / f"{index:03d}_{_sanitize_path_segment(att_id)}.{ext}"
             try:
                 path.write_bytes(image_bytes)
-                vision_path.write_bytes(image_bytes)
             except OSError as exc:
                 logger.warning(
                     "attachment_normalizer.stage_write_failed path=%s err=%s",
@@ -568,8 +570,9 @@ class AttachmentNormalizerService:
                     exc,
                 )
                 continue
-            merge_paths.append(str(path))
-            vision_paths.append(str(vision_path))
+            path_str = str(path)
+            merge_paths.append(path_str)
+            vision_paths.append(path_str)
 
         return merge_paths, vision_paths
 
