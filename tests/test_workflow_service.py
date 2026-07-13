@@ -553,6 +553,14 @@ async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_pipeline
             )
         )
         monkeypatch.setattr(service.execution, "execute", fake_execute)
+        monkeypatch.setattr(
+            service.lifecycle_service,
+            "resolve_or_create_lifecycle",
+            lambda **kw: LifecycleResolution(
+                workflow_lifecycle_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                existed=False,
+            ),
+        )
 
         result = await service.run(
             tenant_slug="t3ra",
@@ -568,6 +576,7 @@ async def test_pod_lifecycle_email_received_skips_invalid_attachment_at_pipeline
     assert execute_called is False
     assert result["data"]["skipped_pod_email_ingress"] is True
     assert result["data"]["pod_email_ingress_skip_reason"] == POD_EMAIL_SKIP_INVALID_ATTACHMENT
+    assert result["data"]["workflow_lifecycle_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 
 @pytest.mark.asyncio
@@ -624,6 +633,10 @@ async def test_pod_lifecycle_email_received_carries_pipeline_artifact_state(
             },
         )
 
+    pipeline_call = service._pod_attachment_pipeline.run_for_email_payload.await_args
+    assert (
+        pipeline_call.kwargs["payload"]["workflow_lifecycle_id"] == lifecycle_id
+    )
     assert captured_payload.get("pod_merge_source_paths")
     assert captured_payload.get("has_attachments") is True
     assert captured_payload.get("pod_attachment_stage_dir") == pipeline_result.stage_dir

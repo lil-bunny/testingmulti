@@ -50,7 +50,7 @@ SUPPORTED_IMAGE_MIMES = {
     "image/heif",
 }
 
-ATTACHMENT_CLASSIFIER_TIMEOUT_S = 180.0
+ATTACHMENT_CLASSIFIER_TIMEOUT_S = 300.0
 
 MIN_IMAGE_SIZE_BYTES = 10 * 1024
 MIN_IMAGE_DIMENSION = 100
@@ -879,11 +879,9 @@ class AttachmentNormalizerService:
         if attachment_id:
             base_meta["attachment_id"] = attachment_id
         base_meta.setdefault("step_key", "pod_attachment_classifier")
-        # LangSmith thread grouping: prefer lifecycle id, else execution id.
-        thread_id = (
-            str(base_meta.get("workflow_lifecycle_id") or "").strip()
-            or str(base_meta.get("execution_id") or "").strip()
-        )
+        # LangSmith thread grouping: only lifecycle id. Never fall back to execution_id —
+        # that registers a separate Thread from workflow:pod_lifecycle.
+        thread_id = str(base_meta.get("workflow_lifecycle_id") or "").strip()
         if thread_id:
             base_meta["thread_id"] = thread_id
 

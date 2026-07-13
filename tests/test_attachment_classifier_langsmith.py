@@ -102,6 +102,41 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert prompt_trace.tenant_prompt_ref == "inline"
 
 
+def test_classify_image_omits_thread_id_without_lifecycle(monkeypatch):
+    png = _large_png_bytes()
+    captured: dict = {}
+
+    def fake_chat_vision_json(system_prompt, user_prompt, image_jpeg_bytes, **kwargs):
+        captured["kwargs"] = kwargs
+        return {
+            "is_valid_document": True,
+            "confidence": 0.9,
+            "reasoning": "doc",
+            "detected_document_type": "POD",
+        }
+
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.chat_vision_json",
+        fake_chat_vision_json,
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "test-key",
+    )
+
+    svc = AttachmentNormalizerService()
+    svc._trace_metadata = {
+        "execution_id": "exec-only",
+        "tenant_slug": "t3ra",
+    }
+    svc._classify_image(png, attachment_id="att-1")
+
+    meta = captured["kwargs"]["metadata"]
+    assert meta["execution_id"] == "exec-only"
+    assert "thread_id" not in meta
+    assert "workflow_lifecycle_id" not in meta
+
+
 def test_classify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch):
     png = _large_png_bytes()
     captured: dict = {}
