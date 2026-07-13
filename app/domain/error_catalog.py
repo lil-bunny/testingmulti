@@ -98,6 +98,10 @@ class BusinessError(_CatalogError):
         "pod_extraction_empty",
         "POD LLM extraction returned no usable data.",
     )
+    POD_PDF_TOO_LARGE = (
+        "pod_pdf_too_large",
+        "POD PDF is too large or high-resolution to convert for analysis automatically.",
+    )
     RATECON_EXTRACTION_EMPTY = (
         "ratecon_extraction_empty",
         "Ratecon LLM extraction returned no usable data.",

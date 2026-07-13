@@ -1,4 +1,4 @@
-"""POD S3 upload activity logging after the pre-graph attachment pipeline."""
+"""POD S3 upload activity logging after in-graph merge_and_upload_pod_attachments."""
 
 
 

@@ -16,6 +16,7 @@ def test_pod_lifecycle_pod_request_graph():
     assert "record_pod_started_activity" in names
     assert "record_pod_reminder_activity" in names
     assert "record_pod_upload_activity" in names
+    assert "merge_and_upload_pod_attachments" in names
     assert "record_pod_extraction_activity" in names
     assert "record_pod_vs_ratecon_activity" in names
     assert "record_pod_processed_activity" in names
@@ -41,9 +42,10 @@ def test_pod_lifecycle_pod_request_graph():
     assert routers["get_shipment"]["map"]["manual_pod_stored"] == "upload_to_turvo"
     assert routers["get_shipment"]["map"]["manual_pod_process"] == "load_ratecon_analysis"
     assert routers["load_ratecon_analysis"]["router"] == "ratecon_cache_router"
-    assert routers["load_ratecon_analysis"]["map"]["ready"] == "record_pod_upload_activity"
-    assert routers["load_ratecon_analysis"]["map"]["manual_skip"] == "record_pod_upload_activity"
+    assert routers["load_ratecon_analysis"]["map"]["ready"] == "merge_and_upload_pod_attachments"
+    assert routers["load_ratecon_analysis"]["map"]["manual_skip"] == "merge_and_upload_pod_attachments"
     assert routers["load_ratecon_analysis"]["map"]["missing"] == "end"
+    assert ("merge_and_upload_pod_attachments", "record_pod_upload_activity") in edges
     assert ("record_pod_upload_activity", "pod_analysis") in edges
     assert ("pod_analysis", "record_pod_extraction_activity") in edges
     assert ("record_pod_extraction_activity", "pod_vs_ratecon_analysis") in edges

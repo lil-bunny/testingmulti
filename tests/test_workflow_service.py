@@ -33,8 +33,11 @@ from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 def _eligible_pod_attachment_pipeline_result() -> PodAttachmentPipelineResult:
     stage_dir = tempfile.mkdtemp(prefix="pod_email_test_")
-    merged_path = f"{stage_dir}/pod_SHIP.pdf"
-    with open(merged_path, "wb") as fh:
+    source_path = f"{stage_dir}/sources/001_att1.pdf"
+    import os
+
+    os.makedirs(f"{stage_dir}/sources", exist_ok=True)
+    with open(source_path, "wb") as fh:
         fh.write(b"%PDF-1.4 mock pod file")
     return PodAttachmentPipelineResult(
         success=True,
@@ -42,15 +45,16 @@ def _eligible_pod_attachment_pipeline_result() -> PodAttachmentPipelineResult:
         state_patch={
             "attachment_normalization": {
                 "success": True,
+                "assess_only": True,
                 "source_attachment_ids": ["att-1"],
-                "pod_merged_pdf_object_key": "pod_attachments/pod_SHIP.pdf",
+                "pod_merged_pdf_object_key": None,
+                "pod_merge_source_paths": [source_path],
+                "pod_vision_image_paths": [],
             },
-            "pod_merged_pdf_object_key": "pod_attachments/pod_SHIP.pdf",
-            "pod_object_keys": ["pod_attachments/pod_SHIP.pdf"],
+            "pod_merge_source_paths": [source_path],
+            "pod_vision_image_paths": [],
             "pod_source_object_keys": ["pod_attachments/pod_att1_SHIP.bin"],
             "has_attachments": True,
-            "documents_pod": {"stored": True, "id": "doc-pipeline-1"},
-            "pod_merged_local_path": merged_path,
             "pod_attachment_stage_dir": stage_dir,
         },
     )
@@ -337,6 +341,24 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         fake_load_ratecon,
     )
 
+    def fake_merge_and_upload(state):
+        stage = str(state.data.get("pod_attachment_stage_dir") or "").strip()
+        merged = f"{stage}/pod_SHIP.pdf" if stage else "/tmp/pod_SHIP.pdf"
+        if stage:
+            with open(merged, "wb") as fh:
+                fh.write(b"%PDF-1.4 merged")
+        state.data["pod_merged_pdf_object_key"] = "pod_attachments/pod_SHIP.pdf"
+        state.data["pod_object_keys"] = ["pod_attachments/pod_SHIP.pdf"]
+        state.data["pod_merged_local_path"] = merged
+        state.data["documents_pod"] = {"stored": True, "id": "doc-pipeline-1"}
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "merge_and_upload_pod_attachments",
+        fake_merge_and_upload,
+    )
+
     with patch(
         "app.services.workflow_service.PodLifecycleIngressService.prepare_email_received_payload",
         new=AsyncMock(side_effect=lambda **kwargs: dict(kwargs["payload"])),
@@ -602,12 +624,11 @@ async def test_pod_lifecycle_email_received_carries_pipeline_artifact_state(
             },
         )
 
-    assert captured_payload.get("pod_merged_pdf_object_key") == (
-        "pod_attachments/pod_SHIP.pdf"
-    )
-    assert captured_payload.get("documents_pod", {}).get("stored") is True
+    assert captured_payload.get("pod_merge_source_paths")
     assert captured_payload.get("has_attachments") is True
     assert captured_payload.get("pod_attachment_stage_dir") == pipeline_result.stage_dir
+    assert "pod_merged_pdf_object_key" not in captured_payload
+    assert "documents_pod" not in captured_payload
     assert "pod_attachment_stage_files" not in captured_payload
 
 
