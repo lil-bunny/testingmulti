@@ -92,6 +92,9 @@ class PodAttachmentPipelineService:
             value = str(payload.get(key) or "").strip()
             if value:
                 meta[key] = value
+        tenant_settings = payload.get("tenant_settings")
+        if isinstance(tenant_settings, dict):
+            meta["tenant_settings"] = tenant_settings
         return meta
 
     @staticmethod

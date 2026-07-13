@@ -11,6 +11,11 @@
         "input_variables": [
             "thread_text"
         ],
+        "metadata": {
+            "lc_hub_owner": "-",
+            "lc_hub_repo": "driver-details-extract",
+            "lc_hub_commit_hash": "8f33be2d4993240ae602774d4305eee93b344faf6e42604dfe0d7eedf3f6aa61"
+        },
         "messages": [
             {
                 "lc": 1,
@@ -70,12 +75,7 @@
                     }
                 }
             }
-        ],
-        "metadata": {
-            "lc_hub_owner": "-",
-            "lc_hub_repo": "driver-details-extract",
-            "lc_hub_commit_hash": "local-seed"
-        }
+        ]
     },
     "name": "ChatPromptTemplate"
 }

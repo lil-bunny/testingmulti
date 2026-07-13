@@ -5,16 +5,22 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from app.domain.prompt_step_keys import (
+    POD_ATTACHMENT_CLASSIFIER,
     POD_PAGE_EXTRACTION,
     POD_VS_RATECON_SEMANTIC_MATCH,
     POD_VS_RATECON_SUMMARY,
     RATECON_PAGE_EXTRACTION,
     resolve_prompt_ref,
 )
+from app.domain.vision_prompt_templates import (
+    POD_ATTACHMENT_CLASSIFIER_SYSTEM,
+    POD_ATTACHMENT_CLASSIFIER_USER,
+)
 from app.integrations.langsmith import PromptUnavailableError
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.prompt_service import (
     PromptService,
+    resolve_pod_attachment_classifier_prompts,
     resolve_pod_vision_prompts,
     resolve_pod_vs_ratecon_semantic_match_prompts,
     resolve_pod_vs_ratecon_summary_prompts,
@@ -99,6 +105,41 @@ def test_t3ra_fixture_has_pod_and_ratecon_prompt_refs() -> None:
     assert (
         resolve_prompt_ref(prompts, POD_VS_RATECON_SEMANTIC_MATCH)
         == "pod-vs-ratecon-semantic-match:staging"
+    )
+    assert (
+        resolve_prompt_ref(prompts, POD_ATTACHMENT_CLASSIFIER)
+        == "pod-attachment-classifier:staging"
+    )
+
+
+def test_resolve_pod_attachment_classifier_prompts_inline_without_ref() -> None:
+    rendered, metadata = resolve_pod_attachment_classifier_prompts({})
+    assert rendered.system == POD_ATTACHMENT_CLASSIFIER_SYSTEM
+    assert rendered.user == POD_ATTACHMENT_CLASSIFIER_USER
+    assert metadata.tenant_prompt_ref == "inline"
+
+
+def test_resolve_pod_attachment_classifier_prompts_loads_from_hub() -> None:
+    client = MagicMock()
+    client.load_and_render.return_value = (
+        RenderedPrompt(system="hub-sys", user="hub-usr"),
+        PromptLoadMetadata(
+            source="hub",
+            tenant_prompt_ref="pod-attachment-classifier:staging",
+            commit_hash="abc",
+        ),
+    )
+    prompt_service = PromptService(prompt_client=client)
+    rendered, metadata = resolve_pod_attachment_classifier_prompts(
+        {"prompts": T3RA_PROMPTS},
+        prompt_service=prompt_service,
+    )
+    assert rendered.system == "hub-sys"
+    assert rendered.user == "hub-usr"
+    assert metadata.source == "hub"
+    client.load_and_render.assert_called_once_with(
+        "pod-attachment-classifier:staging",
+        {},
     )
 
 

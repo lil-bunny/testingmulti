@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
@@ -17,6 +18,25 @@ def _large_png_bytes() -> bytes:
     while len(data) < 11 * 1024:
         data += b"\x00"
     return data
+
+
+def test_stage_accepted_files_writes_image_once_shared_path(tmp_path):
+    """Images land once under sources/; merge and vision lists share that path."""
+    png = _large_png_bytes()
+    merge_paths, vision_paths = AttachmentNormalizerService._stage_accepted_files(
+        [],
+        [("s3://bucket/pod_att1_SHIP.bin", png)],
+        stage_dir=str(tmp_path),
+        shipment_number="SHIP",
+    )
+
+    assert len(merge_paths) == 1
+    assert vision_paths == merge_paths
+    staged = Path(merge_paths[0])
+    assert staged.is_file()
+    assert staged.parent.name == "sources"
+    assert not (tmp_path / "vision").exists()
+    assert staged.read_bytes() == png
 
 
 def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):

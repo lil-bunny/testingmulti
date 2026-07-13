@@ -21,6 +21,7 @@ from app.core.config import settings  # noqa: E402
 from app.domain.prompt_hub_refs import (  # noqa: E402
     CARRIER_ACK_CLASSIFY_PROMPT,
     DRIVER_DETAILS_EXTRACT_PROMPT,
+    POD_ATTACHMENT_CLASSIFIER_PROMPT,
     POD_PAGE_EXTRACTION_PROMPT,
     POD_VS_RATECON_SEMANTIC_MATCH_PROMPT,
     POD_VS_RATECON_SUMMARY_PROMPT,
@@ -32,6 +33,7 @@ from app.domain.pod_lifecycle.vs_ratecon_prompt_templates import (  # noqa: E402
     build_pod_vs_ratecon_summary_seed_prompt,
 )
 from app.domain.vision_prompt_templates import (  # noqa: E402
+    build_pod_attachment_classifier_seed_prompt,
     build_pod_page_seed_prompt,
     build_ratecon_page_seed_prompt,
 )
@@ -148,20 +150,59 @@ def _hub_id(prompt_name: str) -> str:
     return hub_prompt_id(prompt_name, owner=settings.LANGSMITH_PROMPT_OWNER)
 
 
+def _ensure_commit_tags(
+    client: Client,
+    prompt_name: str,
+    *,
+    tags: list[str],
+) -> None:
+    """Apply commit tags when push is a no-op (unchanged content)."""
+    commits = list(client.list_prompt_commits(prompt_name))
+    if not commits:
+        print(f"No commits found for {prompt_name}; cannot tag")
+        return
+    latest = commits[0]
+    owner_and_name = f"{latest.owner}/{latest.repo}"
+    for tag in tags:
+        try:
+            client._create_commit_tags(owner_and_name, str(latest.id), tag)
+            print(f"Tagged {prompt_name}:{tag}")
+        except LangSmithConflictError:
+            print(f"Tag already present {prompt_name}:{tag}")
+
+
+def _ensure_repo_tags(client: Client, prompt_name: str, *, tags: list[str]) -> None:
+    """Ensure Hub repo tags include required labels (e.g. ChatPromptTemplate)."""
+    desired = [t for t in tags if t]
+    if not desired:
+        return
+    try:
+        client.update_prompt(prompt_name, tags=desired)
+        print(f"Updated repo tags {prompt_name}: {desired}")
+    except Exception as exc:
+        print(f"Failed to update repo tags {prompt_name}: {exc}", file=sys.stderr)
+
+
 def push_prompt(client: Client, prompt_name: str, template: ChatPromptTemplate) -> str:
     prompt_id = _hub_id(prompt_name)
+    # Repo tags (Hub UI / list_prompts). Commit tags are separate version pins.
+    repo_tags = ["staging", "ChatPromptTemplate"]
+    commit_tags = ["staging", "production"]
     try:
         url = client.push_prompt(
             prompt_id,
             object=template,
-            tags=["staging"],
-            commit_tags=["staging"],
+            tags=repo_tags,
+            commit_tags=commit_tags,
             commit_description="FreightX managed vision extraction prompt",
         )
     except LangSmithConflictError:
         print(f"Skipped {prompt_id}: unchanged since latest commit")
+        _ensure_commit_tags(client, prompt_name, tags=commit_tags)
+        _ensure_repo_tags(client, prompt_name, tags=repo_tags)
         return prompt_id
     print(f"Pushed {prompt_id} -> {url}")
+    _ensure_repo_tags(client, prompt_name, tags=repo_tags)
     return prompt_id
 
 
@@ -173,6 +214,7 @@ def main() -> None:
             "carrier-ack",
             "driver-details",
             "pod",
+            "pod-attachment-classifier",
             "ratecon",
             "pod-vs-ratecon",
             "pod-vs-ratecon-semantic",
@@ -191,6 +233,13 @@ def main() -> None:
         targets.append((DRIVER_DETAILS_EXTRACT_PROMPT, build_driver_details_seed_prompt()))
     if args.prompt in ("pod", "all"):
         targets.append((POD_PAGE_EXTRACTION_PROMPT, build_pod_page_seed_prompt()))
+    if args.prompt in ("pod-attachment-classifier", "all"):
+        targets.append(
+            (
+                POD_ATTACHMENT_CLASSIFIER_PROMPT,
+                build_pod_attachment_classifier_seed_prompt(),
+            )
+        )
     if args.prompt in ("ratecon", "all"):
         targets.append((RATECON_PAGE_EXTRACTION_PROMPT, build_ratecon_page_seed_prompt()))
     if args.prompt in ("pod-vs-ratecon", "all"):
@@ -212,7 +261,8 @@ def main() -> None:
     if not (settings.LANGSMITH_PROMPT_OWNER or "").strip():
         print(
             "Tenant settings should use refs like "
-            f"{POD_PAGE_EXTRACTION_PROMPT}:staging (no owner prefix)."
+            f"{POD_PAGE_EXTRACTION_PROMPT}:staging and "
+            f"{POD_ATTACHMENT_CLASSIFIER_PROMPT}:staging (no owner prefix)."
         )
 
 

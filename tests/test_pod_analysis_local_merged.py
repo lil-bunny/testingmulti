@@ -97,9 +97,7 @@ def test_pod_analysis_reuses_staged_vision_images(
 ) -> None:
     merged = tmp_path / "pod_SHIP.pdf"
     merged.write_bytes(b"%PDF-1.4 local-merged")
-    vision = tmp_path / "vision" / "001_att.jpg"
-    vision.parent.mkdir(parents=True)
-    vision.write_bytes(b"\xff\xd8\xff fakejpeg")
+    # Image staged once under sources/; merge + vision lists share the same path.
     source = tmp_path / "sources" / "001_att.jpg"
     source.parent.mkdir(parents=True)
     source.write_bytes(b"\xff\xd8\xff fakejpeg")
@@ -114,11 +112,11 @@ def test_pod_analysis_reuses_staged_vision_images(
             "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
             "pod_merged_local_path": str(merged),
             "pod_merge_source_paths": [str(source)],
-            "pod_vision_image_paths": [str(vision)],
+            "pod_vision_image_paths": [str(source)],
             "documents_pod": {"id": "doc-1"},
         }
     )
 
     mock_bucket.download_object_bytes.assert_not_called()
-    assert mock_extract.call_args.kwargs.get("prepared_image_paths") == [str(vision)]
+    assert mock_extract.call_args.kwargs.get("prepared_image_paths") == [str(source)]
     assert out["findings"]["metadata"]["pod_bytes_source"] == "local_vision_stage"
