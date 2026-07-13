@@ -1,6 +1,7 @@
 from app.workflows.nodes.ratecon import upload_ratecon_attachments
 from app.workflows.nodes.pod import (
     load_ratecon_analysis,
+    merge_and_upload_pod_attachments,
     pod_analysis,
     pod_vs_ratecon_analysis,
     ratecon_analysis,
@@ -115,6 +116,7 @@ NODE_REGISTRY = {
     "record_reminder_run": record_reminder_run,
     "load_ratecon_analysis": load_ratecon_analysis,
     "ratecon_analysis": ratecon_analysis,
+    "merge_and_upload_pod_attachments": merge_and_upload_pod_attachments,
     "pod_analysis": pod_analysis,
     "pod_vs_ratecon_analysis": pod_vs_ratecon_analysis,
     "read_workflow_lifecycle": read_workflow_lifecycle,

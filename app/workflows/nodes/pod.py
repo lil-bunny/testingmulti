@@ -43,6 +43,8 @@ def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
 def _cleanup_pod_attachment_stage(state) -> None:
     """Remove worker-local stage dir; only paths live in state, never PDF bytes."""
     state.data.pop("pod_merged_local_path", None)
+    state.data.pop("pod_merge_source_paths", None)
+    state.data.pop("pod_vision_image_paths", None)
     stage_dir = str(state.data.pop("pod_attachment_stage_dir", "") or "").strip()
     if not stage_dir:
         return
@@ -54,6 +56,34 @@ def _cleanup_pod_attachment_stage(state) -> None:
             resolve_shipment_id(state.data),
             stage_dir,
         )
+
+
+@safe_node
+def merge_and_upload_pod_attachments(state):
+    """
+    In-graph merge + S3 upload of pre-classified staged POD attachments.
+
+    Classification/staging runs pre-graph; this node only merges local sources,
+    uploads the merged PDF, and persists the ``documents`` row.
+    """
+    from app.services.pod_lifecycle.attachment_pipeline_service import (
+        PodAttachmentPipelineService,
+    )
+
+    try:
+        pipeline_service = PodAttachmentPipelineService()
+        result = pipeline_service.merge_and_upload_from_state(state.data)
+        if not result.success:
+            raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
+        if result.state_patch:
+            state.data.update(result.state_patch)
+        return state
+    except WorkflowException:
+        _cleanup_pod_attachment_stage(state)
+        raise
+    except Exception:
+        _cleanup_pod_attachment_stage(state)
+        raise
 
 
 @safe_node

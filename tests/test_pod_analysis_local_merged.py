@@ -84,3 +84,41 @@ def test_pod_analysis_falls_back_to_s3_when_local_missing(
     assert out["findings"]["metadata"]["pod_bytes_source"] == "s3"
     # Tool must not put PDF bytes into the input/state dict.
     assert "pod_merged_pdf_bytes" not in out
+
+
+@patch("app.tools.pod.extract_pod_from_pdf_path", side_effect=_extract_ok)
+@patch("app.tools.pod.bucket")
+@patch("app.tools.pod.resolve_merged_pod_object_key")
+def test_pod_analysis_reuses_staged_vision_images(
+    mock_resolve: MagicMock,
+    mock_bucket: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path,
+) -> None:
+    merged = tmp_path / "pod_SHIP.pdf"
+    merged.write_bytes(b"%PDF-1.4 local-merged")
+    vision = tmp_path / "vision" / "001_att.jpg"
+    vision.parent.mkdir(parents=True)
+    vision.write_bytes(b"\xff\xd8\xff fakejpeg")
+    source = tmp_path / "sources" / "001_att.jpg"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"\xff\xd8\xff fakejpeg")
+    mock_resolve.return_value = (
+        "pod_attachments/merged.pdf",
+        {"source": "state"},
+    )
+
+    out = pod_analysis(
+        {
+            "shipment_id": "SHIP",
+            "pod_merged_pdf_object_key": "pod_attachments/merged.pdf",
+            "pod_merged_local_path": str(merged),
+            "pod_merge_source_paths": [str(source)],
+            "pod_vision_image_paths": [str(vision)],
+            "documents_pod": {"id": "doc-1"},
+        }
+    )
+
+    mock_bucket.download_object_bytes.assert_not_called()
+    assert mock_extract.call_args.kwargs.get("prepared_image_paths") == [str(vision)]
+    assert out["findings"]["metadata"]["pod_bytes_source"] == "local_vision_stage"

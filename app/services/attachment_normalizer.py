@@ -1,8 +1,10 @@
 """
 POD attachment normalizer — port of old.services.attachment_normalizer.
 
-Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME, merges
-valid PDFs/images, uploads merged PDF to S3 as ``pod_merged_pdf_object_key``.
+Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME.
+Assess-only mode stages accepted PDFs/images under a worker-local directory.
+Merge/upload of staged files (or full normalize with upload_merged=True) produces
+``pod_merged_pdf_object_key`` on S3.
 """
 
 from __future__ import annotations
@@ -107,6 +109,7 @@ class AttachmentNormalizerService:
         *,
         upload_merged: bool = True,
         local_merged_path: str | None = None,
+        stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         if trace_metadata:
@@ -130,6 +133,7 @@ class AttachmentNormalizerService:
                     shipment_number=shipment_number,
                     upload_merged=upload_merged,
                     local_merged_path=local_merged_path,
+                    stage_dir=stage_dir,
                 ),
                 shipment_number,
             )
@@ -247,22 +251,28 @@ class AttachmentNormalizerService:
             valid_source = [
                 self._valid_source_entry(ref) for ref, _ in valid_pdfs
             ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
-            return self._with_classification_index(
-                {
-                    "success": True,
-                    "pod_merged_pdf_object_key": None,
-                    "source_attachment_ids": source_attachment_ids,
-                    "classification_results": classification_results,
-                    "rejected": rejected,
-                    "source_attachments_cleanup": {
-                        "rejected": rejected,
-                        "valid_source": valid_source,
-                    },
-                    "error": None,
-                    "assess_only": True,
-                },
-                shipment_number,
+            merge_paths, vision_paths = self._stage_accepted_files(
+                valid_pdfs,
+                valid_images,
+                stage_dir=stage_dir,
+                shipment_number=shipment_number,
             )
+            out_assess: Dict[str, Any] = {
+                "success": True,
+                "pod_merged_pdf_object_key": None,
+                "source_attachment_ids": source_attachment_ids,
+                "classification_results": classification_results,
+                "rejected": rejected,
+                "source_attachments_cleanup": {
+                    "rejected": rejected,
+                    "valid_source": valid_source,
+                },
+                "error": None,
+                "assess_only": True,
+                "pod_merge_source_paths": merge_paths,
+                "pod_vision_image_paths": vision_paths,
+            }
+            return self._with_classification_index(out_assess, shipment_number)
 
         merged_bytes = self._merge_attachments(
             [pdf_bytes for _, pdf_bytes in valid_pdfs],
@@ -340,6 +350,7 @@ class AttachmentNormalizerService:
         shipment_number: str | None = None,
         upload_merged: bool = True,
         local_merged_path: str | None = None,
+        stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
@@ -382,7 +393,191 @@ class AttachmentNormalizerService:
             shipment_number=shipment_number,
             upload_merged=upload_merged,
             local_merged_path=local_merged_path,
+            stage_dir=stage_dir,
         )
+
+    def merge_and_upload_staged(
+        self,
+        merge_source_paths: list[str],
+        *,
+        shipment_number: str | None = None,
+        local_merged_path: str | None = None,
+        source_attachment_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Merge worker-local staged files into one PDF and upload to S3."""
+        paths = [str(p).strip() for p in merge_source_paths if str(p).strip()]
+        if not paths:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "No staged source paths provided",
+            }
+
+        pdf_bytes_list: list[bytes] = []
+        image_bytes_list: list[bytes] = []
+        for path in paths:
+            try:
+                file_bytes = Path(path).read_bytes()
+            except OSError as exc:
+                logger.error(
+                    "attachment_normalizer.staged_read_failed path=%s err=%s",
+                    path,
+                    exc,
+                )
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "error": "staged_source_read_failed",
+                }
+            if not file_bytes:
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "error": "staged_source_empty",
+                }
+            mime_type = self._detect_mime(file_bytes)
+            if mime_type == "application/pdf":
+                pdf_bytes_list.append(file_bytes)
+            elif mime_type in SUPPORTED_IMAGE_MIMES:
+                image_bytes = self._normalize_image_bytes(file_bytes, mime_type)
+                if image_bytes is None:
+                    return {
+                        "success": False,
+                        "pod_merged_pdf_object_key": None,
+                        "error": "image_conversion_failed",
+                    }
+                image_bytes_list.append(image_bytes)
+            else:
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "error": f"unsupported_type: {mime_type}",
+                }
+
+        merged_bytes = self._merge_attachments(pdf_bytes_list, image_bytes_list)
+        if merged_bytes is None:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "PDF merge failed",
+            }
+
+        ids = [str(x).strip() for x in (source_attachment_ids or []) if str(x).strip()]
+        merged_filename = (
+            pod_merged_filename(shipment_number)
+            if shipment_number
+            else f"pod_{self._deterministic_merged_id(ids or paths)}.pdf"
+        )
+        logger.info(
+            "attachments.merged_staged pdf_count=%s image_count=%s bytes=%s file=%s",
+            len(pdf_bytes_list),
+            len(image_bytes_list),
+            len(merged_bytes),
+            merged_filename,
+        )
+        upload_result = bucket.upload_file(
+            file_content=merged_bytes,
+            filename=merged_filename,
+            folder=settings.BUCKET_POD_ATTACHMENTS_FOLDER,
+            content_type="application/pdf",
+        )
+        object_key = (
+            upload_result.get("object_key") if upload_result.get("success") else None
+        )
+        if not object_key:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": upload_result.get("error_message")
+                or "Failed to upload merged PDF to S3",
+            }
+
+        local_path = self._write_local_merged_pdf(merged_bytes, local_merged_path)
+        out: dict[str, Any] = {
+            "success": True,
+            "pod_merged_pdf_object_key": object_key,
+            "error": None,
+        }
+        if local_path:
+            out["pod_merged_local_path"] = local_path
+        return out
+
+    @staticmethod
+    def _stage_accepted_files(
+        valid_pdfs: List[Tuple[str, bytes]],
+        valid_images: List[Tuple[str, bytes]],
+        *,
+        stage_dir: str | None,
+        shipment_number: Optional[str],
+    ) -> tuple[list[str], list[str]]:
+        """Write accepted PDFs/images under stage_dir; return merge + vision paths."""
+        root = (stage_dir or "").strip()
+        if not root:
+            return [], []
+        sources = Path(root) / "sources"
+        vision = Path(root) / "vision"
+        try:
+            sources.mkdir(parents=True, exist_ok=True)
+            vision.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "attachment_normalizer.stage_mkdir_failed dir=%s err=%s",
+                root,
+                exc,
+            )
+            return [], []
+
+        merge_paths: list[str] = []
+        vision_paths: list[str] = []
+        index = 0
+        for attachment_ref, pdf_bytes in valid_pdfs:
+            index += 1
+            att_id = (
+                AttachmentNormalizerService._extract_attachment_id(
+                    attachment_ref, shipment_number
+                )
+                or f"pdf{index}"
+            )
+            path = sources / f"{index:03d}_{_sanitize_path_segment(att_id)}.pdf"
+            try:
+                path.write_bytes(pdf_bytes)
+            except OSError as exc:
+                logger.warning(
+                    "attachment_normalizer.stage_write_failed path=%s err=%s",
+                    path,
+                    exc,
+                )
+                continue
+            merge_paths.append(str(path))
+
+        for attachment_ref, image_bytes in valid_images:
+            index += 1
+            att_id = (
+                AttachmentNormalizerService._extract_attachment_id(
+                    attachment_ref, shipment_number
+                )
+                or f"img{index}"
+            )
+            # Prefer JPEG extension when bytes look like JPEG; else png/bin.
+            ext = "jpg"
+            if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                ext = "png"
+            path = sources / f"{index:03d}_{_sanitize_path_segment(att_id)}.{ext}"
+            vision_path = vision / f"{index:03d}_{_sanitize_path_segment(att_id)}.{ext}"
+            try:
+                path.write_bytes(image_bytes)
+                vision_path.write_bytes(image_bytes)
+            except OSError as exc:
+                logger.warning(
+                    "attachment_normalizer.stage_write_failed path=%s err=%s",
+                    path,
+                    exc,
+                )
+                continue
+            merge_paths.append(str(path))
+            vision_paths.append(str(vision_path))
+
+        return merge_paths, vision_paths
 
     @staticmethod
     def _write_local_merged_pdf(
@@ -413,6 +608,7 @@ class AttachmentNormalizerService:
         *,
         upload_merged: bool = True,
         local_merged_path: str | None = None,
+        stage_dir: str | None = None,
     ) -> Dict[str, Any]:
         """
         Business rules for exactly one attachment:
@@ -459,6 +655,7 @@ class AttachmentNormalizerService:
         )
 
         pdf_bytes: Optional[bytes] = None
+        accepted_image_bytes: Optional[bytes] = None
 
         if mime_type == "application/pdf":
             pdf_bytes = file_bytes
@@ -533,6 +730,7 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                 }
 
+            accepted_image_bytes = image_bytes
             if upload_merged:
                 pdf_bytes = self._merge_attachments([], [image_bytes])
             else:
@@ -567,6 +765,18 @@ class AttachmentNormalizerService:
             }
 
         if not upload_merged:
+            valid_pdfs: List[Tuple[str, bytes]] = []
+            valid_images: List[Tuple[str, bytes]] = []
+            if mime_type == "application/pdf":
+                valid_pdfs = [(attachment_ref, file_bytes)]
+            elif accepted_image_bytes is not None:
+                valid_images = [(attachment_ref, accepted_image_bytes)]
+            merge_paths, vision_paths = self._stage_accepted_files(
+                valid_pdfs,
+                valid_images,
+                stage_dir=stage_dir,
+                shipment_number=shipment_number,
+            )
             return self._with_classification_index(
                 {
                     "success": True,
@@ -581,6 +791,8 @@ class AttachmentNormalizerService:
                     "error": None,
                     "single_attachment_short_circuit": True,
                     "assess_only": True,
+                    "pod_merge_source_paths": merge_paths,
+                    "pod_vision_image_paths": vision_paths,
                 },
                 shipment_number,
             )

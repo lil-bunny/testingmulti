@@ -128,6 +128,9 @@ def record_workflow_failure_node(state: WorkflowState) -> WorkflowState:
                 exception_activity_log_id=exception_activity_log_id,
             )
 
+    from app.workflows.nodes.pod import _cleanup_pod_attachment_stage
+
+    _cleanup_pod_attachment_stage(state)
     return state
 
  

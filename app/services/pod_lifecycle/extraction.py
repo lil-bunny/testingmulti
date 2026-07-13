@@ -776,9 +776,13 @@ def extract_from_pdf_path(
     model_label: str | None = None,
     fast_mode: bool = False,
     max_pages: int | None = None,
+    prepared_image_paths: list[str] | None = None,
 ) -> tuple[list[Any], dict[str, Any], list[str], dict[str, Any]]:
     """
     Sync pipeline: ``tempfile.mkdtemp`` → PDF/images → per-page ``chat_vision_json`` → reconcile.
+
+    When ``prepared_image_paths`` are present and readable, skip PDF rasterization and
+    analyze those JPEGs/PNGs directly (worker-local staged validated images).
 
     Mirrors ``ratecon_extraction.extract_from_pdf_path`` (no asyncio, no nested event loop).
     Returns ``(page_results, final_pod_data, validation_issues, reconciliation_log)``.
@@ -813,33 +817,60 @@ def extract_from_pdf_path(
             thread_count = default_threads
             max_tokens = None
 
-        try:
-            image_paths = convert_pdf_to_images(
-                pdf_path,
-                work_dir,
-                dpi=dpi,
-                max_side_px=max_side_px,
-                jpeg_quality=jpeg_quality,
-                thread_count=thread_count,
-                max_pages=max_pages,
+        staged = [
+            str(p).strip()
+            for p in (prepared_image_paths or [])
+            if str(p).strip() and os.path.isfile(str(p).strip())
+        ]
+        if staged and len(staged) == len(
+            [str(p).strip() for p in (prepared_image_paths or []) if str(p).strip()]
+        ):
+            image_paths = staged
+            if max_pages and max_pages > 0:
+                image_paths = image_paths[:max_pages]
+            logger.info(
+                "pod_extraction: using staged vision images load_id=%s page_count=%s",
+                load_id,
+                len(image_paths),
             )
-        except PodPdfTooLargeError:
-            raise
-        except Exception as e:
-            error_msg = f"Critical processing failure: {type(e).__name__}: {str(e)}"
-            logger.exception("pod_extraction: critical PDF processing failure load_id=%s", load_id)
-            sorted_results = [
-                {
-                    "page_number": 1,
-                    "timestamp": datetime.now().isoformat(),
-                    "error": error_msg,
-                    "error_type": type(e).__name__,
-                    "load_id": load_id,
-                }
-            ]
-            final_pod_data, reconciliation_log = reconcile_pod_data(sorted_results, broker_name)
-            validation_issues = validate_pod_consistency(final_pod_data)
-            return sorted_results, final_pod_data, validation_issues, reconciliation_log
+        else:
+            try:
+                image_paths = convert_pdf_to_images(
+                    pdf_path,
+                    work_dir,
+                    dpi=dpi,
+                    max_side_px=max_side_px,
+                    jpeg_quality=jpeg_quality,
+                    thread_count=thread_count,
+                    max_pages=max_pages,
+                )
+            except PodPdfTooLargeError:
+                raise
+            except Exception as e:
+                error_msg = f"Critical processing failure: {type(e).__name__}: {str(e)}"
+                logger.exception(
+                    "pod_extraction: critical PDF processing failure load_id=%s",
+                    load_id,
+                )
+                sorted_results = [
+                    {
+                        "page_number": 1,
+                        "timestamp": datetime.now().isoformat(),
+                        "error": error_msg,
+                        "error_type": type(e).__name__,
+                        "load_id": load_id,
+                    }
+                ]
+                final_pod_data, reconciliation_log = reconcile_pod_data(
+                    sorted_results, broker_name
+                )
+                validation_issues = validate_pod_consistency(final_pod_data)
+                return (
+                    sorted_results,
+                    final_pod_data,
+                    validation_issues,
+                    reconciliation_log,
+                )
 
         logger.info(
             "pod_extraction: processing PDF pages load_id=%s page_count=%s",
