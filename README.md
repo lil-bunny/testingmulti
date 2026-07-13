@@ -6,7 +6,7 @@ Python version: `3.11` (project baseline).
 
 * [Docker](https://docs.docker.com/get-docker/)
 * [uv](https://docs.astral.sh/uv/getting-started/installation/)
-* [ngrok](https://ngrok.com/download), if you're testing Unipile/Turvo webhooks locally. Get a paid plan with a reserved/static domain if you can, a free rotating domain means re-registering your webhook URLs with Unipile and Turvo every time you restart the tunnel
+* [ngrok](https://ngrok.com/download), if you're testing Unipile/Turvo webhooks locally. Claim your one free static domain (ngrok's free plan includes this) and use that instead of the random rotating one, otherwise you have to re-register your webhook URLs with Unipile and Turvo every time you restart the tunnel
 * Python 3.11+ (uv will manage this for you, you don't need it installed separately)
 
 ## Setup
