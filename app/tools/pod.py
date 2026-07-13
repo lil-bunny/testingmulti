@@ -8,7 +8,10 @@ from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
-from app.services.pod_lifecycle.extraction import pod_confidence_score
+from app.services.pod_lifecycle.extraction import (
+    PodPdfTooLargeError,
+    pod_confidence_score,
+)
 from app.services.pod_lifecycle.vs_ratecon_validation import (
     generate_validation_summary,
     validate_pod_against_ratecon,
@@ -388,6 +391,19 @@ def pod_analysis(data: dict) -> dict:
             "confidence_score": confidence,
             "pod_status": pod_status,
             "delivery_confirmed": final_pod_data.get("delivery_confirmed"),
+        }
+    except PodPdfTooLargeError as exc:
+        logger.warning(
+            "pod_analysis: PDF too large to convert shipment_id=%s error=%s",
+            sid,
+            exc,
+        )
+        return {
+            "success": False,
+            "error": PodPdfTooLargeError.error_key,
+            "error_message": str(exc),
+            "shipment_id": sid,
+            "pod_object_key": object_key,
         }
     except Exception as exc:
         logger.exception("pod_analysis failed shipment_id=%s", sid)

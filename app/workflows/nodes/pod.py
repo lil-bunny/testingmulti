@@ -29,6 +29,7 @@ _POD_ANALYSIS_ERRORS = {
     "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
     "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
     "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
+    "pod_pdf_too_large": BusinessError.POD_PDF_TOO_LARGE,
 }
 
 
