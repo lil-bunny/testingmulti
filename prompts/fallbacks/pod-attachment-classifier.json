@@ -8,15 +8,11 @@
         "ChatPromptTemplate"
     ],
     "kwargs": {
-        "input_variables": [
-            "field_type",
-            "pod_value",
-            "ratecon_value"
-        ],
+        "input_variables": [],
         "metadata": {
             "lc_hub_owner": "-",
-            "lc_hub_repo": "pod-vs-ratecon-semantic-match",
-            "lc_hub_commit_hash": "b9ac4ed73c87bfc0feb0b3d28c8a96710dbe4a33fcd7417eaccdac078a3735c4"
+            "lc_hub_repo": "pod-attachment-classifier",
+            "lc_hub_commit_hash": "824db3c0ab006a0a8fee388483dc20ebeb3d34ee0d26f58748e061cf8584d9f2"
         },
         "messages": [
             {
@@ -40,7 +36,7 @@
                         ],
                         "kwargs": {
                             "input_variables": [],
-                            "template": "You are a logistics data auditor. Your task is to determine if a value from a Proof of Delivery (POD) matches the corresponding value on a Rate Confirmation (Rate Con), even if the names are different.\n\nConsider corporate relationships (e.g., a parent company on the Rate Con and a specific store brand on the POD), common abbreviations, and other real-world variations.\n\nAnswer ONLY with a single JSON object with the keys \"match\" (boolean) and \"reason\" (a brief explanation).",
+                            "template": "Classify logistics document validity.",
                             "template_format": "f-string"
                         },
                         "name": "PromptTemplate"
@@ -67,12 +63,8 @@
                             "PromptTemplate"
                         ],
                         "kwargs": {
-                            "input_variables": [
-                                "field_type",
-                                "pod_value",
-                                "ratecon_value"
-                            ],
-                            "template": "Field being compared: '{field_type}'\nRate Confirmation Value: \"{ratecon_value}\"\nProof of Delivery Value: \"{pod_value}\"\n\nDo these represent a valid match for auditing purposes?",
+                            "input_variables": [],
+                            "template": "You are a logistics document classifier. Analyze this image and determine if it is a valid logistics/shipping document.\n\n**Valid (accept)**: BOL, POD, lumper receipt, warehouse receipt, weight ticket, packing slip, delivery ticket, dock receipt, signed document, photo of a document on a surface.\n**Invalid (reject)**: Truck photo, selfie, company logo, email signature banner, map/directions screenshot, blank image, stock photo, meme.\n**Borderline**: If uncertain, mark as valid with lower confidence.\n\nRespond with ONLY valid JSON (no markdown, no code fences):\n{{\"is_valid_document\": true, \"confidence\": 0.92, \"reasoning\": \"short reason\", \"detected_document_type\": \"BILL_OF_LADING\"}}\n\nManaged via LangSmith Hub (``pod-attachment-classifier``).",
                             "template_format": "f-string"
                         },
                         "name": "PromptTemplate"

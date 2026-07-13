@@ -108,6 +108,25 @@ def resolve_pod_vision_prompts(
     )
 
 
+def resolve_pod_attachment_classifier_prompts(
+    tenant_settings: dict[str, Any] | None,
+    *,
+    prompt_service: PromptService | None = None,
+) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
+    from app.domain.vision_prompt_templates import (
+        render_inline_pod_attachment_classifier_prompts,
+    )
+
+    service = prompt_service or PromptService()
+    return service.render_vision_step(
+        tenant_settings,
+        POD_ATTACHMENT_CLASSIFIER,
+        {},
+        inline_fallback=render_inline_pod_attachment_classifier_prompts(),
+    )
+
+
 def resolve_ratecon_vision_prompts(
     tenant_settings: dict[str, Any] | None,
     *,

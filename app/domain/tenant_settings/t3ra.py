@@ -44,6 +44,7 @@ class T3raPodLifecyclePrompts(BaseModel):
     page_extraction: str
     vs_ratecon_summary: str
     vs_ratecon_semantic_match: str
+    attachment_classifier: str
 
 
 class T3raRateconPrompts(BaseModel):

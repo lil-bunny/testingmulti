@@ -69,6 +69,19 @@ Managed via LangSmith Hub (``pod-page-extraction``).""".strip()
 
 POD_PAGE_HUMAN = " "
 
+POD_ATTACHMENT_CLASSIFIER_SYSTEM = "Classify logistics document validity."
+
+POD_ATTACHMENT_CLASSIFIER_USER = """You are a logistics document classifier. Analyze this image and determine if it is a valid logistics/shipping document.
+
+**Valid (accept)**: BOL, POD, lumper receipt, warehouse receipt, weight ticket, packing slip, delivery ticket, dock receipt, signed document, photo of a document on a surface.
+**Invalid (reject)**: Truck photo, selfie, company logo, email signature banner, map/directions screenshot, blank image, stock photo, meme.
+**Borderline**: If uncertain, mark as valid with lower confidence.
+
+Respond with ONLY valid JSON (no markdown, no code fences):
+{{"is_valid_document": true, "confidence": 0.92, "reasoning": "short reason", "detected_document_type": "BILL_OF_LADING"}}
+
+Managed via LangSmith Hub (``pod-attachment-classifier``)."""
+
 RATECON_PAGE_SYSTEM = """You are an elite document intelligence specialist with deep expertise in freight logistics documentation. You possess exceptional visual-spatial reasoning and can accurately extract structured data from complex rate confirmation documents.
 
 Core competencies:
@@ -170,6 +183,10 @@ def render_inline_ratecon_prompts() -> tuple[str, str]:
     return RATECON_PAGE_SYSTEM, RATECON_PAGE_USER
 
 
+def render_inline_pod_attachment_classifier_prompts() -> tuple[str, str]:
+    return POD_ATTACHMENT_CLASSIFIER_SYSTEM, POD_ATTACHMENT_CLASSIFIER_USER
+
+
 def build_pod_page_seed_prompt() -> ChatPromptTemplate:
     return ChatPromptTemplate.from_messages(
         [
@@ -184,5 +201,14 @@ def build_ratecon_page_seed_prompt() -> ChatPromptTemplate:
         [
             ("system", RATECON_PAGE_SYSTEM),
             ("human", RATECON_PAGE_USER),
+        ]
+    )
+
+
+def build_pod_attachment_classifier_seed_prompt() -> ChatPromptTemplate:
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", POD_ATTACHMENT_CLASSIFIER_SYSTEM),
+            ("human", POD_ATTACHMENT_CLASSIFIER_USER),
         ]
     )

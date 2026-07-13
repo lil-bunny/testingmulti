@@ -31,6 +31,10 @@ def test_t3ra_fixture_validates() -> None:
     assert model.prompts.pod_lifecycle.page_extraction == "pod-page-extraction:staging"
     assert model.prompts.ratecon.page_extraction == "ratecon-page-extraction:staging"
     assert model.prompts.pod_lifecycle.vs_ratecon_summary == "pod-vs-ratecon-summary:staging"
+    assert (
+        model.prompts.pod_lifecycle.attachment_classifier
+        == "pod-attachment-classifier:staging"
+    )
     assert model.prompts.driver_assignment is not None
     assert model.prompts.driver_assignment.driver_details == "driver-details-extract:staging"
     parsed = parse_tenant_settings("t3ra", _T3RA_SETTINGS)

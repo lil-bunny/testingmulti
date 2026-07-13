@@ -6,10 +6,14 @@ import io
 
 from PIL import Image
 
+from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
+from app.domain.vision_prompt_templates import (
+    POD_ATTACHMENT_CLASSIFIER_SYSTEM,
+    POD_ATTACHMENT_CLASSIFIER_USER,
+)
+from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.attachment_normalizer import (
     ATTACHMENT_CLASSIFIER_TIMEOUT_S,
-    IMAGE_CLASSIFIER_SYSTEM_PROMPT,
-    IMAGE_CLASSIFIER_USER_PROMPT,
     AttachmentNormalizerService,
 )
 from app.tools import llm_client
@@ -78,8 +82,8 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert result["reasoning"] == "signed POD"
     assert result["detected_document_type"] == "POD"
     assert result["prefiltered"] is False
-    assert captured["system_prompt"] == IMAGE_CLASSIFIER_SYSTEM_PROMPT
-    assert captured["user_prompt"] == IMAGE_CLASSIFIER_USER_PROMPT
+    assert captured["system_prompt"] == POD_ATTACHMENT_CLASSIFIER_SYSTEM
+    assert captured["user_prompt"] == POD_ATTACHMENT_CLASSIFIER_USER
     assert captured["image_jpeg_bytes"] == png
     assert captured["kwargs"]["model"] == "classifier-model"
     assert captured["kwargs"]["image_mime_type"] == "image/png"
@@ -93,6 +97,65 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert meta["attachment_id"] == "att-1"
     assert meta["step_key"] == "pod_attachment_classifier"
     assert captured["kwargs"]["tags"] == ["pod_attachment_classifier"]
+    prompt_trace = captured["kwargs"]["prompt_trace"]
+    assert prompt_trace.prompt_step_key == POD_ATTACHMENT_CLASSIFIER
+    assert prompt_trace.tenant_prompt_ref == "inline"
+
+
+def test_classify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch):
+    png = _large_png_bytes()
+    captured: dict = {}
+
+    def fake_chat_vision_json(system_prompt, user_prompt, image_jpeg_bytes, **kwargs):
+        captured["system_prompt"] = system_prompt
+        captured["user_prompt"] = user_prompt
+        captured["kwargs"] = kwargs
+        return {
+            "is_valid_document": True,
+            "confidence": 0.88,
+            "reasoning": "POD photo",
+            "detected_document_type": "POD",
+        }
+
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.chat_vision_json",
+        fake_chat_vision_json,
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "test-key",
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.resolve_pod_attachment_classifier_prompts",
+        lambda tenant_settings: (
+            RenderedPrompt(system="hub-sys", user="hub-usr"),
+            PromptLoadMetadata(
+                source="hub",
+                tenant_prompt_ref="pod-attachment-classifier:staging",
+                commit_hash="abc123",
+            ),
+        ),
+    )
+
+    svc = AttachmentNormalizerService()
+    svc._trace_metadata = {
+        "execution_id": "exec-1",
+        "tenant_settings": {
+            "prompts": {
+                "pod_lifecycle": {
+                    "attachment_classifier": "pod-attachment-classifier:staging",
+                }
+            }
+        },
+    }
+    result = svc._classify_image(png, attachment_id="att-hub")
+
+    assert result["is_valid_document"] is True
+    assert captured["system_prompt"] == "hub-sys"
+    assert captured["user_prompt"] == "hub-usr"
+    assert captured["kwargs"]["prompt_trace"].tenant_prompt_ref == (
+        "pod-attachment-classifier:staging"
+    )
 
 
 def test_classify_image_fail_closed_on_llm_error(monkeypatch):
