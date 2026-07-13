@@ -7,6 +7,7 @@ import io
 from PIL import Image
 
 from app.services.attachment_normalizer import (
+    ATTACHMENT_CLASSIFIER_TIMEOUT_S,
     IMAGE_CLASSIFIER_SYSTEM_PROMPT,
     IMAGE_CLASSIFIER_USER_PROMPT,
     AttachmentNormalizerService,
@@ -84,6 +85,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["image_mime_type"] == "image/png"
     assert captured["kwargs"]["temperature"] == 0.1
     assert captured["kwargs"]["max_tokens"] == 150
+    assert captured["kwargs"]["timeout_s"] == ATTACHMENT_CLASSIFIER_TIMEOUT_S
     meta = captured["kwargs"]["metadata"]
     assert meta["execution_id"] == "exec-1"
     assert meta["workflow_lifecycle_id"] == "wl-1"
@@ -93,7 +95,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["tags"] == ["pod_attachment_classifier"]
 
 
-def test_classify_image_fail_open_on_llm_error(monkeypatch):
+def test_classify_image_fail_closed_on_llm_error(monkeypatch):
     png = _large_png_bytes()
 
     monkeypatch.setattr(
@@ -108,7 +110,7 @@ def test_classify_image_fail_open_on_llm_error(monkeypatch):
     svc = AttachmentNormalizerService()
     result = svc._classify_image(png, attachment_id="att-err")
 
-    assert result["is_valid_document"] is True
+    assert result["is_valid_document"] is False
     assert result["confidence"] == 0.0
     assert "classification_error" in result["reasoning"]
 

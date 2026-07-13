@@ -25,6 +25,9 @@ import img2pdf
 from PIL import Image
 
 from app.core.config import settings
+from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
+from app.integrations.langsmith.types import PromptTraceMetadata
+from app.services.prompt_service import resolve_pod_attachment_classifier_prompts
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.tools.llm_client import chat_vision_json
 
@@ -45,16 +48,7 @@ SUPPORTED_IMAGE_MIMES = {
     "image/heif",
 }
 
-IMAGE_CLASSIFIER_SYSTEM_PROMPT = "Classify logistics document validity."
-
-IMAGE_CLASSIFIER_USER_PROMPT = """You are a logistics document classifier. Analyze this image and determine if it is a valid logistics/shipping document.
-
-**Valid (accept)**: BOL, POD, lumper receipt, warehouse receipt, weight ticket, packing slip, delivery ticket, dock receipt, signed document, photo of a document on a surface.
-**Invalid (reject)**: Truck photo, selfie, company logo, email signature banner, map/directions screenshot, blank image, stock photo, meme.
-**Borderline**: If uncertain, mark as valid with lower confidence.
-
-Respond with ONLY valid JSON (no markdown, no code fences):
-{"is_valid_document": true, "confidence": 0.92, "reasoning": "short reason", "detected_document_type": "BILL_OF_LADING"}"""
+ATTACHMENT_CLASSIFIER_TIMEOUT_S = 180.0
 
 MIN_IMAGE_SIZE_BYTES = 10 * 1024
 MIN_IMAGE_DIMENSION = 100
@@ -876,6 +870,9 @@ class AttachmentNormalizerService:
         started = time.monotonic()
 
         base_meta = dict(getattr(self, "_trace_metadata", {}) or {})
+        tenant_settings = base_meta.pop("tenant_settings", None)
+        if not isinstance(tenant_settings, dict):
+            tenant_settings = None
         if attachment_id:
             base_meta["attachment_id"] = attachment_id
         base_meta.setdefault("step_key", "pod_attachment_classifier")
@@ -887,16 +884,25 @@ class AttachmentNormalizerService:
         if thread_id:
             base_meta["thread_id"] = thread_id
 
+        rendered, prompt_metadata = resolve_pod_attachment_classifier_prompts(
+            tenant_settings,
+        )
+        prompt_trace = PromptTraceMetadata.from_load(
+            POD_ATTACHMENT_CLASSIFIER,
+            prompt_metadata,
+        )
+
         try:
             result = chat_vision_json(
-                IMAGE_CLASSIFIER_SYSTEM_PROMPT,
-                IMAGE_CLASSIFIER_USER_PROMPT,
+                rendered.system,
+                rendered.user,
                 image_bytes,
                 temperature=0.1,
                 max_tokens=150,
                 model=model,
                 image_mime_type=mime,
-                timeout_s=60.0,
+                timeout_s=ATTACHMENT_CLASSIFIER_TIMEOUT_S,
+                prompt_trace=prompt_trace,
                 metadata=base_meta,
                 tags=["pod_attachment_classifier"],
             )
@@ -929,7 +935,7 @@ class AttachmentNormalizerService:
                 e,
             )
             return {
-                "is_valid_document": True,
+                "is_valid_document": False,
                 "confidence": 0.0,
                 "reasoning": f"classification_error: {e}",
                 "detected_document_type": None,
