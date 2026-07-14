@@ -1,4 +1,4 @@
-"""Tests for OOM-safe POD PDF → JPEG conversion (Tracy-class MediaBox PDFs)."""
+"""Tests for OOM-safe PDF → JPEG conversion (Tracy-class MediaBox PDFs)."""
 
 from __future__ import annotations
 
@@ -8,15 +8,16 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
-from app.domain.error_catalog import BusinessError
+from app.domain.error_catalog import SystemError
 from app.domain.state import WorkflowState
-from app.services.pod_lifecycle.extraction import (
-    PodPdfTooLargeError,
+from app.services.pod_lifecycle.extraction import convert_pdf_to_images
+from app.tools import pod as pod_tools
+from app.tools.pdf_raster import (
+    PdfTooLargeError,
     _effective_poppler_dpi,
     _try_extract_embedded_page_images,
-    convert_pdf_to_images,
+    rasterize_pdf_to_jpeg_paths,
 )
-from app.tools import pod as pod_tools
 from app.workflows.nodes import pod as pod_nodes
 
 TRACY_PDF = Path(__file__).resolve().parents[1] / "scripts" / "llm" / "MCP-Tracy.pdf"
@@ -70,14 +71,14 @@ def test_conversion_memory_budget_raises_too_large(tmp_path: Path) -> None:
     pdf = tmp_path / "tiny.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
     with patch(
-        "app.services.pod_lifecycle.extraction._try_extract_embedded_page_images",
+        "app.tools.pdf_raster._try_extract_embedded_page_images",
         return_value=None,
     ), patch(
-        "app.services.pod_lifecycle.extraction._convert_pdf_with_poppler_page_at_a_time",
-        side_effect=PodPdfTooLargeError("over budget"),
+        "app.tools.pdf_raster._convert_pdf_with_poppler_page_at_a_time",
+        side_effect=PdfTooLargeError("over budget"),
     ):
-        with pytest.raises(PodPdfTooLargeError):
-            convert_pdf_to_images(str(pdf), str(tmp_path), dpi=200)
+        with pytest.raises(PdfTooLargeError):
+            rasterize_pdf_to_jpeg_paths(str(pdf), str(tmp_path))
 
 
 def test_pod_analysis_maps_pdf_too_large_error(tmp_path: Path) -> None:
@@ -89,7 +90,7 @@ def test_pod_analysis_maps_pdf_too_large_error(tmp_path: Path) -> None:
         return_value=("pod_attachments/x.pdf", {"source": "state"}),
     ), patch(
         "app.tools.pod.extract_pod_from_pdf_path",
-        side_effect=PodPdfTooLargeError("too big"),
+        side_effect=PdfTooLargeError("too big"),
     ):
         out = pod_tools.pod_analysis(
             {
@@ -99,7 +100,7 @@ def test_pod_analysis_maps_pdf_too_large_error(tmp_path: Path) -> None:
             }
         )
     assert out["success"] is False
-    assert out["error"] == "pod_pdf_too_large"
+    assert out["error"] == "pdf_too_large"
 
 
 def test_pod_analysis_node_raises_catalog_error_for_too_large_pdf() -> None:
@@ -113,14 +114,15 @@ def test_pod_analysis_node_raises_catalog_error_for_too_large_pdf() -> None:
         "app.workflows.nodes.pod.get_pod_analysis",
         return_value={
             "success": False,
-            "error": "pod_pdf_too_large",
+            "error": "pdf_too_large",
             "shipment_id": "119407406",
         },
     ), patch("app.workflows.nodes.pod._cleanup_pod_attachment_stage"):
         result = pod_nodes.pod_analysis(state)
 
     data = result["data"] if isinstance(result, dict) else result.data
-    assert data.get("error", {}).get("code") == BusinessError.POD_PDF_TOO_LARGE.value
+    assert data.get("error", {}).get("code") == SystemError.PDF_TOO_LARGE.value
+    assert data.get("error", {}).get("category") == SystemError.PDF_TOO_LARGE.category.value
 
 
 @pytest.mark.skipif(not FIXTURE_PDF.is_file(), reason="tests/fixtures/testpod.pdf missing")

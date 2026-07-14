@@ -9,7 +9,6 @@ from PIL import Image
 
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
-from app.services.pod_lifecycle import extraction as pod_extraction_service
 from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_ATTACHMENT,
     ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
@@ -270,8 +269,7 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
     _mock_t3ra_tenant(monkeypatch)
     ship = f"S2-{uuid.uuid4().hex[:10]}"
     monkeypatch.setattr(
-        pod_extraction_service,
-        "convert_from_path",
+        "app.tools.pdf_raster.convert_from_path",
         lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
     )
 
@@ -404,8 +402,7 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         return base
 
     monkeypatch.setattr(
-        pod_extraction_service,
-        "convert_from_path",
+        "app.tools.pdf_raster.convert_from_path",
         lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
     )
 

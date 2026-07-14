@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import tempfile
+import shutil
 import uuid
 from datetime import datetime
 from typing import Any
@@ -20,6 +20,7 @@ from app.services.attachment_normalizer import (
 from app.services.ratecon_extraction import extract_from_pdf_path
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.tools.email import detect_attachment_bytes_type, get_email_attachments
+from app.tools.pdf_raster import PdfTooLargeError, freightx_stage_dir, make_temp_pdf
 from app.workflows.shipment_resolver import (
     resolve_shipment_id,
     resolve_shipments_row_id_for_db,
@@ -391,6 +392,10 @@ class RateconDocumentService:
             )
 
         tmp_path: str | None = None
+        stage_dir = freightx_stage_dir(
+            settings.RATECON_STAGE_ROOT,
+            f"ratecon_{_sanitize_path_segment(shipment_id)}",
+        )
         try:
             dl = bucket.download_object_bytes(object_key)
             if not dl.get("success"):
@@ -409,7 +414,10 @@ class RateconDocumentService:
                     "ratecon_object_key": object_key,
                 }
 
-            fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+            fd, tmp_path = make_temp_pdf(
+                prefix=f"ratecon_{shipment_id}",
+                directory=stage_dir,
+            )
             try:
                 os.write(fd, body)
             finally:
@@ -419,6 +427,7 @@ class RateconDocumentService:
                 tmp_path,
                 model_label=settings.LLM_MODEL or "",
                 tenant_settings=data.get("tenant_settings"),
+                stage_dir=stage_dir,
             )
             good_pages = sum(1 for p in page_results if p.get("extracted_data"))
             has_ids = bool(extracted.get("shipment_identifiers")) or bool(
@@ -461,6 +470,19 @@ class RateconDocumentService:
                 "document_id": document_id,
                 "confidence_score": confidence,
             }
+        except PdfTooLargeError as exc:
+            logger.warning(
+                "ratecon analysis PDF too large shipment_id=%s error=%s",
+                shipment_id,
+                exc,
+            )
+            return {
+                "success": False,
+                "error": PdfTooLargeError.error_key,
+                "error_message": str(exc),
+                "shipment_id": shipment_id,
+                "ratecon_object_key": object_key,
+            }
         except Exception as exc:
             logger.exception("ratecon analysis failed shipment_id=%s", shipment_id)
             return {
@@ -470,11 +492,7 @@ class RateconDocumentService:
                 "ratecon_object_key": object_key,
             }
         finally:
-            if tmp_path and os.path.isfile(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+            shutil.rmtree(stage_dir, ignore_errors=True)
 
     def _persist_ratecon_analysis(
         self,

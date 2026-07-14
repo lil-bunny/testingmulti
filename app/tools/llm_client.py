@@ -175,7 +175,7 @@ def chat_json(
 ) -> dict:
     """OpenAI-compatible chat completion; optional prompt/correlation metadata on LangSmith span."""
     effective_timeout_s = (
-        settings.LLM_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
+        settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
     return _chat_json_impl(
         system_prompt,
@@ -269,7 +269,7 @@ def chat_vision_json(
 ) -> dict:
     """OpenAI-compatible vision call (single image) using the same LLM_* settings as ``chat_json``."""
     effective_timeout_s = (
-        settings.LLM_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
+        settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
     return _chat_vision_json_impl(
         system_prompt,

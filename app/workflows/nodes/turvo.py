@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.error_catalog import IntegrationError
+from app.domain.error_catalog import IntegrationError, SystemError
 from app.domain.state import tenant_slug_from_payload, workflow_state_data
 from app.exceptions import WorkflowException
+from app.tools.pdf_raster import PdfTooLargeError
 from app.integrations.turvo.shipments import (
     delivery_address_from_global_route_stop,
     global_route_stops_from_payload,
@@ -149,6 +150,13 @@ def upload_to_turvo(state):
     result = PodTmsUploadService().upload_merged_pod_from_state(state)
     state.data["turvo_upload_result"] = result
     if not result.get("success"):
+        error_key = str(result.get("error") or "").strip()
+        message = str(result.get("message") or "").strip()
+        if (
+            error_key in {PdfTooLargeError.error_key, SystemError.PDF_TOO_LARGE.value}
+            or message in {PdfTooLargeError.error_key, "pdf_too_large_for_tms_after_optimization"}
+        ):
+            raise WorkflowException(SystemError.PDF_TOO_LARGE)
         raise WorkflowException(IntegrationError.TMS_POD_UPLOAD_FAILED)
     return state
 

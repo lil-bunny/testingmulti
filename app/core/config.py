@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     LLM_MODEL: Optional[str] = None
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
-    LLM_REQUEST_TIMEOUT_S: float = 300.0
+    LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
     # DB
@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     BUCKET_RATECON_ATTACHMENTS_FOLDER: str = "ratecon_attachments"
     BUCKET_POD_ATTACHMENTS_FOLDER: str = "pod_attachments"
     POD_ATTACHMENT_STAGE_ROOT: str = "/tmp/freightx/pod_staging"
+    RATECON_STAGE_ROOT: str = "/tmp/freightx/ratecon_staging"
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str

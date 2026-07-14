@@ -86,7 +86,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["image_mime_type"] == "image/png"
     assert captured["kwargs"]["temperature"] == 0.1
     assert captured["kwargs"]["max_tokens"] == 150
-    assert "timeout_s" not in captured["kwargs"]  # uses LLM_REQUEST_TIMEOUT_S default
+    assert "timeout_s" not in captured["kwargs"]  # uses LLM_REQUEST_TIMEOUT default
     meta = captured["kwargs"]["metadata"]
     assert meta["execution_id"] == "exec-1"
     assert meta["workflow_lifecycle_id"] == "wl-1"

@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import tempfile
 from datetime import datetime
 from typing import Any
@@ -8,9 +9,12 @@ from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
-from app.services.pod_lifecycle.extraction import (
+from app.services.pod_lifecycle.extraction import pod_confidence_score
+from app.tools.pdf_raster import (
+    PdfTooLargeError,
     PodPdfTooLargeError,
-    pod_confidence_score,
+    freightx_stage_dir,
+    make_temp_pdf,
 )
 from app.services.pod_lifecycle.vs_ratecon_validation import (
     generate_validation_summary,
@@ -148,6 +152,10 @@ def ratecon_analysis(data: dict) -> dict:
             sid,
         )
     tmp_path: str | None = None
+    stage_dir = freightx_stage_dir(
+        settings.RATECON_STAGE_ROOT,
+        f"ratecon_{_sanitize_path_segment(sid)}",
+    )
     try:
         dl = bucket.download_object_bytes(object_key)
         if not dl.get("success"):
@@ -166,7 +174,10 @@ def ratecon_analysis(data: dict) -> dict:
                 "ratecon_object_key": object_key,
             }
 
-        fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        fd, tmp_path = make_temp_pdf(
+            prefix=f"ratecon_{sid}",
+            directory=stage_dir,
+        )
         try:
             os.write(fd, body)
         finally:
@@ -176,6 +187,7 @@ def ratecon_analysis(data: dict) -> dict:
             tmp_path,
             model_label=settings.LLM_MODEL or "",
             tenant_settings=data.get("tenant_settings"),
+            stage_dir=stage_dir,
         )
         good_pages = sum(1 for p in page_results if p.get("extracted_data"))
         has_ids = bool(extracted.get("shipment_identifiers")) or bool(
@@ -227,11 +239,7 @@ def ratecon_analysis(data: dict) -> dict:
             "ratecon_object_key": object_key,
         }
     finally:
-        if tmp_path and os.path.isfile(tmp_path):
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+        shutil.rmtree(stage_dir, ignore_errors=True)
 
 
 def _broker_name_from_ratecon_results(data: dict) -> str | None:
@@ -337,7 +345,13 @@ def pod_analysis(data: dict) -> dict:
             source = "s3"
             byte_len = len(body)
             suffix = ".pdf" if body.startswith(b"%PDF") else ".jpg"
-            fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+            if suffix == ".pdf":
+                fd, tmp_path = make_temp_pdf(prefix=f"pod_{sid}")
+            else:
+                fd, tmp_path = tempfile.mkstemp(
+                    prefix=f"pod_{_sanitize_path_segment(sid)}_",
+                    suffix=suffix,
+                )
             owned_tmp = True
             try:
                 os.write(fd, body)
@@ -411,7 +425,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_status": pod_status,
             "delivery_confirmed": final_pod_data.get("delivery_confirmed"),
         }
-    except PodPdfTooLargeError as exc:
+    except (PdfTooLargeError, PodPdfTooLargeError) as exc:
         logger.warning(
             "pod_analysis: PDF too large to convert shipment_id=%s error=%s",
             sid,
@@ -419,7 +433,7 @@ def pod_analysis(data: dict) -> dict:
         )
         return {
             "success": False,
-            "error": PodPdfTooLargeError.error_key,
+            "error": PdfTooLargeError.error_key,
             "error_message": str(exc),
             "shipment_id": sid,
             "pod_object_key": object_key,
