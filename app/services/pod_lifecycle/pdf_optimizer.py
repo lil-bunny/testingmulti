@@ -7,10 +7,14 @@ import tempfile
 from typing import Any
 
 import img2pdf
-from pdf2image import convert_from_path
-from PIL import Image
 
 from app.core.logger import get_logger
+from app.tools.pdf_raster import (
+    PdfRasterOptions,
+    PdfTooLargeError,
+    make_temp_pdf,
+    rasterize_pdf_to_jpeg_paths,
+)
 
 logger = get_logger(__name__)
 
@@ -19,67 +23,54 @@ class PodPdfOptimizeError(Exception):
     """Raised when a PDF cannot be reduced below the TMS upload size limit."""
 
 
-def _resize_page(image: Image.Image, max_side_px: int) -> Image.Image:
-    if not max_side_px or max_side_px <= 0:
-        return image
-    w, h = image.size
-    longest = max(w, h)
-    if longest <= max_side_px:
-        return image
-    scale = max_side_px / float(longest)
-    return image.resize(
-        (max(1, int(w * scale)), max(1, int(h * scale))),
-        resample=Image.LANCZOS,
-    )
-
-
 def _rasterize_to_pdf(
     pdf_bytes: bytes,
     *,
     dpi: int,
     jpeg_quality: int,
     max_side_px: int,
+    doc_label: str,
 ) -> tuple[bytes, int]:
+    """Rasterize via shared pdf_raster, then rebuild a PDF with img2pdf."""
     tmp_path: str | None = None
-    jpeg_paths: list[str] = []
+    work_dir: str | None = None
     try:
-        fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        fd, tmp_path = make_temp_pdf(prefix=doc_label)
         os.write(fd, pdf_bytes)
         os.close(fd)
 
-        images = convert_from_path(tmp_path, fmt="jpeg", dpi=dpi)
-        if not images:
+        work_dir = tempfile.mkdtemp(prefix=f"{doc_label}_raster_")
+        jpeg_paths = rasterize_pdf_to_jpeg_paths(
+            tmp_path,
+            work_dir,
+            PdfRasterOptions(
+                dpi=dpi,
+                max_side_px=max_side_px,
+                jpeg_quality=jpeg_quality,
+            ),
+        )
+        if not jpeg_paths:
             raise PodPdfOptimizeError("no pages extracted from PDF")
 
-        for i, image in enumerate(images):
-            prepared = _resize_page(image.convert("RGB"), max_side_px)
-            jpeg_path = os.path.join(
-                os.path.dirname(tmp_path),
-                f"pod_opt_{os.getpid()}_{i:03d}.jpg",
-            )
-            prepared.save(
-                jpeg_path,
-                "JPEG",
-                quality=max(25, min(95, int(jpeg_quality))),
-                optimize=True,
-                progressive=True,
-            )
-            jpeg_paths.append(jpeg_path)
-
         optimized = img2pdf.convert(jpeg_paths)
-        return optimized, len(images)
+        return optimized, len(jpeg_paths)
     finally:
         if tmp_path and os.path.isfile(tmp_path):
             try:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-        for path in jpeg_paths:
-            if os.path.isfile(path):
+        if work_dir and os.path.isdir(work_dir):
+            for name in os.listdir(work_dir):
+                path = os.path.join(work_dir, name)
                 try:
                     os.unlink(path)
                 except OSError:
                     pass
+            try:
+                os.rmdir(work_dir)
+            except OSError:
+                pass
 
 
 def optimize_for_tms_upload(
@@ -89,8 +80,14 @@ def optimize_for_tms_upload(
     dpi: int = 150,
     jpeg_quality: int = 75,
     max_side_px: int = 2000,
+    shipment_id: str | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
-    """Return PDF bytes suitable for Turvo upload; rasterize when over ``max_bytes``."""
+    """
+    Return PDF bytes suitable for Turvo upload; rasterize when over ``max_bytes``.
+
+    Uses the shared OOM-safe rasterizer. Memory-budget trips raise
+    ``PdfTooLargeError`` (fail closed — no unsafe all-pages Poppler).
+    """
     original_bytes = len(pdf_bytes)
     if original_bytes <= max_bytes:
         return pdf_bytes, {
@@ -99,13 +96,19 @@ def optimize_for_tms_upload(
             "optimized_bytes": original_bytes,
         }
 
+    ship = str(shipment_id or "").strip() or "unknown"
+    doc_label = f"pod_tms_{ship}"
+
     logger.info(
-        "pod_pdf_optimizer: compressing PDF original_bytes=%s max_bytes=%s dpi=%s",
+        "pod_pdf_optimizer: compressing PDF original_bytes=%s max_bytes=%s dpi=%s "
+        "shipment_id=%s",
         original_bytes,
         max_bytes,
         dpi,
+        ship,
     )
 
+    # Two quality/DPI steps only; both stay on the safe page-at-a-time path.
     attempts = [
         (dpi, jpeg_quality, max_side_px),
         (min(120, dpi), min(60, jpeg_quality), max_side_px),
@@ -118,22 +121,34 @@ def optimize_for_tms_upload(
     for attempt_dpi, attempt_quality, attempt_max_side in attempts:
         used_dpi = attempt_dpi
         used_quality = attempt_quality
-        candidate, page_count = _rasterize_to_pdf(
-            pdf_bytes,
-            dpi=attempt_dpi,
-            jpeg_quality=attempt_quality,
-            max_side_px=attempt_max_side,
-        )
+        try:
+            candidate, page_count = _rasterize_to_pdf(
+                pdf_bytes,
+                dpi=attempt_dpi,
+                jpeg_quality=attempt_quality,
+                max_side_px=attempt_max_side,
+                doc_label=doc_label,
+            )
+        except PdfTooLargeError:
+            logger.warning(
+                "pod_pdf_optimizer: PDF too large to rasterize safely "
+                "original_bytes=%s dpi=%s shipment_id=%s",
+                original_bytes,
+                attempt_dpi,
+                ship,
+            )
+            raise
         last_size = len(candidate)
         if last_size <= max_bytes:
             logger.info(
                 "pod_pdf_optimizer: compressed original_bytes=%s optimized_bytes=%s "
-                "pages=%s dpi=%s quality=%s",
+                "pages=%s dpi=%s quality=%s shipment_id=%s",
                 original_bytes,
                 last_size,
                 page_count,
                 attempt_dpi,
                 attempt_quality,
+                ship,
             )
             return candidate, {
                 "optimized": True,
@@ -152,4 +167,4 @@ def optimize_for_tms_upload(
     )
 
 
-__all__ = ("PodPdfOptimizeError", "optimize_for_tms_upload")
+__all__ = ("PodPdfOptimizeError", "PdfTooLargeError", "optimize_for_tms_upload")

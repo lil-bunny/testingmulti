@@ -162,3 +162,29 @@ def test_upload_to_turvo_missing_merged_key(monkeypatch):
     )
     assert out["success"] is False
     assert "missing_pod_merged_pdf_object_key" in out["message"]
+
+
+def test_upload_to_turvo_pdf_too_large_returns_error_key(monkeypatch):
+    large_pdf = b"%PDF-1.4\n" + b"x" * (11 * 1024 * 1024)
+    monkeypatch.setattr(turvo_tool, "_is_turvo_configured", lambda slug: True)
+    monkeypatch.setattr(
+        turvo_tool.bucket,
+        "download_object_bytes",
+        lambda key: {"success": True, "body": large_pdf},
+    )
+
+    def _raise_too_large(pdf_bytes, **kwargs):
+        raise turvo_tool.PdfTooLargeError("over budget")
+
+    monkeypatch.setattr(turvo_tool, "optimize_for_tms_upload", _raise_too_large)
+
+    out = turvo_tool.upload_to_turvo(
+        {
+            "tenant_slug": "t3ra",
+            "shipment_id": "1000324895",
+            "pod_merged_pdf_object_key": _OBJECT_KEY,
+        }
+    )
+    assert out["success"] is False
+    assert out["error"] == "pdf_too_large"
+    assert out["message"] == "pdf_too_large"

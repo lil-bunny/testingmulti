@@ -329,6 +329,20 @@ def test_upload_to_turvo_failure_sets_error(mock_svc_cls):
 
 
 @patch("app.workflows.nodes.turvo.PodTmsUploadService")
+def test_upload_to_turvo_pdf_too_large_sets_system_error(mock_svc_cls):
+    mock_svc_cls.return_value.upload_merged_pod_from_state.return_value = {
+        "success": False,
+        "error": "pdf_too_large",
+        "message": "pdf_too_large",
+    }
+    state = _state()
+
+    result = upload_to_turvo(state)
+
+    _assert_error(result, SystemError.PDF_TOO_LARGE)
+
+
+@patch("app.workflows.nodes.turvo.PodTmsUploadService")
 def test_upload_to_turvo_success_does_not_set_error(mock_svc_cls):
     mock_svc_cls.return_value.upload_merged_pod_from_state.return_value = {
         "success": True,

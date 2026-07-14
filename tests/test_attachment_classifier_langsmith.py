@@ -12,10 +12,7 @@ from app.domain.vision_prompt_templates import (
     POD_ATTACHMENT_CLASSIFIER_USER,
 )
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
-from app.services.attachment_normalizer import (
-    ATTACHMENT_CLASSIFIER_TIMEOUT_S,
-    AttachmentNormalizerService,
-)
+from app.services.attachment_normalizer import AttachmentNormalizerService
 from app.tools import llm_client
 from app.tools.llm_client import LLMClientError
 
@@ -89,7 +86,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["image_mime_type"] == "image/png"
     assert captured["kwargs"]["temperature"] == 0.1
     assert captured["kwargs"]["max_tokens"] == 150
-    assert captured["kwargs"]["timeout_s"] == ATTACHMENT_CLASSIFIER_TIMEOUT_S
+    assert "timeout_s" not in captured["kwargs"]  # uses LLM_REQUEST_TIMEOUT default
     meta = captured["kwargs"]["metadata"]
     assert meta["execution_id"] == "exec-1"
     assert meta["workflow_lifecycle_id"] == "wl-1"
