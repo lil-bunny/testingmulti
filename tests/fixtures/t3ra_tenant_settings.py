@@ -9,6 +9,7 @@ T3RA_PROMPTS: dict[str, Any] = {
         "page_extraction": "pod-page-extraction:staging",
         "vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
         "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
+        "attachment_classifier": "pod-attachment-classifier:staging",
     },
     "ratecon": {
         "page_extraction": "ratecon-page-extraction:staging",

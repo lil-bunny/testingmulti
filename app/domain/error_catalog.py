@@ -175,6 +175,10 @@ class SystemError(_CatalogError):
         "missing_shipment_id",
         "Shipment ID could not be resolved.",
     )
+    PDF_TOO_LARGE = (
+        "pdf_too_large",
+        "PDF is too large or high-resolution to convert safely; marked for review.",
+    )
 
 
 ErrorCode = BusinessError | IntegrationError | SystemError

@@ -159,6 +159,21 @@ class WorkflowService:
             "data": data,
         }
 
+    def _stamp_pod_lifecycle_before_attachment_pipeline(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict,
+    ) -> None:
+        """Resolve lifecycle before pre-graph classify so LangSmith thread_id matches the graph."""
+        lifecycle = self.lifecycle_service.resolve_or_create_lifecycle(
+            tenant_id=tenant_id,
+            workflow_name="pod_lifecycle",
+            payload=payload,
+        )
+        payload["workflow_lifecycle_id"] = lifecycle.workflow_lifecycle_id
+        payload["workflow_name"] = "pod_lifecycle"
+
     async def run(
         self,
         tenant_slug: str,
@@ -230,6 +245,13 @@ class WorkflowService:
                     shipments_row_id=skip.shipments_row_id,
                 )
 
+            # Lifecycle before classify: chat_vision_json must use workflow_lifecycle_id
+            # as LangSmith thread_id (not execution_id), matching workflow:pod_lifecycle.
+            self._stamp_pod_lifecycle_before_attachment_pipeline(
+                tenant_id=tenant_id,
+                payload=payload,
+            )
+
             pipeline = await self._pod_attachment_pipeline.run_for_email_payload(
                 payload=payload,
             )
@@ -253,12 +275,22 @@ class WorkflowService:
                 and payload["documents_pod"].get("stored")
             )
         ):
+            if not str(payload.get("execution_id") or "").strip():
+                payload["execution_id"] = str(uuid.uuid4())
+            self._stamp_pod_lifecycle_before_attachment_pipeline(
+                tenant_id=tenant_id,
+                payload=payload,
+            )
             pipeline = self._pod_attachment_pipeline.run_for_object_keys(
                 pod_object_keys=list(payload.get("pod_object_keys") or []),
                 shipment_id=str(payload.get("shipment_id") or "").strip() or None,
                 shipments_row_id=str(payload.get("shipments_row_id") or "").strip()
                 or None,
-                stage_token=str(payload.get("execution_id") or "").strip() or None,
+                stage_token=(
+                    str(payload.get("workflow_lifecycle_id") or "").strip()
+                    or str(payload.get("execution_id") or "").strip()
+                    or None
+                ),
                 trace_payload=payload,
             )
             if not pipeline.success:

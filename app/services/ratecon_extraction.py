@@ -7,14 +7,12 @@ Uses ``app.tools.llm_client.chat_vision_json`` (same LLM_* settings as text JSON
 from __future__ import annotations
 
 import logging
-import os
 import shutil
-import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from pdf2image import convert_from_path
-
+from app.core.config import settings
 from app.domain.prompt_step_keys import RATECON_PAGE_EXTRACTION
 from app.domain.vision_prompt_templates import (
     RATECON_PAGE_SYSTEM,
@@ -23,10 +21,15 @@ from app.domain.vision_prompt_templates import (
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_ratecon_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_vision_json
+from app.tools.pdf_raster import (
+    PdfRasterOptions,
+    PdfTooLargeError,
+    make_temp_workdir,
+    rasterize_pdf_to_jpeg_paths,
+)
 
 logger = logging.getLogger(__name__)
 
-# Legacy aliases for tests and direct imports.
 SYSTEM_PROMPT = RATECON_PAGE_SYSTEM
 USER_PROMPT = RATECON_PAGE_USER
 
@@ -54,22 +57,34 @@ def extract_from_pdf_path(
     *,
     tenant_settings: dict[str, Any] | None = None,
     model_label: str | None = None,
+    stage_dir: str | Path | None = None,
 ) -> tuple[list[Any], dict[str, Any]]:
     """
     Render each PDF page to JPEG, run vision JSON extraction per page, merge fields.
 
-    Returns ``(page_results, merged_extracted_data)``.
+    Page JPEGs land under ``stage_dir`` when provided (FreightX ratecon staging);
+    otherwise under ``RATECON_STAGE_ROOT``. Returns ``(page_results, merged_extracted_data)``.
     """
+    del model_label  # reserved for callers / future tracing
     vision_prompts, prompt_metadata = resolve_ratecon_vision_prompts(tenant_settings)
     prompt_trace = PromptTraceMetadata.from_load(
         RATECON_PAGE_EXTRACTION,
         prompt_metadata,
     )
 
-    work_dir = tempfile.mkdtemp(prefix="ratecon_extract_")
+    parent = Path(stage_dir) if stage_dir else Path(settings.RATECON_STAGE_ROOT)
+    work_dir = make_temp_workdir(prefix="ratecon_pages", directory=parent)
     try:
-        images = convert_from_path(pdf_path, fmt="jpeg")
-        if not images:
+        image_paths = rasterize_pdf_to_jpeg_paths(
+            pdf_path,
+            work_dir,
+            PdfRasterOptions(
+                dpi=settings.POD_IMAGE_DPI,
+                max_side_px=settings.POD_IMAGE_MAX_SIDE_PX,
+                jpeg_quality=settings.POD_JPEG_QUALITY,
+            ),
+        )
+        if not image_paths:
             return (
                 [
                     {
@@ -96,10 +111,8 @@ def extract_from_pdf_path(
         }
         page_results: list[Any] = []
 
-        for i, image in enumerate(images):
+        for i, img_path in enumerate(image_paths):
             page_num = i + 1
-            img_path = os.path.join(work_dir, f"page_{page_num:03d}.jpg")
-            image.save(img_path, "JPEG", quality=85, optimize=True)
             with open(img_path, "rb") as f:
                 jpeg_bytes = f.read()
             try:
@@ -143,5 +156,7 @@ def extract_from_pdf_path(
             final_data["po_number"] = final_data.get("primary_identifier")
 
         return page_results, final_data
+    except PdfTooLargeError:
+        raise
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

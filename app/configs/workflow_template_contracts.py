@@ -31,6 +31,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "attachment_normalization",
             "pod_merged_pdf_object_key",
             "pod_source_object_keys",
+            "pod_merge_source_paths",
+            "pod_vision_image_paths",
             "documents_pod",
             "has_attachments",
             "pod_attachment_stage_dir",

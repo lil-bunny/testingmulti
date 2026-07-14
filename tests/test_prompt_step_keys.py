@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.domain.prompt_step_keys import (
     DRIVER_ASSIGNMENT_DRIVER_DETAILS,
     LOAD_TENDERING_CARRIER_ACK,
+    POD_ATTACHMENT_CLASSIFIER,
     POD_PAGE_EXTRACTION,
     POD_VS_RATECON_SEMANTIC_MATCH,
     POD_VS_RATECON_SUMMARY,
@@ -30,6 +31,7 @@ def test_resolve_prompt_ref_nested_t3ra() -> None:
             "page_extraction": "pod-page-extraction:staging",
             "vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
             "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
+            "attachment_classifier": "pod-attachment-classifier:staging",
         },
         "ratecon": {
             "page_extraction": "ratecon-page-extraction:staging",
@@ -44,6 +46,10 @@ def test_resolve_prompt_ref_nested_t3ra() -> None:
     assert (
         resolve_prompt_ref(prompts, POD_VS_RATECON_SEMANTIC_MATCH)
         == "pod-vs-ratecon-semantic-match:staging"
+    )
+    assert (
+        resolve_prompt_ref(prompts, POD_ATTACHMENT_CLASSIFIER)
+        == "pod-attachment-classifier:staging"
     )
     assert (
         resolve_prompt_ref(prompts, DRIVER_ASSIGNMENT_DRIVER_DETAILS)

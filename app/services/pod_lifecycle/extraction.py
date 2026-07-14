@@ -17,38 +17,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pdf2image import convert_from_path
-from PIL import Image, UnidentifiedImageError
-
+from app.core.config import settings
 from app.integrations.langsmith import RenderedPrompt
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_vision_json
+from app.tools.pdf_raster import (
+    PdfRasterOptions,
+    PodPdfTooLargeError,
+    rasterize_pdf_to_jpeg_paths,
+)
 
 logger = logging.getLogger(__name__)
-
-Image.MAX_IMAGE_PIXELS = None
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except Exception:
-        return default
-
-
-def _resize_for_vision(image: Image.Image, max_side_px: int) -> Image.Image:
-    """Downscale image so the longest side is <= max_side_px (keeps aspect ratio)."""
-    if not max_side_px or max_side_px <= 0:
-        return image
-    w, h = image.size
-    longest = max(w, h)
-    if longest <= max_side_px:
-        return image
-    scale = max_side_px / float(longest)
-    new_w = max(1, int(w * scale))
-    new_h = max(1, int(h * scale))
-    return image.resize((new_w, new_h), resample=Image.LANCZOS)
 
 
 def get_prompt(broker_name=None):
@@ -327,89 +307,21 @@ def convert_pdf_to_images(
     dpi: int = 200,
     max_side_px: int = 0,
     jpeg_quality: int = 85,
-    thread_count: int = 2,
+    thread_count: int = 1,
     max_pages: int | None = None,
 ) -> list[str]:
-    """
-    Rasterize PDF to JPEGs under ``temp_dir``, or treat ``pdf_path`` as a single image.
-
-    Same responsibilities as before; **synchronous** like ``ratecon_extraction``.
-    """
-    load_id = Path(pdf_path).stem.replace(" POD", "").replace("_", "")
-
-    logger.info(
-        "pod_extraction: preparing POD document for vision pdf_path=%s load_id=%s",
+    """Rasterize PDF to JPEGs under ``temp_dir`` via shared ``pdf_raster``."""
+    _ = thread_count  # pdf_raster always uses thread_count=1 for Poppler
+    return rasterize_pdf_to_jpeg_paths(
         pdf_path,
-        load_id,
-    )
-
-    try:
-        try:
-            with Image.open(pdf_path) as image:
-                if str(getattr(image, "format", "")).upper() not in {
-                    "JPEG",
-                    "JPG",
-                    "PNG",
-                    "GIF",
-                    "WEBP",
-                    "BMP",
-                    "TIFF",
-                }:
-                    raise UnidentifiedImageError(
-                        f"Unsupported direct image format: {getattr(image, 'format', None)}"
-                    )
-                image.load()
-                prepared_image = image.convert("RGB")
-                prepared_image = _resize_for_vision(prepared_image, max_side_px=max_side_px)
-                image_path = os.path.join(temp_dir, "page_001.jpg")
-                prepared_image.save(
-                    image_path,
-                    "JPEG",
-                    quality=max(25, min(95, int(jpeg_quality))),
-                    optimize=True,
-                    progressive=True,
-                )
-                logger.info(
-                    "pod_extraction: image attachment prepared load_id=%s path=%s",
-                    load_id,
-                    image_path,
-                )
-                return [image_path]
-        except (UnidentifiedImageError, OSError, ValueError):
-            pass
-
-        images = convert_from_path(
-            pdf_path,
-            fmt="jpeg",
+        temp_dir,
+        PdfRasterOptions(
             dpi=dpi,
-            thread_count=thread_count,
-            first_page=1,
-            last_page=max_pages if max_pages and max_pages > 0 else None,
-        )
-        if not images:
-            raise ValueError(f"No images could be extracted from PDF: {pdf_path}")
-
-        image_paths = [os.path.join(temp_dir, f"page_{i+1:03d}.jpg") for i in range(len(images))]
-        for i, image in enumerate(images):
-            image = _resize_for_vision(image, max_side_px=max_side_px)
-            image.save(
-                image_paths[i],
-                "JPEG",
-                quality=max(25, min(95, int(jpeg_quality))),
-                optimize=True,
-                progressive=True,
-            )
-
-        logger.info(
-            "pod_extraction: PDF conversion successful load_id=%s page_count=%s",
-            load_id,
-            len(images),
-        )
-        return image_paths
-    except Exception as e:
-        error_msg = f"Failed to convert PDF to images: {type(e).__name__}: {str(e)}"
-        logger.exception("pod_extraction: PDF conversion failed pdf_path=%s", pdf_path)
-        raise Exception(error_msg) from e
+            max_side_px=max_side_px,
+            jpeg_quality=jpeg_quality,
+            max_pages=max_pages,
+        ),
+    )
 
 
 def analyze_page(
@@ -438,7 +350,6 @@ def analyze_page(
             system_prompt,
             user_prompt,
             image_data,
-            timeout_s=300.0,
             temperature=temperature,
             max_tokens=max_tokens,
             prompt_trace=prompt_trace,
@@ -472,9 +383,13 @@ def extract_from_pdf_path(
     model_label: str | None = None,
     fast_mode: bool = False,
     max_pages: int | None = None,
+    prepared_image_paths: list[str] | None = None,
 ) -> tuple[list[Any], dict[str, Any], list[str], dict[str, Any]]:
     """
     Sync pipeline: ``tempfile.mkdtemp`` → PDF/images → per-page ``chat_vision_json`` → reconcile.
+
+    When ``prepared_image_paths`` are present and readable, skip PDF rasterization and
+    analyze those JPEGs/PNGs directly (worker-local staged validated images).
 
     Mirrors ``ratecon_extraction.extract_from_pdf_path`` (no asyncio, no nested event loop).
     Returns ``(page_results, final_pod_data, validation_issues, reconciliation_log)``.
@@ -491,17 +406,17 @@ def extract_from_pdf_path(
 
     work_dir = tempfile.mkdtemp(prefix="pod_extraction_")
     try:
-        default_dpi = _env_int("POD_IMAGE_DPI", 200)
-        default_quality = _env_int("POD_JPEG_QUALITY", 85)
-        default_max_side = _env_int("POD_IMAGE_MAX_SIDE_PX", 0)
-        default_threads = _env_int("POD_PDF_THREAD_COUNT", 2)
+        default_dpi = settings.POD_IMAGE_DPI
+        default_quality = settings.POD_JPEG_QUALITY
+        default_max_side = settings.POD_IMAGE_MAX_SIDE_PX
+        default_threads = settings.POD_PDF_THREAD_COUNT
 
         if fast_mode:
-            dpi = _env_int("POD_FAST_IMAGE_DPI", 130)
-            jpeg_quality = _env_int("POD_FAST_JPEG_QUALITY", 70)
-            max_side_px = _env_int("POD_FAST_IMAGE_MAX_SIDE_PX", 1600)
-            thread_count = _env_int("POD_FAST_PDF_THREAD_COUNT", 4)
-            max_tokens = _env_int("POD_FAST_MAX_TOKENS", 700)
+            dpi = settings.POD_FAST_IMAGE_DPI
+            jpeg_quality = settings.POD_FAST_JPEG_QUALITY
+            max_side_px = settings.POD_FAST_IMAGE_MAX_SIDE_PX
+            thread_count = settings.POD_FAST_PDF_THREAD_COUNT
+            max_tokens = settings.POD_FAST_MAX_TOKENS
         else:
             dpi = default_dpi
             jpeg_quality = default_quality
@@ -509,31 +424,60 @@ def extract_from_pdf_path(
             thread_count = default_threads
             max_tokens = None
 
-        try:
-            image_paths = convert_pdf_to_images(
-                pdf_path,
-                work_dir,
-                dpi=dpi,
-                max_side_px=max_side_px,
-                jpeg_quality=jpeg_quality,
-                thread_count=thread_count,
-                max_pages=max_pages,
+        staged = [
+            str(p).strip()
+            for p in (prepared_image_paths or [])
+            if str(p).strip() and os.path.isfile(str(p).strip())
+        ]
+        if staged and len(staged) == len(
+            [str(p).strip() for p in (prepared_image_paths or []) if str(p).strip()]
+        ):
+            image_paths = staged
+            if max_pages and max_pages > 0:
+                image_paths = image_paths[:max_pages]
+            logger.info(
+                "pod_extraction: using staged vision images load_id=%s page_count=%s",
+                load_id,
+                len(image_paths),
             )
-        except Exception as e:
-            error_msg = f"Critical processing failure: {type(e).__name__}: {str(e)}"
-            logger.exception("pod_extraction: critical PDF processing failure load_id=%s", load_id)
-            sorted_results = [
-                {
-                    "page_number": 1,
-                    "timestamp": datetime.now().isoformat(),
-                    "error": error_msg,
-                    "error_type": type(e).__name__,
-                    "load_id": load_id,
-                }
-            ]
-            final_pod_data, reconciliation_log = reconcile_pod_data(sorted_results, broker_name)
-            validation_issues = validate_pod_consistency(final_pod_data)
-            return sorted_results, final_pod_data, validation_issues, reconciliation_log
+        else:
+            try:
+                image_paths = convert_pdf_to_images(
+                    pdf_path,
+                    work_dir,
+                    dpi=dpi,
+                    max_side_px=max_side_px,
+                    jpeg_quality=jpeg_quality,
+                    thread_count=thread_count,
+                    max_pages=max_pages,
+                )
+            except PodPdfTooLargeError:
+                raise
+            except Exception as e:
+                error_msg = f"Critical processing failure: {type(e).__name__}: {str(e)}"
+                logger.exception(
+                    "pod_extraction: critical PDF processing failure load_id=%s",
+                    load_id,
+                )
+                sorted_results = [
+                    {
+                        "page_number": 1,
+                        "timestamp": datetime.now().isoformat(),
+                        "error": error_msg,
+                        "error_type": type(e).__name__,
+                        "load_id": load_id,
+                    }
+                ]
+                final_pod_data, reconciliation_log = reconcile_pod_data(
+                    sorted_results, broker_name
+                )
+                validation_issues = validate_pod_consistency(final_pod_data)
+                return (
+                    sorted_results,
+                    final_pod_data,
+                    validation_issues,
+                    reconciliation_log,
+                )
 
         logger.info(
             "pod_extraction: processing PDF pages load_id=%s page_count=%s",

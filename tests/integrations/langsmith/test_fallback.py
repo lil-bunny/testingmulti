@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.domain.prompt_step_keys import (
     DRIVER_ASSIGNMENT_DRIVER_DETAILS,
     LOAD_TENDERING_CARRIER_ACK,
+    POD_ATTACHMENT_CLASSIFIER,
     POD_PAGE_EXTRACTION,
     POD_VS_RATECON_SEMANTIC_MATCH,
     POD_VS_RATECON_SUMMARY,
@@ -82,6 +83,9 @@ def test_t3ra_fixture_prompt_refs_match_fallback_hub_ids() -> None:
     assert hub_id_from_tenant_prompt_ref(
         resolve_prompt_ref(prompts, DRIVER_ASSIGNMENT_DRIVER_DETAILS)
     ) == (DRIVER_DETAILS_HUB_ID)
+    assert hub_id_from_tenant_prompt_ref(
+        resolve_prompt_ref(prompts, POD_ATTACHMENT_CLASSIFIER)
+    ) == "pod-attachment-classifier"
 
 
 def test_load_pod_vs_ratecon_summary_fallback_renders_variables() -> None:
@@ -125,6 +129,14 @@ def test_load_pod_page_fallback_renders_broker_context() -> None:
     )
     assert "Proof of Delivery" in rendered.system
     assert "broker rule" in rendered.system
+
+
+def test_load_pod_attachment_classifier_fallback_renders_prompts() -> None:
+    template = load_fallback_prompt("pod-attachment-classifier")
+    rendered = render_system_user(template, {})
+    assert "logistics document classifier" in rendered.user.lower()
+    assert "is_valid_document" in rendered.user
+    assert "classify logistics document validity" in rendered.system.lower()
 
 
 def test_load_ratecon_page_fallback_renders_user_mission() -> None:

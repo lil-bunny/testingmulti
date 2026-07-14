@@ -25,7 +25,11 @@ from app.integrations.turvo.load_to_shipment import (
     load_id_to_shipment_id_async,
 )
 from app.integrations.turvo.shipments import get_shipment as get_shipment_async
-from app.services.pod_lifecycle.pdf_optimizer import PodPdfOptimizeError, optimize_for_tms_upload
+from app.services.pod_lifecycle.pdf_optimizer import (
+    PodPdfOptimizeError,
+    optimize_for_tms_upload,
+)
+from app.tools.pdf_raster import PdfTooLargeError
 from app.services.s3bucket_service import bucket
 from app.tools.documents import resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import resolve_shipment_id
@@ -299,6 +303,7 @@ def upload_to_turvo(data: dict[str, Any]) -> dict[str, Any]:
             dpi=settings.TURVO_POD_OPTIMIZE_DPI,
             jpeg_quality=settings.TURVO_POD_OPTIMIZE_JPEG_QUALITY,
             max_side_px=settings.TURVO_POD_OPTIMIZE_MAX_SIDE_PX,
+            shipment_id=shipment_id,
         )
         lookup_id = asyncio.run(resolve_pod_lookup_id(slug))
         max_attempts = max(1, settings.TURVO_POD_UPLOAD_MAX_ATTEMPTS)
@@ -350,6 +355,18 @@ def upload_to_turvo(data: dict[str, Any]) -> dict[str, Any]:
         if last_turvo_error is not None:
             raise last_turvo_error
         return {**failed, "message": "TMS upload failed after retries"}
+    except PdfTooLargeError as e:
+        logger.warning(
+            "upload_to_turvo PDF too large to rasterize safely shipment_id=%s: %s",
+            shipment_id,
+            e,
+        )
+        return {
+            **failed,
+            "error": PdfTooLargeError.error_key,
+            "message": PdfTooLargeError.error_key,
+            "optimization": {"optimized": False, "error": str(e)},
+        }
     except PodPdfOptimizeError as e:
         logger.warning(
             "upload_to_turvo optimize failed shipment_id=%s: %s",
@@ -358,6 +375,7 @@ def upload_to_turvo(data: dict[str, Any]) -> dict[str, Any]:
         )
         return {
             **failed,
+            "error": PdfTooLargeError.error_key,
             "message": "pdf_too_large_for_tms_after_optimization",
             "optimization": {"optimized": True, "error": str(e)},
         }
