@@ -167,18 +167,21 @@ def chat_json(
     user_prompt: str,
     *,
     temperature: float = 0.2,
-    timeout_s: float = 60.0,
+    timeout_s: float | None = None,
     model: str | None = None,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> dict:
     """OpenAI-compatible chat completion; optional prompt/correlation metadata on LangSmith span."""
+    effective_timeout_s = (
+        settings.LLM_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
+    )
     return _chat_json_impl(
         system_prompt,
         user_prompt,
         temperature=temperature,
-        timeout_s=timeout_s,
+        timeout_s=effective_timeout_s,
         model=model,
         langsmith_extra=_merge_langsmith_extra(
             prompt_trace=prompt_trace,
@@ -255,7 +258,7 @@ def chat_vision_json(
     user_prompt: str,
     image_jpeg_bytes: bytes,
     *,
-    timeout_s: float = 120.0,
+    timeout_s: float | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = None,
     model: str | None = None,
@@ -265,12 +268,15 @@ def chat_vision_json(
     tags: list[str] | None = None,
 ) -> dict:
     """OpenAI-compatible vision call (single image) using the same LLM_* settings as ``chat_json``."""
+    effective_timeout_s = (
+        settings.LLM_REQUEST_TIMEOUT_S if timeout_s is None else timeout_s
+    )
     return _chat_vision_json_impl(
         system_prompt,
         user_prompt,
         image_jpeg_bytes,
         temperature=temperature,
-        timeout_s=timeout_s,
+        timeout_s=effective_timeout_s,
         max_tokens=max_tokens,
         model=model,
         image_mime_type=image_mime_type,

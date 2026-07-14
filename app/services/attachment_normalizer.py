@@ -50,8 +50,6 @@ SUPPORTED_IMAGE_MIMES = {
     "image/heif",
 }
 
-ATTACHMENT_CLASSIFIER_TIMEOUT_S = 300.0
-
 MIN_IMAGE_SIZE_BYTES = 10 * 1024
 MIN_IMAGE_DIMENSION = 100
 
@@ -902,7 +900,6 @@ class AttachmentNormalizerService:
                 max_tokens=150,
                 model=model,
                 image_mime_type=mime,
-                timeout_s=ATTACHMENT_CLASSIFIER_TIMEOUT_S,
                 prompt_trace=prompt_trace,
                 metadata=base_meta,
                 tags=["pod_attachment_classifier"],

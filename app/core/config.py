@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     LLM_MODEL: Optional[str] = None
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
-
+    LLM_REQUEST_TIMEOUT_S: float = 300.0
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
     # DB

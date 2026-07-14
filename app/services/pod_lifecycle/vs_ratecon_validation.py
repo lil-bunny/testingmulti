@@ -70,7 +70,6 @@ def ask_llm_for_semantic_match(
             rendered.system,
             rendered.user,
             temperature=0.1,
-            timeout_s=120.0,
             prompt_trace=prompt_trace,
         )
         return bool(llm_response.get("match")), str(
@@ -390,7 +389,6 @@ def generate_validation_summary(
             rendered.system,
             rendered.user,
             temperature=0.1,
-            timeout_s=120.0,
             prompt_trace=prompt_trace,
         )
         summary = str(llm_result.get("summary", "Validation analysis completed")).strip()

@@ -742,7 +742,6 @@ def analyze_page(
             system_prompt,
             user_prompt,
             image_data,
-            timeout_s=300.0,
             temperature=temperature,
             max_tokens=max_tokens,
             prompt_trace=prompt_trace,
