@@ -21,6 +21,7 @@ WORKFLOW_CONFIGS = {
             "pod_vs_ratecon_analysis",
             "record_pod_vs_ratecon_activity",
             "record_pod_processed_activity",
+            "notify_pod_analysis_teams",
             "upload_to_turvo",
             "record_pod_tms_upload_activity",
             "update_shipment",
@@ -33,6 +34,7 @@ WORKFLOW_CONFIGS = {
             ["record_pod_extraction_activity", "pod_vs_ratecon_analysis"],
             ["pod_vs_ratecon_analysis", "record_pod_vs_ratecon_activity"],
             ["record_pod_vs_ratecon_activity", "record_pod_processed_activity"],
+            ["record_pod_processed_activity", "notify_pod_analysis_teams"],
             ["upload_to_turvo", "record_pod_tms_upload_activity"],
             ["record_pod_tms_upload_activity", "end"],
             ["update_shipment", "end"],
@@ -94,7 +96,7 @@ WORKFLOW_CONFIGS = {
                     "missing": "end",
                 },
             },
-            "record_pod_processed_activity": {
+            "notify_pod_analysis_teams": {
                 "router": "post_pod_processing_router",
                 "map": {
                     "manual": "upload_to_turvo",

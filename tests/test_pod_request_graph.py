@@ -20,6 +20,7 @@ def test_pod_lifecycle_pod_request_graph():
     assert "record_pod_extraction_activity" in names
     assert "record_pod_vs_ratecon_activity" in names
     assert "record_pod_processed_activity" in names
+    assert "notify_pod_analysis_teams" in names
     assert "check_pod_reminder_eligibility" in names
     assert "complete_pod_found_in_tms" in names
 
@@ -51,12 +52,13 @@ def test_pod_lifecycle_pod_request_graph():
     assert ("record_pod_extraction_activity", "pod_vs_ratecon_analysis") in edges
     assert ("pod_vs_ratecon_analysis", "record_pod_vs_ratecon_activity") in edges
     assert ("record_pod_vs_ratecon_activity", "record_pod_processed_activity") in edges
+    assert ("record_pod_processed_activity", "notify_pod_analysis_teams") in edges
     assert ("record_pod_processed_activity", "update_shipment") not in edges
     assert ("upload_to_turvo", "record_pod_tms_upload_activity") in edges
     assert ("record_pod_tms_upload_activity", "end") in edges
-    assert routers["record_pod_processed_activity"]["router"] == "post_pod_processing_router"
-    assert routers["record_pod_processed_activity"]["map"]["manual"] == "upload_to_turvo"
-    assert routers["record_pod_processed_activity"]["map"]["email"] == "update_shipment"
+    assert routers["notify_pod_analysis_teams"]["router"] == "post_pod_processing_router"
+    assert routers["notify_pod_analysis_teams"]["map"]["manual"] == "upload_to_turvo"
+    assert routers["notify_pod_analysis_teams"]["map"]["email"] == "update_shipment"
     assert "record_pod_tms_upload_activity" not in routers
     assert ("pod_vs_ratecon_analysis", "upload_to_turvo") not in edges
     assert ("check_pod_reminder_eligibility", "send_email") not in edges

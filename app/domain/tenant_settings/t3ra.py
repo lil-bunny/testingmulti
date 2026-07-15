@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field
 
 from app.domain.driver_assignment.confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,
@@ -13,10 +13,18 @@ from app.domain.driver_assignment.partial_follow_up_email import (
     DriverAssignmentPartialFollowUpEmailConfig,
 )
 from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
+from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
 from app.domain.driver_assignment.reminders_config import DriverAssignmentRemindersConfig
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
 from app.domain.tenant_settings.tms import TmsSettings
+
+
+class ShadowBypassLoadEntry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    load_id: str | None = None
+    shipment_id: str | None = None
 
 
 class T3raPodLifecycleSettings(BaseModel):
@@ -24,7 +32,12 @@ class T3raPodLifecycleSettings(BaseModel):
 
     shadow_mode: bool = False
     shadow_emails: EmailRecipients | None = None
+    shadow_bypass_loads: list[ShadowBypassLoadEntry] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("shadow_bypass_loads", "shadow_live_loads"),
+    )
     reminders: WorkflowRemindersConfig
+    teams_notification: PodLifecycleTeamsNotificationSettings | None = None
 
 
 class T3raDriverAssignmentSettings(BaseModel):
@@ -32,6 +45,10 @@ class T3raDriverAssignmentSettings(BaseModel):
 
     shadow_mode: bool = False
     shadow_emails: EmailRecipients | None = None
+    shadow_bypass_loads: list[ShadowBypassLoadEntry] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("shadow_bypass_loads", "shadow_live_loads"),
+    )
     reminders: DriverAssignmentRemindersConfig
     confirmation_email: DriverAssignmentConfirmationEmailConfig | None = None
     partial_follow_up_email: DriverAssignmentPartialFollowUpEmailConfig | None = None

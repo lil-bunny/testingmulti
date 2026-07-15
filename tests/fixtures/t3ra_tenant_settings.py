@@ -64,6 +64,10 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                 "expire_grace_hours": 2,
                 "email_template_html": "<html>pod-reminder</html>",
             },
+            "teams_notification": {
+                "teams_webhook_url": "https://example.invalid/webhook",
+                "message_title": "POD analyzed — Load {load_id}",
+            },
         },
         "enabledProcesses": ["pod_lifecycle", "pod_collection", "driver_assignment"],
         "prompts": T3RA_PROMPTS,
