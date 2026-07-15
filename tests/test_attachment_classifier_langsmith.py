@@ -7,14 +7,20 @@ import io
 from PIL import Image
 
 from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
-from app.domain.vision_prompt_templates import (
-    POD_ATTACHMENT_CLASSIFIER_SYSTEM,
-    POD_ATTACHMENT_CLASSIFIER_USER,
-)
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.attachment_normalizer import AttachmentNormalizerService
 from app.tools import llm_client
 from app.tools.llm_client import LLMClientError
+from tests.fixtures.t3ra_tenant_settings import T3RA_PROMPTS
+
+_CLASSIFIER_RENDERED = RenderedPrompt(
+    system="Classify logistics document validity.",
+    user="You are a logistics document classifier.",
+)
+_CLASSIFIER_META = PromptLoadMetadata(
+    source="fallback",
+    tenant_prompt_ref="pod-attachment-classifier:staging",
+)
 
 
 def _large_png_bytes() -> bytes:
@@ -25,6 +31,13 @@ def _large_png_bytes() -> bytes:
     while len(data) < 11 * 1024:
         data += b"\x00"
     return data
+
+
+def _stub_classifier_prompts(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.resolve_pod_attachment_classifier_prompts",
+        lambda tenant_settings: (_CLASSIFIER_RENDERED, _CLASSIFIER_META),
+    )
 
 
 def test_classify_image_uses_chat_vision_json(monkeypatch):
@@ -64,6 +77,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
         "app.services.attachment_normalizer.settings.LLM_MODEL",
         "default-model",
     )
+    _stub_classifier_prompts(monkeypatch)
 
     svc = AttachmentNormalizerService()
     svc._trace_metadata = {
@@ -71,6 +85,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
         "workflow_lifecycle_id": "wl-1",
         "tenant_slug": "t3ra",
         "shipment_id": "SHIP-1",
+        "tenant_settings": {"prompts": T3RA_PROMPTS},
     }
     result = svc._classify_image(png, attachment_id="att-1")
 
@@ -79,8 +94,8 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert result["reasoning"] == "signed POD"
     assert result["detected_document_type"] == "POD"
     assert result["prefiltered"] is False
-    assert captured["system_prompt"] == POD_ATTACHMENT_CLASSIFIER_SYSTEM
-    assert captured["user_prompt"] == POD_ATTACHMENT_CLASSIFIER_USER
+    assert captured["system_prompt"] == _CLASSIFIER_RENDERED.system
+    assert captured["user_prompt"] == _CLASSIFIER_RENDERED.user
     assert captured["image_jpeg_bytes"] == png
     assert captured["kwargs"]["model"] == "classifier-model"
     assert captured["kwargs"]["image_mime_type"] == "image/png"
@@ -96,7 +111,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["tags"] == ["pod_attachment_classifier"]
     prompt_trace = captured["kwargs"]["prompt_trace"]
     assert prompt_trace.prompt_step_key == POD_ATTACHMENT_CLASSIFIER
-    assert prompt_trace.tenant_prompt_ref == "inline"
+    assert prompt_trace.tenant_prompt_ref == "pod-attachment-classifier:staging"
 
 
 def test_classify_image_omits_thread_id_without_lifecycle(monkeypatch):
@@ -120,11 +135,13 @@ def test_classify_image_omits_thread_id_without_lifecycle(monkeypatch):
         "app.services.attachment_normalizer.settings.LLM_API_KEY",
         "test-key",
     )
+    _stub_classifier_prompts(monkeypatch)
 
     svc = AttachmentNormalizerService()
     svc._trace_metadata = {
         "execution_id": "exec-only",
         "tenant_slug": "t3ra",
+        "tenant_settings": {"prompts": T3RA_PROMPTS},
     }
     svc._classify_image(png, attachment_id="att-1")
 
@@ -201,8 +218,10 @@ def test_classify_image_fail_closed_on_llm_error(monkeypatch):
         "app.services.attachment_normalizer.chat_vision_json",
         lambda *args, **kwargs: (_ for _ in ()).throw(LLMClientError("boom")),
     )
+    _stub_classifier_prompts(monkeypatch)
 
     svc = AttachmentNormalizerService()
+    svc._trace_metadata = {"tenant_settings": {"prompts": T3RA_PROMPTS}}
     result = svc._classify_image(png, attachment_id="att-err")
 
     assert result["is_valid_document"] is False

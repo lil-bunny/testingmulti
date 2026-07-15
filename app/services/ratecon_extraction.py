@@ -14,10 +14,6 @@ from typing import Any
 
 from app.core.config import settings
 from app.domain.prompt_step_keys import RATECON_PAGE_EXTRACTION
-from app.domain.vision_prompt_templates import (
-    RATECON_PAGE_SYSTEM,
-    RATECON_PAGE_USER,
-)
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_ratecon_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_vision_json
@@ -29,9 +25,6 @@ from app.tools.pdf_raster import (
 )
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = RATECON_PAGE_SYSTEM
-USER_PROMPT = RATECON_PAGE_USER
 
 
 def _merge_extracted_data(

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.domain.prompt_step_keys import (
     POD_ATTACHMENT_CLASSIFIER,
     POD_PAGE_EXTRACTION,
@@ -12,11 +14,7 @@ from app.domain.prompt_step_keys import (
     RATECON_PAGE_EXTRACTION,
     resolve_prompt_ref,
 )
-from app.domain.vision_prompt_templates import (
-    POD_ATTACHMENT_CLASSIFIER_SYSTEM,
-    POD_ATTACHMENT_CLASSIFIER_USER,
-)
-from app.integrations.langsmith import PromptUnavailableError
+from app.integrations.langsmith import MissingTenantPromptRefError
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.prompt_service import (
     PromptService,
@@ -30,21 +28,7 @@ from tests.fixtures.t3ra_tenant_settings import T3RA_PROMPTS
 from tests.fixtures.tenant_settings import load_tenant_settings_dev
 
 
-def test_render_vision_step_uses_inline_when_no_tenant_ref() -> None:
-    prompt_service = PromptService(prompt_client=MagicMock())
-    rendered, metadata = prompt_service.render_vision_step(
-        {},
-        POD_PAGE_EXTRACTION,
-        {"broker_name": "Acme", "broker_context": "ctx"},
-        inline_fallback=("inline-sys", "inline-usr"),
-    )
-    assert rendered.system == "inline-sys"
-    assert rendered.user == "inline-usr"
-    assert metadata.source == "fallback"
-    assert metadata.tenant_prompt_ref == "inline"
-
-
-def test_render_vision_step_loads_from_hub_when_ref_configured() -> None:
+def test_render_step_loads_from_hub_when_ref_configured() -> None:
     client = MagicMock()
     client.load_and_render.return_value = (
         RenderedPrompt(system="hub-sys", user="hub-usr"),
@@ -55,29 +39,24 @@ def test_render_vision_step_loads_from_hub_when_ref_configured() -> None:
         ),
     )
     prompt_service = PromptService(prompt_client=client)
-    rendered, metadata = prompt_service.render_vision_step(
+    rendered, metadata = prompt_service.render_step(
         {"prompts": T3RA_PROMPTS},
         POD_PAGE_EXTRACTION,
         {"broker_name": "", "broker_context": ""},
-        inline_fallback=("inline-sys", "inline-usr"),
     )
     assert rendered.system == "hub-sys"
     assert metadata.source == "hub"
     client.load_and_render.assert_called_once()
 
 
-def test_render_vision_step_inline_when_hub_unavailable() -> None:
-    client = MagicMock()
-    client.load_and_render.side_effect = PromptUnavailableError("down")
-    prompt_service = PromptService(prompt_client=client)
-    rendered, metadata = prompt_service.render_vision_step(
-        {"prompts": T3RA_PROMPTS},
-        RATECON_PAGE_EXTRACTION,
-        {},
-        inline_fallback=("inline-sys", "inline-usr"),
-    )
-    assert rendered.system == "inline-sys"
-    assert metadata.tenant_prompt_ref == "ratecon-page-extraction:staging"
+def test_render_step_missing_ref_raises() -> None:
+    prompt_service = PromptService(prompt_client=MagicMock())
+    with pytest.raises(MissingTenantPromptRefError):
+        prompt_service.render_step(
+            {},
+            POD_PAGE_EXTRACTION,
+            {"broker_name": "Acme", "broker_context": "ctx"},
+        )
 
 
 def test_resolve_pod_vision_prompts_includes_broker_variables() -> None:
@@ -112,11 +91,9 @@ def test_t3ra_fixture_has_pod_and_ratecon_prompt_refs() -> None:
     )
 
 
-def test_resolve_pod_attachment_classifier_prompts_inline_without_ref() -> None:
-    rendered, metadata = resolve_pod_attachment_classifier_prompts({})
-    assert rendered.system == POD_ATTACHMENT_CLASSIFIER_SYSTEM
-    assert rendered.user == POD_ATTACHMENT_CLASSIFIER_USER
-    assert metadata.tenant_prompt_ref == "inline"
+def test_resolve_pod_attachment_classifier_prompts_requires_ref() -> None:
+    with pytest.raises(MissingTenantPromptRefError):
+        resolve_pod_attachment_classifier_prompts({})
 
 
 def test_resolve_pod_attachment_classifier_prompts_loads_from_hub() -> None:
@@ -141,6 +118,24 @@ def test_resolve_pod_attachment_classifier_prompts_loads_from_hub() -> None:
         "pod-attachment-classifier:staging",
         {},
     )
+
+
+def test_resolve_ratecon_vision_prompts_loads_from_hub() -> None:
+    client = MagicMock()
+    client.load_and_render.return_value = (
+        RenderedPrompt(system="hub-sys", user="hub-usr"),
+        PromptLoadMetadata(
+            source="hub",
+            tenant_prompt_ref="ratecon-page-extraction:staging",
+        ),
+    )
+    prompt_service = PromptService(prompt_client=client)
+    rendered, metadata = resolve_ratecon_vision_prompts(
+        {"prompts": T3RA_PROMPTS},
+        prompt_service=prompt_service,
+    )
+    assert rendered.system == "hub-sys"
+    assert metadata.source == "hub"
 
 
 def test_resolve_pod_vs_ratecon_summary_includes_validation_json() -> None:

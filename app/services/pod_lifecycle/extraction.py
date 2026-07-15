@@ -31,18 +31,6 @@ from app.tools.pdf_raster import (
 logger = logging.getLogger(__name__)
 
 
-def get_prompt(broker_name=None):
-    """
-    Returns the inline fallback prompt for the LLM (legacy/tests).
-
-    Prefer ``resolve_pod_vision_prompts`` for Hub-managed prompts.
-    """
-    from app.domain.vision_prompt_templates import render_inline_pod_prompts
-
-    system, _user = render_inline_pod_prompts(broker_name)
-    return system
-
-
 def reconcile_pod_data(page_results, broker_name=None):
     """
     Takes all page results and uses rule-based engine to determine the final data.
@@ -329,19 +317,15 @@ def analyze_page(
     page_number: int,
     broker_name=None,
     *,
-    vision_prompts: RenderedPrompt | None = None,
+    vision_prompts: RenderedPrompt,
     prompt_trace: PromptTraceMetadata | None = None,
     max_tokens: int | None = None,
     temperature: float = 0.0,
 ) -> dict[str, Any]:
     """Per-page vision extraction (sync ``chat_vision_json``, same pattern as ratecon)."""
     load_id = Path(image_path).stem
-    if vision_prompts is None:
-        system_prompt = get_prompt(broker_name)
-        user_prompt = " "
-    else:
-        system_prompt = vision_prompts.system
-        user_prompt = vision_prompts.user
+    system_prompt = vision_prompts.system
+    user_prompt = vision_prompts.user or " "
 
     try:
         with open(image_path, "rb") as f:
