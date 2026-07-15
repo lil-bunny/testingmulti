@@ -285,6 +285,35 @@ class ShipmentsService:
             shipment_number=turvo_shipment_id,
         )
 
+    @staticmethod
+    def _load_id_from_row(row: dict[str, Any] | None) -> str | None:
+        if not row:
+            return None
+        metadata = row.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+        return ShipmentsService._clean(metadata.get("load_id"))
+
+    def resolve_load_id(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str | None = None,
+        shipment_number: str | None = None,
+    ) -> str | None:
+        """Broker ``load_id`` from ``shipments.metadata`` (set by ratecon upsert)."""
+        row_id = self._uuid_or_none(self._clean(shipments_row_id))
+        if row_id:
+            return self._load_id_from_row(
+                self.get_by_id(tenant_id=tenant_id, shipment_id=row_id)
+            )
+        number = self._clean(shipment_number)
+        if number:
+            return self._load_id_from_row(
+                self.get_by_shipment_number(tenant_id=tenant_id, shipment_number=number)
+            )
+        return None
+
     def merge_driver_details(
         self,
         *,

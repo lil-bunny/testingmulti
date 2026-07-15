@@ -139,6 +139,39 @@ def test_send_pod_reminder_shadow_bypass_load_by_shipment_id_sends_real_email() 
     redirect_mock.assert_not_called()
 
 
+def test_send_pod_reminder_shadow_bypass_load_id_only_sends_real_email() -> None:
+    svc = PodLifecycleEmailService()
+    state = _state(
+        load_id="62369",
+        shipment_id="1000324868",
+        tenant_settings={
+            "mikey_account_id": {
+                "account_id": "acct-1",
+                "email_alias": "ops@example.com",
+            },
+            "pod_lifecycle": {
+                "shadow_mode": True,
+                "shadow_emails": {"to": ["test@freightx.ai"]},
+                "shadow_bypass_loads": [{"load_id": "62369"}],
+            },
+        },
+        workflow_shadow_mode=True,
+    )
+    with patch.object(
+        WorkflowShadowMailService,
+        "send_redirect_email",
+    ) as redirect_mock:
+        with patch("app.services.pod_lifecycle.email_service.send_email_tool") as send_mock:
+            send_mock.return_value = {"success": True, "communication_id": "comm-live-2"}
+            result = svc.send_pod_reminder_from_state(state)
+
+    assert result.sent is True
+    assert result.shadow_skipped is False
+    assert result.communication_id == "comm-live-2"
+    send_mock.assert_called_once()
+    redirect_mock.assert_not_called()
+
+
 def test_send_email_node_delegates_to_service() -> None:
     from app.workflows.nodes import email as email_nodes
 

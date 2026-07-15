@@ -193,6 +193,34 @@ class PodLifecycleIngressService:
             thread_shipment_context.pod_lifecycle_id,
         )
 
+    def enrich_payload_load_id(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Set ``load_id`` from ``shipments.metadata`` when missing (shadow bypass / reminders)."""
+        if self._clean(payload.get("load_id")):
+            return payload
+
+        tenant_id_clean = self._clean(tenant_id)
+        if not tenant_id_clean:
+            return payload
+
+        shipments_row_id = self._resolve_shipments_row_id(
+            tenant_id=tenant_id_clean,
+            payload=payload,
+        )
+        shipment_number = self._clean(payload.get("shipment_id"))
+        load_id = self._shipments.resolve_load_id(
+            tenant_id=tenant_id_clean,
+            shipments_row_id=shipments_row_id,
+            shipment_number=shipment_number,
+        )
+        if load_id:
+            payload["load_id"] = load_id
+        return payload
+
     def _apply_resolution(
         self,
         payload: dict[str, Any],
@@ -215,7 +243,10 @@ class PodLifecycleIngressService:
             resolution.shipment_number,
             resolution.workflow_lifecycle_id,
         )
-        return enriched_payload
+        return self.enrich_payload_load_id(
+            tenant_id=tenant_id,
+            payload=enriched_payload,
+        )
 
     async def _finish_email_resolution(
         self,

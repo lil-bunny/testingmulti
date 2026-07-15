@@ -192,6 +192,11 @@ class WorkflowService:
             tenant_slug,
             tenant_row.get("settings") or {},
         )
+        if workflow_name == "pod_lifecycle":
+            payload = self._pod_lifecycle_ingress.enrich_payload_load_id(
+                tenant_id=tenant_id,
+                payload=payload,
+            )
         if workflow_shadow_active(
             payload["tenant_settings"],
             payload,
