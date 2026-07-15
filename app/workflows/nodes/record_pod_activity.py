@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.pod_lifecycle.pipeline_activity_service import PodPipelineActivityService
 from app.services.pod_lifecycle.processed_activity_service import PodProcessedActivityService
+from app.services.pod_lifecycle.teams_notification_service import PodLifecycleTeamsNotificationService
 from app.services.pod_lifecycle.upload_activity_service import PodUploadActivityService
 
 
@@ -46,4 +47,15 @@ def record_pod_vs_ratecon_activity(state):
 def record_pod_processed_activity(state):
     """Finalize POD processing after LLM/ratecon."""
     PodProcessedActivityService().record_from_state(state)
+    return state
+
+
+def notify_pod_analysis_teams(state):
+    """Post POD analysis summary to Teams (tenant-configured webhook)."""
+    result = PodLifecycleTeamsNotificationService().notify_from_state(state)
+    state.data["pod_teams_notification_sent"] = result.sent
+    if result.skip_reason:
+        state.data["pod_teams_notification_skipped"] = result.skip_reason
+    if result.error:
+        state.data["pod_teams_notification_error"] = result.error
     return state
