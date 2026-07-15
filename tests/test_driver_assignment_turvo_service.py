@@ -697,6 +697,52 @@ async def test_shadow_mode_skips_assign_driver_to_shipment() -> None:
     create_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_shadow_bypass_loads_runs_assign_driver_to_shipment() -> None:
+    svc = DriverAssignmentTurvoService()
+    assign_mock = AsyncMock(return_value={"Status": "SUCCESS"})
+    create_mock = AsyncMock(return_value=640635)
+    with (
+        patch(
+            "app.services.driver_assignment.turvo_service.get_shipment",
+            new=AsyncMock(return_value=_shipment()),
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.driver_assigned_from_payload",
+            return_value=False,
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.search_carrier_driver_contacts_by_phone",
+            new=AsyncMock(return_value=[_virat_match()]),
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.assign_driver_to_shipment",
+            assign_mock,
+        ),
+        patch(
+            "app.services.driver_assignment.turvo_service.create_driver_contact",
+            create_mock,
+        ),
+    ):
+        result = await svc.resolve_and_assign(
+            tenant_slug="t3ra",
+            shipment_id="1000324895",
+            driver={"name": "Virat", "phone": "9989239823", "email": None},
+            tenant_settings={
+                "driver_assignment": {
+                    "shadow_mode": True,
+                    "shadow_bypass_loads": [
+                        {"load_id": "62369", "shipment_id": "1000324895"},
+                    ],
+                }
+            },
+            state_data={"workflow_shadow_mode": True, "load_id": "62369"},
+        )
+    assert result.outcome == "assigned"
+    assign_mock.assert_awaited_once()
+    create_mock.assert_not_awaited()
+
+
 def _shipment_with_driver(*, driver_contact_id=640635, row_id="row-1", order_id=653902):
     return {
         "details": {

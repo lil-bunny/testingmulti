@@ -1,5 +1,5 @@
 from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
-from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_mode_enabled
+from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_active
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
@@ -192,8 +192,9 @@ class WorkflowService:
             tenant_slug,
             tenant_row.get("settings") or {},
         )
-        if workflow_shadow_mode_enabled(
+        if workflow_shadow_active(
             payload["tenant_settings"],
+            payload,
             workflow_name=workflow_name,
         ):
             payload["workflow_shadow_mode"] = True
