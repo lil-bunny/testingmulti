@@ -600,3 +600,62 @@ async def test_prepare_email_received_payload_timeout_without_lifecycle_skips_ex
             )
 
     record_timeout.assert_not_called()
+
+
+def test_enrich_payload_load_id_from_shipments_row_id() -> None:
+    shipments = MagicMock()
+    shipments.resolve_load_id.return_value = "30389"
+    svc = PodLifecycleIngressService(shipments_service=shipments)
+
+    payload = {
+        "shipments_row_id": _SHIPMENTS_ROW_UUID,
+        "shipment_id": _TURVO_SHIPMENT,
+    }
+    out = svc.enrich_payload_load_id(tenant_id=_TENANT_UUID, payload=payload)
+
+    assert out["load_id"] == "30389"
+    shipments.resolve_load_id.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipments_row_id=_SHIPMENTS_ROW_UUID,
+        shipment_number=_TURVO_SHIPMENT,
+    )
+
+
+def test_enrich_payload_load_id_from_shipment_number_only() -> None:
+    shipments = MagicMock()
+    shipments.get_by_shipment_number.return_value = {"id": _SHIPMENTS_ROW_UUID}
+    shipments.resolve_load_id.return_value = "30389"
+    svc = PodLifecycleIngressService(shipments_service=shipments)
+
+    payload = {"shipment_id": _TURVO_SHIPMENT}
+    out = svc.enrich_payload_load_id(tenant_id=_TENANT_UUID, payload=payload)
+
+    assert out["load_id"] == "30389"
+    shipments.resolve_load_id.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipments_row_id=_SHIPMENTS_ROW_UUID,
+        shipment_number=_TURVO_SHIPMENT,
+    )
+
+
+def test_enrich_payload_load_id_no_op_when_load_id_present() -> None:
+    shipments = MagicMock()
+    svc = PodLifecycleIngressService(shipments_service=shipments)
+
+    payload = {"load_id": "61913", "shipment_id": _TURVO_SHIPMENT}
+    out = svc.enrich_payload_load_id(tenant_id=_TENANT_UUID, payload=payload)
+
+    assert out["load_id"] == "61913"
+    shipments.resolve_load_id.assert_not_called()
+
+
+def test_enrich_payload_load_id_no_op_when_metadata_missing() -> None:
+    shipments = MagicMock()
+    shipments.resolve_load_id.return_value = None
+    svc = PodLifecycleIngressService(shipments_service=shipments)
+
+    payload = {"shipments_row_id": _SHIPMENTS_ROW_UUID}
+    out = svc.enrich_payload_load_id(tenant_id=_TENANT_UUID, payload=payload)
+
+    assert "load_id" not in out
+    shipments.resolve_load_id.assert_called_once()
