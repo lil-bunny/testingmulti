@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import Any
 
 import pytest
 
@@ -55,7 +54,6 @@ from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.pod_lifecycle.ingress_service import PodLifecycleIngressService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.services.workflow_runs_service import WorkflowRunsService
 from tests.e2e.fixtures.pod_email_e2e import (
     build_pod_email_received_payload,
     pod_email_e2e_correlation,

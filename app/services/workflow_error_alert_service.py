@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.load_tendering_settings import shared_unipile_account_settings
@@ -10,7 +10,6 @@ from app.domain.tenant_settings.workflow_error_alerts import (
     WorkflowErrorAlertChannelSettings,
     WorkflowErrorAlertEmailChannelSettings,
 )
-from app.domain.workflow_error_alert_payload import WorkflowErrorAlertPayload
 from app.domain.workflow_error_alert_settings import resolve_workflow_error_alert_settings
 from app.domain.workflow_error_alert_templates import (
     build_workflow_error_alert_template_context,
@@ -21,6 +20,9 @@ from app.services.activity_log_service import ActivityLogService
 from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import UnipileException
 from app.tools.email import send_email
+
+if TYPE_CHECKING:
+    from app.domain.workflow_error_alert_payload import WorkflowErrorAlertPayload
 
 logger = get_logger(__name__)
 

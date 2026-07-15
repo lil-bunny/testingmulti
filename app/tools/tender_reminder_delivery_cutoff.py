@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from app.domain.load_tendering_state import get_tender
 from app.domain.load_tendering_tender_rows import parse_tender_date
-from app.domain.reminder_schedule import DeliveryCutoffSpec
 from app.services.workflow_reminder_service import parse_reminders_for_workflow
+
+if TYPE_CHECKING:
+    from app.domain.reminder_schedule import DeliveryCutoffSpec
 
 
 def _local_time_parts(spec: DeliveryCutoffSpec) -> tuple[int, int]:

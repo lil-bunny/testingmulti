@@ -101,7 +101,7 @@ def test_record_ratecon_upload_activity_success(
     mock_svc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.models.status import StatusSubType, StatusType
+    from app.models.status import StatusSubType
     from app.workflows.nodes.record_ratecon_activity import (
         record_ratecon_upload_activity,
     )

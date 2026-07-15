@@ -8,7 +8,6 @@ Uses ``chat_json`` with app ``LLM_*`` settings; fuzzy matching via ``thefuzz``.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any

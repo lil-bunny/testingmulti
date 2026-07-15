@@ -7,10 +7,8 @@ Product and pack_code fields were captured from ``tenders`` / ``tender_products`
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest

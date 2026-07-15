@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from app.domain.ingress_result import IngressResult
 from app.services.t3ra.driver_details_email_ingress import DriverDetailsEmailIngressService
-from app.services.unipile_tenant_resolution import UnipileTenantContext
+
+if TYPE_CHECKING:
+    from app.services.unipile_tenant_resolution import UnipileTenantContext
+    from app.domain.ingress_result import IngressResult
 
 
 class IngressDriverDetailsInboundMixin:

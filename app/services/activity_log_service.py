@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
@@ -28,9 +28,11 @@ from app.domain.lifecycle_transition import (
     LifecycleTransitionError,
 )
 from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID, is_snapshot_activity_type
-from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.lifecycle_transition_service import LifecycleTransitionService
+
+if TYPE_CHECKING:
+    from app.repositories.activity_logs_repository import ActivityLogsRepository
 
 logger = get_logger(__name__)
 
@@ -230,7 +232,7 @@ class ActivityLogService:
     def _record_snapshot(
         self, write: ActivityLogWrite, *, activity_type: ActivityType
     ) -> str | None:
-        wl = self._uuid_or_none(
+        self._uuid_or_none(
             write.workflow_lifecycle_id, field_name="workflow_lifecycle_id"
         )
         wr = self._uuid_or_none(write.workflow_run_id, field_name="workflow_run_id")

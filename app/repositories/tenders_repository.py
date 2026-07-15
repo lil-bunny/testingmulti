@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _WHERE_TENANT_TENDER_PK = """
     WHERE id = CAST(:tender_id AS uuid) AND tenant_id = CAST(:tenant_id AS uuid)

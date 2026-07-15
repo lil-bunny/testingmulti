@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, fetchall_dicts, jsonb_param
 from app.models.workflow_run_event_type import WorkflowRunEventType
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _LIFECYCLE_ON_COMMS = """
 (

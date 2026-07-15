@@ -15,10 +15,9 @@ import tempfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.config import settings
-from app.integrations.langsmith import RenderedPrompt
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_vision_json
@@ -27,6 +26,9 @@ from app.tools.pdf_raster import (
     PodPdfTooLargeError,
     rasterize_pdf_to_jpeg_paths,
 )
+
+if TYPE_CHECKING:
+    from app.integrations.langsmith import RenderedPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ def reconcile_pod_data(page_results, broker_name=None):
             page_num = error_page.get("page_number", "unknown")
             error_msg = error_page.get("error", "Unknown error")
             error_type = error_page.get("error_type", "Unknown")
-            error_category = error_page.get("error_category", "unknown")
+            error_page.get("error_category", "unknown")
             error_summary.append(f"Page {page_num}: {error_type} - {error_msg}")
 
         reconciliation_log["processing_errors"] = (

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_pod_found_in_tms_info
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
-from app.domain.state import WorkflowState
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
@@ -19,6 +18,9 @@ from app.services.pod_lifecycle.tms_upload_activity import (
 )
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
+
+if TYPE_CHECKING:
+    from app.domain.state import WorkflowState
 
 logger = get_logger(__name__)
 

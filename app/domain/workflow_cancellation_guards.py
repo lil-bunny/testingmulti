@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 from app.models.status import StatusSubType, StatusType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 
 
 def is_workflow_cancelled(

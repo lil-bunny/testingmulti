@@ -24,7 +24,6 @@ from app.services.prompt_service import (
     resolve_pod_vision_prompts,
     resolve_pod_vs_ratecon_semantic_match_prompts,
     resolve_pod_vs_ratecon_summary_prompts,
-    resolve_ratecon_vision_prompts,
 )
 from tests.fixtures.t3ra_tenant_settings import T3RA_PROMPTS
 from tests.fixtures.tenant_settings import load_tenant_settings_dev

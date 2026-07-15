@@ -7,7 +7,9 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.core.logger import get_logger
+from app.domain.error_catalog import SystemError
 from app.domain.gelita.routing_guide import GELITA_MAX_CARRIER_ATTEMPTS
+from app.domain.state import workflow_state_data
 from app.domain.tenant_settings.gelita import (
     GelitaDomesticDeliverySettings,
     GelitaEscalateTenderSettings,
@@ -16,12 +18,10 @@ from app.domain.tenant_settings.gelita import (
     GelitaTenderCalculateSettings,
     GelitaTenantSettings,
 )
+from app.exceptions import WorkflowException
+from app.services.tender_service import TenderService
 
 logger = get_logger(__name__)
-from app.exceptions import WorkflowException
-from app.domain.error_catalog import SystemError
-from app.services.tender_service import TenderService
-from app.domain.state import workflow_state_data
 
 LOAD_TENDERING_SETTINGS_KEY = "load_tendering"
 _LOAD_TYPE_BUCKETS = frozenset({"ltl", "ftl"})

@@ -1197,7 +1197,7 @@ async def test_prepare_allows_restart_after_cancelled_cycle() -> None:
     svc._runs_service.is_ratecon_completed_blocked_for_shipment.assert_called_once()
 
 
-def test_check_reminder_eligibility_skips_when_driver_assigned():
+def test_send_driver_details_confirmation_email_skipped_already_assigned():
     svc = DriverAssignmentIngressService()
     result = svc.send_driver_details_confirmation_email(
         tenant_id=_TENANT_ID,

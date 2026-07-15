@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
-from typing import Any
-from unittest.mock import MagicMock
+from typing import Any, TYPE_CHECKING
 
 import psycopg
 import pytest
@@ -13,6 +11,9 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import create_app
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _GELITA_EMAIL = "routing-test-gelita@freightx.test"
 _T3RA_EMAIL = "routing-test-t3ra@freightx.test"

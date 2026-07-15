@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 _LEGACY_AUTH_KEYS: tuple[str, ...] = (
     "user_name",

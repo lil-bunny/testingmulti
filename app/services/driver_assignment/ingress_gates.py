@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
+from app.domain.status_parsing import status_type_from_db
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
 from app.integrations.turvo.shipments import (
     driver_assigned_from_payload,
     driver_request_eligible_from_payload,
     pickup_appointment_from_payload,
 )
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusType
 from app.services.driver_assignment.ingress_types import (
     DRIVER_ASSIGNMENT_WORKFLOW,
     LAYER1_ACTIVITY_SKIP_REASONS,

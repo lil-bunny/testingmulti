@@ -25,7 +25,6 @@ def resolve_workflow_graph_tenant_id(
     Pick Celery/graph ``tenant_id``: ``tenants.slug`` wins when it equals a ``TENANT_CONFIGS``
     top-level key, else ``tenant_slug_hint`` when it matches such a key, else ``t3ra``.
     """
-    from app.repositories.tenants_db_repository import TenantsDbRepository
 
     valid = frozenset(TENANT_CONFIGS.keys())
     tenant_uuid = str(data_import_tenant_id or "").strip()

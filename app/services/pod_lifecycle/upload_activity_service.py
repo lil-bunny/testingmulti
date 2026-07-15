@@ -40,7 +40,6 @@ from app.domain.pod_lifecycle.guards import (
 
 )
 
-from app.domain.state import WorkflowState
 
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 
@@ -51,6 +50,10 @@ from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domain.state import WorkflowState
 
 
 

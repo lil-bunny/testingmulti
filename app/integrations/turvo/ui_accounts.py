@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from urllib.parse import urlencode
 
 import httpx
@@ -14,6 +13,9 @@ from app.integrations.turvo.public_api_client import TurvoApiClient, TurvoApiErr
 from app.integrations.turvo.public_api_urls import resolve_turvo_ui_base_url
 from app.services.turvo_oauth_service import TurvoOAuthService
 from app.tools.driver_details import name_tokens_match, names_match, phones_match
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _DRIVER_ROLE_KEY = "1993"
 _UI_CONTACTS_PAGE_SIZE = 200

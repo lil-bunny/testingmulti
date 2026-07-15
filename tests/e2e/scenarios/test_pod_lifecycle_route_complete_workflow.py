@@ -97,20 +97,18 @@ import re
 import time
 from datetime import timedelta
 from typing import Any
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api import routes as turvo_webhook_module
 from app.api.deps import get_workflow_service
 from app.core.config import settings
 from app.main import app
 from app.repositories.tenants_db_repository import find_tenant_uuid_by_slug
 from app.services.turvo_oauth_service import TurvoOAuthService
 from app.services.workflow_runs_service import WorkflowRunsService
-from tests.e2e.fixtures.main import ROUTE_COMPLETE_WEBHOOK_PAYLOAD, route_complete_webhook_for_shipment
+from tests.e2e.fixtures.main import ROUTE_COMPLETE_WEBHOOK_PAYLOAD
 from tests.e2e.fixtures.turvo_webhook_samples import ROUTE_COMPLETE_STATUS_FRAGMENT
 from tests.e2e.helpers.countdown_wait import wait_with_countdown
 from tests.e2e.helpers.workflow_runs_db import (

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from functools import lru_cache
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from collections.abc import Generator, Iterator
 
 
 @lru_cache

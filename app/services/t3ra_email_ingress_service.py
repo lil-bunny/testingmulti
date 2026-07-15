@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.ingress_result import IngressResult
@@ -22,8 +22,10 @@ from app.services.pod_lifecycle.ingress_service import (
     PodLifecycleIngressService,
 )
 from app.services.t3ra.driver_details_email_ingress import DriverDetailsEmailIngressService
-from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.tasks.workflows import run_workflow_async
+
+if TYPE_CHECKING:
+    from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 logger = get_logger(__name__)
 

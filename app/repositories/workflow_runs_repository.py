@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, fetchone_dict
 from app.core.logger import get_logger
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 

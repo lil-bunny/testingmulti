@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.domain.delivery_locations import DeliveryLocationsIndex
 from app.repositories.tenders_repository import TenderInsertResult
 from app.services.delivery_locations_service import DeliveryLocationsService
 from app.services.tenders_ingest_service import TendersIngestService
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _locations_index() -> DeliveryLocationsIndex:

@@ -5,11 +5,10 @@ from __future__ import annotations
 import dataclasses
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.db import db_scope, db_transaction
 from app.core.logger import get_logger
-from app.core.service_db import run_with_repos
 from app.domain.activity_log_descriptions import generate_activity_log_description
 from app.domain.activity_log_fields import build_activity_log_status_fields
 from app.domain.lifecycle_transition import (
@@ -22,12 +21,14 @@ from app.domain.status_parsing import status_type_from_db, sub_status_type_from_
 from app.models.activity_type import ActivityType, ActorType, SYSTEM_ACTOR_ID, is_snapshot_activity_type
 from app.models.pause_type import PauseType
 from app.models.status import StatusSubType, StatusType
-from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.repositories.workflow_lifecycles_repository import (
     LifecycleUpdate,
     WorkflowLifecyclesRepository,
 )
+
+if TYPE_CHECKING:
+    from app.repositories.activity_logs_repository import ActivityLogsRepository
 
 
 @dataclass(frozen=True)

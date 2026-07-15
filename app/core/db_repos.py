@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session
 
 from app.repositories.activity_logs_repository import ActivityLogsRepository
 from app.repositories.communications_repository import CommunicationsRepository
@@ -21,6 +20,10 @@ from app.repositories.tenants_db_repository import TenantsDbRepository
 from app.repositories.turvo_oauth_repository import TurvoOAuthRepository
 from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
 from app.repositories.workflow_runs_repository import WorkflowRunsRepository
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 @dataclass

@@ -5,13 +5,13 @@ from __future__ import annotations
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from sqlalchemy.orm import Session
 
 from app.repositories.tenants_db_repository import TenantsDbRepository
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from uuid import UUID
     from app.domain.api_user import ApiUser
 
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import uuid as uuid_std
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
-from sqlalchemy.orm import Session
 
 from app.core.db import db_scope, execute_scalar, fetchall_dicts, fetchone_dict, parse_json
 from app.core.logger import get_logger
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = get_logger(__name__)
 

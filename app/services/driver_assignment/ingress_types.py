@@ -10,9 +10,6 @@ from app.models.status import StatusSubType
 DRIVER_ASSIGNMENT_WORKFLOW = "driver_assignment"
 RATECON_WORKFLOW = "ratecon"
 
-from app.domain.driver_assignment.partial_follow_up_email import (
-    DEFAULT_PARTIAL_DRIVER_DETAILS_FOLLOW_UP_HTML,
-)
 
 PREPARE_REQUIRED_KEYS = (
     "load_id",

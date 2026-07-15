@@ -15,7 +15,7 @@ from app.integrations.langsmith.types import (
     RenderedPrompt,
 )
 from app.models.activity_type import ActivityType
-from app.models.status import StatusSubType, StatusType
+from app.models.status import StatusSubType
 from app.services.communications._mapper import (
     build_email_thread_llm_user_message,
     format_email_thread_for_llm,
