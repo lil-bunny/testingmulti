@@ -30,6 +30,7 @@ from app.domain.error_catalog import BusinessError
 from app.domain.load_tendering_tender_rows import parse_tender_date
 from app.exceptions import WorkflowException
 from app.services.tender_service import TenderService
+from app.tools.gelita.pallet_dims import adjust_unit_dims_for_partial_pallet
 from app.workflows.utils.decorators import safe_node
 from app.workflows.utils.gelita_soft_fail import record_business_gap_or_raise
 
@@ -304,6 +305,20 @@ def calculate_tender_params(state):
                 **gap_context,
             )
 
+        display_unit_dims = str(unit_dims or "").strip()
+        if (
+            display_unit_dims
+            and pieces_int is not None
+            and pallets_int is not None
+        ):
+            display_unit_dims = adjust_unit_dims_for_partial_pallet(
+                unit_dims=display_unit_dims,
+                pallet_dims=str(product.get("pallet_dims") or "").strip(),
+                pieces_count=pieces_int,
+                pallets_count=pallets_int,
+                units_per_pallet=product.get("units_per_pallet"),
+            )
+
         product_value = _product_value(
             order_quantity=Decimal(str(order_quantity)),
             unit_price=product.get("price_per_unit"),
@@ -333,6 +348,7 @@ def calculate_tender_params(state):
                 "total_qty": str(total_qty)
                 if total_qty is not None and total_qty != ""
                 else "",
+                "unit_dims": display_unit_dims,
                 "product_value": product_value,
             }
         )
