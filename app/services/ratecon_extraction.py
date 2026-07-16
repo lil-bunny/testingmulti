@@ -21,7 +21,6 @@ from app.tools.llm_client import LLMClientError, chat_json, chat_vision_json
 from app.tools.pdf_page_text_extractor import PdfPageTextExtractor
 from app.tools.pdf_to_images import (
     PdfRasterOptions,
-    PdfTooLargeError,
     make_temp_workdir,
     rasterize_pdf_to_jpeg_paths,
 )
@@ -105,10 +104,10 @@ def _extract_via_text(
     doc_label: str,
 ) -> tuple[list[Any], dict[str, Any]] | None:
     """
-    Ratecon text path: ``PdfPageTextExtractor`` → ``chat_json``.
+    Ratecon text path: extract page text, then ``chat_json``.
 
-    Returns ``None`` to signal vision fallback (no usable text, LLM failure, or
-    missing critical fields).
+    Returns ``None`` to fall back to vision (empty text, LLM failure, or missing
+    critical fields).
     """
     pdf_page_text_extractor = PdfPageTextExtractor()
     document_text = pdf_page_text_extractor.extract_full_text(
@@ -165,7 +164,11 @@ def _extract_via_vision(
     prompt_trace: PromptTraceMetadata,
     stage_dir: str | Path | None,
 ) -> tuple[list[Any], dict[str, Any]]:
-    """Ratecon vision fallback: rasterize pages and run ``chat_vision_json`` per page."""
+    """
+    Vision fallback: rasterize each page and run ``chat_vision_json``.
+
+    Writes page JPEGs under ``stage_dir`` when provided; merges per-page fields.
+    """
     parent = Path(stage_dir) if stage_dir else Path(settings.RATECON_STAGE_ROOT)
     work_dir = make_temp_workdir(prefix="ratecon_pages", directory=parent)
     try:
@@ -246,8 +249,7 @@ def extract_from_pdf_path(
     """
     Extract Ratecon fields from a PDF path.
 
-    Tries text first (native + sparse OCR); otherwise per-page vision. Vision
-    JPEGs are written under ``stage_dir`` when provided.
+    Flow: text path first (native + sparse OCR) → vision if text fails.
     Returns ``(page_results, merged_extracted_data)``.
     """
     del model_label  # reserved for callers / future tracing
@@ -274,25 +276,22 @@ def extract_from_pdf_path(
         )
 
     doc_label = Path(pdf_path).stem[:80] or "ratecon"
-    try:
-        text_result = _extract_via_text(
-            pdf_bytes,
-            vision_prompts=vision_prompts,
-            prompt_trace=prompt_trace,
-            doc_label=doc_label,
+    text_result = _extract_via_text(
+        pdf_bytes,
+        vision_prompts=vision_prompts,
+        prompt_trace=prompt_trace,
+        doc_label=doc_label,
+    )
+    if text_result is not None:
+        logger.info(
+            "ratecon_extraction: used text path pdf=%s",
+            doc_label,
         )
-        if text_result is not None:
-            logger.info(
-                "ratecon_extraction: used text path pdf=%s",
-                doc_label,
-            )
-            return text_result
+        return text_result
 
-        return _extract_via_vision(
-            pdf_path,
-            vision_prompts=vision_prompts,
-            prompt_trace=prompt_trace,
-            stage_dir=stage_dir,
-        )
-    except PdfTooLargeError:
-        raise
+    return _extract_via_vision(
+        pdf_path,
+        vision_prompts=vision_prompts,
+        prompt_trace=prompt_trace,
+        stage_dir=stage_dir,
+    )

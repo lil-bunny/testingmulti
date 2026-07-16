@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     POD_PAGE_CONCURRENCY: int = 5
     ATTACHMENT_CLASSIFIER_CONCURRENCY: int = 5
 
-    # Shared document text / OCR (native extract + sparse-page OCR)
+    # OCR / native-text acquisition (shared by ratecon text path + POD strip)
     OCR_DPI: int = 120
     OCR_JPEG_QUALITY: int = 70
     OCR_IMAGE_MAX_SIDE_PX: int = 1600

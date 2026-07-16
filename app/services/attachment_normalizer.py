@@ -1194,8 +1194,7 @@ class AttachmentNormalizerService:
         """
         Drop rate confirmation pages from each PDF during pre-graph assess.
 
-        Attachments that become empty after stripping are rejected with
-        ``all_pages_rate_confirmation`` so they never enter staged sources / merge.
+        Empty-after-strip attachments are rejected as ``all_pages_rate_confirmation``.
         """
         from app.services.pod_lifecycle.strip_ratecon_pages import (
             StripRateconPagesService,

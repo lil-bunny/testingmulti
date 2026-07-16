@@ -1,5 +1,5 @@
 """
-OOM-safe shared PDF → JPEG rasterization for vision and OCR callers.
+OOM-safe PDF → JPEG conversion for vision and OCR callers.
 
 Cascade: direct image → embedded full-page XObjects (Tracy-class) → PyMuPDF
 page-at-a-time (single Document open) with MediaBox DPI clamp and a pre-convert

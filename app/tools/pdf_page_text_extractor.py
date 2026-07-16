@@ -1,9 +1,7 @@
 """
 PDF → per-page text for LLM and classification callers.
 
-Prefers embedded (native) text; rasterizes and OCRs only when text is sparse or
-absent. Page-at-a-time rendering keeps peak memory bounded. No S3/DB — callers
-own temp files. No logistics-domain heading rules (those live under domain/).
+Prefer native text; OCR sparse/empty pages one at a time. No S3/DB.
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ class PageText:
 
 
 def is_sparse_native_text(text: str, *, min_chars: int = _NATIVE_SPARSE_CHARS) -> bool:
-    """True when embedded text is too short to trust without OCR."""
+    """True when embedded text is shorter than ``min_chars`` (OCR may be needed)."""
     return len((text or "").strip()) < max(0, int(min_chars))
 
 
@@ -68,7 +66,7 @@ def extract_native_page_texts(pdf_bytes: bytes) -> list[PageText]:
 
 
 def pdf_page_count(pdf_bytes: bytes) -> int:
-    """Return page count for ``pdf_bytes`` via PyMuPDF."""
+    """Return PDF page count via PyMuPDF."""
     import fitz
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -92,11 +90,7 @@ def _get_ocr_engine() -> Any:
 
 
 def ocr_image_rgb(image: Any) -> str:
-    """
-    OCR a PIL RGB image to newline-joined text.
-
-    Callers should release the image promptly to limit peak memory.
-    """
+    """OCR a PIL RGB image to newline-joined text; caller should close the image."""
     import numpy as np
 
     engine = _get_ocr_engine()
@@ -109,7 +103,7 @@ def ocr_image_rgb(image: Any) -> str:
 
 
 def crop_header_band(image: Any, *, fraction: float = 0.35) -> Any:
-    """Return the top ``fraction`` of a page image (for cheap heading OCR)."""
+    """Return the top ``fraction`` of a page image (cheap heading OCR)."""
     frac = min(0.95, max(0.1, float(fraction)))
     w, h = image.size
     header_h = max(1, int(h * frac))
@@ -118,10 +112,9 @@ def crop_header_band(image: Any, *, fraction: float = 0.35) -> Any:
 
 class PdfPageTextExtractor:
     """
-    Shared entrypoint for turning PDF bytes into page text.
+    Turn PDF bytes into per-page text with a consistent native-first OCR policy.
 
-    Use this instead of calling native extract / OCR helpers ad hoc so budgeting,
-    header crops, and sparse-text policy stay consistent.
+    Sparse pages are rasterized one at a time; optional header crop for title checks.
     """
 
     def extract_pages(
@@ -136,10 +129,8 @@ class PdfPageTextExtractor:
         """
         Return per-page text for ``pdf_bytes``.
 
-        When ``prefer_native`` and a page has enough embedded text, skip OCR for
-        that page. When ``ocr_if_sparse``, only sparse/empty pages are rasterized
-        and OCR'd (one page at a time). ``header_only_ocr`` crops the top band
-        before OCR when only a heading is needed.
+        Flow: native extract when preferred → OCR only sparse/empty pages (or all
+        pages when prefer_native is false). ``header_only_ocr`` crops before OCR.
         """
         native_pages = extract_native_page_texts(pdf_bytes) if prefer_native else []
         page_count = len(native_pages) if native_pages else pdf_page_count(pdf_bytes)
@@ -209,7 +200,7 @@ class PdfPageTextExtractor:
         header_only: bool,
         doc_label: str,
     ) -> list[PageText]:
-        """Rasterize and OCR only the given 1-based page numbers."""
+        """Rasterize and OCR the given 1-based page numbers (temp file + cleanup)."""
         tmp_path: str | None = None
         results: list[PageText] = []
         try:

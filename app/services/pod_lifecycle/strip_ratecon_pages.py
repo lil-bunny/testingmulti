@@ -1,9 +1,7 @@
 """
-Strip rate confirmation pages from a multi-page PDF during POD assess.
+Strip rate confirmation pages from mixed POD PDFs during pre-graph assess.
 
-Detects pages by the ``Rate confirmation`` heading (case-sensitive; whitespace ignored so OCR spacing still match),
-rebuilds a PDF without those pages, and fail-closes when nothing remains.
-Used when attachment packs may mix a Ratecon with other documents.
+Detect heading → rebuild without those pages → reject if nothing remains.
 """
 
 from __future__ import annotations
@@ -12,16 +10,17 @@ import io
 import logging
 from dataclasses import dataclass, field
 
-from app.domain.pod_lifecycle.rate_confirmation_heading import page_has_rate_confirmation_heading
+from app.domain.pod_lifecycle.rate_confirmation_heading import (
+    page_has_rate_confirmation_heading,
+)
 from app.tools.pdf_page_text_extractor import PdfPageTextExtractor
-from app.tools.pdf_to_images import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class StripRateconPagesResult:
-    """Outcome of stripping rate confirmation pages from one PDF."""
+    """Kept PDF bytes after rate confirmation pages are removed (or a skip reason)."""
 
     kept_pdf_bytes: bytes | None
     excluded_page_numbers: list[int] = field(default_factory=list)
@@ -36,11 +35,10 @@ class StripRateconPagesResult:
 
 class StripRateconPagesService:
     """
-    Strip pages whose heading identifies a rate confirmation document.
+    Remove rate confirmation pages from one PDF before POD staging.
 
-    Uses ``PdfPageTextExtractor`` for text/OCR and domain heading match for
-    detection; this service rebuilds the PDF. Call during pre-graph assess so
-    Ratecon pages never reach staged sources or downstream vision.
+    Flow: header OCR (or native text) → heading match → pikepdf page delete.
+    Call only during pre-graph assess; merge assumes staged PDFs are already clean.
     """
 
     def __init__(
@@ -57,10 +55,9 @@ class StripRateconPagesService:
         doc_label: str = "doc",
     ) -> list[int]:
         """
-        Return 1-based page numbers whose text matches a rate confirmation heading.
+        Return 1-based page numbers whose text matches the rate confirmation heading.
 
-        Defaults to header-band OCR (``prefer_native=False``) because mixed POD
-        packs are often image-only scans.
+        Defaults to header-band OCR because mixed POD packs are often image-only.
         """
         pages = self._page_text_extractor.extract_pages(
             pdf_bytes,
@@ -82,9 +79,10 @@ class StripRateconPagesService:
         doc_label: str = "doc",
     ) -> StripRateconPagesResult:
         """
-        Return kept PDF bytes with rate confirmation pages removed.
+        Rebuild ``pdf_bytes`` without rate confirmation pages.
 
-        Empty input or all-pages-excluded yields ``skip_reason``.
+        Outcomes: unchanged bytes (no hits), filtered bytes, or skip_reason
+        (``empty_pdf`` / ``all_pages_rate_confirmation``).
         """
         if not pdf_bytes:
             return StripRateconPagesResult(
@@ -92,14 +90,11 @@ class StripRateconPagesService:
                 skip_reason="empty_pdf",
             )
 
-        try:
-            excluded = self.find_rate_confirmation_pages(
-                pdf_bytes,
-                prefer_native=False,
-                doc_label=doc_label,
-            )
-        except PdfTooLargeError:
-            raise
+        excluded = self.find_rate_confirmation_pages(
+            pdf_bytes,
+            prefer_native=False,
+            doc_label=doc_label,
+        )
 
         import pikepdf
 
