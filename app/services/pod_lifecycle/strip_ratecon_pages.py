@@ -1,5 +1,5 @@
 """
-Remove rate confirmation pages from a multi-page PDF before downstream use.
+Strip rate confirmation pages from a multi-page PDF during POD assess.
 
 Detects pages by the exact ``Rate confirmation`` heading (case-sensitive),
 rebuilds a PDF without those pages, and fail-closes when nothing remains.
@@ -12,14 +12,15 @@ import io
 import logging
 from dataclasses import dataclass, field
 
-from app.services.document_text_service import DocumentTextService
-from app.tools.pdf_raster import PdfTooLargeError
+from app.domain.pod_lifecycle.rate_confirmation_heading import page_has_rate_confirmation_heading
+from app.tools.pdf_page_text_extractor import PdfPageTextExtractor
+from app.tools.pdf_to_images import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class RateconPageFilterResult:
+class StripRateconPagesResult:
     """Outcome of stripping rate confirmation pages from one PDF."""
 
     kept_pdf_bytes: bytes | None
@@ -33,41 +34,66 @@ class RateconPageFilterResult:
         return self.kept_pdf_bytes is not None and self.kept_page_count > 0
 
 
-class RateconPageFilterService:
+class StripRateconPagesService:
     """
     Strip pages whose heading identifies a rate confirmation document.
 
-    Relies on ``DocumentTextService`` for text/OCR; this service only decides
-    which pages to drop and rebuilds the PDF. Call during pre-graph assess so
+    Uses ``PdfPageTextExtractor`` for text/OCR and domain heading match for
+    detection; this service rebuilds the PDF. Call during pre-graph assess so
     Ratecon pages never reach staged sources or downstream vision.
     """
 
     def __init__(
         self,
-        document_text_service: DocumentTextService | None = None,
+        page_text_extractor: PdfPageTextExtractor | None = None,
     ) -> None:
-        self._document_text_service = document_text_service or DocumentTextService()
+        self._page_text_extractor = page_text_extractor or PdfPageTextExtractor()
 
-    def filter_pdf_bytes(
+    def find_rate_confirmation_pages(
+        self,
+        pdf_bytes: bytes,
+        *,
+        prefer_native: bool = False,
+        doc_label: str = "doc",
+    ) -> list[int]:
+        """
+        Return 1-based page numbers whose text matches a rate confirmation heading.
+
+        Defaults to header-band OCR (``prefer_native=False``) because mixed POD
+        packs are often image-only scans.
+        """
+        pages = self._page_text_extractor.extract_pages(
+            pdf_bytes,
+            prefer_native=prefer_native,
+            ocr_if_sparse=True,
+            header_only_ocr=True,
+            doc_label=doc_label,
+        )
+        return [
+            page.page_number
+            for page in pages
+            if page_has_rate_confirmation_heading(page.text)
+        ]
+
+    def strip_pdf_bytes(
         self,
         pdf_bytes: bytes,
         *,
         doc_label: str = "doc",
-    ) -> RateconPageFilterResult:
+    ) -> StripRateconPagesResult:
         """
         Return kept PDF bytes with rate confirmation pages removed.
 
-        Prefers header OCR (``prefer_native=False``) because mixed packs are often
-        image-only scans. Empty input or all-pages-excluded yields ``skip_reason``.
+        Empty input or all-pages-excluded yields ``skip_reason``.
         """
         if not pdf_bytes:
-            return RateconPageFilterResult(
+            return StripRateconPagesResult(
                 kept_pdf_bytes=None,
                 skip_reason="empty_pdf",
             )
 
         try:
-            excluded = self._document_text_service.find_rate_confirmation_pages(
+            excluded = self.find_rate_confirmation_pages(
                 pdf_bytes,
                 prefer_native=False,
                 doc_label=doc_label,
@@ -82,7 +108,7 @@ class RateconPageFilterService:
             excluded_set = set(excluded)
 
             if not excluded_set:
-                return RateconPageFilterResult(
+                return StripRateconPagesResult(
                     kept_pdf_bytes=pdf_bytes,
                     excluded_page_numbers=[],
                     kept_page_count=original_count,
@@ -98,12 +124,12 @@ class RateconPageFilterService:
             kept_count = len(src.pages)
             if kept_count < 1:
                 logger.info(
-                    "ratecon_page_filter: all pages excluded doc=%s pages=%s excluded=%s",
+                    "strip_ratecon_pages: all pages excluded doc=%s pages=%s excluded=%s",
                     doc_label,
                     original_count,
                     excluded,
                 )
-                return RateconPageFilterResult(
+                return StripRateconPagesResult(
                     kept_pdf_bytes=None,
                     excluded_page_numbers=sorted(excluded_set),
                     kept_page_count=0,
@@ -116,14 +142,13 @@ class RateconPageFilterService:
             kept_bytes = buf.getvalue()
 
         logger.info(
-            "ratecon_page_filter: stripped ratecon pages doc=%s original=%s "
-            "excluded=%s kept=%s",
+            "strip_ratecon_pages: stripped doc=%s original=%s excluded=%s kept=%s",
             doc_label,
             original_count,
             sorted(excluded_set),
             kept_count,
         )
-        return RateconPageFilterResult(
+        return StripRateconPagesResult(
             kept_pdf_bytes=kept_bytes,
             excluded_page_numbers=sorted(excluded_set),
             kept_page_count=kept_count,

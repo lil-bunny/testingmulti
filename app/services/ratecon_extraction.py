@@ -16,10 +16,10 @@ from typing import Any
 from app.core.config import settings
 from app.domain.prompt_step_keys import RATECON_PAGE_EXTRACTION
 from app.integrations.langsmith.types import PromptTraceMetadata
-from app.services.document_text_service import DocumentTextService
 from app.services.prompt_service import resolve_ratecon_vision_prompts
 from app.tools.llm_client import LLMClientError, chat_json, chat_vision_json
-from app.tools.pdf_raster import (
+from app.tools.pdf_page_text_extractor import PdfPageTextExtractor
+from app.tools.pdf_to_images import (
     PdfRasterOptions,
     PdfTooLargeError,
     make_temp_workdir,
@@ -105,13 +105,13 @@ def _extract_via_text(
     doc_label: str,
 ) -> tuple[list[Any], dict[str, Any]] | None:
     """
-    Ratecon text path: ``DocumentTextService`` → ``chat_json``.
+    Ratecon text path: ``PdfPageTextExtractor`` → ``chat_json``.
 
     Returns ``None`` to signal vision fallback (no usable text, LLM failure, or
     missing critical fields).
     """
-    document_text_service = DocumentTextService()
-    document_text = document_text_service.extract_full_text(
+    pdf_page_text_extractor = PdfPageTextExtractor()
+    document_text = pdf_page_text_extractor.extract_full_text(
         pdf_bytes,
         prefer_native=True,
         ocr_if_sparse=True,

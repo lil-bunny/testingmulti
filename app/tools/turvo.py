@@ -29,7 +29,7 @@ from app.services.pod_lifecycle.pdf_optimizer import (
     PodPdfOptimizeError,
     optimize_for_tms_upload,
 )
-from app.tools.pdf_raster import PdfTooLargeError
+from app.tools.pdf_to_images import PdfTooLargeError
 from app.services.s3bucket_service import bucket
 from app.tools.documents import resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import resolve_shipment_id

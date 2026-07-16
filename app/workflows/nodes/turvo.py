@@ -5,7 +5,7 @@ from typing import Any
 from app.domain.error_catalog import IntegrationError, SystemError
 from app.domain.state import tenant_slug_from_payload, workflow_state_data
 from app.exceptions import WorkflowException
-from app.tools.pdf_raster import PdfTooLargeError
+from app.tools.pdf_to_images import PdfTooLargeError
 from app.integrations.turvo.shipments import (
     delivery_address_from_global_route_stop,
     global_route_stops_from_payload,

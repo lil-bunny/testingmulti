@@ -279,7 +279,7 @@ def _try_extract_embedded_page_images(
                 image_paths.append(image_path)
 
             logger.info(
-                "pdf_raster: using embedded page images pdf_name=%s page_count=%s",
+                "pdf_to_images: using embedded page images pdf_name=%s page_count=%s",
                 _pdf_name(pdf_path),
                 len(image_paths),
             )
@@ -288,7 +288,7 @@ def _try_extract_embedded_page_images(
         raise
     except Exception:
         logger.info(
-            "pdf_raster: embedded page image path unavailable; falling back to PyMuPDF",
+            "pdf_to_images: embedded page image path unavailable; falling back to PyMuPDF",
             exc_info=True,
         )
         return None
@@ -434,7 +434,7 @@ def rasterize_pdf_to_jpeg_paths(
     os.makedirs(output_dir, exist_ok=True)
 
     logger.info(
-        "pdf_raster: preparing document for raster pdf_path=%s pdf_name=%s dpi=%s",
+        "pdf_to_images: preparing document for raster pdf_path=%s pdf_name=%s dpi=%s",
         pdf_path,
         pdf_name,
         opts.dpi,
@@ -464,7 +464,7 @@ def rasterize_pdf_to_jpeg_paths(
                     jpeg_quality=opts.jpeg_quality,
                 )
                 logger.info(
-                    "pdf_raster: image attachment prepared pdf_name=%s path=%s",
+                    "pdf_to_images: image attachment prepared pdf_name=%s path=%s",
                     pdf_name,
                     image_path,
                 )
@@ -495,21 +495,21 @@ def rasterize_pdf_to_jpeg_paths(
             max_total_bytes=opts.max_total_bytes,
         )
         logger.info(
-            "pdf_raster: PDF conversion successful pdf_name=%s page_count=%s",
+            "pdf_to_images: PDF conversion successful pdf_name=%s page_count=%s",
             pdf_name,
             len(image_paths),
         )
         return image_paths
     except PdfTooLargeError:
         logger.warning(
-            "pdf_raster: PDF too large to convert pdf_name=%s pdf_path=%s",
+            "pdf_to_images: PDF too large to convert pdf_name=%s pdf_path=%s",
             pdf_name,
             pdf_path,
         )
         raise
     except Exception as e:
         error_msg = f"Failed to convert PDF to images: {type(e).__name__}: {str(e)}"
-        logger.exception("pdf_raster: PDF conversion failed pdf_path=%s", pdf_path)
+        logger.exception("pdf_to_images: PDF conversion failed pdf_path=%s", pdf_path)
         raise Exception(error_msg) from e
 
 

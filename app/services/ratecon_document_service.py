@@ -20,7 +20,7 @@ from app.services.attachment_normalizer import (
 from app.services.ratecon_extraction import extract_from_pdf_path
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.tools.email import detect_attachment_bytes_type, get_email_attachments
-from app.tools.pdf_raster import PdfTooLargeError, freightx_stage_dir, make_temp_pdf
+from app.tools.pdf_to_images import PdfTooLargeError, freightx_stage_dir, make_temp_pdf
 from app.workflows.shipment_resolver import (
     resolve_shipment_id,
     resolve_shipments_row_id_for_db,

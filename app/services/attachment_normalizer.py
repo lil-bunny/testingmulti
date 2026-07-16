@@ -40,7 +40,7 @@ from app.tools.llm_client import (
     achat_vision_json,
     build_async_llm_client,
 )
-from app.tools.pdf_raster import PdfTooLargeError
+from app.tools.pdf_to_images import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -1197,17 +1197,17 @@ class AttachmentNormalizerService:
         Attachments that become empty after stripping are rejected with
         ``all_pages_rate_confirmation`` so they never enter staged sources / merge.
         """
-        from app.services.pod_lifecycle.ratecon_page_filter_service import (
-            RateconPageFilterService,
+        from app.services.pod_lifecycle.strip_ratecon_pages import (
+            StripRateconPagesService,
         )
 
-        ratecon_page_filter_service = RateconPageFilterService()
+        strip_ratecon_pages_service = StripRateconPagesService()
         kept: List[Tuple[str, bytes]] = []
         rejected: List[Dict[str, Any]] = []
         ship = (shipment_number or "unknown").strip() or "unknown"
 
         for attachment_ref, pdf_data in valid_pdfs:
-            result = ratecon_page_filter_service.filter_pdf_bytes(
+            result = strip_ratecon_pages_service.strip_pdf_bytes(
                 pdf_data,
                 doc_label=f"pod_{ship}",
             )
@@ -1224,7 +1224,7 @@ class AttachmentNormalizerService:
                 rejected.append(
                     self._rejection_entry(
                         attachment_ref,
-                        result.skip_reason or "ratecon_page_filter_failed",
+                        result.skip_reason or "strip_ratecon_pages_failed",
                         1.0,
                     )
                 )

@@ -1,41 +1,127 @@
 """
-Reusable PDF → text acquisition for LLM and classification callers.
+PDF → per-page text for LLM and classification callers.
 
 Prefers embedded (native) text; rasterizes and OCRs only when text is sparse or
-absent. Page-at-a-time rendering keeps peak memory bounded.
+absent. Page-at-a-time rendering keeps peak memory bounded. No S3/DB — callers
+own temp files. No logistics-domain heading rules (those live under domain/).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from app.core.config import settings
-from app.tools.pdf_raster import (
+from app.tools.pdf_to_images import (
     PdfTooLargeError,
     make_temp_pdf,
     render_pdf_page_image,
 )
-from app.tools.pdf_text import (
-    PageText,
-    crop_header_band,
-    extract_native_page_texts,
-    is_sparse_native_text,
-    ocr_image_rgb,
-    page_has_rate_confirmation_heading,
-    pdf_page_count,
-)
 
 logger = logging.getLogger(__name__)
 
+_NATIVE_SPARSE_CHARS = 40
 
-class DocumentTextService:
+
+@dataclass(frozen=True)
+class PageText:
+    """One PDF page's text and how it was obtained."""
+
+    page_number: int  # 1-based
+    text: str
+    source: str  # "native" | "ocr" | "empty"
+
+
+def is_sparse_native_text(text: str, *, min_chars: int = _NATIVE_SPARSE_CHARS) -> bool:
+    """True when embedded text is too short to trust without OCR."""
+    return len((text or "").strip()) < max(0, int(min_chars))
+
+
+def extract_native_page_texts(pdf_bytes: bytes) -> list[PageText]:
+    """Extract embedded PDF text per page via PyMuPDF (no rasterization or OCR)."""
+    import fitz
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        out: list[PageText] = []
+        for i in range(doc.page_count):
+            try:
+                raw = doc.load_page(i).get_text() or ""
+            except Exception:
+                logger.exception(
+                    "pdf_page_text_extractor: native extract failed page=%s", i + 1
+                )
+                raw = ""
+            text = raw.strip()
+            out.append(
+                PageText(
+                    page_number=i + 1,
+                    text=text,
+                    source="native" if text else "empty",
+                )
+            )
+        return out
+    finally:
+        doc.close()
+
+
+def pdf_page_count(pdf_bytes: bytes) -> int:
+    """Return page count for ``pdf_bytes`` via PyMuPDF."""
+    import fitz
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return int(doc.page_count)
+    finally:
+        doc.close()
+
+
+_OCR_ENGINE: Any = None
+
+
+def _get_ocr_engine() -> Any:
+    """Lazy-load RapidOCR once; model init is expensive."""
+    global _OCR_ENGINE
+    if _OCR_ENGINE is None:
+        from rapidocr_onnxruntime import RapidOCR
+
+        _OCR_ENGINE = RapidOCR()
+    return _OCR_ENGINE
+
+
+def ocr_image_rgb(image: Any) -> str:
+    """
+    OCR a PIL RGB image to newline-joined text.
+
+    Callers should release the image promptly to limit peak memory.
+    """
+    import numpy as np
+
+    engine = _get_ocr_engine()
+    arr = np.asarray(image.convert("RGB"))
+    result, _ = engine(arr)
+    if not result:
+        return ""
+    lines = [str(row[1]) for row in result if row and len(row) > 1 and row[1]]
+    return "\n".join(lines).strip()
+
+
+def crop_header_band(image: Any, *, fraction: float = 0.35) -> Any:
+    """Return the top ``fraction`` of a page image (for cheap heading OCR)."""
+    frac = min(0.95, max(0.1, float(fraction)))
+    w, h = image.size
+    header_h = max(1, int(h * frac))
+    return image.crop((0, 0, w, header_h))
+
+
+class PdfPageTextExtractor:
     """
     Shared entrypoint for turning PDF bytes into page text.
 
-    Use this instead of calling native extract / OCR helpers ad hoc from nodes or
-    workflows so budgeting, header crops, and sparse-text policy stay consistent.
+    Use this instead of calling native extract / OCR helpers ad hoc so budgeting,
+    header crops, and sparse-text policy stay consistent.
     """
 
     def extract_pages(
@@ -115,32 +201,6 @@ class DocumentTextService:
             f"--- Page {p.page_number} ---\n{p.text}" for p in pages if p.text
         )
 
-    def find_rate_confirmation_pages(
-        self,
-        pdf_bytes: bytes,
-        *,
-        prefer_native: bool = True,
-        doc_label: str = "doc",
-    ) -> list[int]:
-        """
-        Return 1-based page numbers whose text matches a rate confirmation heading.
-
-        Uses header-band OCR when pages lack reliable native text so scanned packs
-        still detect the heading without OCRing the full page body.
-        """
-        pages = self.extract_pages(
-            pdf_bytes,
-            prefer_native=prefer_native,
-            ocr_if_sparse=True,
-            header_only_ocr=True,
-            doc_label=doc_label,
-        )
-        hits: list[int] = []
-        for page in pages:
-            if page_has_rate_confirmation_heading(page.text):
-                hits.append(page.page_number)
-        return hits
-
     def _ocr_selected_pages(
         self,
         pdf_bytes: bytes,
@@ -191,7 +251,7 @@ class DocumentTextService:
                     raise
                 except Exception:
                     logger.exception(
-                        "document_text: OCR failed doc=%s page=%s",
+                        "pdf_page_text_extractor: OCR failed doc=%s page=%s",
                         doc_label,
                         page_number,
                     )
