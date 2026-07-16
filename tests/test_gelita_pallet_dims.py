@@ -12,7 +12,6 @@ from app.domain.state import WorkflowState
 from app.tools.gelita.pallet_dims import adjust_unit_dims_for_partial_pallet
 from app.tools.tender_email import build_tender_email_input_from_tender, _ltl_products_block
 from app.workflows.nodes.gelita.calculate_tender_params import calculate_tender_params
-from tests.fixtures.tenant_settings import load_tenant_settings_dev
 from tests.test_calculate_tender_params import (
     TENANT_ID,
     _sample_delivery_address,
