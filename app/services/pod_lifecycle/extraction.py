@@ -295,14 +295,14 @@ def convert_pdf_to_images(
     pdf_path: str,
     temp_dir: str,
     *,
-    dpi: int = 200,
+    dpi: int = 150,
     max_side_px: int = 0,
     jpeg_quality: int = 85,
     thread_count: int = 1,
     max_pages: int | None = None,
 ) -> list[str]:
     """Rasterize PDF to JPEGs under ``temp_dir`` via shared ``pdf_raster``."""
-    _ = thread_count  # pdf_raster always uses thread_count=1 for Poppler
+    _ = thread_count  # pdf_raster always uses thread_count=1 for page renders
     return rasterize_pdf_to_jpeg_paths(
         pdf_path,
         temp_dir,

@@ -269,8 +269,8 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
     _mock_t3ra_tenant(monkeypatch)
     ship = f"S2-{uuid.uuid4().hex[:10]}"
     monkeypatch.setattr(
-        "app.tools.pdf_raster.convert_from_path",
-        lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
+        "app.tools.pdf_raster._convert_one_page",
+        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):
@@ -402,8 +402,8 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         return base
 
     monkeypatch.setattr(
-        "app.tools.pdf_raster.convert_from_path",
-        lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
+        "app.tools.pdf_raster._convert_one_page",
+        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):

@@ -14,7 +14,7 @@ from app.services.pod_lifecycle.extraction import convert_pdf_to_images
 from app.tools import pod as pod_tools
 from app.tools.pdf_raster import (
     PdfTooLargeError,
-    _effective_poppler_dpi,
+    _effective_raster_dpi,
     _try_extract_embedded_page_images,
     rasterize_pdf_to_jpeg_paths,
 )
@@ -62,9 +62,9 @@ def test_tracy_embedded_helper_returns_eight_pages(tmp_path: Path) -> None:
     assert len(paths) == 8
 
 
-def test_effective_poppler_dpi_clamps_pathological_mediabox() -> None:
-    assert _effective_poppler_dpi(requested_dpi=200, width_pt=2389, height_pt=3371) == 72
-    assert _effective_poppler_dpi(requested_dpi=200, width_pt=612, height_pt=792) == 200
+def test_effective_raster_dpi_clamps_pathological_mediabox() -> None:
+    assert _effective_raster_dpi(requested_dpi=150, width_pt=2389, height_pt=3371) == 72
+    assert _effective_raster_dpi(requested_dpi=150, width_pt=612, height_pt=792) == 150
 
 
 def test_conversion_memory_budget_raises_too_large(tmp_path: Path) -> None:
@@ -74,7 +74,7 @@ def test_conversion_memory_budget_raises_too_large(tmp_path: Path) -> None:
         "app.tools.pdf_raster._try_extract_embedded_page_images",
         return_value=None,
     ), patch(
-        "app.tools.pdf_raster._convert_pdf_with_poppler_page_at_a_time",
+        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
         side_effect=PdfTooLargeError("over budget"),
     ):
         with pytest.raises(PdfTooLargeError):
@@ -140,8 +140,8 @@ def test_letter_fixture_still_converts(tmp_path: Path) -> None:
             max_pages=2,
         )
     except Exception as exc:
-        if "poppler" in str(exc).lower() or "page count" in str(exc).lower():
-            pytest.skip(f"poppler unavailable: {exc}")
+        if "fitz" in str(exc).lower() or "mupdf" in str(exc).lower() or "page count" in str(exc).lower():
+            pytest.skip(f"pymupdf unavailable: {exc}")
         raise
     assert paths
     assert all(Path(p).is_file() for p in paths)

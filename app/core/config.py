@@ -75,13 +75,13 @@ class Settings(BaseSettings):
     TURVO_HTTP_RETRY_DELAY_S: float = 15.0
     TURVO_POD_OPTIMIZE_DPI: int = 150
     TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
-    TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 2000
+    TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 1200
 
     # POD vision extraction (pdf → JPEG for pod_analysis)
     POD_MAX_IMAGE_PIXELS: int = 89_478_485
-    POD_IMAGE_DPI: int = 200
-    POD_JPEG_QUALITY: int = 85
-    POD_IMAGE_MAX_SIDE_PX: int = 2000
+    POD_IMAGE_DPI: int = 150
+    POD_JPEG_QUALITY: int = 80
+    POD_IMAGE_MAX_SIDE_PX: int = 1200
     POD_PDF_THREAD_COUNT: int = 1
     POD_CONVERT_MAX_PAGE_BYTES: int = 80_000_000
     POD_CONVERT_MAX_TOTAL_BYTES: int = 400_000_000

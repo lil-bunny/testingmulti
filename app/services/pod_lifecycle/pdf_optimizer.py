@@ -86,7 +86,7 @@ def optimize_for_tms_upload(
     Return PDF bytes suitable for Turvo upload; rasterize when over ``max_bytes``.
 
     Uses the shared OOM-safe rasterizer. Memory-budget trips raise
-    ``PdfTooLargeError`` (fail closed — no unsafe all-pages Poppler).
+    ``PdfTooLargeError`` (fail closed — no unsafe all-pages rasterization).
     """
     original_bytes = len(pdf_bytes)
     if original_bytes <= max_bytes:
