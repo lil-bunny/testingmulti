@@ -94,8 +94,17 @@ def ocr_image_rgb(image: Any) -> str:
     import numpy as np
 
     engine = _get_ocr_engine()
-    arr = np.asarray(image.convert("RGB"))
-    result, _ = engine(arr)
+    rgb = image if getattr(image, "mode", None) == "RGB" else image.convert("RGB")
+    result = None
+    try:
+        arr = np.asarray(rgb)
+        result, _ = engine(arr)
+    finally:
+        if rgb is not image:
+            try:
+                rgb.close()
+            except Exception:
+                pass
     if not result:
         return ""
     lines = [str(row[1]) for row in result if row and len(row) > 1 and row[1]]

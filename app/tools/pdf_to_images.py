@@ -157,14 +157,21 @@ def _save_jpeg(
     max_side_px: int,
     jpeg_quality: int,
 ) -> None:
-    prepared = _resize_for_vision(image.convert("RGB"), max_side_px=max_side_px)
-    prepared.save(
-        image_path,
-        "JPEG",
-        quality=max(25, min(95, int(jpeg_quality))),
-        optimize=True,
-        progressive=True,
-    )
+    rgb = image.convert("RGB")
+    prepared = _resize_for_vision(rgb, max_side_px=max_side_px)
+    try:
+        prepared.save(
+            image_path,
+            "JPEG",
+            quality=max(25, min(95, int(jpeg_quality))),
+            optimize=True,
+            progressive=True,
+        )
+    finally:
+        if prepared is not rgb:
+            prepared.close()
+        if rgb is not image:
+            rgb.close()
 
 
 def _page_mediabox_pts(page: Any) -> tuple[float, float]:
@@ -571,7 +578,10 @@ def render_pdf_page_image(
         max_total_bytes=max(max_page_bytes, settings.POD_CONVERT_MAX_TOTAL_BYTES),
     )
     if max_side_px and max_side_px > 0:
-        image = _resize_for_vision(image, max_side_px=max_side_px)
+        resized = _resize_for_vision(image, max_side_px=max_side_px)
+        if resized is not image:
+            image.close()
+            image = resized
     return image
 
 
