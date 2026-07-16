@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
     LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
+    LLM_JSON_RESPONSE_MODE: bool = True
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
     # DB
@@ -89,6 +90,7 @@ class Settings(BaseSettings):
     POD_FAST_IMAGE_MAX_SIDE_PX: int = 1600
     POD_FAST_PDF_THREAD_COUNT: int = 1
     POD_FAST_MAX_TOKENS: int = 700
+    POD_PAGE_CONCURRENCY: int = 5
 
     # Unipile
     UNIPILE_API_KEY: str

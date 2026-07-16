@@ -257,42 +257,42 @@ def test_classify_image_skips_without_api_key(monkeypatch):
 def test_chat_vision_json_passes_model_override(monkeypatch):
     seen: dict = {}
 
+    class FakeMessage:
+        content = (
+            '{"is_valid_document": true, "confidence": 0.8, '
+            '"reasoning": "ok", "detected_document_type": "BOL"}'
+        )
+
+    class FakeChoice:
+        message = FakeMessage()
+
     class FakeResponse:
-        def raise_for_status(self):
-            return None
+        choices = [FakeChoice()]
 
-        def json(self):
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                '{"is_valid_document": true, "confidence": 0.8, '
-                                '"reasoning": "ok", "detected_document_type": "BOL"}'
-                            )
-                        }
-                    }
-                ]
-            }
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            seen["kwargs"] = kwargs
+            return FakeResponse()
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
             pass
 
-        def __enter__(self):
-            return self
+        @property
+        def chat(self):
+            return FakeChat()
 
-        def __exit__(self, *args):
-            return False
-
-        def post(self, endpoint, headers=None, json=None):
-            seen["json"] = json
-            return FakeResponse()
+        async def close(self):
+            return None
 
     monkeypatch.setattr(llm_client.settings, "LLM_BASE_URL", "https://llm.example")
     monkeypatch.setattr(llm_client.settings, "LLM_API_KEY", "k")
     monkeypatch.setattr(llm_client.settings, "LLM_MODEL", "default-model")
-    monkeypatch.setattr(llm_client.httpx, "Client", FakeClient)
+    monkeypatch.setattr(llm_client.settings, "LLM_JSON_RESPONSE_MODE", True)
+    monkeypatch.setattr(llm_client, "AsyncOpenAI", FakeAsyncOpenAI)
     monkeypatch.setattr(llm_client, "get_current_run_tree", lambda: None)
 
     out = llm_client.chat_vision_json(
@@ -306,8 +306,9 @@ def test_chat_vision_json_passes_model_override(monkeypatch):
     )
 
     assert out["is_valid_document"] is True
-    assert seen["json"]["model"] == "override-model"
-    assert seen["json"]["max_tokens"] == 150
+    assert seen["kwargs"]["model"] == "override-model"
+    assert seen["kwargs"]["max_tokens"] == 150
+    assert seen["kwargs"]["response_format"] == {"type": "json_object"}
 
 
 def test_llm_trace_inputs_dedupes_prompt_fields():

@@ -43,6 +43,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "alembic>=1.17.0",
+    "psutil>=7.2.2",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
 ]

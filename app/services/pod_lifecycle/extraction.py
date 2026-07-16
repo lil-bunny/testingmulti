@@ -8,6 +8,7 @@ app's LLM_* settings instead of the legacy AsyncOpenAI streaming client.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -17,11 +18,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from openai import AsyncOpenAI
+
 from app.core.config import settings
 from app.integrations.langsmith import RenderedPrompt
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_vision_prompts
-from app.tools.llm_client import LLMClientError, chat_vision_json
+from app.tools.llm_client import LLMClientError, achat_vision_json, build_async_llm_client
 from app.tools.pdf_raster import (
     PdfRasterOptions,
     PodPdfTooLargeError,
@@ -322,7 +325,33 @@ def analyze_page(
     max_tokens: int | None = None,
     temperature: float = 0.0,
 ) -> dict[str, Any]:
-    """Per-page vision extraction (sync ``chat_vision_json``, same pattern as ratecon)."""
+    """Per-page vision extraction (sync ``chat_vision_json`` facade)."""
+    return asyncio.run(
+        analyze_page_async(
+            image_path,
+            page_number,
+            broker_name,
+            vision_prompts=vision_prompts,
+            prompt_trace=prompt_trace,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    )
+
+
+async def analyze_page_async(
+    image_path: str,
+    page_number: int,
+    broker_name=None,
+    *,
+    vision_prompts: RenderedPrompt,
+    prompt_trace: PromptTraceMetadata | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.0,
+    client: AsyncOpenAI | None = None,
+) -> dict[str, Any]:
+    """Per-page vision extraction; pass ``client`` when fanning out in one event loop."""
+    _ = broker_name
     load_id = Path(image_path).stem
     system_prompt = vision_prompts.system
     user_prompt = vision_prompts.user or " "
@@ -330,13 +359,14 @@ def analyze_page(
     try:
         with open(image_path, "rb") as f:
             image_data = f.read()
-        extracted_data = chat_vision_json(
+        extracted_data = await achat_vision_json(
             system_prompt,
             user_prompt,
             image_data,
             temperature=temperature,
             max_tokens=max_tokens,
             prompt_trace=prompt_trace,
+            client=client,
         )
         if not isinstance(extracted_data, dict):
             extracted_data = {}
@@ -359,6 +389,52 @@ def analyze_page(
         }
 
 
+async def _analyze_pages_async(
+    image_paths: list[str],
+    *,
+    broker_name: str | None,
+    vision_prompts: RenderedPrompt,
+    prompt_trace: PromptTraceMetadata | None,
+    max_tokens: int | None,
+    load_id: str,
+) -> list[dict[str, Any]]:
+    concurrency = max(1, min(settings.POD_PAGE_CONCURRENCY, len(image_paths)))
+    logger.info(
+        "pod_extraction: parallel page vision load_id=%s page_count=%s concurrency=%s",
+        load_id,
+        len(image_paths),
+        concurrency,
+    )
+
+    async with build_async_llm_client(
+        max_connections=concurrency,
+    ) as client:
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _one(i: int, img_path: str) -> dict[str, Any]:
+            page_num = i + 1
+            async with sem:
+                result = await analyze_page_async(
+                    img_path,
+                    page_num,
+                    broker_name,
+                    vision_prompts=vision_prompts,
+                    prompt_trace=prompt_trace,
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                    client=client,
+                )
+            row = {
+                **result,
+                "timestamp": datetime.now().isoformat(),
+            }
+            if "load_id" not in row:
+                row["load_id"] = load_id
+            return row
+
+        return list(await asyncio.gather(*(_one(i, p) for i, p in enumerate(image_paths))))
+
+
 def extract_from_pdf_path(
     pdf_path: str,
     *,
@@ -370,12 +446,12 @@ def extract_from_pdf_path(
     prepared_image_paths: list[str] | None = None,
 ) -> tuple[list[Any], dict[str, Any], list[str], dict[str, Any]]:
     """
-    Sync pipeline: ``tempfile.mkdtemp`` → PDF/images → per-page ``chat_vision_json`` → reconcile.
+    Sync pipeline: rasterize (or staged images) → parallel per-page vision → reconcile.
 
     When ``prepared_image_paths`` are present and readable, skip PDF rasterization and
     analyze those JPEGs/PNGs directly (worker-local staged validated images).
 
-    Mirrors ``ratecon_extraction.extract_from_pdf_path`` (no asyncio, no nested event loop).
+    Page vision runs inside ``asyncio.run`` with ``POD_PAGE_CONCURRENCY`` cap.
     Returns ``(page_results, final_pod_data, validation_issues, reconciliation_log)``.
     """
     load_id = Path(pdf_path).stem.replace(" POD", "").replace("_", "")
@@ -469,25 +545,16 @@ def extract_from_pdf_path(
             len(image_paths),
         )
 
-        processed_results: list[dict[str, Any]] = []
-        for i, img_path in enumerate(image_paths):
-            page_num = i + 1
-            result = analyze_page(
-                img_path,
-                page_num,
-                broker_name,
+        processed_results = asyncio.run(
+            _analyze_pages_async(
+                image_paths,
+                broker_name=broker_name,
                 vision_prompts=vision_prompts,
                 prompt_trace=prompt_trace,
                 max_tokens=max_tokens,
-                temperature=0.0,
+                load_id=load_id,
             )
-            row = {
-                **result,
-                "timestamp": datetime.now().isoformat(),
-            }
-            if "load_id" not in row:
-                row["load_id"] = load_id
-            processed_results.append(row)
+        )
 
         sorted_results = sorted(processed_results, key=lambda x: x["page_number"])
 
