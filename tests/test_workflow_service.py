@@ -118,6 +118,12 @@ async def test_pod_lifecycle_route_completed_runs_to_completion(monkeypatch):
         "check_pod_tool",
         lambda *a, **k: {"success": True, "pod_exists": False},
     )
+    # check_route_completed_pod_gate calls this directly (not via turvo_nodes.check_pod_tool
+    # above), and does its own real Turvo tms-credentials lookup from the DB.
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        AsyncMock(return_value={"success": True, "pod_exists": False}),
+    )
 
     service = WorkflowService(WorkflowRepository(), TenantRepository())
 
