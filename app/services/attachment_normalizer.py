@@ -3,10 +3,10 @@ POD attachment normalizer — port of old.services.attachment_normalizer.
 
 Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME.
 Assess-only mode stages accepted PDFs/images once under ``sources/`` in a
-worker-local directory. Image paths are reused for vision extraction via
-``pod_vision_image_paths`` (same file, no second copy). Merge/upload of staged
-files (or full normalize with upload_merged=True) produces
-``pod_merged_pdf_object_key`` on S3.
+worker-local directory (rate confirmation pages are stripped here). Image paths
+are reused for vision extraction via ``pod_vision_image_paths`` (same file, no
+second copy). Merge/upload of staged files (or full normalize with
+upload_merged=True) produces ``pod_merged_pdf_object_key`` on S3.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from app.tools.llm_client import (
     achat_vision_json,
     build_async_llm_client,
 )
+from app.tools.pdf_raster import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +306,34 @@ class AttachmentNormalizerService:
                         )
                     )
 
+        try:
+            valid_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
+                valid_pdfs,
+                shipment_number=shipment_number,
+            )
+            rejected.extend(ratecon_rejected)
+        except PdfTooLargeError:
+            logger.warning(
+                "attachment_normalizer: PDF too large during ratecon page filter "
+                "shipment=%s",
+                shipment_number,
+            )
+            return self._with_classification_index(
+                {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": PdfTooLargeError.error_key,
+                },
+                shipment_number,
+            )
+
         if not valid_pdfs and not valid_images:
             return self._with_classification_index(
                 {
@@ -547,6 +576,14 @@ class AttachmentNormalizerService:
                     "pod_merged_pdf_object_key": None,
                     "error": f"unsupported_type: {mime_type}",
                 }
+
+        # Ratecon pages are stripped during pre-graph assess; staged PDFs are already clean.
+        if not pdf_bytes_list and not image_bytes_list:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "no_mergeable_staged_sources",
+            }
 
         merged_bytes = self._merge_attachments(pdf_bytes_list, image_bytes_list)
         if merged_bytes is None:
@@ -879,11 +916,48 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
+        if mime_type == "application/pdf":
+            try:
+                kept_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
+                    [(attachment_ref, pdf_bytes)],
+                    shipment_number=shipment_number,
+                )
+                rejected.extend(ratecon_rejected)
+            except PdfTooLargeError:
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": PdfTooLargeError.error_key,
+                    "single_attachment_short_circuit": True,
+                }
+            if not kept_pdfs:
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": "all_pages_rate_confirmation",
+                    "single_attachment_short_circuit": True,
+                }
+            pdf_bytes = kept_pdfs[0][1]
+
         if not upload_merged:
             valid_pdfs: List[Tuple[str, bytes]] = []
             valid_images: List[Tuple[str, bytes]] = []
             if mime_type == "application/pdf":
-                valid_pdfs = [(attachment_ref, file_bytes)]
+                valid_pdfs = [(attachment_ref, pdf_bytes)]
             elif accepted_image_bytes is not None:
                 valid_images = [(attachment_ref, accepted_image_bytes)]
             merge_paths, vision_paths = self._stage_accepted_files(
@@ -1110,6 +1184,61 @@ class AttachmentNormalizerService:
                 e,
             )
             raise AttachmentClassifierFailed(str(e)) from e
+
+    def _strip_ratecon_pages_from_pdfs(
+        self,
+        valid_pdfs: List[Tuple[str, bytes]],
+        *,
+        shipment_number: Optional[str] = None,
+    ) -> Tuple[List[Tuple[str, bytes]], List[Dict[str, Any]]]:
+        """
+        Drop rate confirmation pages from each PDF during pre-graph assess.
+
+        Attachments that become empty after stripping are rejected with
+        ``all_pages_rate_confirmation`` so they never enter staged sources / merge.
+        """
+        from app.services.pod_lifecycle.ratecon_page_filter_service import (
+            RateconPageFilterService,
+        )
+
+        ratecon_page_filter_service = RateconPageFilterService()
+        kept: List[Tuple[str, bytes]] = []
+        rejected: List[Dict[str, Any]] = []
+        ship = (shipment_number or "unknown").strip() or "unknown"
+
+        for attachment_ref, pdf_data in valid_pdfs:
+            result = ratecon_page_filter_service.filter_pdf_bytes(
+                pdf_data,
+                doc_label=f"pod_{ship}",
+            )
+            if result.skip_reason == "all_pages_rate_confirmation":
+                rejected.append(
+                    self._rejection_entry(
+                        attachment_ref,
+                        "all_pages_rate_confirmation",
+                        1.0,
+                    )
+                )
+                continue
+            if result.kept_pdf_bytes is None:
+                rejected.append(
+                    self._rejection_entry(
+                        attachment_ref,
+                        result.skip_reason or "ratecon_page_filter_failed",
+                        1.0,
+                    )
+                )
+                continue
+            if result.excluded_page_numbers:
+                logger.info(
+                    "attachment_normalizer.ratecon_pages_stripped ref=%s "
+                    "excluded=%s kept=%s",
+                    (attachment_ref or "")[:80],
+                    result.excluded_page_numbers,
+                    result.kept_page_count,
+                )
+            kept.append((attachment_ref, result.kept_pdf_bytes))
+        return kept, rejected
 
     def _merge_attachments(
         self,

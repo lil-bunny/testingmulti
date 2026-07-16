@@ -1,5 +1,5 @@
 """
-OOM-safe PDF → JPEG rasterization (POD vision, ratecon vision, TMS optimize).
+OOM-safe shared PDF → JPEG rasterization for vision and OCR callers.
 
 Cascade: direct image → embedded full-page XObjects (Tracy-class) → PyMuPDF
 page-at-a-time (single Document open) with MediaBox DPI clamp and a pre-convert
@@ -81,7 +81,7 @@ def make_temp_workdir(*, prefix: str, directory: str | Path | None = None) -> st
 
 
 def freightx_stage_dir(root: str, name: str) -> Path:
-    """``{root}/{sanitized_name}/`` — same layout style as POD attachment staging."""
+    """``{root}/{sanitized_name}/`` — shared layout for temporary document staging."""
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", (name or "doc").strip())
     cleaned = (cleaned or "doc")[:120]
     path = Path(root) / cleaned
@@ -513,6 +513,68 @@ def rasterize_pdf_to_jpeg_paths(
         raise Exception(error_msg) from e
 
 
+def render_pdf_page_image(
+    pdf_path: str,
+    page_number: int,
+    *,
+    dpi: int,
+    max_page_bytes: int,
+    max_side_px: int = 0,
+) -> Image.Image:
+    """
+    Rasterize a single PDF page (1-based) for OCR or other single-page consumers.
+
+    Applies the same DPI clamp and per-page memory budget as full-document
+    rasterization; never loads sibling pages.
+    """
+    width_pt = height_pt = 0.0
+    try:
+        import pikepdf
+
+        with pikepdf.open(pdf_path) as pdf:
+            if page_number < 1 or page_number > len(pdf.pages):
+                raise ValueError(f"page {page_number} out of range")
+            width_pt, height_pt = _page_mediabox_pts(pdf.pages[page_number - 1])
+    except PdfTooLargeError:
+        raise
+    except ValueError:
+        raise
+    except Exception:
+        width_pt = height_pt = 0.0
+
+    page_dpi = dpi
+    if width_pt > 0 and height_pt > 0:
+        page_dpi = _effective_raster_dpi(
+            requested_dpi=dpi,
+            width_pt=width_pt,
+            height_pt=height_pt,
+        )
+        est_w = int(width_pt * page_dpi / 72.0)
+        est_h = int(height_pt * page_dpi / 72.0)
+        _assert_conversion_memory_budget(
+            page_bytes=_rgb_bytes(est_w, est_h),
+            total_bytes=_rgb_bytes(est_w, est_h),
+            page_number=page_number,
+            max_page_bytes=max_page_bytes,
+            max_total_bytes=max(max_page_bytes, settings.POD_CONVERT_MAX_TOTAL_BYTES),
+        )
+
+    image = _convert_one_page(pdf_path, page_number=page_number, dpi=page_dpi)
+    if image is None:
+        raise ValueError(f"no image for page {page_number}")
+    page_bytes = _rgb_bytes(*image.size)
+    _assert_conversion_memory_budget(
+        page_bytes=page_bytes,
+        total_bytes=page_bytes,
+        page_number=page_number,
+        max_page_bytes=max_page_bytes,
+        max_total_bytes=max(max_page_bytes, settings.POD_CONVERT_MAX_TOTAL_BYTES),
+    )
+    if max_side_px and max_side_px > 0:
+        image = _resize_for_vision(image, max_side_px=max_side_px)
+    return image
+
+
 __all__ = (
     "PdfRasterOptions",
     "PdfTooLargeError",
@@ -523,4 +585,5 @@ __all__ = (
     "make_temp_pdf",
     "make_temp_workdir",
     "rasterize_pdf_to_jpeg_paths",
+    "render_pdf_page_image",
 )

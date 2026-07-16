@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     POD_PAGE_CONCURRENCY: int = 5
     ATTACHMENT_CLASSIFIER_CONCURRENCY: int = 5
 
+    # Shared document text / OCR (native extract + sparse-page OCR)
+    OCR_DPI: int = 120
+    OCR_JPEG_QUALITY: int = 70
+    OCR_IMAGE_MAX_SIDE_PX: int = 1600
+    OCR_HEADER_FRACTION: float = 0.35
+    OCR_NATIVE_TEXT_MIN_CHARS: int = 40
+
     # Unipile
     UNIPILE_API_KEY: str
     UNIPILE_DSN: str
