@@ -1,7 +1,7 @@
 """
 Strip rate confirmation pages from a multi-page PDF during POD assess.
 
-Detects pages by the exact ``Rate confirmation`` heading (case-sensitive),
+Detects pages by the ``Rate confirmation`` heading (case-sensitive; whitespace ignored so OCR spacing still match),
 rebuilds a PDF without those pages, and fail-closes when nothing remains.
 Used when attachment packs may mix a Ratecon with other documents.
 """

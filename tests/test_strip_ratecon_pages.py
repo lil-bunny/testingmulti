@@ -21,10 +21,11 @@ def _pdf_with_page_texts(texts: list[str]) -> bytes:
         doc.close()
 
 
-def test_page_has_rate_confirmation_heading_exact_phrase():
+def test_page_has_rate_confirmation_heading_case_sensitive_ignores_spaces():
     assert page_has_rate_confirmation_heading("Rate confirmation\nShipment ID")
     assert page_has_rate_confirmation_heading("Prefix Rate confirmation suffix")
-    assert not page_has_rate_confirmation_heading("Rateconfirmation")
+    assert page_has_rate_confirmation_heading("Rateconfirmation")
+    assert page_has_rate_confirmation_heading("Rate  confirmation")  # OCR multi-space
     assert not page_has_rate_confirmation_heading("Rate-confirmation")
     assert not page_has_rate_confirmation_heading("RATE CONFIRMATION")
     assert not page_has_rate_confirmation_heading("rate confirmation")
