@@ -79,6 +79,7 @@ from app.workflows.nodes.driver_assignment.nodes import (
     send_driver_reminder,
 )
 from app.workflows.nodes.record_pod_activity import (
+    notify_pod_analysis_teams,
     record_pod_escalation_activity,
     record_pod_extraction_activity,
     record_pod_processed_activity,
@@ -167,6 +168,7 @@ NODE_REGISTRY = {
     "record_pod_extraction_activity": record_pod_extraction_activity,
     "record_pod_vs_ratecon_activity": record_pod_vs_ratecon_activity,
     "record_pod_processed_activity": record_pod_processed_activity,
+    "notify_pod_analysis_teams": notify_pod_analysis_teams,
     "record_pod_tms_upload_activity": record_pod_tms_upload_activity,
     "read_tender_row": read_tender_row,
     "send_tender_reminder": send_tender_reminder,
