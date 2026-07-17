@@ -40,9 +40,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ci-test-key
           AWS_SECRET_ACCESS_KEY: ci-test-secret
           BUCKET_NAME: ci-test-bucket
-        # Known-failing tests are still being triaged individually; this reports
-        # status without blocking merges until they're resolved.
-        continue-on-error: true
         run: |
           uv run pytest tests/ \
             --ignore=tests/e2e \
