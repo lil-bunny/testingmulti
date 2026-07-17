@@ -122,11 +122,16 @@ def pod_attachment_gate_eligible(normalization: dict[str, Any]) -> bool:
     return bool(normalization.get("success"))
 
 
+ATTACHMENT_CLASSIFIER_FAILED = "attachment_classifier_failed"
+
+
 def pod_attachment_gate_skip_reason(normalization: dict[str, Any]) -> str | None:
     """Skip reason from assess/normalize failure; None when eligible."""
     if pod_attachment_gate_eligible(normalization):
         return None
     err = str(normalization.get("error") or "")
+    if err == ATTACHMENT_CLASSIFIER_FAILED:
+        return ATTACHMENT_CLASSIFIER_FAILED
     if (
         "rejected_by_classifier" in err
         or "No valid document" in err

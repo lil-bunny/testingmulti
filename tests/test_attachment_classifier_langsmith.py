@@ -1,20 +1,32 @@
-"""Tests for attachment classifier migration onto traced ``chat_vision_json``."""
+"""Tests for attachment classifier on traced ``achat_vision_json``."""
 
 from __future__ import annotations
 
+import asyncio
 import io
 
+import pytest
 from PIL import Image
 
+from app.domain.pod_lifecycle.guards import ATTACHMENT_CLASSIFIER_FAILED
 from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
-from app.domain.vision_prompt_templates import (
-    POD_ATTACHMENT_CLASSIFIER_SYSTEM,
-    POD_ATTACHMENT_CLASSIFIER_USER,
-)
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
-from app.services.attachment_normalizer import AttachmentNormalizerService
+from app.services.attachment_normalizer import (
+    AttachmentClassifierFailed,
+    AttachmentNormalizerService,
+)
 from app.tools import llm_client
 from app.tools.llm_client import LLMClientError
+from tests.fixtures.t3ra_tenant_settings import T3RA_PROMPTS
+
+_CLASSIFIER_RENDERED = RenderedPrompt(
+    system="Classify logistics document validity.",
+    user="You are a logistics document classifier.",
+)
+_CLASSIFIER_META = PromptLoadMetadata(
+    source="fallback",
+    tenant_prompt_ref="pod-attachment-classifier:staging",
+)
 
 
 def _large_png_bytes() -> bytes:
@@ -27,11 +39,19 @@ def _large_png_bytes() -> bytes:
     return data
 
 
-def test_classify_image_uses_chat_vision_json(monkeypatch):
+def _stub_classifier_prompts(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.resolve_pod_attachment_classifier_prompts",
+        lambda tenant_settings: (_CLASSIFIER_RENDERED, _CLASSIFIER_META),
+    )
+
+
+@pytest.mark.asyncio
+async def test_aclassify_image_uses_achat_vision_json(monkeypatch):
     png = _large_png_bytes()
     captured: dict = {}
 
-    def fake_chat_vision_json(
+    async def fake_achat_vision_json(
         system_prompt,
         user_prompt,
         image_jpeg_bytes,
@@ -49,8 +69,8 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.chat_vision_json",
-        fake_chat_vision_json,
+        "app.services.attachment_normalizer.achat_vision_json",
+        fake_achat_vision_json,
     )
     monkeypatch.setattr(
         "app.services.attachment_normalizer.settings.LLM_API_KEY",
@@ -64,6 +84,7 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
         "app.services.attachment_normalizer.settings.LLM_MODEL",
         "default-model",
     )
+    _stub_classifier_prompts(monkeypatch)
 
     svc = AttachmentNormalizerService()
     svc._trace_metadata = {
@@ -71,16 +92,17 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
         "workflow_lifecycle_id": "wl-1",
         "tenant_slug": "t3ra",
         "shipment_id": "SHIP-1",
+        "tenant_settings": {"prompts": T3RA_PROMPTS},
     }
-    result = svc._classify_image(png, attachment_id="att-1")
+    result = await svc._aclassify_image(png, attachment_id="att-1")
 
     assert result["is_valid_document"] is True
     assert result["confidence"] == 0.91
     assert result["reasoning"] == "signed POD"
     assert result["detected_document_type"] == "POD"
     assert result["prefiltered"] is False
-    assert captured["system_prompt"] == POD_ATTACHMENT_CLASSIFIER_SYSTEM
-    assert captured["user_prompt"] == POD_ATTACHMENT_CLASSIFIER_USER
+    assert captured["system_prompt"] == _CLASSIFIER_RENDERED.system
+    assert captured["user_prompt"] == _CLASSIFIER_RENDERED.user
     assert captured["image_jpeg_bytes"] == png
     assert captured["kwargs"]["model"] == "classifier-model"
     assert captured["kwargs"]["image_mime_type"] == "image/png"
@@ -96,14 +118,15 @@ def test_classify_image_uses_chat_vision_json(monkeypatch):
     assert captured["kwargs"]["tags"] == ["pod_attachment_classifier"]
     prompt_trace = captured["kwargs"]["prompt_trace"]
     assert prompt_trace.prompt_step_key == POD_ATTACHMENT_CLASSIFIER
-    assert prompt_trace.tenant_prompt_ref == "inline"
+    assert prompt_trace.tenant_prompt_ref == "pod-attachment-classifier:staging"
 
 
-def test_classify_image_omits_thread_id_without_lifecycle(monkeypatch):
+@pytest.mark.asyncio
+async def test_aclassify_image_omits_thread_id_without_lifecycle(monkeypatch):
     png = _large_png_bytes()
     captured: dict = {}
 
-    def fake_chat_vision_json(system_prompt, user_prompt, image_jpeg_bytes, **kwargs):
+    async def fake_achat_vision_json(system_prompt, user_prompt, image_jpeg_bytes, **kwargs):
         captured["kwargs"] = kwargs
         return {
             "is_valid_document": True,
@@ -113,20 +136,22 @@ def test_classify_image_omits_thread_id_without_lifecycle(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.chat_vision_json",
-        fake_chat_vision_json,
+        "app.services.attachment_normalizer.achat_vision_json",
+        fake_achat_vision_json,
     )
     monkeypatch.setattr(
         "app.services.attachment_normalizer.settings.LLM_API_KEY",
         "test-key",
     )
+    _stub_classifier_prompts(monkeypatch)
 
     svc = AttachmentNormalizerService()
     svc._trace_metadata = {
         "execution_id": "exec-only",
         "tenant_slug": "t3ra",
+        "tenant_settings": {"prompts": T3RA_PROMPTS},
     }
-    svc._classify_image(png, attachment_id="att-1")
+    await svc._aclassify_image(png, attachment_id="att-1")
 
     meta = captured["kwargs"]["metadata"]
     assert meta["execution_id"] == "exec-only"
@@ -134,11 +159,12 @@ def test_classify_image_omits_thread_id_without_lifecycle(monkeypatch):
     assert "workflow_lifecycle_id" not in meta
 
 
-def test_classify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch):
+@pytest.mark.asyncio
+async def test_aclassify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch):
     png = _large_png_bytes()
     captured: dict = {}
 
-    def fake_chat_vision_json(system_prompt, user_prompt, image_jpeg_bytes, **kwargs):
+    async def fake_achat_vision_json(system_prompt, user_prompt, image_jpeg_bytes, **kwargs):
         captured["system_prompt"] = system_prompt
         captured["user_prompt"] = user_prompt
         captured["kwargs"] = kwargs
@@ -150,8 +176,8 @@ def test_classify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch)
         }
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.chat_vision_json",
-        fake_chat_vision_json,
+        "app.services.attachment_normalizer.achat_vision_json",
+        fake_achat_vision_json,
     )
     monkeypatch.setattr(
         "app.services.attachment_normalizer.settings.LLM_API_KEY",
@@ -180,7 +206,7 @@ def test_classify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch)
             }
         },
     }
-    result = svc._classify_image(png, attachment_id="att-hub")
+    result = await svc._aclassify_image(png, attachment_id="att-hub")
 
     assert result["is_valid_document"] is True
     assert captured["system_prompt"] == "hub-sys"
@@ -190,31 +216,67 @@ def test_classify_image_loads_hub_prompt_when_tenant_ref_configured(monkeypatch)
     )
 
 
-def test_classify_image_fail_closed_on_llm_error(monkeypatch):
+@pytest.mark.asyncio
+async def test_aclassify_image_raises_on_llm_error(monkeypatch):
     png = _large_png_bytes()
+
+    async def boom(*args, **kwargs):
+        raise LLMClientError("boom")
 
     monkeypatch.setattr(
         "app.services.attachment_normalizer.settings.LLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.chat_vision_json",
-        lambda *args, **kwargs: (_ for _ in ()).throw(LLMClientError("boom")),
+        "app.services.attachment_normalizer.achat_vision_json",
+        boom,
     )
+    _stub_classifier_prompts(monkeypatch)
 
     svc = AttachmentNormalizerService()
-    result = svc._classify_image(png, attachment_id="att-err")
-
-    assert result["is_valid_document"] is False
-    assert result["confidence"] == 0.0
-    assert "classification_error" in result["reasoning"]
+    svc._trace_metadata = {"tenant_settings": {"prompts": T3RA_PROMPTS}}
+    with pytest.raises(AttachmentClassifierFailed):
+        await svc._aclassify_image(png, attachment_id="att-err")
 
 
-def test_classify_image_skips_without_api_key(monkeypatch):
+@pytest.mark.asyncio
+async def test_normalize_async_maps_llm_error_to_classifier_failed(monkeypatch):
+    png = _large_png_bytes()
+
+    async def boom(*args, **kwargs):
+        raise LLMClientError("boom")
+
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "test-key",
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.achat_vision_json",
+        boom,
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.build_async_llm_client",
+        lambda **kwargs: _NullAsyncClientCtx(),
+    )
+    _stub_classifier_prompts(monkeypatch)
+
+    svc = AttachmentNormalizerService()
+    svc._trace_metadata = {"tenant_settings": {"prompts": T3RA_PROMPTS}}
+    result = await svc.normalize_from_bytes_async(
+        {"att-err": png},
+        shipment_number="SHIP",
+        upload_merged=False,
+    )
+    assert result["success"] is False
+    assert result["error"] == ATTACHMENT_CLASSIFIER_FAILED
+
+
+@pytest.mark.asyncio
+async def test_aclassify_image_skips_without_api_key(monkeypatch):
     png = _large_png_bytes()
     called = {"n": 0}
 
-    def fake_chat_vision_json(*args, **kwargs):
+    async def fake_achat_vision_json(*args, **kwargs):
         called["n"] += 1
         return {}
 
@@ -223,57 +285,138 @@ def test_classify_image_skips_without_api_key(monkeypatch):
         None,
     )
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.chat_vision_json",
-        fake_chat_vision_json,
+        "app.services.attachment_normalizer.achat_vision_json",
+        fake_achat_vision_json,
     )
 
     svc = AttachmentNormalizerService()
-    result = svc._classify_image(png)
+    result = await svc._aclassify_image(png)
 
     assert called["n"] == 0
     assert result["is_valid_document"] is True
     assert result["reasoning"] == "no_classifier_api_key_configured"
 
 
+@pytest.mark.asyncio
+async def test_classify_images_batch_runs_concurrently(monkeypatch):
+    png = _large_png_bytes()
+    in_flight = {"n": 0, "max": 0}
+
+    async def fake_achat_vision_json(*args, **kwargs):
+        in_flight["n"] += 1
+        in_flight["max"] = max(in_flight["max"], in_flight["n"])
+        await asyncio.sleep(0.05)
+        in_flight["n"] -= 1
+        return {
+            "is_valid_document": True,
+            "confidence": 0.9,
+            "reasoning": "ok",
+            "detected_document_type": "POD",
+        }
+
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "test-key",
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.settings.ATTACHMENT_CLASSIFIER_CONCURRENCY",
+        3,
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.achat_vision_json",
+        fake_achat_vision_json,
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.build_async_llm_client",
+        lambda **kwargs: _NullAsyncClientCtx(),
+    )
+    _stub_classifier_prompts(monkeypatch)
+
+    svc = AttachmentNormalizerService()
+    items = [
+        (f"ref-{i}", png, f"att-{i}")
+        for i in range(3)
+    ]
+    results = await svc.classify_images_batch(items)
+    assert len(results) == 3
+    assert in_flight["max"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_aclassify_under_running_loop_does_not_nest_asyncio_run(monkeypatch):
+    """Regression: classify must await achat_vision_json, not chat_vision_json/asyncio.run."""
+    png = _large_png_bytes()
+
+    async def fake_achat_vision_json(*args, **kwargs):
+        # Prove we are already on a running loop (would fail if nested asyncio.run).
+        asyncio.get_running_loop()
+        return {
+            "is_valid_document": True,
+            "confidence": 0.9,
+            "reasoning": "ok",
+            "detected_document_type": "POD",
+        }
+
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "test-key",
+    )
+    monkeypatch.setattr(
+        "app.services.attachment_normalizer.achat_vision_json",
+        fake_achat_vision_json,
+    )
+    _stub_classifier_prompts(monkeypatch)
+
+    svc = AttachmentNormalizerService()
+    result = await svc._aclassify_image(png, attachment_id="att-loop")
+    assert result["is_valid_document"] is True
+
+
 def test_chat_vision_json_passes_model_override(monkeypatch):
     seen: dict = {}
 
+    class FakeMessage:
+        content = (
+            '{"is_valid_document": true, "confidence": 0.8, '
+            '"reasoning": "ok", "detected_document_type": "BOL"}'
+        )
+
+    class FakeChoice:
+        message = FakeMessage()
+
     class FakeResponse:
-        def raise_for_status(self):
-            return None
+        choices = [FakeChoice()]
 
-        def json(self):
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": (
-                                '{"is_valid_document": true, "confidence": 0.8, '
-                                '"reasoning": "ok", "detected_document_type": "BOL"}'
-                            )
-                        }
-                    }
-                ]
-            }
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            seen["kwargs"] = kwargs
+            return FakeResponse()
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
             pass
 
-        def __enter__(self):
+        @property
+        def chat(self):
+            return FakeChat()
+
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, *args):
-            return False
+        async def __aexit__(self, *args):
+            return None
 
-        def post(self, endpoint, headers=None, json=None):
-            seen["json"] = json
-            return FakeResponse()
+        async def close(self):
+            return None
 
     monkeypatch.setattr(llm_client.settings, "LLM_BASE_URL", "https://llm.example")
     monkeypatch.setattr(llm_client.settings, "LLM_API_KEY", "k")
     monkeypatch.setattr(llm_client.settings, "LLM_MODEL", "default-model")
-    monkeypatch.setattr(llm_client.httpx, "Client", FakeClient)
+    monkeypatch.setattr(llm_client.settings, "LLM_JSON_RESPONSE_MODE", True)
+    monkeypatch.setattr(llm_client, "AsyncOpenAI", FakeAsyncOpenAI)
     monkeypatch.setattr(llm_client, "get_current_run_tree", lambda: None)
 
     out = llm_client.chat_vision_json(
@@ -287,8 +430,9 @@ def test_chat_vision_json_passes_model_override(monkeypatch):
     )
 
     assert out["is_valid_document"] is True
-    assert seen["json"]["model"] == "override-model"
-    assert seen["json"]["max_tokens"] == 150
+    assert seen["kwargs"]["model"] == "override-model"
+    assert seen["kwargs"]["max_tokens"] == 150
+    assert seen["kwargs"]["response_format"] == {"type": "json_object"}
 
 
 def test_llm_trace_inputs_dedupes_prompt_fields():
@@ -338,7 +482,7 @@ def test_normalize_from_bytes_forwards_trace_metadata(monkeypatch):
 
     from app.services.attachment_normalizer import _InMemoryAttachmentNormalizer
 
-    def tracking_normalize(self, refs, shipment_number=None, **kwargs):
+    async def tracking_normalize(self, refs, shipment_number=None, **kwargs):
         seen["trace_metadata"] = dict(getattr(self, "_trace_metadata", {}) or {})
         return {
             "success": True,
@@ -350,7 +494,11 @@ def test_normalize_from_bytes_forwards_trace_metadata(monkeypatch):
             "source_attachments_cleanup": {"rejected": [], "valid_source": []},
         }
 
-    monkeypatch.setattr(_InMemoryAttachmentNormalizer, "normalize", tracking_normalize)
+    monkeypatch.setattr(
+        _InMemoryAttachmentNormalizer,
+        "normalize_async",
+        tracking_normalize,
+    )
 
     svc = AttachmentNormalizerService()
     svc.normalize_from_bytes(
@@ -363,3 +511,13 @@ def test_normalize_from_bytes_forwards_trace_metadata(monkeypatch):
         "execution_id": "exec-2",
         "tenant_slug": "t3ra",
     }
+
+
+class _NullAsyncClientCtx:
+    """Async context manager yielding None (classify uses injected client=None path)."""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *args):
+        return None

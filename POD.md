@@ -596,7 +596,7 @@ flowchart TD
         p3_check{Analysis already<br/>exists for merged<br/>attachment_id?}
         p3_check -->|Yes| p3_skip[Skip extraction<br/>use existing analysis]
         p3_check -->|No| p3_download[Download merged POD PDF<br/>to temp directory]
-        p3_download --> p3_convert[PDF → JPEG images<br/>per page at 200 DPI]
+        p3_download --> p3_convert[PDF → JPEG images<br/>per page at 150 DPI]
         p3_convert --> p3_llm["Per-page Vision LLM<br/>(concurrent, up to 6)<br/>Extract: page_type, carrier,<br/>PO, locations, signatures,<br/>stamps, stop_times"]
         p3_llm --> p3_reconcile["Multi-page Reconciliation:<br/>• Carrier: LUMPER > majority vote<br/>• PO: deduplicated union<br/>• Locations: BOL > longest<br/>• Delivery: sig OR stamp"]
         p3_reconcile --> p3_validate[Consistency Validation]
@@ -683,7 +683,7 @@ Then queries `RateConAnalysis` for `broker_name` and `pickup_location` — used 
 Skipped if analysis already exists for this `attachment_id` (idempotency guard). The `attachment_id` is parsed from the **merged** PDF filename in the URL.
 
 1. **Download:** HTTP GET on `merged_pdf_url` → temp PDF file.
-2. **PDF → Images:** `pdf2image.convert_from_path` at configurable DPI (default 200). Each page saved as JPEG with optional resize (`POD_IMAGE_MAX_SIDE_PX`).
+2. **PDF → Images:** shared `pdf_raster` (pikepdf embedded-image fast path, else PyMuPDF page-at-a-time) at configurable DPI (default 150). Each page saved as JPEG with optional resize (`POD_IMAGE_MAX_SIDE_PX`, default 1200).
 3. **Per-Page LLM Analysis:** Each page sent to `agentic-turbo` vision model concurrently (semaphore caps at 6). The prompt (`get_prompt()`) extracts:
    - `page_type`: `BILL_OF_LADING`, `LUMPER_RECEIPT`, `ITEMIZED_LIST`, `UNKNOWN`
    - Fields: `carrier_name`, `po_number`, `pickup_location`, `pickup_address`, `destination_location`, `destination_address`, `stamp_company_name`
@@ -959,7 +959,7 @@ WHERE workflow_group_id = '8b935ef9-e227-4846-b697-9b4b8d896c84'
 **Symptoms:** POD is received but not uploaded to Turvo due to low confidence score.
 
 **Checklist:**
-1. **Image quality:** Check if the PDF pages were converted at sufficient DPI. Default is 200 DPI; fast mode uses 130. Low-resolution scans may produce poor LLM output.
+1. **Image quality:** Check if the PDF pages were converted at sufficient DPI. Default is 150 DPI; fast mode uses 130. Low-resolution scans may produce poor LLM output.
 2. **Broker name filtering:** The `reconcile_pod_data` function filters out the broker name from carrier candidates. If the carrier name is similar to the broker name, it may be incorrectly excluded.
 3. **Missing signatures/stamps:** `delivery_confirmed` requires either `signature_present` or `stamp_present`. Check `pod_analysis.pod_summary` for the `proof_of_receipt` breakdown per page.
 4. **Confidence threshold:** Default threshold is 0.85 (85%). Configurable via `confidence_score_threshold` in the `attach_pod` node config.
@@ -1042,9 +1042,9 @@ $group_store-xxx.0.field               ❌ (array index at root not supported th
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POD_IMAGE_DPI` | `200` | DPI for PDF → image conversion |
+| `POD_IMAGE_DPI` | `150` | DPI for PDF → image conversion |
 | `POD_JPEG_QUALITY` | `85` | JPEG compression quality |
-| `POD_IMAGE_MAX_SIDE_PX` | `0` (no limit) | Max image dimension for LLM |
+| `POD_IMAGE_MAX_SIDE_PX` | `1200` | Max image dimension for LLM |
 | `POD_PDF_THREAD_COUNT` | `2` | Threads for PDF rasterization |
 | `POD_PAGE_CONCURRENCY` | `6` | Max concurrent LLM calls per PDF |
 | `POD_FAST_IMAGE_DPI` | `130` | DPI in fast mode |

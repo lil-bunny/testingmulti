@@ -15,7 +15,6 @@ WORKDIR /code
 
 # --- INSTALL SYSTEM DEPENDENCIES  ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    poppler-utils \
     libmagic1 \
     libheif-dev \
     && rm -rf /var/lib/apt/lists/*

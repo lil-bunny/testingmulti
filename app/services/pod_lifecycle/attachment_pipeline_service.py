@@ -336,7 +336,7 @@ class PodAttachmentPipelineService:
             shipment_number,
             len(bytes_by_id),
         )
-        normalization = self._normalizer.normalize_from_bytes(
+        normalization = await self._normalizer.normalize_from_bytes_async(
             bytes_by_id,
             shipment_number=shipment_number,
             upload_merged=False,
@@ -361,7 +361,7 @@ class PodAttachmentPipelineService:
 
         return self._assess_patch(normalization=normalization, stage_dir=stage_dir)
 
-    def run_for_object_keys(
+    async def run_for_object_keys(
         self,
         *,
         pod_object_keys: list[str],
@@ -400,7 +400,7 @@ class PodAttachmentPipelineService:
             correlation["shipment_id"] = shipment_id
         if stage_token and not correlation.get("execution_id"):
             correlation["execution_id"] = stage_token
-        normalization = self._normalizer.normalize(
+        normalization = await self._normalizer.normalize_async(
             keys,
             shipment_number=shipment_id,
             upload_merged=False,

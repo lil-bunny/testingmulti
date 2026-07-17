@@ -1,9 +1,10 @@
 """
 OOM-safe PDF → JPEG rasterization (POD vision, ratecon vision, TMS optimize).
 
-Cascade: direct image → embedded full-page XObjects (Tracy-class) → Poppler
-page-at-a-time with MediaBox DPI clamp and a pre-convert memory budget.
-Never multi-page ``convert_from_path`` in RAM; raises ``PdfTooLargeError`` first.
+Cascade: direct image → embedded full-page XObjects (Tracy-class) → PyMuPDF
+page-at-a-time (single Document open) with MediaBox DPI clamp and a pre-convert
+memory budget. Never loads every page pixmap into RAM at once; raises
+``PdfTooLargeError`` first.
 """
 
 from __future__ import annotations
@@ -12,11 +13,12 @@ import logging
 import os
 import re
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
-from pdf2image import convert_from_path
+import fitz
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
@@ -94,7 +96,7 @@ def _pdf_name(pdf_path: str) -> str:
 
 @dataclass(frozen=True)
 class PdfRasterOptions:
-    dpi: int = 200
+    dpi: int = 150
     max_side_px: int = 0
     jpeg_quality: int = 85
     max_pages: int | None = None
@@ -126,7 +128,7 @@ class PdfRasterOptions:
                 if self.max_total_bytes and self.max_total_bytes > 0
                 else settings.POD_CONVERT_MAX_TOTAL_BYTES
             ),
-            thread_count=1,  # never parallelize Poppler in-process
+            thread_count=1,  # never parallelize page renders in-process
         )
 
 
@@ -174,7 +176,7 @@ def _is_pathological_mediabox(width_pt: float, height_pt: float) -> bool:
     return max(width_pt, height_pt) >= _PATHOLOGICAL_MEDIABOX_PT
 
 
-def _effective_poppler_dpi(
+def _effective_raster_dpi(
     *,
     requested_dpi: int,
     width_pt: float,
@@ -182,7 +184,7 @@ def _effective_poppler_dpi(
 ) -> int:
     """
     For phone/scanner PDFs that set MediaBox = pixel size in points, DPI>72
-    upscales inventively (e.g. 200/72 ≈ 2.78× per side). Use 72 DPI then.
+    upscales inventively (e.g. 150/72 ≈ 2.08× per side). Use 72 DPI then.
     """
     if _is_pathological_mediabox(width_pt, height_pt):
         return min(int(requested_dpi), 72)
@@ -221,7 +223,7 @@ def _try_extract_embedded_page_images(
 ) -> list[str] | None:
     """
     If every page is a single full-page image XObject (Tracy-class phone/scan PDF),
-    extract those images without Poppler MediaBox upscaling. Returns None to fall back.
+    extract those images without MediaBox upscaling. Returns None to fall back.
     """
     try:
         import pikepdf
@@ -286,10 +288,56 @@ def _try_extract_embedded_page_images(
         raise
     except Exception:
         logger.info(
-            "pdf_raster: embedded page image path unavailable; falling back to Poppler",
+            "pdf_raster: embedded page image path unavailable; falling back to PyMuPDF",
             exc_info=True,
         )
         return None
+
+
+@contextmanager
+def _open_pymupdf(pdf_path: str) -> Iterator[fitz.Document]:
+    """Own a single PyMuPDF document lifetime for one conversion session."""
+    doc = fitz.open(pdf_path)
+    try:
+        yield doc
+    finally:
+        doc.close()
+
+
+def _mediaboxes_from_doc(
+    doc: fitz.Document,
+    *,
+    page_count: int,
+) -> list[tuple[float, float]]:
+    """MediaBox sizes in points for the first ``page_count`` pages."""
+    mediaboxes: list[tuple[float, float]] = []
+    for i in range(page_count):
+        rect = doc.load_page(i).rect
+        mediaboxes.append((float(rect.width), float(rect.height)))
+    return mediaboxes
+
+
+def _rasterize_page(
+    doc: fitz.Document,
+    *,
+    page_number: int,
+    dpi: int,
+) -> Image.Image | None:
+    """
+    Rasterize one PDF page (1-based) from an already-open document.
+
+    Copies pixmap samples into a PIL image, then drops the native pixmap so
+    peak RAM stays one page (not pixmap + PIL at once after return).
+    """
+    if page_number < 1 or page_number > doc.page_count:
+        return None
+    page = doc.load_page(page_number - 1)
+    zoom = float(dpi) / 72.0
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    try:
+        return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    finally:
+        pix = None
 
 
 def _convert_one_page(
@@ -298,20 +346,12 @@ def _convert_one_page(
     page_number: int,
     dpi: int,
 ) -> Image.Image | None:
-    images = convert_from_path(
-        pdf_path,
-        fmt="jpeg",
-        dpi=dpi,
-        thread_count=1,
-        first_page=page_number,
-        last_page=page_number,
-    )
-    if not images:
-        return None
-    return images[0]
+    """Rasterize one page via a short-lived document open (tests / one-offs)."""
+    with _open_pymupdf(pdf_path) as doc:
+        return _rasterize_page(doc, page_number=page_number, dpi=dpi)
 
 
-def _convert_pdf_with_poppler_page_at_a_time(
+def _convert_pdf_with_pymupdf_page_at_a_time(
     pdf_path: str,
     temp_dir: str,
     *,
@@ -322,74 +362,26 @@ def _convert_pdf_with_poppler_page_at_a_time(
     max_page_bytes: int,
     max_total_bytes: int,
 ) -> list[str]:
-    """Rasterize one page at a time; adjust DPI for pathological MediaBox PDFs."""
-    try:
-        from pdf2image import pdfinfo_from_path
-    except Exception:
-        pdfinfo_from_path = None  # type: ignore[assignment]
+    """
+    Rasterize one page at a time off a single open document.
 
-    page_count: int | None = None
-    mediaboxes: list[tuple[float, float]] = []
-    try:
-        import pikepdf
+    Opens/parses the PDF once; peak pixel RAM stays one page (budget + DPI clamp
+    still apply before each ``get_pixmap``).
+    """
+    with _open_pymupdf(pdf_path) as doc:
+        page_count = int(doc.page_count)
+        if max_pages and max_pages > 0:
+            page_count = min(page_count, max_pages)
+        if page_count < 1:
+            raise ValueError(f"No images could be extracted from PDF: {pdf_path}")
 
-        with pikepdf.open(pdf_path) as pdf:
-            pages = list(pdf.pages)
-            if max_pages and max_pages > 0:
-                pages = pages[:max_pages]
-            page_count = len(pages)
-            mediaboxes = [_page_mediabox_pts(page) for page in pages]
-    except Exception:
-        mediaboxes = []
-        if pdfinfo_from_path is not None:
-            try:
-                info = pdfinfo_from_path(pdf_path)
-                page_count = int(info.get("Pages") or 0) or None
-                if max_pages and max_pages > 0 and page_count:
-                    page_count = min(page_count, max_pages)
-            except Exception:
-                page_count = None
-
-    # Unknown page count: walk page-at-a-time until empty (never multi-page in RAM).
-    if page_count is None or page_count < 1:
+        mediaboxes = _mediaboxes_from_doc(doc, page_count=page_count)
         image_paths: list[str] = []
         total_bytes = 0
-        hard_cap = max_pages if max_pages and max_pages > 0 else 500
-        for page_number in range(1, hard_cap + 1):
-            image = _convert_one_page(pdf_path, page_number=page_number, dpi=dpi)
-            if image is None:
-                break
-            page_bytes = _rgb_bytes(*image.size)
-            total_bytes += page_bytes
-            _assert_conversion_memory_budget(
-                page_bytes=page_bytes,
-                total_bytes=total_bytes,
-                page_number=page_number,
-                max_page_bytes=max_page_bytes,
-                max_total_bytes=max_total_bytes,
-            )
-            image_path = os.path.join(temp_dir, f"page_{page_number:03d}.jpg")
-            _save_jpeg(
-                image,
-                image_path,
-                max_side_px=max_side_px,
-                jpeg_quality=jpeg_quality,
-            )
-            image_paths.append(image_path)
-            del image
-        if not image_paths:
-            raise ValueError(f"No images could be extracted from PDF: {pdf_path}")
-        return image_paths
 
-    if max_pages and max_pages > 0:
-        page_count = min(page_count, max_pages)
-
-    image_paths = []
-    total_bytes = 0
-    for page_number in range(1, page_count + 1):
-        if mediaboxes and page_number <= len(mediaboxes):
+        for page_number in range(1, page_count + 1):
             width_pt, height_pt = mediaboxes[page_number - 1]
-            page_dpi = _effective_poppler_dpi(
+            page_dpi = _effective_raster_dpi(
                 requested_dpi=dpi,
                 width_pt=width_pt,
                 height_pt=height_pt,
@@ -405,35 +397,25 @@ def _convert_pdf_with_poppler_page_at_a_time(
                 max_page_bytes=max_page_bytes,
                 max_total_bytes=max_total_bytes,
             )
-        else:
-            page_dpi = dpi
 
-        image = _convert_one_page(pdf_path, page_number=page_number, dpi=page_dpi)
-        if image is None:
-            raise ValueError(
-                f"No image extracted from PDF page {page_number}: {pdf_path}"
-            )
-        if not mediaboxes:
-            page_bytes = _rgb_bytes(*image.size)
-            total_bytes += page_bytes
-            _assert_conversion_memory_budget(
-                page_bytes=page_bytes,
-                total_bytes=total_bytes,
-                page_number=page_number,
-                max_page_bytes=max_page_bytes,
-                max_total_bytes=max_total_bytes,
-            )
-        image_path = os.path.join(temp_dir, f"page_{page_number:03d}.jpg")
-        _save_jpeg(
-            image,
-            image_path,
-            max_side_px=max_side_px,
-            jpeg_quality=jpeg_quality,
-        )
-        image_paths.append(image_path)
-        del image
+            image = _rasterize_page(doc, page_number=page_number, dpi=page_dpi)
+            if image is None:
+                raise ValueError(
+                    f"No image extracted from PDF page {page_number}: {pdf_path}"
+                )
+            try:
+                image_path = os.path.join(temp_dir, f"page_{page_number:03d}.jpg")
+                _save_jpeg(
+                    image,
+                    image_path,
+                    max_side_px=max_side_px,
+                    jpeg_quality=jpeg_quality,
+                )
+                image_paths.append(image_path)
+            finally:
+                image.close()
 
-    return image_paths
+        return image_paths
 
 
 def rasterize_pdf_to_jpeg_paths(
@@ -444,7 +426,7 @@ def rasterize_pdf_to_jpeg_paths(
     """
     Rasterize ``pdf_path`` to JPEGs under ``output_dir``.
 
-    Flow: try as a single image → embedded page images → Poppler one page at a time.
+    Flow: try as a single image → embedded page images → PyMuPDF one page at a time.
     Raises ``PdfTooLargeError`` when the memory budget would be exceeded.
     """
     opts = (options or PdfRasterOptions()).resolved()
@@ -502,7 +484,7 @@ def rasterize_pdf_to_jpeg_paths(
         if embedded:
             return embedded
 
-        image_paths = _convert_pdf_with_poppler_page_at_a_time(
+        image_paths = _convert_pdf_with_pymupdf_page_at_a_time(
             pdf_path,
             output_dir,
             dpi=opts.dpi,
@@ -535,7 +517,7 @@ __all__ = (
     "PdfRasterOptions",
     "PdfTooLargeError",
     "PodPdfTooLargeError",
-    "_effective_poppler_dpi",
+    "_effective_raster_dpi",
     "_try_extract_embedded_page_images",
     "freightx_stage_dir",
     "make_temp_pdf",

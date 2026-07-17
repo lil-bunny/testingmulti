@@ -52,20 +52,19 @@ def ask_llm_for_semantic_match(
     tenant_settings: dict[str, Any] | None = None,
     prompt_service: PromptService | None = None,
 ) -> tuple[bool, str]:
-    """Ask an LLM if two field values are semantically equivalent (Hub or inline fallback)."""
-    rendered, prompt_metadata = resolve_pod_vs_ratecon_semantic_match_prompts(
-        tenant_settings,
-        field_type,
-        value1,
-        value2,
-        prompt_service=prompt_service,
-    )
-    prompt_trace = PromptTraceMetadata.from_load(
-        POD_VS_RATECON_SEMANTIC_MATCH,
-        prompt_metadata,
-    )
-
+    """Ask an LLM if two field values are semantically equivalent (Hub or JSON fallback)."""
     try:
+        rendered, prompt_metadata = resolve_pod_vs_ratecon_semantic_match_prompts(
+            tenant_settings,
+            field_type,
+            value1,
+            value2,
+            prompt_service=prompt_service,
+        )
+        prompt_trace = PromptTraceMetadata.from_load(
+            POD_VS_RATECON_SEMANTIC_MATCH,
+            prompt_metadata,
+        )
         llm_response = chat_json(
             rendered.system,
             rendered.user,
@@ -99,7 +98,6 @@ def validate_pod_against_ratecon(
 
     comparisons = [
         {"key": "po_number", "rc_key": "po_number", "type": "po_number"},
-        {"key": "carrier_name", "rc_key": "carrier_name", "type": "fuzzy"},
         {"key": "pickup_location", "rc_key": "pickup_location", "type": "fuzzy"},
         {"key": "pickup_address", "rc_key": "pickup_address", "type": "address"},
         {"key": "destination_location", "rc_key": "delivery_location", "type": "fuzzy"},
@@ -111,17 +109,6 @@ def validate_pod_against_ratecon(
         pod_val, rc_val = pod_data.get(pod_key), ratecon_data.get(rc_key)
 
         if pod_val is None:
-            if pod_key == "carrier_name":
-                validation_report["field_validations"].append(
-                    {
-                        "field": pod_key,
-                        "status": "PASS",
-                        "pod_value": "Missing",
-                        "rate_con_value": str(rc_val),
-                        "notes": "PASS per business rule: Carrier name can be missing on POD.",
-                    }
-                )
-                continue
             if pod_key == "po_number":
                 rc_has_identifiers = (
                     (
@@ -273,39 +260,6 @@ def validate_pod_against_ratecon(
                 else:
                     result["notes"] = f"LLM denied match: {llm_reason}"
 
-        if not match and comp["key"] == "carrier_name":
-            broker_name = ratecon_data.get("broker_name", "")
-            if broker_name and pod_val:
-                fuzzy_score = fuzz.token_set_ratio(str(pod_val).lower(), str(broker_name).lower())
-                if fuzzy_score > 75:
-                    match = True
-                    result["status"] = "PASS"
-                    result["notes"] = (
-                        "PASS per business rule: POD carrier appears to be broker name "
-                        f"(similarity: {fuzzy_score}%). Carrier can be missing/misidentified on POD."
-                    )
-                    logger.info(
-                        "pod_vs_ratecon: carrier passed via broker similarity pod=%s score=%s",
-                        pod_val,
-                        fuzzy_score,
-                    )
-
-        if not match and comp["key"] == "carrier_name":
-            pickup_location = ratecon_data.get("pickup_location", "")
-            if pickup_location and pod_val:
-                fuzzy_score = fuzz.token_set_ratio(str(pod_val).lower(), str(pickup_location).lower())
-                if fuzzy_score > 70:
-                    match = True
-                    result["status"] = "PASS"
-                    result["notes"] = (
-                        "PASS per business rule: POD carrier appears to be pickup location "
-                        f"(similarity: {fuzzy_score}%). Carrier can be missing/misidentified on POD."
-                    )
-                    logger.info(
-                        "pod_vs_ratecon: carrier passed via pickup location similarity score=%s",
-                        fuzzy_score,
-                    )
-
         if match:
             result["status"] = "PASS"
         validation_report["field_validations"].append(result)
@@ -376,15 +330,14 @@ def generate_validation_summary(
     *,
     tenant_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """LLM-powered validation summary and confidence score (LangSmith Hub or inline fallback)."""
-    rendered, prompt_metadata = resolve_pod_vs_ratecon_summary_prompts(
-        tenant_settings,
-        cross_validation,
-        pod_analysis,
-    )
-    prompt_trace = PromptTraceMetadata.from_load(POD_VS_RATECON_SUMMARY, prompt_metadata)
-
+    """LLM-powered validation summary and confidence score (Hub or JSON fallback)."""
     try:
+        rendered, prompt_metadata = resolve_pod_vs_ratecon_summary_prompts(
+            tenant_settings,
+            cross_validation,
+            pod_analysis,
+        )
+        prompt_trace = PromptTraceMetadata.from_load(POD_VS_RATECON_SUMMARY, prompt_metadata)
         llm_result = chat_json(
             rendered.system,
             rendered.user,

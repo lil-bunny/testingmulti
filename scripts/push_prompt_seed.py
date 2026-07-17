@@ -1,5 +1,28 @@
 #!/usr/bin/env python3
-"""Bootstrap: push managed prompts to LangSmith Hub."""
+"""Bootstrap: push managed prompts from ``prompts/fallbacks/`` to LangSmith Hub.
+
+Source of truth is the LangChain-serialized JSON under ``prompts/fallbacks/``.
+Requires ``LANGSMITH_API_KEY`` in ``.env`` (optional ``LANGSMITH_PROMPT_OWNER``).
+
+Push all fallbacks to Hub::
+
+    uv run python scripts/push_prompt_seed.py
+    uv run python scripts/push_prompt_seed.py --prompt all
+
+Push one prompt (CLI choice → ``prompts/fallbacks/<hub-id>.json``)::
+
+    uv run python scripts/push_prompt_seed.py --prompt carrier-ack
+    uv run python scripts/push_prompt_seed.py --prompt driver-details
+    uv run python scripts/push_prompt_seed.py --prompt pod
+    uv run python scripts/push_prompt_seed.py --prompt pod-attachment-classifier
+    uv run python scripts/push_prompt_seed.py --prompt ratecon
+    uv run python scripts/push_prompt_seed.py --prompt pod-vs-ratecon
+    uv run python scripts/push_prompt_seed.py --prompt pod-vs-ratecon-semantic
+
+Refresh local fallbacks from Hub (opposite direction)::
+
+    uv run python scripts/sync_prompt_fallbacks.py --ref pod-page-extraction:staging
+"""
 
 from __future__ import annotations
 
@@ -28,111 +51,28 @@ from app.domain.prompt_hub_refs import (  # noqa: E402
     RATECON_PAGE_EXTRACTION_PROMPT,
     hub_prompt_id,
 )
-from app.domain.pod_lifecycle.vs_ratecon_prompt_templates import (  # noqa: E402
-    build_pod_vs_ratecon_semantic_match_seed_prompt,
-    build_pod_vs_ratecon_summary_seed_prompt,
-)
-from app.domain.vision_prompt_templates import (  # noqa: E402
-    build_pod_attachment_classifier_seed_prompt,
-    build_pod_page_seed_prompt,
-    build_ratecon_page_seed_prompt,
-)
+from app.integrations.langsmith.fallback import load_fallback_prompt  # noqa: E402
 
-CARRIER_ACK_SYSTEM = """
-You analyze a load-tender email conversation and decide its current operational state.
-Return JSON only:
-{{"decision": string, "confidence": number, "reason": string}}
-
-decision must be exactly one of:
-- "accepted"
-- "rejected"
-- "do_nothing"
-
-INPUT
-You receive a chronological email thread. Each email is labeled:
-email N [direction | from: <address> | to: <addresses>].
-Use the from/to headers to attribute each statement to a sender.
-There is no fixed rule about which side accepts: commitment can come from EITHER party.
-Read the WHOLE thread. Weigh the latest SUBSTANTIVE operational message; ignore quoted
-history, forward headers (From/Sent/To/Subject blocks), signatures, disclaimers, and bare
-courtesy lines when earlier messages already settle the state.
-
-DECISIONS
-"accepted": the thread shows the load is operationally committed and NO tender-level action is
-still open. Commitment may be a party confirming they will take/cover/dispatch the load, or a
-party agreeing to handle the outstanding step. Examples of commitment language:
-"confirmed", "we can cover", "driver assigned", "will pick up", "we'll take care of it",
-"we've got this one", "booked".
-
-"rejected": a party clearly declines or cannot handle the load.
-Examples: "cannot cover", "pass", "no truck", "unable", "declined".
-
-"do_nothing": the conversation is still OPEN or carries no operational decision. Use it for:
-open questions or requests awaiting a reply (e.g. "can you send/create the BOL?"),
-in-progress back-and-forth, missing-information asks, out-of-office, attachment-only emails,
-and thank-you / acknowledgement lines when commitment has NOT already been established.
-
-GUIDANCE
-- Attribute each statement to its sender via the from/to headers; do not assume the latest sender is the carrier.
-- A request directed AT a party is not that party accepting; it is an open item -> "do_nothing".
-- Prefer operational intent over literal wording.
-- confidence must be between 0.0 and 1.0 and reflect how clearly the thread supports the decision.
-- reason must be one short sentence and must be consistent with the decision.
-
-EXAMPLES
-- Vendor: "I have a carrier set for this one. Could you please create the BOL?" with no later reply
-  -> {{"decision": "do_nothing", "confidence": 0.8, "reason": "Vendor asks the shipper to create the BOL; request still open."}}
-- Vendor asks shipper to create the BOL, then shipper replies "We'll take care of it."
-  -> {{"decision": "accepted", "confidence": 0.9, "reason": "Shipper committed to handle the load."}}
-- Vendor: "Confirmed, driver assigned."
-  -> {{"decision": "accepted", "confidence": 0.95, "reason": "Vendor confirmed and assigned a driver."}}
-- Vendor: "Thanks!" after the load was already committed
-  -> {{"decision": "do_nothing", "confidence": 0.7, "reason": "Courtesy reply with no new operational decision."}}
-""".strip()
+# CLI --prompt choices → Hub prompt names (fallback file stems).
+_PROMPT_TARGETS: dict[str, str] = {
+    "carrier-ack": CARRIER_ACK_CLASSIFY_PROMPT,
+    "driver-details": DRIVER_DETAILS_EXTRACT_PROMPT,
+    "pod": POD_PAGE_EXTRACTION_PROMPT,
+    "pod-attachment-classifier": POD_ATTACHMENT_CLASSIFIER_PROMPT,
+    "ratecon": RATECON_PAGE_EXTRACTION_PROMPT,
+    "pod-vs-ratecon": POD_VS_RATECON_SUMMARY_PROMPT,
+    "pod-vs-ratecon-semantic": POD_VS_RATECON_SEMANTIC_MATCH_PROMPT,
+}
 
 
-def build_carrier_ack_seed_prompt() -> ChatPromptTemplate:
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", CARRIER_ACK_SYSTEM),
-            ("human", "{thread_text}"),
-        ]
-    )
-
-
-DRIVER_DETAILS_SYSTEM = """
-You extract driver contact details from carrier email replies to a driver assignment request.
-Return JSON only:
-{{"decision": string, "confidence": number, "reason": string, "driver": {{"name": string|null, "phone": string|null, "email": string|null}}}}
-
-decision must be exactly one of:
-- "has_details"
-- "insufficient"
-- "do_nothing"
-
-The user message is a chronological email thread labeled email 1, email 2, and so on (oldest to newest).
-Base your extraction primarily on the latest carrier message; use earlier messages only as context.
-Ignore quoted history, internal reminders, signatures, and non-operational boilerplate when the latest message is clear.
-
-Use "has_details" when the latest carrier message clearly provides a driver name and at least one contact method (phone or email) with intent to assign or confirm the driver for the load.
-
-Use "insufficient" when only a name or only contact is given, details are ambiguous, or the carrier says they will send later.
-
-Use "do_nothing" for questions, unrelated messages, thank-you only, out-of-office, attachment-only with no usable text, or no driver assignment intent.
-
-Use JSON null for missing driver fields, not the string "null".
-confidence must be between 0.0 and 1.0.
-reason must be one short sentence.
-""".strip()
-
-
-def build_driver_details_seed_prompt() -> ChatPromptTemplate:
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", DRIVER_DETAILS_SYSTEM),
-            ("human", "{thread_text}"),
-        ]
-    )
+def _seed_prompt_from_fallback(hub_id: str) -> ChatPromptTemplate:
+    """Load a Hub seed template from ``prompts/fallbacks/<hub_id>.json``."""
+    loaded = load_fallback_prompt(hub_id)
+    if not isinstance(loaded, ChatPromptTemplate):
+        raise TypeError(
+            f"fallback for {hub_id!r} must be ChatPromptTemplate, got {type(loaded).__name__}"
+        )
+    return loaded
 
 
 def _langsmith_client() -> Client:
@@ -194,7 +134,7 @@ def push_prompt(client: Client, prompt_name: str, template: ChatPromptTemplate) 
             object=template,
             tags=repo_tags,
             commit_tags=commit_tags,
-            commit_description="FreightX managed vision extraction prompt",
+            commit_description="FreightX managed prompt from prompts/fallbacks",
         )
     except LangSmithConflictError:
         print(f"Skipped {prompt_id}: unchanged since latest commit")
@@ -206,56 +146,25 @@ def push_prompt(client: Client, prompt_name: str, template: ChatPromptTemplate) 
     return prompt_id
 
 
+def _resolve_targets(choice: str) -> list[str]:
+    if choice == "all":
+        return list(_PROMPT_TARGETS.values())
+    return [_PROMPT_TARGETS[choice]]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--prompt",
-        choices=[
-            "carrier-ack",
-            "driver-details",
-            "pod",
-            "pod-attachment-classifier",
-            "ratecon",
-            "pod-vs-ratecon",
-            "pod-vs-ratecon-semantic",
-            "all",
-        ],
+        choices=[*sorted(_PROMPT_TARGETS), "all"],
         default="all",
-        help="Which prompt(s) to push (default: all)",
+        help="Which prompt(s) to push from prompts/fallbacks (default: all)",
     )
     args = parser.parse_args()
     client = _langsmith_client()
 
-    targets: list[tuple[str, ChatPromptTemplate]] = []
-    if args.prompt in ("carrier-ack", "all"):
-        targets.append((CARRIER_ACK_CLASSIFY_PROMPT, build_carrier_ack_seed_prompt()))
-    if args.prompt in ("driver-details", "all"):
-        targets.append((DRIVER_DETAILS_EXTRACT_PROMPT, build_driver_details_seed_prompt()))
-    if args.prompt in ("pod", "all"):
-        targets.append((POD_PAGE_EXTRACTION_PROMPT, build_pod_page_seed_prompt()))
-    if args.prompt in ("pod-attachment-classifier", "all"):
-        targets.append(
-            (
-                POD_ATTACHMENT_CLASSIFIER_PROMPT,
-                build_pod_attachment_classifier_seed_prompt(),
-            )
-        )
-    if args.prompt in ("ratecon", "all"):
-        targets.append((RATECON_PAGE_EXTRACTION_PROMPT, build_ratecon_page_seed_prompt()))
-    if args.prompt in ("pod-vs-ratecon", "all"):
-        targets.append(
-            (POD_VS_RATECON_SUMMARY_PROMPT, build_pod_vs_ratecon_summary_seed_prompt())
-        )
-    if args.prompt in ("pod-vs-ratecon-semantic", "all"):
-        targets.append(
-            (
-                POD_VS_RATECON_SEMANTIC_MATCH_PROMPT,
-                build_pod_vs_ratecon_semantic_match_seed_prompt(),
-            )
-        )
-
-    for prompt_name, template in targets:
-        push_prompt(client, prompt_name, template)
+    for prompt_name in _resolve_targets(args.prompt):
+        push_prompt(client, prompt_name, _seed_prompt_from_fallback(prompt_name))
 
     print("Tag production in the LangSmith UI when ready for prod tenants.")
     if not (settings.LANGSMITH_PROMPT_OWNER or "").strip():
