@@ -27,6 +27,11 @@ class PromptService:
         prompt_step_key: str,
         variables: dict[str, str],
     ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+        """Resolve tenant prompt ref and render system/user with ``variables``.
+
+        Raises ``MissingTenantPromptRefError`` when the step key is unset.
+        Load order is Hub, then ``prompts/fallbacks/*.json``.
+        """
         prompts = tenant_settings.get("prompts") or {}
         tenant_prompt_ref = resolve_prompt_ref(prompts, prompt_step_key)
         if not tenant_prompt_ref:
@@ -48,6 +53,7 @@ def resolve_pod_vision_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    """Render POD page-extraction prompts with ``broker_name`` / ``broker_context``."""
     from app.domain.prompt_step_keys import POD_PAGE_EXTRACTION
     from app.domain.vision_prompt_variables import pod_prompt_variables
 
@@ -64,6 +70,7 @@ def resolve_pod_attachment_classifier_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    """Render POD attachment-classifier prompts (no template variables)."""
     from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
 
     service = prompt_service or PromptService()
@@ -79,6 +86,7 @@ def resolve_ratecon_vision_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    """Render ratecon page-extraction prompts (no template variables)."""
     from app.domain.prompt_step_keys import RATECON_PAGE_EXTRACTION
 
     service = prompt_service or PromptService()
@@ -96,6 +104,7 @@ def resolve_pod_vs_ratecon_summary_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    """Render POD-vs-RateCon summary prompt from validation + POD analysis fields."""
     from app.domain.pod_lifecycle.vs_ratecon_prompt_variables import (
         summary_prompt_variables,
     )
@@ -117,6 +126,7 @@ def resolve_pod_vs_ratecon_semantic_match_prompts(
     *,
     prompt_service: PromptService | None = None,
 ) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    """Render one-field semantic-match prompt for POD vs RateCon comparison."""
     from app.domain.pod_lifecycle.vs_ratecon_prompt_variables import (
         semantic_match_prompt_variables,
     )

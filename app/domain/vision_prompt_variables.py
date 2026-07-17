@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 def pod_broker_context(broker_name: str | None) -> str:
+    """Build the carrier-vs-broker exclusion blurb for POD page prompts (empty if unset)."""
     if not broker_name:
         return ""
     return (
@@ -17,6 +18,7 @@ def pod_broker_context(broker_name: str | None) -> str:
 
 
 def pod_prompt_variables(broker_name: str | None) -> dict[str, str]:
+    """Hub template vars for POD page extraction: ``broker_name`` and ``broker_context``."""
     name = (broker_name or "").strip()
     return {
         "broker_name": name,

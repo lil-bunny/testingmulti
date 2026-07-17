@@ -10,6 +10,7 @@ def summary_prompt_variables(
     cross_validation: dict[str, Any],
     pod_analysis: dict[str, Any],
 ) -> dict[str, str]:
+    """Hub vars for POD-vs-RateCon summary: validation JSON plus delivery evidence flags."""
     return {
         "cross_validation_json": json.dumps(cross_validation, indent=2),
         "signature_present": str(pod_analysis.get("signature_present", False)),
@@ -26,6 +27,7 @@ def semantic_match_prompt_variables(
     pod_value: str,
     ratecon_value: str,
 ) -> dict[str, str]:
+    """Hub vars for one-field POD vs RateCon semantic match."""
     return {
         "field_type": field_type,
         "pod_value": pod_value,

@@ -167,10 +167,6 @@ def _merge_langsmith_extra(
     return extra or None
 
 
-def _map_openai_errors(exc: Exception, *, call_name: str) -> LLMClientError:
-    raise LLMClientError(f"Failed LLM {call_name} call") from exc
-
-
 _OPENAI_ERRORS = (
     APIConnectionError,
     APITimeoutError,
@@ -197,6 +193,7 @@ async def _achat_json_impl(
     model: str | None = None,
     client: AsyncOpenAI,
 ) -> dict:
+    """Call chat completions and parse JSON; raise ``LLMClientError`` on API/parse failure."""
     resolved_model = _resolve_model(model)
     kwargs: dict[str, Any] = {
         "model": resolved_model,
@@ -217,7 +214,7 @@ async def _achat_json_impl(
         _record_raw_llm_output(content=content)
         return parsed
     except _OPENAI_ERRORS as exc:
-        raise _map_openai_errors(exc, call_name="chat_json") from exc
+        raise LLMClientError("Failed LLM chat_json call") from exc
 
 
 @traceable(
@@ -238,6 +235,7 @@ async def _achat_vision_json_impl(
     image_mime_type: str = "image/jpeg",
     client: AsyncOpenAI,
 ) -> dict:
+    """Call vision chat completions and parse JSON; raise ``LLMClientError`` on failure."""
     resolved_model = _resolve_model(model)
     mime = (image_mime_type or "image/jpeg").strip() or "image/jpeg"
     b64 = base64.b64encode(image_jpeg_bytes).decode("ascii")
@@ -270,7 +268,7 @@ async def _achat_vision_json_impl(
         _record_raw_llm_output(content=content)
         return parsed
     except _OPENAI_ERRORS as exc:
-        raise _map_openai_errors(exc, call_name="chat_vision_json") from exc
+        raise LLMClientError("Failed LLM chat_vision_json call") from exc
 
 
 async def achat_json(

@@ -1,9 +1,9 @@
 """
 POD PDF → per-page vision extraction and reconciliation.
 
-Ported from ``old/agents/pod_validator/pod_processing.py`` (prompts and
-reconciliation rules preserved). Vision calls use ``chat_vision_json`` with the
-app's LLM_* settings instead of the legacy AsyncOpenAI streaming client.
+Flow: rasterize (or staged images) → parallel ``achat_vision_json`` under
+``POD_PAGE_CONCURRENCY`` → rule-based reconcile. Broker context is rendered into
+Hub/JSON prompts once via ``resolve_pod_vision_prompts``, then reused per page.
 """
 
 from __future__ import annotations
@@ -315,34 +315,9 @@ def convert_pdf_to_images(
     )
 
 
-def analyze_page(
-    image_path: str,
-    page_number: int,
-    broker_name=None,
-    *,
-    vision_prompts: RenderedPrompt,
-    prompt_trace: PromptTraceMetadata | None = None,
-    max_tokens: int | None = None,
-    temperature: float = 0.0,
-) -> dict[str, Any]:
-    """Per-page vision extraction (sync ``chat_vision_json`` facade)."""
-    return asyncio.run(
-        analyze_page_async(
-            image_path,
-            page_number,
-            broker_name,
-            vision_prompts=vision_prompts,
-            prompt_trace=prompt_trace,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-    )
-
-
 async def analyze_page_async(
     image_path: str,
     page_number: int,
-    broker_name=None,
     *,
     vision_prompts: RenderedPrompt,
     prompt_trace: PromptTraceMetadata | None = None,
@@ -350,8 +325,7 @@ async def analyze_page_async(
     temperature: float = 0.0,
     client: AsyncOpenAI | None = None,
 ) -> dict[str, Any]:
-    """Per-page vision extraction; pass ``client`` when fanning out in one event loop."""
-    _ = broker_name
+    """Per-page vision extraction; pass ``client`` when fanning out in one event loop"""
     load_id = Path(image_path).stem
     system_prompt = vision_prompts.system
     user_prompt = vision_prompts.user or " "
@@ -392,12 +366,16 @@ async def analyze_page_async(
 async def _analyze_pages_async(
     image_paths: list[str],
     *,
-    broker_name: str | None,
     vision_prompts: RenderedPrompt,
     prompt_trace: PromptTraceMetadata | None,
     max_tokens: int | None,
     load_id: str,
 ) -> list[dict[str, Any]]:
+    """Run page vision in parallel under ``POD_PAGE_CONCURRENCY``.
+
+    Shares one ``AsyncOpenAI`` client; semaphore caps in-flight pages.
+    Returns one result dict per image (extraction or error), unordered until caller sorts.
+    """
     concurrency = max(1, min(settings.POD_PAGE_CONCURRENCY, len(image_paths)))
     logger.info(
         "pod_extraction: parallel page vision load_id=%s page_count=%s concurrency=%s",
@@ -417,7 +395,6 @@ async def _analyze_pages_async(
                 result = await analyze_page_async(
                     img_path,
                     page_num,
-                    broker_name,
                     vision_prompts=vision_prompts,
                     prompt_trace=prompt_trace,
                     max_tokens=max_tokens,
@@ -484,6 +461,7 @@ def extract_from_pdf_path(
             thread_count = default_threads
             max_tokens = None
 
+        # Prefer worker-staged JPEGs when every prepared path is readable.
         staged = [
             str(p).strip()
             for p in (prepared_image_paths or [])
@@ -501,6 +479,7 @@ def extract_from_pdf_path(
                 len(image_paths),
             )
         else:
+            # Rasterize PDF pages into work_dir when staged images are incomplete.
             try:
                 image_paths = convert_pdf_to_images(
                     pdf_path,
@@ -545,10 +524,10 @@ def extract_from_pdf_path(
             len(image_paths),
         )
 
+        # Parallel page vision, then reconcile across pages (broker filter on carrier).
         processed_results = asyncio.run(
             _analyze_pages_async(
                 image_paths,
-                broker_name=broker_name,
                 vision_prompts=vision_prompts,
                 prompt_trace=prompt_trace,
                 max_tokens=max_tokens,
@@ -557,7 +536,6 @@ def extract_from_pdf_path(
         )
 
         sorted_results = sorted(processed_results, key=lambda x: x["page_number"])
-
         final_pod_data, reconciliation_log = reconcile_pod_data(sorted_results, broker_name)
         validation_issues = validate_pod_consistency(final_pod_data)
 

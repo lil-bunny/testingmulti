@@ -59,7 +59,6 @@ async def test_analyze_pages_async_respects_concurrency_cap(monkeypatch, tmp_pat
     ):
         rows = await pod_extraction._analyze_pages_async(
             image_paths,
-            broker_name=None,
             vision_prompts=RenderedPrompt(system="sys", user="user"),
             prompt_trace=None,
             max_tokens=None,
