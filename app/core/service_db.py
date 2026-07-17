@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TypeVar
+from typing import TypeVar, TYPE_CHECKING
 
 from app.core.db import db_scope, db_transaction
-from app.core.db_repos import DbRepos
+
+if TYPE_CHECKING:
+    from app.core.db_repos import DbRepos
+    from collections.abc import Callable
 
 T = TypeVar("T")
 

@@ -15,7 +15,7 @@ def read_workflow_lifecycle(state):
     workflow_name_key = (
         "lookup_workflow_name" if data.get("lookup_workflow_name") else "workflow_name"
     )
-    workflow_name = data.get(workflow_name_key)
+    data.get(workflow_name_key)
     db_shipment_id = lifecycle_service._extract_db_shipment_id(data)
     shipment_fk = db_shipment_id or lifecycle_service.resolve_shipments_row_id(
         tenant_id=data.get("tenant_id"),

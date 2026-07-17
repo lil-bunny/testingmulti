@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
 from datetime import datetime, timezone
 
 import psycopg
 import pytest
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import _session_factory
 from app.repositories.shipments_repository import ShipmentsRepository
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from collections.abc import Iterator
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 

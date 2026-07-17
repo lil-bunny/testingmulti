@@ -3,7 +3,7 @@ import types
 import uuid
 import tempfile
 import boto3
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from PIL import Image
 

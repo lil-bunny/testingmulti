@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from langchain_core.messages import BaseMessage
-from langchain_core.prompts import BasePromptTemplate
 
 from app.integrations.langsmith.types import RenderedPrompt
+
+if TYPE_CHECKING:
+    from langchain_core.prompts import BasePromptTemplate
 
 
 def render_system_user(

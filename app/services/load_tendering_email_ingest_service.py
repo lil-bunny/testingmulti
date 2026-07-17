@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from app.configs.gelita_delivery_locations_columns import (
     GELITA_WIDE_DELIVERY_LOCATIONS_COLUMNS,

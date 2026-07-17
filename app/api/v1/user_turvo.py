@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated, Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,7 +14,9 @@ from app.api.deps import (
 )
 from app.core.logger import get_logger
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError
-from app.services.turvo_oauth_service import TurvoOAuthService
+
+if TYPE_CHECKING:
+    from app.services.turvo_oauth_service import TurvoOAuthService
 
 router = APIRouter(prefix="/user/turvo", tags=["turvo"])
 logger = get_logger(__name__)

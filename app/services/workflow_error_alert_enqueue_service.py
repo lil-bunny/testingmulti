@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.state import WorkflowState
 from app.domain.workflow_error_alert_payload import WorkflowErrorAlertPayload
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domain.state import WorkflowState
 
 logger = get_logger(__name__)
 

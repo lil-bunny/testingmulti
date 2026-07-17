@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from app.domain.lifecycle_transition import LifecycleTransitionCommand
-from app.models.activity_type import ActivityType, is_snapshot_activity_type
+from app.models.activity_type import is_snapshot_activity_type
 from app.models.status import StatusSubType, StatusType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domain.lifecycle_transition import LifecycleTransitionCommand
 
 
 def status_for_log(value: StatusType | None) -> StatusType:

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from datetime import datetime
 
 _SELECT_SHIPMENT_COLUMNS = """
     id::text,

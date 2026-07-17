@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.celery_app import celery_app
 from app.core.logger import get_logger
@@ -15,6 +14,9 @@ from app.domain.pending_reminder_tasks import (
     merge_pending_reminder_tasks,
     pending_reminder_tasks_from_metadata,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__)
 

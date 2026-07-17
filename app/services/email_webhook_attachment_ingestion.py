@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.gelita.email_attachments import DELIVERY_LOCATIONS_FILE_NAME
@@ -23,6 +22,9 @@ from app.domain.unipile_email import (
     extract_email_attachment_metadata,
 )
 from app.tools.email import get_email_attachments
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger(__name__)
 

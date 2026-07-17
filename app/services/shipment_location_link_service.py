@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
@@ -20,8 +20,10 @@ from app.integrations.turvo.shipments import (
     location_insert_row_from_route_stop,
     postal_from_customer_order_route,
 )
-from app.repositories.locations_repository import LocationsRepository
-from app.repositories.shipments_repository import ShipmentsRepository
+
+if TYPE_CHECKING:
+    from app.repositories.shipments_repository import ShipmentsRepository
+    from app.repositories.locations_repository import LocationsRepository
 
 logger = get_logger(__name__)
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.models.activity_type import ActivityType, ActorType
-from app.models.status import StatusSubType, StatusType
+
+if TYPE_CHECKING:
+    from app.models.status import StatusSubType, StatusType
 
 
 @dataclass(frozen=True)

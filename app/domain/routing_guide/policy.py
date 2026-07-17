@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, TYPE_CHECKING
 
 from app.domain.gelita import routing_guide as gelita_routing_guide
-from app.domain.routing_guide.types import PlanCarriers, RoutingGuideRow
 from app.models.tenants import TenantSlug
+
+if TYPE_CHECKING:
+    from app.domain.routing_guide.types import PlanCarriers, RoutingGuideRow
 
 
 class RoutingGuidePolicy(Protocol):

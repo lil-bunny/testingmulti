@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from app.domain.reminder_schedule import WorkflowRemindersConfig
-from app.domain.tenant_settings.email_recipients import (
-    EmailRecipients,
-    InboundRoutingEmails,
-)
-from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
 from app.integrations.pgeocode.country_aliases import get_country_iso
+
+if TYPE_CHECKING:
+    from app.domain.reminder_schedule import WorkflowRemindersConfig
+    from app.domain.tenant_settings.email_recipients import (
+        EmailRecipients,
+        InboundRoutingEmails,
+    )
+    from app.domain.tenant_settings.workflow_error_alerts import WorkflowErrorAlertSettings
 
 class GelitaPickupAddress(BaseModel):
     model_config = ConfigDict(extra="ignore")

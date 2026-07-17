@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from app.models.activity_type import ActivityType, ActorType
-from app.models.pause_type import PauseType
-from app.models.status import StatusSubType, StatusType
+
+if TYPE_CHECKING:
+    from app.models.activity_type import ActivityType, ActorType
+    from app.models.status import StatusSubType, StatusType
+    from app.models.pause_type import PauseType
 
 
 def _normalize_uuid(value: Any) -> str | None:

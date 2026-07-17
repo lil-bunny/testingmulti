@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.ingress_result import IngressResult
@@ -20,9 +19,12 @@ from app.services.driver_assignment.ingress_types import (
 )
 from app.services.shipments_service import ShipmentsService
 from app.services.tenants_service import TenantsService
-from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_runs_service import WorkflowRunsService
+
+if TYPE_CHECKING:
+    from app.services.unipile_tenant_resolution import UnipileTenantContext
+    from collections.abc import Callable
 
 logger = get_logger(__name__)
 

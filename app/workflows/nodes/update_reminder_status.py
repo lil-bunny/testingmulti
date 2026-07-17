@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_reminder_sent_action
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep

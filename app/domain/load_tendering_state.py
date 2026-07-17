@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.domain.ingest_source_fields import source_delivery_address_code
 from app.domain.load_tendering_tender_rows import parse_tender_date
-from app.services.tender_service import TenderOrderPlusProducts
+
+if TYPE_CHECKING:
+    from app.services.tender_service import TenderOrderPlusProducts
 
 TENDER_STATE_KEY = "tender"
 

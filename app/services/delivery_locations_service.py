@@ -7,14 +7,16 @@ Callers may inject any ``rows_provider`` (tests use in-memory row lists).
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.delivery_locations import DeliveryLocationsIndex
-from app.domain.delivery_locations_column_mapping import (
-    DeliveryLocationsColumnMapping,
-    DeliveryLocationsHeaderMapping,
-)
+
+if TYPE_CHECKING:
+    from app.domain.delivery_locations_column_mapping import (
+        DeliveryLocationsColumnMapping,
+        DeliveryLocationsHeaderMapping,
+    )
 
 logger = get_logger(__name__)
 

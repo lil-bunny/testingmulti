@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from app.domain.reminder_schedule import ReminderStepSpec
+
+if TYPE_CHECKING:
+    from app.domain.reminder_schedule import ReminderStepSpec
 
 
 @dataclass

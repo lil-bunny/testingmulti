@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from sqlalchemy.orm import Session
 
 from app.core.db import fetchone_dict, jsonb_param
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 _JSONB_KEYS = frozenset({"results", "llm_model"})

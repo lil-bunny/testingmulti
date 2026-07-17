@@ -3,7 +3,6 @@ from typing import Optional
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote_plus
-import os
 
 from app.models.tenants import TenantSlug
 

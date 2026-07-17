@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, TypedDict, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
-from app.repositories.tender_products_repository import TenderProductsRepository
-from app.repositories.tenders_repository import TendersRepository
+
+if TYPE_CHECKING:
+    from app.repositories.tender_products_repository import TenderProductsRepository
+    from app.repositories.tenders_repository import TendersRepository
 
 logger = get_logger(__name__)
 

@@ -2,15 +2,15 @@ from dotenv import load_dotenv
 
 load_dotenv(override=False)
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from app.api.exception_handlers import register_exception_handlers
-from app.api.middleware.request_context import RequestContextMiddleware
-from app.api.openapi import OPENAPI_TAGS
-from app.api.v1 import v1_router
-from app.core.config import settings
-from app.core.logger import get_logger
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+from app.api.exception_handlers import register_exception_handlers  # noqa: E402
+from app.api.middleware.request_context import RequestContextMiddleware  # noqa: E402
+from app.api.openapi import OPENAPI_TAGS  # noqa: E402
+from app.api.v1 import v1_router  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.core.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 

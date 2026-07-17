@@ -17,18 +17,20 @@ headers themselves.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 import httpx
 
 from app.core.config import settings
 from app.core.logger import get_logger
-from app.domain.tenant_settings.tms import TmsSettings
 from app.integrations.turvo.public_api_urls import (
     build_publicapi_v1_url,
     normalize_turvo_publicapi_url,
 )
 from app.services.turvo_oauth_service import TurvoOAuthService
+
+if TYPE_CHECKING:
+    from app.domain.tenant_settings.tms import TmsSettings
 
 logger = get_logger(__name__)
 
@@ -87,7 +89,7 @@ class TurvoApiClient:
         public_api_url = (tms.public_api_url or "").strip()
         if not public_api_url:
             raise TurvoApiError(
-                f"Tenant TMS public_api_url is not configured",
+                "Tenant TMS public_api_url is not configured",
                 status_code=503,
             )
         base = normalize_turvo_publicapi_url(public_api_url)

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-import pytest
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def emit_db_snapshot_report(

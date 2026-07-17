@@ -37,7 +37,10 @@ from app.domain.activity_log_constants import (
 )
 from app.domain.status_display_labels import label_status, label_sub_status
 from app.models.activity_type import ActivityType
-from app.models.status import StatusSubType, StatusType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.status import StatusSubType, StatusType
 
 
 def generate_activity_log_description(

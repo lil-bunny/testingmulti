@@ -9,10 +9,9 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param
 from app.domain.tenant_settings.tms import (
@@ -21,6 +20,9 @@ from app.domain.tenant_settings.tms import (
     merge_tms_config,
     resolve_tms_settings,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _LEGACY_ROOT_AUTH_KEYS: tuple[str, ...] = (
     "user_name",

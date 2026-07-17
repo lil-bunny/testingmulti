@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
@@ -13,11 +13,13 @@ from app.domain.activity_log_descriptions import (
     format_ratecon_received_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
-from app.domain.state import WorkflowState
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
+
+if TYPE_CHECKING:
+    from app.domain.state import WorkflowState
 
 logger = get_logger(__name__)
 

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
 
 from app.repositories.tenants_db_repository import TenantsDbRepository
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 def resolve_tenant_uuid(session: Session, tenant_id: str) -> str | None:

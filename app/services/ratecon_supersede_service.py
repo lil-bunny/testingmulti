@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.workflow_cancel_trigger import (
@@ -13,7 +13,9 @@ from app.services.communications.service import CommunicationsService
 from app.services.workflow_lifecycle_cancel_orchestrator import (
     WorkflowLifecycleCancelOrchestrator,
 )
-from app.services.workflow_lifecycle_cancel_service import WorkflowCancelResult
+
+if TYPE_CHECKING:
+    from app.services.workflow_lifecycle_cancel_service import WorkflowCancelResult
 
 logger = get_logger(__name__)
 

@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.ingest_source_fields import (
-    delivery_gap_context,
     pack_code_for_product_gap,
     source_delivery_address_code,
 )

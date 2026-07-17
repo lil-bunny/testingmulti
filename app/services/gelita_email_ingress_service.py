@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.ingress_result import IngressResult
@@ -20,7 +20,6 @@ from app.services.load_tendering_email_ingest_service import (
     enqueue_gelita_load_tendering_and_link,
     process_tender_created_from_email_webhook,
 )
-from app.services.unipile_tenant_resolution import UnipileTenantContext
 from app.services.workflow_graph_tenant_resolution import resolve_workflow_graph_tenant_id
 from app.services.tender_service import TenderService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -31,6 +30,9 @@ from app.domain.gelita.routing_guide_lifecycle import (
 )
 from app.domain.load_tendering_settings import is_ftl_load_type
 from app.tools.gelita.order_number import extract_order_number
+
+if TYPE_CHECKING:
+    from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 logger = get_logger(__name__)
 

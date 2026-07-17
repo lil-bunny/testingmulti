@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.service_db import run_with_repos
-from app.repositories.tenants_db_repository import TenantsDbRepository
+
+if TYPE_CHECKING:
+    from app.repositories.tenants_db_repository import TenantsDbRepository
 
 
 class TenantsService:

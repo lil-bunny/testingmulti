@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
-from app.domain.tenant_settings.email_recipients import EmailRecipients
 from app.tools.email import send_email as send_email_tool
+
+if TYPE_CHECKING:
+    from app.domain.tenant_settings.email_recipients import EmailRecipients
 
 logger = get_logger(__name__)
 

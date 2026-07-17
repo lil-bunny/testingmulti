@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.service_db import run_with_repos
 from app.domain.gelita.email_attachments import (
@@ -10,7 +10,9 @@ from app.domain.gelita.email_attachments import (
     is_delivery_locations_attachment,
 )
 from app.models.data_import import DataImportDataType, DataImportSourceType
-from app.repositories.data_imports_repository import DataImportsRepository
+
+if TYPE_CHECKING:
+    from app.repositories.data_imports_repository import DataImportsRepository
 
 
 class DataImportsService:

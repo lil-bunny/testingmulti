@@ -12,8 +12,10 @@ Extension points (future):
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def iter_spreadsheet_rows(raw_data: dict[str, Any]) -> Iterator[dict[str, Any]]:

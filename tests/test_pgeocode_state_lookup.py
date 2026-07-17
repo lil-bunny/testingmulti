@@ -7,12 +7,14 @@ downloaded; we never touch the network.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pandas as pd
-import pytest
 
 import app.integrations.pgeocode.state_lookup as sl
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class _FakeNomi:

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
 from app.domain.ingest_source_fields import source_pack_code
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 class TenderProductsRepository:

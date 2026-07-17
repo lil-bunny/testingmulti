@@ -15,7 +15,6 @@ from app.integrations.langsmith.types import (
 from app.domain.prompt_step_keys import (
     DRIVER_ASSIGNMENT_DRIVER_DETAILS,
     LOAD_TENDERING_CARRIER_ACK,
-    POD_PAGE_EXTRACTION,
 )
 from app.services.prompt_service import PromptService
 

@@ -17,7 +17,7 @@ from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool
 from app.tools.turvo import update_shipment as update_shipment_tool
-from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipment_id_for_fetch
+from app.workflows.shipment_resolver import resolve_shipment_id
 from app.workflows.utils.decorators import safe_node
 
 

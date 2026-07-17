@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
 from app.domain.state import WorkflowState
