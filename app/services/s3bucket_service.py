@@ -1,5 +1,6 @@
 import boto3
 import logging
+from botocore.config import Config
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -30,6 +31,9 @@ class S3Bucket:
     def _init_client(self):
         try:
             endpoint_url = settings.BUCKET_ENDPOINT if settings.BUCKET_ENDPOINT else None
+            # Non-AWS endpoints (MinIO, DO Spaces) need path-style addressing;
+            # AWS S3 itself (endpoint_url=None) keeps boto3's default virtual-hosted style.
+            client_config = Config(s3={"addressing_style": "path"}) if endpoint_url else None
 
             self.s3_client = boto3.client(
                 "s3",
@@ -37,6 +41,7 @@ class S3Bucket:
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                 endpoint_url=endpoint_url,
                 region_name=getattr(settings, "BUCKET_REGION", "us-west-2"),
+                config=client_config,
             )
 
             self.bucket_name = getattr(settings, "BUCKET_NAME", None)
