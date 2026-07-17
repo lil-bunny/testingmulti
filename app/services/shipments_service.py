@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# shipments.metadata key: PDF page count from ratecon analysis (POD strip OCR bound).
+RATECON_PAGE_COUNT_KEY = "ratecon_page_count"
+
 
 class ShipmentsService:
     def __init__(
@@ -312,6 +315,71 @@ class ShipmentsService:
         number = self._clean(shipment_number)
         if number:
             return self._load_id_from_row(
+                self.get_by_shipment_number(tenant_id=tenant_id, shipment_number=number)
+            )
+        return None
+
+    def merge_metadata(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """
+        Merge keys into ``shipments.metadata`` for one tenant-scoped row.
+
+        Returns False when ids are invalid or no row matches.
+        """
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid or not metadata_patch:
+            return False
+        if self._shipments is not None:
+            return self._shipments.merge_metadata_by_id_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                metadata_patch=metadata_patch,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).merge_metadata_by_id_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                metadata_patch=metadata_patch,
+            )
+        )
+
+    @staticmethod
+    def ratecon_page_count_from_row(row: dict[str, Any] | None) -> int | None:
+        """Parse ``ratecon_page_count`` from a shipments row metadata dict."""
+        if not row:
+            return None
+        metadata = row.get("metadata")
+        if not isinstance(metadata, dict):
+            return None
+        raw = metadata.get(RATECON_PAGE_COUNT_KEY)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if value >= 1 else None
+
+    def resolve_ratecon_page_count(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str | None = None,
+        shipment_number: str | None = None,
+    ) -> int | None:
+        """Ratecon PDF page count from ``shipments.metadata`` (set at ratecon analysis)."""
+        row_id = self._uuid_or_none(self._clean(shipments_row_id))
+        if row_id:
+            return self.ratecon_page_count_from_row(
+                self.get_by_id(tenant_id=tenant_id, shipment_id=row_id)
+            )
+        number = self._clean(shipment_number)
+        if number:
+            return self.ratecon_page_count_from_row(
                 self.get_by_shipment_number(tenant_id=tenant_id, shipment_number=number)
             )
         return None

@@ -329,9 +329,13 @@ def _rasterize_page(
     *,
     page_number: int,
     dpi: int,
+    header_fraction: float | None = None,
 ) -> Image.Image | None:
     """
     Rasterize one PDF page (1-based) from an already-open document.
+
+    When ``header_fraction`` is set, only the top band is rasterized (clip), so
+    strip/heading OCR never holds a full-page pixmap.
 
     Copies pixmap samples into a PIL image, then drops the native pixmap so
     peak RAM stays one page (not pixmap + PIL at once after return).
@@ -340,7 +344,18 @@ def _rasterize_page(
         return None
     page = doc.load_page(page_number - 1)
     zoom = float(dpi) / 72.0
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    matrix = fitz.Matrix(zoom, zoom)
+    clip = None
+    if header_fraction is not None:
+        frac = min(0.95, max(0.1, float(header_fraction)))
+        rect = page.rect
+        clip = fitz.Rect(
+            rect.x0,
+            rect.y0,
+            rect.x1,
+            rect.y0 + max(1.0, float(rect.height) * frac),
+        )
+    pix = page.get_pixmap(matrix=matrix, clip=clip, alpha=False)
     try:
         return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
     finally:
@@ -352,10 +367,16 @@ def _convert_one_page(
     *,
     page_number: int,
     dpi: int,
+    header_fraction: float | None = None,
 ) -> Image.Image | None:
     """Rasterize one page via a short-lived document open (tests / one-offs)."""
     with _open_pymupdf(pdf_path) as doc:
-        return _rasterize_page(doc, page_number=page_number, dpi=dpi)
+        return _rasterize_page(
+            doc,
+            page_number=page_number,
+            dpi=dpi,
+            header_fraction=header_fraction,
+        )
 
 
 def _convert_pdf_with_pymupdf_page_at_a_time(
@@ -527,12 +548,14 @@ def render_pdf_page_image(
     dpi: int,
     max_page_bytes: int,
     max_side_px: int = 0,
+    header_fraction: float | None = None,
 ) -> Image.Image:
     """
     Rasterize a single PDF page (1-based) for OCR or other single-page consumers.
 
     Applies the same DPI clamp and per-page memory budget as full-document
-    rasterization; never loads sibling pages.
+    rasterization; never loads sibling pages. When ``header_fraction`` is set,
+    only the top band is rendered (no full-page pixmap).
     """
     width_pt = height_pt = 0.0
     try:
@@ -550,6 +573,9 @@ def render_pdf_page_image(
         width_pt = height_pt = 0.0
 
     page_dpi = dpi
+    header_frac = None
+    if header_fraction is not None:
+        header_frac = min(0.95, max(0.1, float(header_fraction)))
     if width_pt > 0 and height_pt > 0:
         page_dpi = _effective_raster_dpi(
             requested_dpi=dpi,
@@ -558,6 +584,8 @@ def render_pdf_page_image(
         )
         est_w = int(width_pt * page_dpi / 72.0)
         est_h = int(height_pt * page_dpi / 72.0)
+        if header_frac is not None:
+            est_h = max(1, int(est_h * header_frac))
         _assert_conversion_memory_budget(
             page_bytes=_rgb_bytes(est_w, est_h),
             total_bytes=_rgb_bytes(est_w, est_h),
@@ -566,7 +594,12 @@ def render_pdf_page_image(
             max_total_bytes=max(max_page_bytes, settings.POD_CONVERT_MAX_TOTAL_BYTES),
         )
 
-    image = _convert_one_page(pdf_path, page_number=page_number, dpi=page_dpi)
+    image = _convert_one_page(
+        pdf_path,
+        page_number=page_number,
+        dpi=page_dpi,
+        header_fraction=header_frac,
+    )
     if image is None:
         raise ValueError(f"no image for page {page_number}")
     page_bytes = _rgb_bytes(*image.size)

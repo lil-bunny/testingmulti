@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.error_catalog import BusinessError
+from app.exceptions import WorkflowException
 from app.services.shipments_service import ShipmentsService
 from app.services.ratecon_supersede_service import RateconSupersedeService
 
@@ -52,13 +54,10 @@ class RateconIngressService:
         )
         if not persist.get("success") or not persist.get("shipments_row_id"):
             message = persist.get("message") or "shipments_upsert_failed"
+            if message == "turvo_shipment_not_found":
+                raise WorkflowException(BusinessError.SHIPMENT_NOT_FOUND_IN_TMS)
             if message == "turvo_load_resolve_failed":
                 raise Exception(f"ratecon: Turvo load resolve failed: {message}")
-            if message == "turvo_shipment_not_found":
-                raise Exception(
-                    "ratecon: Turvo load resolve failed: "
-                    "No shipment found for load_id or could not extract shipment_id"
-                )
             raise Exception(f"ratecon: shipment upsert failed: {message}")
 
         turvo_shipment_id = str(persist.get("shipment_number") or "").strip()

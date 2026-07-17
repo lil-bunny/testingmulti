@@ -317,6 +317,38 @@ class ShipmentsRepository:
                 f"shipments driver_details update affected {result.rowcount} rows"
             )
 
+    def merge_metadata_by_id_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """Merge ``metadata_patch`` into ``shipments.metadata`` (tenant-scoped)."""
+        tid = self._clean(tenant_id)
+        row_id = self._clean(shipment_row_id)
+        if not tid or not row_id or not metadata_patch:
+            return False
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb)
+                    || CAST(:metadata_patch AS jsonb),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_row_id": row_id,
+                "metadata_patch": jsonb_param(metadata_patch),
+            },
+        )
+        return result.rowcount == 1
+
     def clear_driver_details_tx(
         self,
         *,

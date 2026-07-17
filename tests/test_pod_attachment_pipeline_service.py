@@ -75,6 +75,71 @@ async def test_run_for_email_assess_stages_without_s3_merge(monkeypatch, tmp_pat
     assert kwargs["upload_merged"] is False
     assert kwargs["trace_metadata"]["execution_id"] == "exec-1"
     assert kwargs["trace_metadata"]["classify_context"] == "attachment_pipeline"
+    assert kwargs["ratecon_page_count"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_for_email_passes_ratecon_page_count_from_shipment(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_ATTACHMENT_STAGE_ROOT",
+        str(tmp_path),
+    )
+    staged = tmp_path / "sources" / "001_att1.pdf"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"%PDF-1.4 x")
+    normalizer = MagicMock()
+    normalizer.normalize_from_bytes_async = AsyncMock(
+        return_value={
+            "success": True,
+            "assess_only": True,
+            "pod_merged_pdf_object_key": None,
+            "pod_merge_source_paths": [str(staged)],
+            "pod_vision_image_paths": [],
+            "source_attachments_cleanup": {
+                "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
+                "rejected": [],
+            },
+            "rejected": [],
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
+        lambda **kwargs: b"%PDF-1.4 x",
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.resolve_pod_sender_account_id",
+        lambda payload: "acct-1",
+    )
+    shipments = MagicMock()
+    shipments.resolve_ratecon_page_count.return_value = 5
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.ShipmentsService",
+        lambda: shipments,
+    )
+
+    svc = PodAttachmentPipelineService(normalizer=normalizer)
+    tenant_id = "00000000-0000-4000-8000-0000000000e1"
+    result = await svc.run_for_email_payload(
+        payload={
+            "tenant_id": tenant_id,
+            "shipment_id": "S1",
+            "shipments_row_id": "11111111-1111-4111-8111-111111111111",
+            "email_id": "email-1",
+            "attachments": [{"id": "att-1"}],
+            "execution_id": "exec-1",
+        }
+    )
+
+    assert result.success is True
+    shipments.resolve_ratecon_page_count.assert_called_once_with(
+        tenant_id=tenant_id,
+        shipments_row_id="11111111-1111-4111-8111-111111111111",
+        shipment_number="S1",
+    )
+    _, kwargs = normalizer.normalize_from_bytes_async.call_args
+    assert kwargs["ratecon_page_count"] == 5
 
 
 def test_merge_and_upload_from_state_persists(monkeypatch, tmp_path):

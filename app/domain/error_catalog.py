@@ -102,6 +102,10 @@ class BusinessError(_CatalogError):
         "ratecon_extraction_empty",
         "Ratecon LLM extraction returned no usable data.",
     )
+    SHIPMENT_NOT_FOUND_IN_TMS = (
+        "shipment_not_found_in_tms",
+        "No TMS shipment found for load_id or could not extract shipment_id.",
+    )
     MISSING_PICKUP_ADDRESS = ("missing_pickup_address", "Pickup address is required.")
     MISSING_DELIVERY_DATE = ("missing_delivery_date", "Delivery date is required.")
     INTERNATIONAL_DELIVERY_SKIPPED = (

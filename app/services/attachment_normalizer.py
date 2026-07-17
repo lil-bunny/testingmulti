@@ -132,6 +132,7 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         """Sync facade over ``normalize_async`` (one-shot ``asyncio.run``)."""
         return self._run_coro(
@@ -142,6 +143,7 @@ class AttachmentNormalizerService:
                 local_merged_path=local_merged_path,
                 stage_dir=stage_dir,
                 trace_metadata=trace_metadata,
+                ratecon_page_count=ratecon_page_count,
             )
         )
 
@@ -154,6 +156,7 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         if trace_metadata:
             self._trace_metadata = dict(trace_metadata)
@@ -177,6 +180,7 @@ class AttachmentNormalizerService:
                     upload_merged=upload_merged,
                     local_merged_path=local_merged_path,
                     stage_dir=stage_dir,
+                    ratecon_page_count=ratecon_page_count,
                 ),
                 shipment_number,
             )
@@ -310,6 +314,7 @@ class AttachmentNormalizerService:
             valid_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
                 valid_pdfs,
                 shipment_number=shipment_number,
+                ratecon_page_count=ratecon_page_count,
             )
             rejected.extend(ratecon_rejected)
         except PdfTooLargeError:
@@ -453,6 +458,7 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
     ) -> dict[str, Any]:
         """Sync facade over ``normalize_from_bytes_async`` (one-shot ``asyncio.run``)."""
         return self._run_coro(
@@ -463,6 +469,7 @@ class AttachmentNormalizerService:
                 local_merged_path=local_merged_path,
                 stage_dir=stage_dir,
                 trace_metadata=trace_metadata,
+                ratecon_page_count=ratecon_page_count,
             )
         )
 
@@ -475,6 +482,7 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
@@ -517,6 +525,7 @@ class AttachmentNormalizerService:
             upload_merged=upload_merged,
             local_merged_path=local_merged_path,
             stage_dir=stage_dir,
+            ratecon_page_count=ratecon_page_count,
         )
 
     def merge_and_upload_staged(
@@ -741,6 +750,7 @@ class AttachmentNormalizerService:
         upload_merged: bool = True,
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
+        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         """
         Business rules for exactly one attachment:
@@ -921,6 +931,7 @@ class AttachmentNormalizerService:
                 kept_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
                     [(attachment_ref, pdf_bytes)],
                     shipment_number=shipment_number,
+                    ratecon_page_count=ratecon_page_count,
                 )
                 rejected.extend(ratecon_rejected)
             except PdfTooLargeError:
@@ -1190,6 +1201,7 @@ class AttachmentNormalizerService:
         valid_pdfs: List[Tuple[str, bytes]],
         *,
         shipment_number: Optional[str] = None,
+        ratecon_page_count: int | None = None,
     ) -> Tuple[List[Tuple[str, bytes]], List[Dict[str, Any]]]:
         """
         Drop rate confirmation pages from each PDF during pre-graph assess.
@@ -1209,6 +1221,7 @@ class AttachmentNormalizerService:
             result = strip_ratecon_pages_service.strip_pdf_bytes(
                 pdf_data,
                 doc_label=f"pod_{ship}",
+                ratecon_page_count=ratecon_page_count,
             )
             if result.skip_reason == "all_pages_rate_confirmation":
                 rejected.append(

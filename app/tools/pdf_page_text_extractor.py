@@ -1,13 +1,14 @@
 """
 PDF → per-page text for LLM and classification callers.
 
-Prefer native text; OCR sparse/empty pages one at a time. No S3/DB.
+Prefer native text; OCR sparse/empty pages with bounded thread parallelism. No S3/DB.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.tools.pdf_to_images import (
 logger = logging.getLogger(__name__)
 
 _NATIVE_SPARSE_CHARS = 40
+_OCR_ENGINE: Any = None
 
 
 @dataclass(frozen=True)
@@ -76,16 +78,18 @@ def pdf_page_count(pdf_bytes: bytes) -> int:
         doc.close()
 
 
-_OCR_ENGINE: Any = None
-
-
 def _get_ocr_engine() -> Any:
     """Lazy-load RapidOCR once; model init is expensive."""
     global _OCR_ENGINE
     if _OCR_ENGINE is None:
         from rapidocr_onnxruntime import RapidOCR
 
-        _OCR_ENGINE = RapidOCR()
+        # App ThreadPool owns concurrency; keep ORT per-run threads at 1.
+        intra = max(1, int(settings.OCR_INTRA_OP_THREADS))
+        _OCR_ENGINE = RapidOCR(
+            intra_op_num_threads=intra,
+            inter_op_num_threads=1,
+        )
     return _OCR_ENGINE
 
 
@@ -94,17 +98,26 @@ def ocr_image_rgb(image: Any) -> str:
     import numpy as np
 
     engine = _get_ocr_engine()
-    rgb = image if getattr(image, "mode", None) == "RGB" else image.convert("RGB")
-    result = None
+    owned_rgb = None
+    arr = None
     try:
-        arr = np.asarray(rgb)
-        result, _ = engine(arr)
+        if getattr(image, "mode", None) == "RGB":
+            rgb = image
+        else:
+            owned_rgb = image.convert("RGB")
+            rgb = owned_rgb
+        # Copy so the ndarray does not pin the PIL buffer.
+        arr = np.array(rgb, dtype=np.uint8, copy=True)
     finally:
-        if rgb is not image:
+        if owned_rgb is not None:
             try:
-                rgb.close()
+                owned_rgb.close()
             except Exception:
                 pass
+    try:
+        result, _ = engine(arr)
+    finally:
+        del arr
     if not result:
         return ""
     lines = [str(row[1]) for row in result if row and len(row) > 1 and row[1]]
@@ -121,9 +134,10 @@ def crop_header_band(image: Any, *, fraction: float = 0.35) -> Any:
 
 class PdfPageTextExtractor:
     """
-    Turn PDF bytes into per-page text with a consistent native-first OCR policy.
+    PDF bytes → per-page text (native-first, sparse OCR).
 
-    Sparse pages are rasterized one at a time; optional header crop for title checks.
+    Header-only strip uses clip + strip DPI; pages fan out under ``OCR_MAX_WORKERS``.
+    One RapidOCR/ONNX session process-wide.
     """
 
     def extract_pages(
@@ -138,8 +152,8 @@ class PdfPageTextExtractor:
         """
         Return per-page text for ``pdf_bytes``.
 
-        Flow: native extract when preferred → OCR only sparse/empty pages (or all
-        pages when prefer_native is false). ``header_only_ocr`` crops before OCR.
+        Flow: native when preferred → OCR sparse/empty pages (or all when
+        prefer_native is false). ``header_only_ocr`` clips the top band at raster.
         """
         native_pages = extract_native_page_texts(pdf_bytes) if prefer_native else []
         page_count = len(native_pages) if native_pages else pdf_page_count(pdf_bytes)
@@ -159,7 +173,7 @@ class PdfPageTextExtractor:
                 return native_pages
             ocr_by_page = {
                 p.page_number: p
-                for p in self._ocr_selected_pages(
+                for p in self.ocr_pages(
                     pdf_bytes,
                     page_numbers=[p.page_number for p in need_ocr],
                     header_only=header_only_ocr,
@@ -174,7 +188,7 @@ class PdfPageTextExtractor:
                     merged.append(p)
             return merged
 
-        return self._ocr_selected_pages(
+        return self.ocr_pages(
             pdf_bytes,
             page_numbers=list(range(1, page_count + 1)),
             header_only=header_only_ocr,
@@ -201,17 +215,74 @@ class PdfPageTextExtractor:
             f"--- Page {p.page_number} ---\n{p.text}" for p in pages if p.text
         )
 
-    def _ocr_selected_pages(
+    def _ocr_one_page(
+        self,
+        pdf_path: str,
+        page_number: int,
+        *,
+        header_only: bool,
+        doc_label: str,
+    ) -> PageText:
+        """Rasterize and OCR one 1-based page; safe to call from a worker thread."""
+        image = None
+        try:
+            if header_only:
+                image = render_pdf_page_image(
+                    pdf_path,
+                    page_number,
+                    dpi=settings.OCR_STRIP_DPI,
+                    max_page_bytes=settings.POD_CONVERT_MAX_PAGE_BYTES,
+                    max_side_px=settings.OCR_STRIP_IMAGE_MAX_SIDE_PX,
+                    header_fraction=settings.OCR_HEADER_FRACTION,
+                )
+            else:
+                image = render_pdf_page_image(
+                    pdf_path,
+                    page_number,
+                    dpi=settings.OCR_DPI,
+                    max_page_bytes=settings.POD_CONVERT_MAX_PAGE_BYTES,
+                    max_side_px=settings.OCR_IMAGE_MAX_SIDE_PX,
+                )
+            text = ocr_image_rgb(image)
+            return PageText(
+                page_number=page_number,
+                text=text,
+                source="ocr" if text else "empty",
+            )
+        except PdfTooLargeError:
+            raise
+        except Exception:
+            logger.exception(
+                "pdf_page_text_extractor: OCR failed doc=%s page=%s",
+                doc_label,
+                page_number,
+            )
+            return PageText(page_number=page_number, text="", source="empty")
+        finally:
+            if image is not None:
+                try:
+                    image.close()
+                except Exception:
+                    pass
+
+    def ocr_pages(
         self,
         pdf_bytes: bytes,
         *,
         page_numbers: list[int],
-        header_only: bool,
-        doc_label: str,
+        header_only: bool = False,
+        doc_label: str = "doc",
     ) -> list[PageText]:
-        """Rasterize and OCR the given 1-based page numbers (temp file + cleanup)."""
+        """
+        Rasterize and OCR the given 1-based page numbers.
+
+        Flow: write temp PDF → fan out under ``OCR_MAX_WORKERS`` → return in
+        ``page_numbers`` order. ``PdfTooLargeError`` propagates.
+        """
+        if not page_numbers:
+            return []
+
         tmp_path: str | None = None
-        results: list[PageText] = []
         try:
             fd, tmp_path = make_temp_pdf(prefix=f"{doc_label}_ocr_")
             try:
@@ -219,57 +290,41 @@ class PdfPageTextExtractor:
             finally:
                 os.close(fd)
 
-            for page_number in page_numbers:
-                image = None
-                header = None
-                try:
-                    image = render_pdf_page_image(
+            workers = max(1, min(int(settings.OCR_MAX_WORKERS), len(page_numbers)))
+            _get_ocr_engine()
+
+            if workers == 1 or len(page_numbers) == 1:
+                return [
+                    self._ocr_one_page(
                         tmp_path,
                         page_number,
-                        dpi=settings.OCR_DPI,
-                        max_page_bytes=settings.POD_CONVERT_MAX_PAGE_BYTES,
-                        max_side_px=settings.OCR_IMAGE_MAX_SIDE_PX,
+                        header_only=header_only,
+                        doc_label=doc_label,
                     )
-                    target = (
-                        crop_header_band(
-                            image, fraction=settings.OCR_HEADER_FRACTION
-                        )
-                        if header_only
-                        else image
-                    )
-                    if header_only:
-                        header = target
-                    text = ocr_image_rgb(target)
-                    results.append(
-                        PageText(
-                            page_number=page_number,
-                            text=text,
-                            source="ocr" if text else "empty",
-                        )
-                    )
-                except PdfTooLargeError:
-                    raise
-                except Exception:
-                    logger.exception(
-                        "pdf_page_text_extractor: OCR failed doc=%s page=%s",
-                        doc_label,
+                    for page_number in page_numbers
+                ]
+
+            by_page: dict[int, PageText] = {}
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._ocr_one_page,
+                        tmp_path,
                         page_number,
-                    )
-                    results.append(
-                        PageText(page_number=page_number, text="", source="empty")
-                    )
-                finally:
-                    if header is not None and header is not image:
-                        try:
-                            header.close()
-                        except Exception:
-                            pass
-                    if image is not None:
-                        try:
-                            image.close()
-                        except Exception:
-                            pass
-            return results
+                        header_only=header_only,
+                        doc_label=doc_label,
+                    ): page_number
+                    for page_number in page_numbers
+                }
+                for future in as_completed(futures):
+                    page_number = futures[future]
+                    try:
+                        by_page[page_number] = future.result()
+                    except PdfTooLargeError:
+                        for pending in futures:
+                            pending.cancel()
+                        raise
+            return [by_page[n] for n in page_numbers if n in by_page]
         finally:
             if tmp_path and os.path.isfile(tmp_path):
                 try:
