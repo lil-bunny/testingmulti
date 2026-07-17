@@ -11,29 +11,43 @@ files (or full normalize with upload_merged=True) produces
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
 import re
 import time
 import uuid
+from collections.abc import Coroutine
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
 
 import httpx
 import img2pdf
+from openai import AsyncOpenAI
 from PIL import Image
 
 from app.core.config import settings
+from app.domain.pod_lifecycle.guards import ATTACHMENT_CLASSIFIER_FAILED
 from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_attachment_classifier_prompts
 from app.services.s3bucket_service import bucket, normalize_object_key
-from app.tools.llm_client import chat_vision_json
+from app.tools.llm_client import (
+    LLMClientError,
+    achat_vision_json,
+    build_async_llm_client,
+)
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+
+class AttachmentClassifierFailed(Exception):
+    """LLM/infra failure during attachment vision classify (not a model reject)."""
 
 try:
     import pillow_heif
@@ -96,7 +110,41 @@ def in_memory_attachment_ref(
 class AttachmentNormalizerService:
     """Download, classify by type, merge POD attachments into a single PDF."""
 
+    @staticmethod
+    def _run_coro(coro: Coroutine[Any, Any, _T]) -> _T:
+        """Run ``coro`` when no loop is running; refuse nested ``asyncio.run``."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        raise RuntimeError(
+            "AttachmentNormalizerService sync helpers cannot run under a running "
+            "event loop; use normalize_async / normalize_from_bytes_async"
+        )
+
     def normalize(
+        self,
+        pod_object_keys: List[str],
+        shipment_number: Optional[str] = None,
+        *,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
+        stage_dir: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Sync facade over ``normalize_async`` (one-shot ``asyncio.run``)."""
+        return self._run_coro(
+            self.normalize_async(
+                pod_object_keys,
+                shipment_number=shipment_number,
+                upload_merged=upload_merged,
+                local_merged_path=local_merged_path,
+                stage_dir=stage_dir,
+                trace_metadata=trace_metadata,
+            )
+        )
+
+    async def normalize_async(
         self,
         pod_object_keys: List[str],
         shipment_number: Optional[str] = None,
@@ -122,7 +170,7 @@ class AttachmentNormalizerService:
         non_empty = [(u or "").strip() for u in pod_object_keys if (u or "").strip()]
         if len(non_empty) == 1:
             return self._with_classification_index(
-                self._normalize_single_attachment(
+                await self._normalize_single_attachment_async(
                     non_empty[0],
                     shipment_number=shipment_number,
                     upload_merged=upload_merged,
@@ -137,6 +185,8 @@ class AttachmentNormalizerService:
         rejected: List[Dict[str, Any]] = []
         classification_results: List[Dict[str, Any]] = []
         source_attachment_ids: List[str] = []
+        pending_classify: List[Tuple[str, bytes, str | None]] = []
+        pending_bytes_by_ref: Dict[str, bytes] = {}
 
         for raw in pod_object_keys:
             attachment_ref = (raw or "").strip()
@@ -197,23 +247,10 @@ class AttachmentNormalizerService:
                     )
                     continue
 
-                cls_result = self._classify_image(
-                    image_bytes,
-                    attachment_id=attachment_id,
+                pending_classify.append(
+                    (attachment_ref, image_bytes, attachment_id)
                 )
-                cls_result["attachment_ref"] = attachment_ref
-                classification_results.append(cls_result)
-
-                if self._accept_image(cls_result):
-                    valid_images.append((attachment_ref, image_bytes))
-                else:
-                    rejected.append(
-                        self._rejection_entry(
-                            attachment_ref,
-                            cls_result.get("reasoning", "rejected_by_classifier"),
-                            float(cls_result.get("confidence", 0.0)),
-                        )
-                    )
+                pending_bytes_by_ref[attachment_ref] = image_bytes
                 continue
 
             logger.warning(
@@ -226,6 +263,47 @@ class AttachmentNormalizerService:
                     attachment_ref, f"unsupported_type: {mime_type}", 1.0
                 )
             )
+
+        if pending_classify:
+            try:
+                classified = await self.classify_images_batch(pending_classify)
+            except AttachmentClassifierFailed as exc:
+                logger.exception(
+                    "attachment_normalizer.classifier_failed count=%s err=%s",
+                    len(pending_classify),
+                    exc,
+                )
+                return self._with_classification_index(
+                    {
+                        "success": False,
+                        "pod_merged_pdf_object_key": None,
+                        "source_attachment_ids": source_attachment_ids,
+                        "classification_results": classification_results,
+                        "rejected": rejected,
+                        "source_attachments_cleanup": {
+                            "rejected": rejected,
+                            "valid_source": [],
+                        },
+                        "error": ATTACHMENT_CLASSIFIER_FAILED,
+                    },
+                    shipment_number,
+                )
+            for cls_result in classified:
+                classification_results.append(cls_result)
+                attachment_ref = str(cls_result.get("attachment_ref") or "")
+                image_bytes = pending_bytes_by_ref.get(attachment_ref)
+                if image_bytes is None:
+                    continue
+                if self._accept_image(cls_result):
+                    valid_images.append((attachment_ref, image_bytes))
+                else:
+                    rejected.append(
+                        self._rejection_entry(
+                            attachment_ref,
+                            cls_result.get("reasoning", "rejected_by_classifier"),
+                            float(cls_result.get("confidence", 0.0)),
+                        )
+                    )
 
         if not valid_pdfs and not valid_images:
             return self._with_classification_index(
@@ -347,6 +425,28 @@ class AttachmentNormalizerService:
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Sync facade over ``normalize_from_bytes_async`` (one-shot ``asyncio.run``)."""
+        return self._run_coro(
+            self.normalize_from_bytes_async(
+                attachment_bytes_by_id,
+                shipment_number=shipment_number,
+                upload_merged=upload_merged,
+                local_merged_path=local_merged_path,
+                stage_dir=stage_dir,
+                trace_metadata=trace_metadata,
+            )
+        )
+
+    async def normalize_from_bytes_async(
+        self,
+        attachment_bytes_by_id: dict[str, bytes],
+        *,
+        shipment_number: str | None = None,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
+        stage_dir: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
                 "success": False,
@@ -382,7 +482,7 @@ class AttachmentNormalizerService:
 
         processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
         processor._trace_metadata = dict(trace_metadata or {})
-        return processor.normalize(
+        return await processor.normalize_async(
             refs,
             shipment_number=shipment_number,
             upload_merged=upload_merged,
@@ -596,7 +696,7 @@ class AttachmentNormalizerService:
             )
             return None
 
-    def _normalize_single_attachment(
+    async def _normalize_single_attachment_async(
         self,
         attachment_ref: str,
         shipment_number: Optional[str] = None,
@@ -699,10 +799,30 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                 }
 
-            cls_result = self._classify_image(
-                image_bytes,
-                attachment_id=attachment_id,
-            )
+            try:
+                cls_result = await self._aclassify_image(
+                    image_bytes,
+                    attachment_id=attachment_id,
+                )
+            except AttachmentClassifierFailed as exc:
+                logger.exception(
+                    "attachment_normalizer.single.classifier_failed attachment_id=%s err=%s",
+                    attachment_id or "-",
+                    exc,
+                )
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": ATTACHMENT_CLASSIFIER_FAILED,
+                    "single_attachment_short_circuit": True,
+                }
             cls_result["attachment_ref"] = attachment_ref
             classification_results.append(cls_result)
 
@@ -831,13 +951,69 @@ class AttachmentNormalizerService:
             out["pod_merged_local_path"] = local_path
         return out
 
-    def _classify_image(
+    async def classify_images_batch(
+        self,
+        items: List[Tuple[str, bytes, str | None]],
+    ) -> List[Dict[str, Any]]:
+        """Parallel vision classify under ``ATTACHMENT_CLASSIFIER_CONCURRENCY``.
+
+        Each item is ``(attachment_ref, image_bytes, attachment_id)``.
+        Raises ``AttachmentClassifierFailed`` on LLM/infra errors.
+        """
+        if not items:
+            return []
+
+        if not settings.LLM_API_KEY:
+            results: List[Dict[str, Any]] = []
+            for attachment_ref, image_bytes, attachment_id in items:
+                result = await self._aclassify_image(
+                    image_bytes,
+                    attachment_id=attachment_id,
+                )
+                result["attachment_ref"] = attachment_ref
+                results.append(result)
+            return results
+
+        concurrency = max(
+            1, min(settings.ATTACHMENT_CLASSIFIER_CONCURRENCY, len(items))
+        )
+        logger.info(
+            "attachment.classify_batch start count=%s concurrency=%s",
+            len(items),
+            concurrency,
+        )
+
+        async with build_async_llm_client(max_connections=concurrency) as client:
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _one(
+                attachment_ref: str,
+                image_bytes: bytes,
+                attachment_id: str | None,
+            ) -> Dict[str, Any]:
+                async with sem:
+                    result = await self._aclassify_image(
+                        image_bytes,
+                        attachment_id=attachment_id,
+                        client=client,
+                    )
+                result["attachment_ref"] = attachment_ref
+                return result
+
+            return list(
+                await asyncio.gather(
+                    *(_one(ref, data, att_id) for ref, data, att_id in items)
+                )
+            )
+
+    async def _aclassify_image(
         self,
         image_bytes: bytes,
         *,
         attachment_id: str | None = None,
+        client: AsyncOpenAI | None = None,
     ) -> Dict[str, Any]:
-        """Classify image via shared traced ``chat_vision_json`` (LangSmith LLM span)."""
+        """Classify image via traced ``achat_vision_json`` on the current event loop."""
         api_key = settings.LLM_API_KEY
         if not api_key:
             logger.warning(
@@ -892,7 +1068,7 @@ class AttachmentNormalizerService:
         )
 
         try:
-            result = chat_vision_json(
+            result = await achat_vision_json(
                 rendered.system,
                 rendered.user,
                 image_bytes,
@@ -903,6 +1079,7 @@ class AttachmentNormalizerService:
                 prompt_trace=prompt_trace,
                 metadata=base_meta,
                 tags=["pod_attachment_classifier"],
+                client=client,
             )
             elapsed_ms = (time.monotonic() - started) * 1000
 
@@ -924,7 +1101,7 @@ class AttachmentNormalizerService:
                 "prefiltered": False,
             }
 
-        except Exception as e:
+        except LLMClientError as e:
             elapsed_ms = (time.monotonic() - started) * 1000
             logger.exception(
                 "attachment.classify_llm_error attachment_id=%s ms=%.0f err=%s",
@@ -932,13 +1109,7 @@ class AttachmentNormalizerService:
                 elapsed_ms,
                 e,
             )
-            return {
-                "is_valid_document": False,
-                "confidence": 0.0,
-                "reasoning": f"classification_error: {e}",
-                "detected_document_type": None,
-                "prefiltered": False,
-            }
+            raise AttachmentClassifierFailed(str(e)) from e
 
     def _merge_attachments(
         self,

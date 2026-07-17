@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     POD_FAST_PDF_THREAD_COUNT: int = 1
     POD_FAST_MAX_TOKENS: int = 700
     POD_PAGE_CONCURRENCY: int = 5
+    ATTACHMENT_CLASSIFIER_CONCURRENCY: int = 5
 
     # Unipile
     UNIPILE_API_KEY: str

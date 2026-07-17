@@ -251,7 +251,7 @@ class WorkflowService:
                     shipments_row_id=skip.shipments_row_id,
                 )
 
-            # Lifecycle before classify: chat_vision_json must use workflow_lifecycle_id
+            # Lifecycle before classify: achat_vision_json must use workflow_lifecycle_id
             # as LangSmith thread_id (not execution_id), matching workflow:pod_lifecycle.
             self._stamp_pod_lifecycle_before_attachment_pipeline(
                 tenant_id=tenant_id,
@@ -287,7 +287,7 @@ class WorkflowService:
                 tenant_id=tenant_id,
                 payload=payload,
             )
-            pipeline = self._pod_attachment_pipeline.run_for_object_keys(
+            pipeline = await self._pod_attachment_pipeline.run_for_object_keys(
                 pod_object_keys=list(payload.get("pod_object_keys") or []),
                 shipment_id=str(payload.get("shipment_id") or "").strip() or None,
                 shipments_row_id=str(payload.get("shipments_row_id") or "").strip()

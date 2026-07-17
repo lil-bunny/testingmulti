@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -82,6 +84,24 @@ def build_async_llm_client(
             ),
         ),
     )
+
+
+@asynccontextmanager
+async def _async_llm_client(
+    client: AsyncOpenAI | None,
+    *,
+    timeout_s: float,
+    max_connections: int = 1,
+) -> AsyncIterator[AsyncOpenAI]:
+    """Yield ``client`` if provided; otherwise build and close a one-shot client."""
+    if client is not None:
+        yield client
+        return
+    async with build_async_llm_client(
+        timeout_s=timeout_s,
+        max_connections=max_connections,
+    ) as owned:
+        yield owned
 
 
 def _llm_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -287,26 +307,20 @@ async def achat_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    owns_client = client is None
-    if owns_client:
-        client = build_async_llm_client(timeout_s=effective_timeout_s, max_connections=1)
-    try:
+    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
         return await _achat_json_impl(
             system_prompt,
             user_prompt,
             temperature=temperature,
             timeout_s=effective_timeout_s,
             model=model,
-            client=client,
+            client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
                 metadata=metadata,
                 tags=tags,
             ),
         )
-    finally:
-        if owns_client and client is not None:
-            await client.close()
 
 
 async def achat_vision_json(
@@ -328,10 +342,7 @@ async def achat_vision_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    owns_client = client is None
-    if owns_client:
-        client = build_async_llm_client(timeout_s=effective_timeout_s, max_connections=1)
-    try:
+    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
         return await _achat_vision_json_impl(
             system_prompt,
             user_prompt,
@@ -341,16 +352,13 @@ async def achat_vision_json(
             max_tokens=max_tokens,
             model=model,
             image_mime_type=image_mime_type,
-            client=client,
+            client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
                 metadata=metadata,
                 tags=tags,
             ),
         )
-    finally:
-        if owns_client and client is not None:
-            await client.close()
 
 
 def chat_json(
