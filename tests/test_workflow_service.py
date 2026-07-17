@@ -268,9 +268,18 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
 ):
     _mock_t3ra_tenant(monkeypatch)
     ship = f"S2-{uuid.uuid4().hex[:10]}"
+    def _fake_pymupdf_convert(pdf_path, temp_dir, **kwargs):
+        path = f"{temp_dir}/page_001.jpg"
+        Image.new("RGB", (8, 8), color="white").save(path, "JPEG")
+        return [path]
+
     monkeypatch.setattr(
-        "app.tools.pdf_raster._convert_one_page",
-        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
+        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        _fake_pymupdf_convert,
+    )
+    monkeypatch.setattr(
+        "app.tools.pdf_raster._try_extract_embedded_page_images",
+        lambda *args, **kwargs: None,
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):
@@ -401,9 +410,18 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         base["workflow_lifecycle_id"] = lifecycle_id
         return base
 
+    def _fake_pymupdf_convert(pdf_path, temp_dir, **kwargs):
+        path = f"{temp_dir}/page_001.jpg"
+        Image.new("RGB", (8, 8), color="white").save(path, "JPEG")
+        return [path]
+
     monkeypatch.setattr(
-        "app.tools.pdf_raster._convert_one_page",
-        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
+        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        _fake_pymupdf_convert,
+    )
+    monkeypatch.setattr(
+        "app.tools.pdf_raster._try_extract_embedded_page_images",
+        lambda *args, **kwargs: None,
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):

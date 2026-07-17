@@ -67,6 +67,47 @@ def test_effective_raster_dpi_clamps_pathological_mediabox() -> None:
     assert _effective_raster_dpi(requested_dpi=150, width_pt=612, height_pt=792) == 150
 
 
+def test_pymupdf_conversion_opens_document_once(tmp_path: Path) -> None:
+    """Multi-page convert must parse the PDF once (session owns Document)."""
+    import fitz
+
+    from app.tools import pdf_raster
+
+    pdf_path = tmp_path / "two_page.pdf"
+    doc = fitz.open()
+    for _ in range(2):
+        page = doc.new_page(width=200, height=200)
+        page.draw_rect(page.rect, color=(0, 0, 0), fill=(0.9, 0.9, 0.9))
+    doc.save(pdf_path)
+    doc.close()
+
+    open_calls = 0
+    real_open = fitz.open
+
+    def counting_open(*args, **kwargs):
+        nonlocal open_calls
+        open_calls += 1
+        return real_open(*args, **kwargs)
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    with patch.object(pdf_raster.fitz, "open", side_effect=counting_open):
+        paths = pdf_raster._convert_pdf_with_pymupdf_page_at_a_time(
+            str(pdf_path),
+            str(out_dir),
+            dpi=72,
+            max_side_px=200,
+            jpeg_quality=70,
+            max_pages=None,
+            max_page_bytes=80_000_000,
+            max_total_bytes=400_000_000,
+        )
+
+    assert open_calls == 1
+    assert len(paths) == 2
+    assert all(Path(p).is_file() for p in paths)
+
+
 def test_conversion_memory_budget_raises_too_large(tmp_path: Path) -> None:
     pdf = tmp_path / "tiny.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
