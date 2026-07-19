@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.domain.ingress_result import IngressResult
+from app.core.config import settings
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
@@ -157,6 +158,7 @@ def test_try_enqueue_happy_path_queues_once():
     assert result.execution_id
     assert result.celery_task_id == "celery-1"
     apply_async.assert_called_once()
+    assert apply_async.call_args.kwargs["queue"] == settings.T3RA_WORK_QUEUE
     kwargs = apply_async.call_args.kwargs["kwargs"]
     assert kwargs["workflow_name"] == "driver_assignment"
     assert kwargs["payload"]["event_type"] == WorkflowRunEventType.RATECON_COMPLETED.value

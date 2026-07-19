@@ -174,14 +174,17 @@ class DriverDetailsEmailIngressService:
         execution_id = str(uuid.uuid4())
         workflow_body = {**payload, "event_type": event_type, "execution_id": execution_id}
 
+        from app.services.worker_queue_routing import apply_async_on_work_queue
         from app.tasks.workflows import run_workflow_async
 
-        run_workflow_async.apply_async(
+        apply_async_on_work_queue(
+            run_workflow_async,
+            tenant_slug=tenant_slug,
             kwargs={
                 "tenant_slug": tenant_slug,
                 "workflow_name": DRIVER_ASSIGNMENT_WORKFLOW,
                 "payload": workflow_body,
-            }
+            },
         )
 
         self._runs_service.record_workflow_run(

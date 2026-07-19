@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.core.config import settings
 from app.services.pod_lifecycle.manual_upload_ingress_service import PodManualUploadIngressService
 from app.services.pod_lifecycle.tms_upload_service import (
     PodAttachmentStageResult,
@@ -55,6 +56,7 @@ def test_enqueue_stages_and_queues_workflow():
     assert result.source == "upload"
 
     apply_async.assert_called_once()
+    assert apply_async.call_args.kwargs["queue"] == settings.T3RA_WORK_QUEUE
     kwargs = apply_async.call_args.kwargs["kwargs"]
     payload = kwargs["payload"]
     assert payload["event_type"] == WorkflowRunEventType.MANUAL_POD_UPLOAD.value

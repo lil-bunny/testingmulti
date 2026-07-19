@@ -36,8 +36,5 @@ if settings.CELERY_BROKER_URL.startswith("redis"):
             "visibility_timeout": _redis_visibility_timeout,
         }
 
-# Import after ``celery_app`` exists: ``include=`` during Celery() runs too early (circular import)
-# and autodiscover alone loads only ``app.tasks.tasks``, which is a separate import from ``reminders``.
-
-# Resolves ``app.tasks.tasks`` (shim re-export) for deployments that rely on autodiscover Related name.
+# Task modules register via ``app.tasks.tasks`` side-effect imports (autodiscover).
 celery_app.autodiscover_tasks(["app.tasks"])

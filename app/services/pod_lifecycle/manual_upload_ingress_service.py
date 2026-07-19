@@ -86,14 +86,17 @@ class PodManualUploadIngressService:
         if document_id:
             payload["manual_pod_document_id"] = document_id
 
+        from app.services.worker_queue_routing import apply_async_on_work_queue
         from app.tasks.workflows import run_workflow_async
 
-        task = run_workflow_async.apply_async(
+        task = apply_async_on_work_queue(
+            run_workflow_async,
+            tenant_slug=TenantSlug.T3RA,
             kwargs={
                 "tenant_slug": TenantSlug.T3RA,
                 "workflow_name": POD_LIFECYCLE_WORKFLOW,
                 "payload": payload,
-            }
+            },
         )
         logger.info(
             "pod_manual_upload queued task_id=%s execution_id=%s lifecycle_id=%s shipment_id=%s",

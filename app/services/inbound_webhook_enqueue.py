@@ -7,6 +7,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.unipile_email import extract_email_id_or_none
+from app.services.worker_queue_routing import apply_async_on_work_queue
 from app.tasks.email_handlers import HANDLER_INBOUND_UNIPILE_EMAIL
 
 logger = get_logger(__name__)
@@ -49,7 +50,9 @@ def enqueue_inbound_unipile_email(
     }
 
     try:
-        run_email_webhook.apply_async(
+        apply_async_on_work_queue(
+            run_email_webhook,
+            tenant_slug=tenant_slug,
             kwargs={"handler": HANDLER_INBOUND_UNIPILE_EMAIL, **kwargs},
             task_id=task_id,
         )

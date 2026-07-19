@@ -21,6 +21,7 @@ from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
     PodLifecycleIngressService,
 )
+from app.services.worker_queue_routing import apply_async_on_work_queue
 from app.services.t3ra.driver_details_email_ingress import DriverDetailsEmailIngressService
 from app.tasks.workflows import run_workflow_async
 
@@ -46,7 +47,9 @@ def enqueue_t3ra_workflow(
     execution_id = str(uuid.uuid4())
     enriched_workflow_payload["execution_id"] = execution_id
 
-    celery_task = run_workflow_async.apply_async(
+    celery_task = apply_async_on_work_queue(
+        run_workflow_async,
+        tenant_slug=TenantSlug.T3RA,
         kwargs={
             "tenant_slug": TenantSlug.T3RA,
             "workflow_name": workflow_name,

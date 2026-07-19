@@ -27,6 +27,7 @@ from app.services.pod_lifecycle.ingress_service import (
 )
 from app.domain.unipile_email import extract_email_id_or_none
 from app.services.inbound_webhook_enqueue import enqueue_inbound_unipile_email
+from app.services.worker_queue_routing import apply_async_on_work_queue
 from app.services.shipments_service import ShipmentsService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.integrations.turvo.workflow_cancel import shipment_tendered_trigger_from_turvo
@@ -291,7 +292,9 @@ async def listen_turvo_status(
         queued_payload = {**payload, "execution_id": execution_id}
         if lifecycle_shipment_uuid:
             queued_payload["shipments_row_id"] = lifecycle_shipment_uuid
-        task = run_workflow_async.apply_async(
+        task = apply_async_on_work_queue(
+            run_workflow_async,
+            tenant_slug=workflow_tenant,
             kwargs={
                 "tenant_slug": workflow_tenant,
                 "workflow_name": LISTEN_TURVO_WORKFLOW_NAME,

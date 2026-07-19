@@ -23,6 +23,7 @@ from app.services.email_webhook_attachment_ingestion import (
     process_email_webhook_attachment_import,
     process_email_webhook_attachment_import_for_attachment,
 )
+from app.services.worker_queue_routing import apply_async_on_work_queue
 from app.services.communications.service import CommunicationsService
 from app.services.workflow_runs_service import WorkflowRunsService
 from app.tasks.workflows import run_workflow_async
@@ -40,7 +41,9 @@ def enqueue_load_tendering_workflow(
 ) -> str:
     execution_id = str(uuid.uuid4())
     body = {**payload, "event_type": event_type, "execution_id": execution_id}
-    task = run_workflow_async.apply_async(
+    task = apply_async_on_work_queue(
+        run_workflow_async,
+        tenant_slug=graph_slug,
         kwargs={
             "tenant_slug": graph_slug,
             "workflow_name": WORKFLOW_NAME,

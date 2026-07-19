@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.domain.unipile_email import extract_email_id_or_none
+from app.core.config import settings
 from app.services.inbound_webhook_enqueue import (
     build_inbound_ingress_task_id,
     enqueue_inbound_unipile_email,
@@ -46,8 +47,19 @@ def test_enqueue_inbound_unipile_email_queues(mock_apply: MagicMock) -> None:
     mock_apply.assert_called_once()
     call_kwargs = mock_apply.call_args.kwargs
     assert call_kwargs["task_id"] == task_id
+    assert call_kwargs["queue"] == settings.DEFAULT_WORK_QUEUE
     assert call_kwargs["kwargs"]["handler"] == "inbound.unipile_email"
     assert call_kwargs["kwargs"]["tenant_slug"] == "gelita"
+
+
+@patch("app.tasks.email.run_email_webhook.apply_async")
+def test_enqueue_inbound_unipile_email_t3ra_uses_t3ra_queue(mock_apply: MagicMock) -> None:
+    enqueue_inbound_unipile_email(
+        tenant_uuid="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        tenant_slug="t3ra",
+        payload={"email_id": "mail-t3ra"},
+    )
+    assert mock_apply.call_args.kwargs["queue"] == settings.T3RA_WORK_QUEUE
 
 
 @patch("app.tasks.email.run_email_webhook.apply_async")

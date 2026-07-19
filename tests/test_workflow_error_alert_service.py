@@ -21,6 +21,7 @@ PACK_MSG = format_error_message(BusinessError.MISSING_PACK_CODE, pack_code="5366
 def _payload() -> WorkflowErrorAlertPayload:
     return WorkflowErrorAlertPayload(
         tenant_id=TENANT_UUID,
+        tenant_slug="gelita",
         workflow_name="load_tendering",
         workflow_lifecycle_id=LIFECYCLE_UUID,
         workflow_run_id=RUN_UUID,

@@ -192,20 +192,17 @@ class IngressRateconMixin:
 
         payload["execution_id"] = execution_id
 
+        from app.services.worker_queue_routing import apply_async_on_work_queue
         from app.tasks.workflows import run_workflow_async
 
-        task = run_workflow_async.apply_async(
-
+        task = apply_async_on_work_queue(
+            run_workflow_async,
+            tenant_slug=tenant_slug,
             kwargs={
-
                 "tenant_slug": tenant_slug,
-
                 "workflow_name": DRIVER_ASSIGNMENT_WORKFLOW,
-
                 "payload": payload,
-
-            }
-
+            },
         )
 
         logger.info(
