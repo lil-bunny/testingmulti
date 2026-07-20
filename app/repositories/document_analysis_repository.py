@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-
 from app.core.db import fetchone_dict, jsonb_param
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-_JSONB_KEYS = frozenset({"results", "llm_model"})
+_JSONB_KEYS = frozenset({"results", "llm_model", "metadata"})
 
 
 class DocumentAnalysisRepository:
@@ -31,7 +30,7 @@ class DocumentAnalysisRepository:
             self._session,
             f"""
             SELECT id, shipment_id, analysis_type, confidence_score,
-                   llm_model, document_id, results, updated_at
+                   llm_model, document_id, results, metadata, updated_at
             FROM {self.TABLE_NAME}
             WHERE shipment_id = :shipment_id AND analysis_type = :analysis_type
             LIMIT 1
@@ -50,26 +49,34 @@ class DocumentAnalysisRepository:
         confidence_score: float | None = None,
         llm_model: dict[str, Any] | None = None,
         document_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        """Upsert by ``(shipment_id, analysis_type)``; return ``id`` and ``updated_at``."""
+        """
+        Upsert by ``(shipment_id, analysis_type)``; return ``id`` and ``updated_at``.
+
+        ``metadata`` is merged into the existing jsonb (``||``), not replaced wholesale.
+        """
         return fetchone_dict(
             self._session,
             f"""
             INSERT INTO {self.TABLE_NAME} (
                 id, shipment_id, analysis_type, confidence_score,
-                llm_model, document_id, results
+                llm_model, document_id, results, metadata
             )
             VALUES (
                 :id, :shipment_id, :analysis_type, :confidence_score,
                 CAST(:llm_model AS jsonb),
                 CAST(:document_id AS uuid),
-                CAST(:results AS jsonb)
+                CAST(:results AS jsonb),
+                COALESCE(CAST(:metadata AS jsonb), '{{}}'::jsonb)
             )
             ON CONFLICT (shipment_id, analysis_type) DO UPDATE SET
                 confidence_score = EXCLUDED.confidence_score,
                 llm_model = EXCLUDED.llm_model,
                 document_id = EXCLUDED.document_id,
                 results = EXCLUDED.results,
+                metadata = COALESCE({self.TABLE_NAME}.metadata, '{{}}'::jsonb)
+                    || COALESCE(EXCLUDED.metadata, '{{}}'::jsonb),
                 updated_at = NOW()
             RETURNING id, updated_at
             """,
@@ -81,5 +88,6 @@ class DocumentAnalysisRepository:
                 "llm_model": jsonb_param(llm_model),
                 "document_id": document_id,
                 "results": jsonb_param(results),
+                "metadata": jsonb_param(metadata if metadata else {}),
             },
         )

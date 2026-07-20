@@ -92,6 +92,20 @@ class Settings(BaseSettings):
     POD_PAGE_CONCURRENCY: int = 5
     ATTACHMENT_CLASSIFIER_CONCURRENCY: int = 5
 
+    # OCR / native-text acquisition (shared by ratecon text path + POD strip)
+    OCR_DPI: int = 120
+    OCR_JPEG_QUALITY: int = 70
+    OCR_IMAGE_MAX_SIDE_PX: int = 1600
+    OCR_HEADER_FRACTION: float = 0.25
+    OCR_NATIVE_TEXT_MIN_CHARS: int = 40
+    # Parallel page OCR: each worker renders + OCRs (bound peak RSS).
+    OCR_MAX_WORKERS: int = 2
+    # Strip / header-only path (cheaper than full-page ratecon OCR).
+    OCR_STRIP_DPI: int = 90
+    OCR_STRIP_IMAGE_MAX_SIDE_PX: int = 1000
+    # ONNX Runtime: app owns concurrency; keep per-inference ORT threads at 1.
+    OCR_INTRA_OP_THREADS: int = 1
+
     # Unipile
     UNIPILE_API_KEY: str
     UNIPILE_DSN: str

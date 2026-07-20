@@ -24,7 +24,7 @@ from app.core.config import settings
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_vision_prompts
 from app.tools.llm_client import LLMClientError, achat_vision_json, build_async_llm_client
-from app.tools.pdf_raster import (
+from app.tools.pdf_to_images import (
     PdfRasterOptions,
     PodPdfTooLargeError,
     rasterize_pdf_to_jpeg_paths,
@@ -303,8 +303,8 @@ def convert_pdf_to_images(
     thread_count: int = 1,
     max_pages: int | None = None,
 ) -> list[str]:
-    """Rasterize PDF to JPEGs under ``temp_dir`` via shared ``pdf_raster``."""
-    _ = thread_count  # pdf_raster always uses thread_count=1 for page renders
+    """Rasterize PDF to JPEGs under ``temp_dir`` via shared ``pdf_to_images``."""
+    _ = thread_count  # pdf_to_images always uses thread_count=1 for page renders
     return rasterize_pdf_to_jpeg_paths(
         pdf_path,
         temp_dir,

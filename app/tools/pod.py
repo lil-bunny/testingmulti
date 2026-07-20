@@ -10,7 +10,7 @@ from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
 from app.services.pod_lifecycle.extraction import pod_confidence_score
-from app.tools.pdf_raster import (
+from app.tools.pdf_to_images import (
     PdfTooLargeError,
     PodPdfTooLargeError,
     freightx_stage_dir,

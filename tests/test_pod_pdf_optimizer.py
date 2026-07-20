@@ -14,7 +14,7 @@ from app.services.pod_lifecycle.pdf_optimizer import (
     PodPdfOptimizeError,
     optimize_for_tms_upload,
 )
-from app.tools.pdf_raster import PdfTooLargeError
+from app.tools.pdf_to_images import PdfTooLargeError
 
 _MIN_PDF = b"%PDF-1.4\n1 0 obj\n"
 

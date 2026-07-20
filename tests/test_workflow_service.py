@@ -288,8 +288,8 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         _fake_pymupdf_convert,
     )
     monkeypatch.setattr(
-        "app.tools.pdf_raster._try_extract_embedded_page_images",
-        lambda *args, **kwargs: None,
+        "app.tools.pdf_to_images._convert_one_page",
+        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):
@@ -450,8 +450,8 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         _fake_pymupdf_convert,
     )
     monkeypatch.setattr(
-        "app.tools.pdf_raster._try_extract_embedded_page_images",
-        lambda *args, **kwargs: None,
+        "app.tools.pdf_to_images._convert_one_page",
+        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):

@@ -316,6 +316,36 @@ class ShipmentsService:
             )
         return None
 
+    def merge_metadata(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """
+        Merge keys into ``shipments.metadata`` for one tenant-scoped row.
+
+        Returns False when ids are invalid or no row matches.
+        """
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid or not metadata_patch:
+            return False
+        if self._shipments is not None:
+            return self._shipments.merge_metadata_by_id_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                metadata_patch=metadata_patch,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).merge_metadata_by_id_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                metadata_patch=metadata_patch,
+            )
+        )
+
     def merge_driver_details(
         self,
         *,

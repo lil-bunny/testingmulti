@@ -12,7 +12,7 @@ from app.domain.error_catalog import SystemError
 from app.domain.state import WorkflowState
 from app.services.pod_lifecycle.extraction import convert_pdf_to_images
 from app.tools import pod as pod_tools
-from app.tools.pdf_raster import (
+from app.tools.pdf_to_images import (
     PdfTooLargeError,
     _effective_raster_dpi,
     _try_extract_embedded_page_images,
@@ -112,10 +112,10 @@ def test_conversion_memory_budget_raises_too_large(tmp_path: Path) -> None:
     pdf = tmp_path / "tiny.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
     with patch(
-        "app.tools.pdf_raster._try_extract_embedded_page_images",
+        "app.tools.pdf_to_images._try_extract_embedded_page_images",
         return_value=None,
     ), patch(
-        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        "app.tools.pdf_to_images._convert_pdf_with_pymupdf_page_at_a_time",
         side_effect=PdfTooLargeError("over budget"),
     ):
         with pytest.raises(PdfTooLargeError):
