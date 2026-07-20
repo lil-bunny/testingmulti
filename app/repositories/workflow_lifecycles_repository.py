@@ -668,3 +668,77 @@ class WorkflowLifecyclesRepository:
             shipment_id=shipment_id,
         )
         return new_id
+
+    def find_awaiting_customer_reply_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+        workflow_name: str = "appointment_scheduling",
+    ) -> str | None:
+        """Latest lifecycle awaiting customer reply for a shipment row."""
+        sid = str(shipment_id or "").strip()
+        if not sid:
+            return None
+        row = self._session.execute(
+            text(
+                """
+                SELECT wl.id::text
+                FROM workflow_lifecycles wl
+                WHERE wl.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wl.workflow_name = :workflow_name
+                  AND wl.shipment_id = CAST(:shipment_id AS uuid)
+                  AND wl.sub_status = CAST(:awaiting_reply AS lifecycle_sub_status)
+                ORDER BY wl.updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "shipment_id": sid,
+                "awaiting_reply": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+            },
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+        return None
+
+    def find_awaiting_customer_reply_by_appt_subject_token(
+        self,
+        *,
+        tenant_id: str,
+        subject_token: str,
+        workflow_name: str = "appointment_scheduling",
+    ) -> str | None:
+        """Latest awaiting-reply lifecycle matching load_id or reference_number in subject."""
+        token = str(subject_token or "").strip()
+        if not token:
+            return None
+        row = self._session.execute(
+            text(
+                """
+                SELECT wl.id::text
+                FROM workflow_lifecycles wl
+                JOIN shipments s ON s.id = wl.shipment_id
+                WHERE wl.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wl.workflow_name = :workflow_name
+                  AND wl.sub_status = CAST(:awaiting_reply AS lifecycle_sub_status)
+                  AND (
+                    wl.metadata->>'reference_number' = :subject_token
+                    OR s.metadata->>'load_id' = :subject_token
+                  )
+                ORDER BY wl.updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "awaiting_reply": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+                "subject_token": token,
+            },
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+        return None

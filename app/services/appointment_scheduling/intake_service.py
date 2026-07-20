@@ -17,6 +17,9 @@ from app.integrations.google.sheets import GoogleSheetsError
 from app.integrations.turvo.shipments import get_shipment as get_shipment_async
 from app.services.appointment_scheduling.sheet_loader import load_appointment_sheet_rows
 from app.tools.appointment_scheduling.ascend_transforms import pickup_dropoff_from_ascend_shipment
+from app.services.appointment_scheduling.recipient_contact_gate import (
+    contact_from_rows_skip_reason,
+)
 from app.tools.appointment_scheduling.customer_contact import customer_contact_from_rows
 from app.tools.appointment_scheduling.draft_email import (
     build_draft_static_from_turvo,
@@ -83,9 +86,10 @@ class AppointmentSchedulingIntakeService:
         except (OSError, GoogleSheetsError, ValueError):
             return IntakeResult(ok=False, skip_reason="appointment_sheet_unreadable")
 
+        if skip := contact_from_rows_skip_reason(rows, customer_name):
+            return IntakeResult(ok=False, skip_reason=skip)
+
         contact = customer_contact_from_rows(rows, customer_name)
-        if contact is None or not contact.email:
-            return IntakeResult(ok=False, skip_reason="missing_recipient_email")
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number)
         if not settings.ascend_email or not settings.ascend_password:

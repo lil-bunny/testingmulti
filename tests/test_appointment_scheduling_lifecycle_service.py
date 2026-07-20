@@ -6,7 +6,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT, SCHEDULING_PAYLOAD
+from app.domain.appointment_scheduling.metadata_keys import (
+    EMAIL_DRAFT,
+    LLM_SCHEDULING_DECISION,
+    SCHEDULING_PAYLOAD,
+)
 from app.services.appointment_scheduling.lifecycle_service import AppointmentSchedulingLifecycleService
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
@@ -64,6 +68,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         metadata_patch={
             EMAIL_DRAFT: email_draft,
             SCHEDULING_PAYLOAD: scheduling_payload,
+            LLM_SCHEDULING_DECISION: {},
         },
     )
     shipments.update_proposed_appointments.assert_called_once_with(
@@ -101,3 +106,62 @@ def test_mark_failed_delegates_activity_and_patches_metadata():
         metadata_patch={"scheduling_failure_reason": "missing_recipient_email"},
     )
     lifecycle.update_lifecycle_status.assert_not_called()
+
+
+def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "tenant_id": _TENANT_UUID,
+        "metadata": {
+            EMAIL_DRAFT: {
+                "to": "a@example.com",
+                "subject": "DEL APPT REQ \"30381\"",
+                "full_html": "<html/>",
+            },
+            SCHEDULING_PAYLOAD: {"reference_number": "DIAMOND-RPN00008809"},
+            LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
+        },
+    }
+    lifecycle.read_correlation_by_id.return_value = {"shipment_id": _SHIPMENT_ROW_ID}
+    shipments = MagicMock()
+    shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        shipments_service=shipments,
+    )
+    portal_shipment_uuid = _SHIPMENT_ROW_ID
+    state = _state(
+        shipment_id=portal_shipment_uuid,
+        shipments_row_id="",
+    )
+
+    service.hydrate_confirm_context(state)
+
+    assert state.data["email_draft"]["subject"] == 'DEL APPT REQ "30381"'
+    assert state.data["reference_number"] == "DIAMOND-RPN00008809"
+    assert state.data["shipments_row_id"] == _SHIPMENT_ROW_ID
+    assert state.data["shipment_id"] == "1000324895"
+    shipments.get_by_id.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_id=_SHIPMENT_ROW_ID,
+    )
+
+
+def test_hydrate_confirm_context_keeps_turvo_id_when_shipments_row_already_in_state():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "tenant_id": _TENANT_UUID,
+        "metadata": {EMAIL_DRAFT: {"to": "a@example.com", "subject": "s", "full_html": "<p/>"}},
+    }
+    shipments = MagicMock()
+    shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        shipments_service=shipments,
+    )
+    state = _state(shipment_id=_SHIPMENT_ROW_ID, shipments_row_id=_SHIPMENT_ROW_ID)
+
+    service.hydrate_confirm_context(state)
+
+    assert state.data["shipment_id"] == "1000324895"
+    lifecycle.read_correlation_by_id.assert_not_called()

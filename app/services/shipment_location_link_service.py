@@ -17,6 +17,8 @@ from app.domain.shipment_route_locations import (
 )
 from app.integrations.pgeocode.state_lookup import lookup_postal
 from app.integrations.turvo.shipments import (
+    delivery_address_from_global_route_stop,
+    global_route_stops_from_payload,
     location_insert_row_from_route_stop,
     postal_from_customer_order_route,
 )
@@ -267,3 +269,49 @@ class ShipmentLocationLinkService:
             )
 
         return run_with_repos(_run)
+
+    def link_from_turvo_shipment_payload(
+        self,
+        turvo_payload: dict[str, Any],
+        *,
+        shipments_row_id: str,
+    ) -> ShipmentLocationLinkResult:
+        """Link pickup/delivery FKs from a Turvo ``get_shipment`` payload."""
+        shipment = turvo_payload if isinstance(turvo_payload, dict) else {}
+        stops = global_route_stops_from_payload(shipment)
+        details = shipment.get("details") if isinstance(shipment.get("details"), dict) else None
+        return self.link_from_route_stops(
+            stops,
+            shipments_row_id=shipments_row_id,
+            delivery_address_builder=delivery_address_from_global_route_stop,
+            shipment_details=details,
+        )
+
+    def try_link_from_turvo_shipment_payload(
+        self,
+        turvo_payload: dict[str, Any],
+        *,
+        shipments_row_id: str | None,
+    ) -> ShipmentLocationLinkResult | None:
+        """Best-effort link for ingress/intake; logs and returns None on failure."""
+        row_id = self._clean_row_id(shipments_row_id)
+        if not row_id or not isinstance(turvo_payload, dict):
+            return None
+        try:
+            return self.link_from_turvo_shipment_payload(
+                turvo_payload,
+                shipments_row_id=row_id,
+            )
+        except ShipmentLocationLinkError as exc:
+            logger.warning(
+                "shipment location link skipped shipments_row_id=%s reason=%s",
+                row_id,
+                exc,
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "shipment location link failed shipments_row_id=%s",
+                row_id,
+            )
+            return None

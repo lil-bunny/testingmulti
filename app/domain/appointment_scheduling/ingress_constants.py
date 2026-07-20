@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.models.status import StatusSubType, StatusType
+
 APPOINTMENT_SCHEDULING_WORKFLOW = "appointment_scheduling"
 
 SHIPMENT_UPDATE_EVENT_NAME = "SHIPMENT_UPDATE"
@@ -22,12 +24,23 @@ TURVO_SYSTEM_BOT_NAMES = frozenset(
     }
 )
 
-# Sub-status values used for dedup once scheduling workflow phases land.
 SCHEDULING_BLOCKING_SUB_STATUSES = frozenset(
     {
         "appointment_draft_created",
         "awaiting_customer_reply",
-        "reply_data_insufficient",
+    }
+)
+
+SCHEDULING_REPLY_TERMINAL_STATUSES = frozenset(
+    {
+        StatusType.COMPLETED,
+        StatusType.FAILED,
+    }
+)
+
+SCHEDULING_REPLY_TERMINAL_SUB_STATUSES = frozenset(
+    {
+        StatusSubType.RESOLVED_MANUALLY,
     }
 )
 

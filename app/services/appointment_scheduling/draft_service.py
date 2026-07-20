@@ -47,7 +47,7 @@ class AppointmentSchedulingDraftService:
         draft_static: DraftStatic,
         to_email: str,
         tenant_settings: dict[str, Any],
-        customer_id: str,
+        load_id: str,
         customer_name: str,
     ) -> EmailDraftResult:
         settings = self._settings(tenant_settings)
@@ -57,7 +57,7 @@ class AppointmentSchedulingDraftService:
             draft_static=draft_static,
             to_email=to_email,
             cc=self._parse_cc(settings.email_cc),
-            customer_id=customer_id,
+            load_id=load_id,
             customer_name=customer_name,
         )
         return EmailDraftResult(

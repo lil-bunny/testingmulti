@@ -32,3 +32,53 @@ def format_appointment_email_sent_action() -> str:
 
 def format_appointment_scheduling_failed_action(*, reason: str) -> str:
     return f"Appointment scheduling failed: {(reason or '').strip() or 'unknown'}"
+
+
+def format_customer_reply_llm_action(
+    *,
+    decision: str,
+    reason: str,
+    confidence: float,
+) -> str:
+    return (
+        f"Customer reply classification: {decision} "
+        f"(confidence={confidence:.2f}, {reason or 'no reason'})"
+    )
+
+
+def format_ascend_dropoff_updated_action(*, reference_number: str, appointment_start: str) -> str:
+    ref = (reference_number or "").strip() or "unknown"
+    return f"Ascend dropoff appointment updated for {ref} at {appointment_start}"
+
+
+def format_ascend_dropoff_skipped_action(*, reference_number: str) -> str:
+    ref = (reference_number or "").strip() or "unknown"
+    return f"Ascend dropoff update skipped (Ascend writes disabled) for {ref}"
+
+
+def format_turvo_delivery_updated_action(*, stop_name: str, start_time: str) -> str:
+    stop = (stop_name or "").strip() or "unknown"
+    return f"Turvo delivery appointment updated for {stop} at {start_time}"
+
+
+def format_turvo_delivery_placeholder_action(*, stop_name: str, start_time: str) -> str:
+    stop = (stop_name or "").strip() or "unknown"
+    return f"Turvo delivery placeholder set for {stop} at {start_time}"
+
+
+def format_ascend_pickup_updated_action(*, reference_number: str, start_time: str) -> str:
+    ref = (reference_number or "").strip() or "unknown"
+    return f"Ascend pickup appointment updated for {ref} at {start_time}"
+
+
+def format_turvo_pickup_updated_action(*, stop_name: str, start_time: str) -> str:
+    stop = (stop_name or "").strip() or "unknown"
+    return f"Turvo pickup appointment updated for {stop} at {start_time}"
+
+
+def format_appointment_confirmation_sent_action() -> str:
+    return "Appointment confirmation reply sent"
+
+
+def format_appointment_reply_completed_action() -> str:
+    return "Appointment scheduling completed from customer reply"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.domain.appointment_scheduling.models import (
@@ -13,6 +14,24 @@ from app.domain.appointment_scheduling.models import (
 )
 
 _DEFAULT_COMMODITY = "DIAMOND PET FOODS"
+_DEL_APPT_REQ_TOKEN_RE = re.compile(r'DEL APPT REQ\s+"([^"]+)"', re.IGNORECASE)
+
+
+def is_del_appt_req_subject(subject: Any) -> bool:
+    """True when subject contains the appointment scheduling DEL APPT REQ marker."""
+    return "del appt req" in str(subject or "").lower()
+
+
+def parse_del_appt_req_subject_token(subject: Any) -> str | None:
+    """Extract quoted load id or reference number from a DEL APPT REQ subject."""
+    text = str(subject or "").strip()
+    if not text:
+        return None
+    match = _DEL_APPT_REQ_TOKEN_RE.search(text)
+    if not match:
+        return None
+    token = match.group(1).strip()
+    return token if token else None
 
 
 def _e(value: Any) -> str:
@@ -82,7 +101,7 @@ def build_email_draft(
     draft_static: DraftStatic | dict[str, Any],
     to_email: str,
     cc: list[str] | str,
-    customer_id: str,
+    load_id: str,
     customer_name: str,
 ) -> tuple[EmailDraft, SchedulingPayload]:
     pickup = pickup_dropoff if isinstance(pickup_dropoff, dict) else pickup_dropoff.model_dump()
@@ -104,7 +123,7 @@ def build_email_draft(
     if costco:
         subject = f'DEL APPT REQ "{reference_number}"'
     else:
-        subject = f'DEL APPT REQ "{customer_id or reference_number}"'
+        subject = f'DEL APPT REQ "{_e(load_id)}"'
 
     if costco:
         date_with_time = (date + " 06:00") if date else "06:00"

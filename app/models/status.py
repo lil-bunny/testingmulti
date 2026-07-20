@@ -47,3 +47,4 @@ class StatusSubType(StrEnum):
     APPOINTMENT_SCHEDULING_STARTED = "appointment_scheduling_started"
     APPOINTMENT_DRAFT_CREATED = "appointment_draft_created"
     AWAITING_CUSTOMER_REPLY = "awaiting_customer_reply"
+    APPOINTMENT_SCHEDULED = "appointment_scheduled"

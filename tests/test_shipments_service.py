@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 from datetime import datetime, timezone
@@ -249,3 +249,49 @@ def test_update_proposed_appointments_noop_when_unparseable():
 
     assert ok is False
     repo.update_proposed_appointments_tx.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_display_from_turvo_fetches_and_upserts() -> None:
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.return_value = ShipmentUpsertResult(
+        shipment_id=_SHIPMENTS_ROW_UUID,
+        created=False,
+    )
+    svc = ShipmentsService(shipments_repository=repo)
+
+    with patch(
+        "app.services.shipments_service.get_turvo_shipment_async",
+        new=AsyncMock(return_value=SHIPMENT_1000324895_FIXTURE),
+    ):
+        out = await svc.refresh_display_from_turvo(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            turvo_shipment_id="1000324895",
+            load_id="30389",
+        )
+
+    assert out["success"] is True
+    repo.upsert_by_tenant_and_shipment_number_tx.assert_called_once()
+    call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
+    assert call_kw["delivery_date"] == datetime(2026, 4, 1, 7, 1, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_refresh_display_from_turvo_soft_fails_on_get_error() -> None:
+    svc = ShipmentsService(shipments_repository=MagicMock())
+
+    with patch(
+        "app.services.shipments_service.get_turvo_shipment_async",
+        new=AsyncMock(side_effect=RuntimeError("turvo down")),
+    ):
+        out = await svc.refresh_display_from_turvo(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            turvo_shipment_id="1000324895",
+            load_id="30389",
+        )
+
+    assert out["success"] is False
+    assert out["message"] == "turvo_get_shipment_failed"
+    svc._shipments.upsert_by_tenant_and_shipment_number_tx.assert_not_called()

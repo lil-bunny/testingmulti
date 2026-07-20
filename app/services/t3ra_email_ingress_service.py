@@ -70,7 +70,7 @@ class T3raEmailIngressService:
     """
     T3RA L2 ingress: classify inbound mail and enqueue the matching workflow.
 
-    Priority when multiple rules could apply: POD lifecycle → driver-details reply → ratecon.
+    Priority when multiple rules could apply: POD lifecycle → appointment reply → driver-details reply → ratecon.
     """
 
     def __init__(self) -> None:
@@ -99,6 +99,18 @@ class T3raEmailIngressService:
             )
             if pod_lifecycle_result is not None:
                 return pod_lifecycle_result
+
+        from app.services.appointment_scheduling.customer_reply_ingress import (
+            AppointmentCustomerReplyIngressService,
+        )
+
+        appointment_reply_result = AppointmentCustomerReplyIngressService().try_customer_reply_received(
+            payload=payload,
+            tenant=tenant,
+            communication_id=communication_id,
+        )
+        if appointment_reply_result is not None:
+            return appointment_reply_result
 
         driver_details_result = (
             self._driver_details_email_ingress.try_driver_details_email_received(

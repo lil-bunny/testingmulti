@@ -101,14 +101,23 @@ from app.workflows.nodes.routing_guide import (
 )
 from app.workflows.nodes.tenders import read_tender_row
 from app.workflows.nodes.appointment_scheduling.nodes import (
+    apply_ascend_dropoff_appointment,
+    apply_turvo_delivery_appointment,
+    apply_turvo_delivery_placeholder,
+    apply_weekend_shifted_pickup,
     build_email_scheduling_draft,
+    classify_appointment_customer_reply,
     compute_scheduling_decision,
+    finalize_confirm_awaiting_reply,
+    hydrate_appointment_confirm_context,
     persist_scheduling_draft_ready,
     read_appointment_scheduling_lifecycle,
     record_appointment_email_sent,
+    record_appointment_reply_completed,
     record_appointment_scheduling_started,
     record_scheduling_decision,
     run_scheduling_intake,
+    send_appointment_confirmation_reply,
     send_appointment_scheduling_email,
 )
 from app.workflows.nodes.error_handler import record_workflow_failure_node
@@ -198,5 +207,14 @@ NODE_REGISTRY = {
     "persist_scheduling_draft_ready": persist_scheduling_draft_ready,
     "send_appointment_scheduling_email": send_appointment_scheduling_email,
     "record_appointment_email_sent": record_appointment_email_sent,
+    "hydrate_appointment_confirm_context": hydrate_appointment_confirm_context,
+    "apply_weekend_shifted_pickup": apply_weekend_shifted_pickup,
+    "apply_turvo_delivery_placeholder": apply_turvo_delivery_placeholder,
+    "finalize_confirm_awaiting_reply": finalize_confirm_awaiting_reply,
+    "classify_appointment_customer_reply": classify_appointment_customer_reply,
+    "apply_ascend_dropoff_appointment": apply_ascend_dropoff_appointment,
+    "apply_turvo_delivery_appointment": apply_turvo_delivery_appointment,
+    "send_appointment_confirmation_reply": send_appointment_confirmation_reply,
+    "record_appointment_reply_completed": record_appointment_reply_completed,
     "end": end,
 }

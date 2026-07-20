@@ -30,10 +30,11 @@ def test_build_email_draft_success():
         ),
         to_email="customer@example.com",
         tenant_settings={"appointment_scheduling": {"email_cc": "ops@example.com, cc@example.com"}},
-        customer_id="CUST-22",
+        load_id="63294",
         customer_name="Acme",
     )
     assert result.email_draft["to"] == "customer@example.com"
+    assert result.email_draft["subject"] == 'DEL APPT REQ "63294"'
     assert result.email_draft["full_html"]
     assert result.scheduling_payload["reference_number"] == "DIAMOND-RPN-22"
     assert result.scheduling_payload["proposed_delivery_at"] == "07/04/2026"

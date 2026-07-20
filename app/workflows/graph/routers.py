@@ -1,4 +1,9 @@
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.ingress_constants import (
+    SCHEDULING_REPLY_TERMINAL_STATUSES,
+    SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,
+)
+from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.domain.ingest_source_fields import pack_code_for_product_gap
 from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
 from app.domain.load_tendering_settings import (
@@ -15,6 +20,11 @@ from app.tools.driver_details import (
     INSUFFICIENT,
     has_partial_driver_fields,
     has_tms_searchable_fields,
+)
+from app.tools.appointment_scheduling.customer_reply import (
+    DO_NOTHING as APPT_REPLY_DO_NOTHING,
+    INSUFFICIENT as APPT_REPLY_INSUFFICIENT,
+    SUFFICIENT as APPT_REPLY_SUFFICIENT,
 )
 from app.tools.tender_reminder_delivery_cutoff import is_past_delivery_cutoff
 
@@ -116,6 +126,8 @@ def event_type_router(state):
         return "turvo_pickup_changed"
     if event_type == "appointment_draft_send":
         return "appointment_draft_send"
+    if event_type == "appointment_customer_reply_received":
+        return "appointment_customer_reply_received"
     return "route_completed"
 
 
@@ -266,6 +278,17 @@ def _appointment_draft_from_state(state) -> dict:
 
 def appointment_scheduling_post_read_router(state):
     event_type = str(state.data.get("event_type") or "").strip()
+    if event_type == "appointment_customer_reply_received":
+        row = state.data.get("workflow_lifecycle_row") or {}
+        status = status_type_from_db(row.get("status"))
+        sub_status = sub_status_type_from_db(row.get("sub_status"))
+        if status in SCHEDULING_REPLY_TERMINAL_STATUSES:
+            return "end"
+        if sub_status in SCHEDULING_REPLY_TERMINAL_SUB_STATUSES:
+            return "end"
+        if sub_status != StatusSubType.AWAITING_CUSTOMER_REPLY:
+            return "end"
+        return "reply"
     if event_type == "appointment_draft_send":
         row = state.data.get("workflow_lifecycle_row") or {}
         status = str(row.get("status") or "").strip()
@@ -283,6 +306,23 @@ def appointment_scheduling_post_read_router(state):
             return "end"
         return "send"
     return "intake"
+
+
+def scheduling_weekend_shifted_router(state):
+    from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
+
+    decision = state.data.get("llm_scheduling_decision") or {}
+    if not isinstance(decision, dict):
+        decision = {}
+    return "apply" if is_weekend_shifted_truthy(decision.get("weekend_shifted")) else "skip"
+
+
+def customer_reply_router(state):
+    """Route appointment customer-reply LLM decision to graph branch keys."""
+    decision = str(state.data.get("customer_reply_decision") or APPT_REPLY_DO_NOTHING).strip()
+    if decision in (APPT_REPLY_SUFFICIENT, APPT_REPLY_INSUFFICIENT, APPT_REPLY_DO_NOTHING):
+        return decision
+    return APPT_REPLY_DO_NOTHING
 
 
 def post_read_tender_router(state):

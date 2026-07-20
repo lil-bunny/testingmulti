@@ -11,6 +11,8 @@ from app.tools.appointment_scheduling.draft_email import (
     build_draft_static_from_turvo,
     build_email_draft,
     is_costco_customer,
+    is_del_appt_req_subject,
+    parse_del_appt_req_subject_token,
 )
 from app.tools.appointment_scheduling.proposed_appointments import (
     parse_proposed_appointment_date,
@@ -99,7 +101,7 @@ def test_costco_vs_standard_email_html():
         draft_static=static,
         to_email="to@example.com",
         cc=["cc@example.com"],
-        customer_id="CUST-1",
+        load_id="63294",
         customer_name="Costco Wholesale",
     )
     assert "06:00" in costco_draft.full_html
@@ -111,12 +113,29 @@ def test_costco_vs_standard_email_html():
         draft_static=static,
         to_email="to@example.com",
         cc=[],
-        customer_id="CUST-99",
+        load_id="63294",
         customer_name="Other Customer",
     )
     assert "PO#" in standard_draft.full_html
-    assert standard_draft.subject == 'DEL APPT REQ "CUST-99"'
+    assert standard_draft.subject == 'DEL APPT REQ "63294"'
     assert payload.reference_number == "DIAMOND-RPN-1"
+
+
+def test_is_del_appt_req_subject() -> None:
+    assert is_del_appt_req_subject('Re: DEL APPT REQ "63294"')
+    assert is_del_appt_req_subject("del appt req")
+    assert not is_del_appt_req_subject("Rate confirmation")
+    assert not is_del_appt_req_subject("")
+
+
+def test_parse_del_appt_req_subject_token() -> None:
+    assert parse_del_appt_req_subject_token('Re: DEL APPT REQ "63294"') == "63294"
+    assert (
+        parse_del_appt_req_subject_token('Re: DEL APPT REQ "DIAMOND-RPN00008809"')
+        == "DIAMOND-RPN00008809"
+    )
+    assert parse_del_appt_req_subject_token("DEL APPT REQ") is None
+    assert parse_del_appt_req_subject_token("Re: POD attached") is None
 
 
 def test_llm_location_input_from_pickup_dropoff():
