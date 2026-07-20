@@ -424,6 +424,29 @@ class WorkflowLifecycleService:
             )
         )
 
+    def patch_metadata(
+        self,
+        *,
+        lifecycle_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+        if not metadata_patch:
+            return False
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.patch_metadata(
+                lifecycle_id=lid,
+                metadata_patch=metadata_patch,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).patch_metadata(
+                lifecycle_id=lid,
+                metadata_patch=metadata_patch,
+            )
+        )
+
     def update_lifecycle_sub_status(
         self,
         *,
@@ -624,3 +647,59 @@ class WorkflowLifecycleService:
                 metadata_patch=patch,
             )
         )
+
+    def find_blocking_appointment_scheduling_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        turvo_shipment_number: str,
+        workflow_name: str,
+    ) -> str | None:
+        from app.domain.appointment_scheduling.ingress_constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        number = self._clean(turvo_shipment_number)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not number:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_blocking_appointment_scheduling_lifecycle_id(
+                tenant_id=tid,
+                workflow_name=wn,
+                shipment_number=number,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def create_appointment_scheduling_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str,
+        workflow_name: str,
+    ) -> str:
+        from app.domain.appointment_scheduling.ingress_constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipments_row_id)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not sid:
+            raise ValueError("tenant_id and shipments_row_id are required")
+
+        def _insert(repo: WorkflowLifecyclesRepository) -> str:
+            return repo.insert_appointment_scheduling_lifecycle(
+                tenant_id=tid,
+                workflow_name=wn,
+                shipment_id=sid,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _insert(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _insert(self._repo(repos)))

@@ -361,4 +361,55 @@ WORKFLOW_CONFIGS = {
             },
         },
     },
+    "appointment_scheduling": {
+        "entry": "route_event",
+        "exit": "end",
+        "nodes": [
+            "route_event",
+            "read_appointment_scheduling_lifecycle",
+            "record_appointment_scheduling_started",
+            "run_scheduling_intake",
+            "compute_scheduling_decision",
+            "record_scheduling_decision",
+            "build_email_scheduling_draft",
+            "persist_scheduling_draft_ready",
+            "send_appointment_scheduling_email",
+            "record_appointment_email_sent",
+            "end",
+        ],
+        "edges": [
+            ["record_appointment_scheduling_started", "run_scheduling_intake"],
+            ["compute_scheduling_decision", "record_scheduling_decision"],
+            ["record_scheduling_decision", "build_email_scheduling_draft"],
+            ["build_email_scheduling_draft", "persist_scheduling_draft_ready"],
+            ["persist_scheduling_draft_ready", "end"],
+            ["send_appointment_scheduling_email", "record_appointment_email_sent"],
+            ["record_appointment_email_sent", "end"],
+        ],
+        "routers": {
+            "route_event": {
+                "router": "event_type",
+                "map": {
+                    "turvo_pickup_changed": "read_appointment_scheduling_lifecycle",
+                    "appointment_draft_send": "read_appointment_scheduling_lifecycle",
+                    "missing": "end",
+                },
+            },
+            "read_appointment_scheduling_lifecycle": {
+                "router": "appointment_scheduling_post_read_router",
+                "map": {
+                    "intake": "record_appointment_scheduling_started",
+                    "send": "send_appointment_scheduling_email",
+                    "end": "end",
+                },
+            },
+            "run_scheduling_intake": {
+                "router": "scheduling_intake_router",
+                "map": {
+                    "continue": "compute_scheduling_decision",
+                    "end": "end",
+                },
+            },
+        },
+    },
 }

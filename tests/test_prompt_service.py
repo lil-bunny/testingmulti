@@ -13,6 +13,7 @@ from app.integrations.langsmith.types import (
     RenderedPrompt,
 )
 from app.domain.prompt_step_keys import (
+    APPOINTMENT_SCHEDULING_OPTIMIZATION,
     DRIVER_ASSIGNMENT_DRIVER_DETAILS,
     LOAD_TENDERING_CARRIER_ACK,
 )
@@ -103,4 +104,35 @@ def test_render_step_nested_t3ra_prompt_ref() -> None:
     client.load_and_render.assert_called_once_with(
         "driver-details-extract:staging",
         {"thread_text": "Driver John 555-0100"},
+    )
+
+
+def test_render_step_appointment_scheduling_prompt_ref() -> None:
+    client = MagicMock()
+    client.load_and_render.return_value = (
+        RenderedPrompt(system="sched sys", user="sched usr"),
+        PromptLoadMetadata(
+            source="hub",
+            tenant_prompt_ref="scheduling-optimization:staging",
+            commit_hash="def456",
+        ),
+    )
+    prompt_service = PromptService(prompt_client=client)
+    variables = {"miles": "100", "scheduling_input_json": "{}"}
+    rendered, metadata = prompt_service.render_step(
+        tenant_settings={
+            "prompts": {
+                "appointment_scheduling": {
+                    "scheduling_optimization": "scheduling-optimization:staging",
+                }
+            }
+        },
+        prompt_step_key=APPOINTMENT_SCHEDULING_OPTIMIZATION,
+        variables=variables,
+    )
+    assert rendered.system == "sched sys"
+    assert metadata.tenant_prompt_ref == "scheduling-optimization:staging"
+    client.load_and_render.assert_called_once_with(
+        "scheduling-optimization:staging",
+        variables,
     )

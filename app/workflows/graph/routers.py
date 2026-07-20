@@ -112,6 +112,10 @@ def event_type_router(state):
         return "ratecon_completed"
     if event_type == "driver_details_email_received":
         return "driver_details_email_received"
+    if event_type == "turvo_pickup_changed":
+        return "turvo_pickup_changed"
+    if event_type == "appointment_draft_send":
+        return "appointment_draft_send"
     return "route_completed"
 
 
@@ -241,6 +245,44 @@ def tms_driver_router(state):
     if outcome == "error":
         return "error"
     return "error"
+
+
+def scheduling_intake_router(state):
+    if state.data.get("scheduling_intake_skip_reason"):
+        return "end"
+    return "continue"
+
+
+def _appointment_draft_from_state(state) -> dict:
+    meta = state.data.get("workflow_lifecycle_metadata") or {}
+    if not isinstance(meta, dict):
+        row = state.data.get("workflow_lifecycle_row") or {}
+        meta = row.get("metadata") if isinstance(row, dict) else {}
+    if not isinstance(meta, dict):
+        return {}
+    draft = meta.get("email_draft")
+    return draft if isinstance(draft, dict) else {}
+
+
+def appointment_scheduling_post_read_router(state):
+    event_type = str(state.data.get("event_type") or "").strip()
+    if event_type == "appointment_draft_send":
+        row = state.data.get("workflow_lifecycle_row") or {}
+        status = str(row.get("status") or "").strip()
+        sub_status = str(row.get("sub_status") or "").strip()
+        if status != "pending_review":
+            return "end"
+        if sub_status != "appointment_draft_created":
+            return "end"
+        draft = _appointment_draft_from_state(state)
+        if not (
+            str(draft.get("to") or "").strip()
+            and str(draft.get("subject") or "").strip()
+            and str(draft.get("full_html") or "").strip()
+        ):
+            return "end"
+        return "send"
+    return "intake"
 
 
 def post_read_tender_router(state):

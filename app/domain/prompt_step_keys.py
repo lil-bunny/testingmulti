@@ -11,6 +11,7 @@ POD_ATTACHMENT_CLASSIFIER = "pod_lifecycle.attachment_classifier"
 RATECON_PAGE_EXTRACTION = "ratecon.page_extraction"
 POD_VS_RATECON_SUMMARY = "pod_lifecycle.vs_ratecon_summary"
 POD_VS_RATECON_SEMANTIC_MATCH = "pod_lifecycle.vs_ratecon_semantic_match"
+APPOINTMENT_SCHEDULING_OPTIMIZATION = "appointment_scheduling.scheduling_optimization"
 
 
 def resolve_prompt_ref(prompts: Any, prompt_step_key: str) -> str:

@@ -14,7 +14,7 @@ from app.services.pod_lifecycle.attachment_pipeline_service import (
     PodAttachmentPipelineService,
 )
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
-from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.workflow_lifecycle_service import LifecycleResolution, WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
 from app.workflows.compiler.compiler import compile_graph
@@ -41,6 +41,8 @@ from app.workflows.graph.routers import (
     driver_details_router,
     tms_searchable_router,
     tms_driver_router,
+    scheduling_intake_router,
+    appointment_scheduling_post_read_router,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from typing import Optional
@@ -72,6 +74,8 @@ ROUTER_REGISTRY = {
     "driver_details_router": driver_details_router,
     "tms_searchable_router": tms_searchable_router,
     "tms_driver_router": tms_driver_router,
+    "scheduling_intake_router": scheduling_intake_router,
+    "appointment_scheduling_post_read_router": appointment_scheduling_post_read_router,
 }
 
 
@@ -359,10 +363,25 @@ class WorkflowService:
                 and payload.get("event_type")
                 == WorkflowRunEventType.RATECON_COMPLETED.value
             )
-            else self.lifecycle_service.resolve_or_create_lifecycle(
-                tenant_id=tenant_id,
-                workflow_name=workflow_name,
-                payload=payload,
+            else (
+                LifecycleResolution(
+                    workflow_lifecycle_id=str(payload["workflow_lifecycle_id"]).strip(),
+                    existed=True,
+                )
+                if (
+                    workflow_name == "appointment_scheduling"
+                    and payload.get("event_type")
+                    in (
+                        WorkflowRunEventType.TURVO_PICKUP_CHANGED.value,
+                        WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value,
+                    )
+                    and str(payload.get("workflow_lifecycle_id") or "").strip()
+                )
+                else self.lifecycle_service.resolve_or_create_lifecycle(
+                    tenant_id=tenant_id,
+                    workflow_name=workflow_name,
+                    payload=payload,
+                )
             )
         )
         workflow_lifecycle_id = lifecycle.workflow_lifecycle_id

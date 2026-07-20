@@ -40,6 +40,16 @@ class T3raPodLifecycleSettings(BaseModel):
     teams_notification: PodLifecycleTeamsNotificationSettings | None = None
 
 
+class T3raAppointmentSchedulingSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    turvo_app_user_id: str | None = None
+    appointment_data_source: str = ""
+    ascend_email: str | None = None
+    ascend_password: str | None = None
+    email_cc: list[str] | str = ""
+
+
 class T3raDriverAssignmentSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -76,12 +86,19 @@ class T3raDriverAssignmentPrompts(BaseModel):
     driver_details: str
 
 
+class T3raAppointmentSchedulingPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scheduling_optimization: str
+
+
 class T3raPrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     pod_lifecycle: T3raPodLifecyclePrompts
     ratecon: T3raRateconPrompts
     driver_assignment: T3raDriverAssignmentPrompts | None = None
+    appointment_scheduling: T3raAppointmentSchedulingPrompts | None = None
 
 
 class MikeyAccountSettings(BaseModel):
@@ -120,3 +137,4 @@ class T3raTenantSettings(BaseModel):
     prompts: T3raPrompts
     pod_lifecycle: T3raPodLifecycleSettings
     driver_assignment: T3raDriverAssignmentSettings | None = None
+    appointment_scheduling: T3raAppointmentSchedulingSettings | None = None

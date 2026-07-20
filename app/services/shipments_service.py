@@ -397,6 +397,45 @@ class ShipmentsService:
             )
         return True
 
+    def update_proposed_appointments(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        proposed_pickup_at: str | None = None,
+        proposed_delivery_at: str | None = None,
+    ) -> bool:
+        """Persist LLM scheduling dates on ``shipments.proposed_*``; no-op when unparseable."""
+        from app.tools.appointment_scheduling.proposed_appointments import (
+            parse_proposed_appointment_date,
+        )
+
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid:
+            return False
+
+        proposed_pickup = parse_proposed_appointment_date(proposed_pickup_at)
+        proposed_delivery = parse_proposed_appointment_date(proposed_delivery_at)
+        if proposed_pickup is None and proposed_delivery is None:
+            return False
+
+        if self._shipments is not None:
+            return self._shipments.update_proposed_appointments_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                proposed_pickup=proposed_pickup,
+                proposed_delivery=proposed_delivery,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).update_proposed_appointments_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                proposed_pickup=proposed_pickup,
+                proposed_delivery=proposed_delivery,
+            )
+        )
+
     def clear_driver_details(
         self,
         *,

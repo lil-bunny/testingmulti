@@ -612,3 +612,59 @@ class WorkflowLifecyclesRepository:
             shipment_id=shipment_id,
         )
         return new_id
+
+    def find_blocking_appointment_scheduling_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_number: str,
+    ) -> str | None:
+        """Return lifecycle id when a non-restartable appointment_scheduling row exists."""
+        number = str(shipment_number or "").strip()
+        if not number:
+            return None
+        row = self._session.execute(
+            text(
+                """
+                SELECT wl.id::text
+                FROM workflow_lifecycles wl
+                INNER JOIN shipments s ON s.id = wl.shipment_id
+                WHERE wl.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wl.workflow_name = :workflow_name
+                  AND s.shipment_number = :shipment_number
+                  AND NOT (
+                      wl.status = CAST(:failed_status AS lifecycle_status)
+                      OR wl.sub_status = CAST(:resolved_manually AS lifecycle_sub_status)
+                  )
+                ORDER BY wl.updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "shipment_number": number,
+                "failed_status": StatusType.FAILED.value,
+                "resolved_manually": StatusSubType.RESOLVED_MANUALLY.value,
+            },
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+        return None
+
+    def insert_appointment_scheduling_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_id: str,
+    ) -> str:
+        new_id = str(uuid.uuid4())
+        self.insert_lifecycle(
+            lifecycle_id=new_id,
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            shipment_id=shipment_id,
+        )
+        return new_id

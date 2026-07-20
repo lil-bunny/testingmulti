@@ -28,3 +28,5 @@ class WorkflowRunEventType(StrEnum):
     ACK_RECEIVED = "ack_received"
     ESCALATION_DUE = "escalation_due"
     DRIVER_DETAILS_EMAIL_RECEIVED = "driver_details_email_received"
+    TURVO_PICKUP_CHANGED = "turvo_pickup_changed"
+    APPOINTMENT_DRAFT_SEND = "appointment_draft_send"

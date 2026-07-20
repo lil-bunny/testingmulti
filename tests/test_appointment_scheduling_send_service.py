@@ -1,0 +1,90 @@
+"""Tests for appointment scheduling send router and send service."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.services.appointment_scheduling.send_service import (
+    AppointmentSchedulingSendConflictError,
+    AppointmentSchedulingSendService,
+)
+from app.workflows.graph.routers import appointment_scheduling_post_read_router
+
+
+def _state(**data):
+    return SimpleNamespace(data=data)
+
+
+def test_post_read_router_routes_send_when_eligible() -> None:
+    route = appointment_scheduling_post_read_router(
+        _state(
+            event_type="appointment_draft_send",
+            workflow_lifecycle_row={
+                "status": "pending_review",
+                "sub_status": "appointment_draft_created",
+            },
+            workflow_lifecycle_metadata={
+                "email_draft": {
+                    "to": "wh@example.com",
+                    "subject": "DEL APPT",
+                    "full_html": "<p>Hi</p>",
+                }
+            },
+        )
+    )
+    assert route == "send"
+
+
+def test_post_read_router_end_when_already_sent() -> None:
+    route = appointment_scheduling_post_read_router(
+        _state(
+            event_type="appointment_draft_send",
+            workflow_lifecycle_row={
+                "status": "pending_review",
+                "sub_status": "awaiting_customer_reply",
+            },
+            workflow_lifecycle_metadata={"email_draft": {"to": "a@b.com", "subject": "s", "full_html": "b"}},
+        )
+    )
+    assert route == "end"
+
+
+def test_post_read_router_intake_for_turvo_event() -> None:
+    route = appointment_scheduling_post_read_router(
+        _state(event_type="turvo_pickup_changed")
+    )
+    assert route == "intake"
+
+
+@patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
+def test_send_service_conflict_when_not_draft_created(mock_enqueue: MagicMock) -> None:
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "pending_review",
+        "sub_status": "awaiting_customer_reply",
+        "metadata": {
+            "email_draft": {
+                "to": "wh@example.com",
+                "subject": "DEL APPT",
+                "full_html": "<p>Hi</p>",
+            }
+        },
+    }
+    tenants = MagicMock()
+    tenants.get_by_slug.return_value = {"id": "tenant-uuid"}
+    svc = AppointmentSchedulingSendService(
+        lifecycle_service=lifecycle,
+        tenants_service=tenants,
+    )
+
+    with pytest.raises(AppointmentSchedulingSendConflictError):
+        svc.validate_and_enqueue(
+            tenant_slug="t3ra",
+            workflow_lifecycle_id="wl-1",
+            actor_user_id="user-1",
+        )
+
+    mock_enqueue.assert_not_called()
