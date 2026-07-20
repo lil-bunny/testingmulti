@@ -100,6 +100,17 @@ from app.workflows.nodes.routing_guide import (
     evaluate_timeout_routing_guide,
 )
 from app.workflows.nodes.tenders import read_tender_row
+from app.workflows.nodes.appointment_scheduling.nodes import (
+    build_email_scheduling_draft,
+    compute_scheduling_decision,
+    persist_scheduling_draft_ready,
+    read_appointment_scheduling_lifecycle,
+    record_appointment_email_sent,
+    record_appointment_scheduling_started,
+    record_scheduling_decision,
+    run_scheduling_intake,
+    send_appointment_scheduling_email,
+)
 from app.workflows.nodes.error_handler import record_workflow_failure_node
 
 NODE_REGISTRY = {
@@ -178,5 +189,14 @@ NODE_REGISTRY = {
     "evaluate_timeout_routing_guide": evaluate_timeout_routing_guide,
     "advance_carrier_routing_guide": advance_carrier_routing_guide,
     "record_workflow_failure": record_workflow_failure_node,
+    "read_appointment_scheduling_lifecycle": read_appointment_scheduling_lifecycle,
+    "record_appointment_scheduling_started": record_appointment_scheduling_started,
+    "run_scheduling_intake": run_scheduling_intake,
+    "compute_scheduling_decision": compute_scheduling_decision,
+    "record_scheduling_decision": record_scheduling_decision,
+    "build_email_scheduling_draft": build_email_scheduling_draft,
+    "persist_scheduling_draft_ready": persist_scheduling_draft_ready,
+    "send_appointment_scheduling_email": send_appointment_scheduling_email,
+    "record_appointment_email_sent": record_appointment_email_sent,
     "end": end,
 }

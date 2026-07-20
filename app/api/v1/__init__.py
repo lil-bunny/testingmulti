@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.api.v1.appointment_scheduling import router as appointment_scheduling_router
 from app.api.v1.shipments import router as shipments_router
 from app.api.v1.user_turvo import router as user_turvo_router
 from app.api.v1.webhooks import router as webhooks_router
@@ -11,4 +12,5 @@ v1_router = APIRouter()
 v1_router.include_router(webhooks_router)
 v1_router.include_router(user_turvo_router)
 v1_router.include_router(shipments_router)
+v1_router.include_router(appointment_scheduling_router)
 v1_router.include_router(workflow_lifecycles_router)

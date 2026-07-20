@@ -17,6 +17,9 @@ T3RA_PROMPTS: dict[str, Any] = {
     "driver_assignment": {
         "driver_details": "driver-details-extract:staging",
     },
+    "appointment_scheduling": {
+        "scheduling_optimization": "scheduling-optimization:staging",
+    },
 }
 
 
@@ -70,6 +73,12 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
             },
         },
         "enabledProcesses": ["pod_lifecycle", "pod_collection", "driver_assignment"],
+        "appointment_scheduling": {
+            "appointment_data_source": "/tmp/appointments.xlsx",
+            "ascend_email": "ascend@example.com",
+            "ascend_password": "secret",
+            "email_cc": "ops@example.com",
+        },
         "prompts": T3RA_PROMPTS,
         "mikey_account_id": {
             "account_id": "test-mikey-account-id",

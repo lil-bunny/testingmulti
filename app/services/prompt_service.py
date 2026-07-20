@@ -118,6 +118,26 @@ def resolve_pod_vs_ratecon_summary_prompts(
     )
 
 
+def resolve_appointment_scheduling_optimization_prompts(
+    tenant_settings: dict[str, Any] | None,
+    variables: dict[str, str],
+    *,
+    prompt_service: PromptService | None = None,
+) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    from app.domain.appointment_scheduling.scheduling_prompt_templates import (
+        render_inline_scheduling_optimization_prompts,
+    )
+    from app.domain.prompt_step_keys import APPOINTMENT_SCHEDULING_OPTIMIZATION
+
+    service = prompt_service or PromptService()
+    return service.render_vision_step(
+        tenant_settings,
+        APPOINTMENT_SCHEDULING_OPTIMIZATION,
+        variables,
+        inline_fallback=render_inline_scheduling_optimization_prompts(variables),
+    )
+
+
 def resolve_pod_vs_ratecon_semantic_match_prompts(
     tenant_settings: dict[str, Any] | None,
     field_type: str,

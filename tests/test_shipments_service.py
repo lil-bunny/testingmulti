@@ -213,3 +213,39 @@ def test_clear_driver_details_returns_false_for_invalid_ids():
 
     assert svc.clear_driver_details(tenant_id="", shipment_row_id=_SHIPMENTS_ROW_UUID) is False
     svc._shipments.clear_driver_details_tx.assert_not_called()
+
+
+def test_update_proposed_appointments_delegates_parsed_dates_to_repo():
+    repo = MagicMock()
+    repo.update_proposed_appointments_tx.return_value = True
+    svc = ShipmentsService(shipments_repository=repo)
+
+    ok = svc.update_proposed_appointments(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+        proposed_pickup_at="2026-07-30",
+        proposed_delivery_at="08/04/2026",
+    )
+
+    assert ok is True
+    repo.update_proposed_appointments_tx.assert_called_once()
+    kwargs = repo.update_proposed_appointments_tx.call_args.kwargs
+    assert kwargs["tenant_id"] == _TENANT_UUID
+    assert kwargs["shipment_row_id"] == _SHIPMENTS_ROW_UUID
+    assert kwargs["proposed_pickup"] == datetime(2026, 7, 30, tzinfo=timezone.utc)
+    assert kwargs["proposed_delivery"] == datetime(2026, 8, 4, tzinfo=timezone.utc)
+
+
+def test_update_proposed_appointments_noop_when_unparseable():
+    repo = MagicMock()
+    svc = ShipmentsService(shipments_repository=repo)
+
+    ok = svc.update_proposed_appointments(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+        proposed_pickup_at="bad",
+        proposed_delivery_at="",
+    )
+
+    assert ok is False
+    repo.update_proposed_appointments_tx.assert_not_called()

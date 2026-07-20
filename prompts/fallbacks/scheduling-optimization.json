@@ -1,0 +1,102 @@
+{
+    "lc": 1,
+    "type": "constructor",
+    "id": [
+        "langchain",
+        "prompts",
+        "chat",
+        "ChatPromptTemplate"
+    ],
+    "kwargs": {
+        "input_variables": [
+            "availability_text",
+            "base_pickup_date",
+            "base_pickup_time",
+            "customer_name",
+            "dropoff_location",
+            "dropoff_state",
+            "is_chewy_customer",
+            "miles",
+            "pickup_location",
+            "scheduling_input_json",
+            "special_rule"
+        ],
+        "metadata": {
+            "lc_hub_owner": "-",
+            "lc_hub_repo": "scheduling-optimization",
+            "lc_hub_commit_hash": "local-fallback-v1"
+        },
+        "messages": [
+            {
+                "lc": 1,
+                "type": "constructor",
+                "id": [
+                    "langchain",
+                    "prompts",
+                    "chat",
+                    "SystemMessagePromptTemplate"
+                ],
+                "kwargs": {
+                    "prompt": {
+                        "lc": 1,
+                        "type": "constructor",
+                        "id": [
+                            "langchain",
+                            "prompts",
+                            "prompt",
+                            "PromptTemplate"
+                        ],
+                        "kwargs": {
+                            "input_variables": [
+                                "availability_text",
+                                "base_pickup_date",
+                                "base_pickup_time",
+                                "customer_name",
+                                "dropoff_location",
+                                "dropoff_state",
+                                "is_chewy_customer",
+                                "miles",
+                                "pickup_location",
+                                "special_rule"
+                            ],
+                            "template": "You are a logistics scheduling expert optimizing pickup times and delivery dates for freight shipments.\n\nSHIPMENT DETAILS:\n- Distance: {miles} miles\n- Pickup Location: {pickup_location}\n- Dropoff Location: {dropoff_location}\n- Dropoff State: {dropoff_state}\n- Customer: {customer_name}\n- Extra rules (override others on conflict): {special_rule}\n- Is Chewy Customer: {is_chewy_customer}\n\nBASE PICKUP CONTEXT (SOURCE OF TRUTH FOR INITIAL CALCULATION):\n- Base Pickup Date: {base_pickup_date}\n- Base Pickup Time: {base_pickup_time}\n\nAVAILABLE PICKUP TIMES:\n{availability_text}\n\nFollow the standard T3RA scheduling rule chain: baseline pickup lock, customer-specific windows (CHEWY/AFCO/PETCO), distance-based transit days, initial delivery from base pickup, conditional weekend reschedule, final validation.\n\nOUTPUT FORMAT (JSON only, no other text):\n{{\n  \"selected_pickup_date\": \"YYYY-MM-DD\",\n  \"selected_pickup_time\": \"HH:MM\",\n  \"pcs_pickup_date\": \"MM/DD/YYYY\",\n  \"calculated_delivery_date\": \"MM/DD/YYYY\",\n  \"calculated_delivery_weekday\": \"MONDAY\",\n  \"transit_days\": 0,\n  \"reasoning\": \"step-by-step explanation\",\n  \"time_category\": \"morning\",\n  \"weekend_shifted\": false\n}}",
+                            "template_format": "f-string"
+                        },
+                        "name": "PromptTemplate"
+                    }
+                }
+            },
+            {
+                "lc": 1,
+                "type": "constructor",
+                "id": [
+                    "langchain",
+                    "prompts",
+                    "chat",
+                    "HumanMessagePromptTemplate"
+                ],
+                "kwargs": {
+                    "prompt": {
+                        "lc": 1,
+                        "type": "constructor",
+                        "id": [
+                            "langchain",
+                            "prompts",
+                            "prompt",
+                            "PromptTemplate"
+                        ],
+                        "kwargs": {
+                            "input_variables": [
+                                "scheduling_input_json"
+                            ],
+                            "template": "Analyze the data and return ONLY valid JSON.\n\nStructured input:\n{scheduling_input_json}",
+                            "template_format": "f-string"
+                        },
+                        "name": "PromptTemplate"
+                    }
+                }
+            }
+        ]
+    },
+    "name": "ChatPromptTemplate"
+}

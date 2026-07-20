@@ -13,3 +13,9 @@ unipile_webhook_bearer = HTTPBearer(
     description="Webhook Bearer token.",
     auto_error=False,
 )
+
+turvo_webhook_bearer = HTTPBearer(
+    scheme_name="TurvoWebhookBearer",
+    description="Turvo webhook Bearer token.",
+    auto_error=False,
+)
