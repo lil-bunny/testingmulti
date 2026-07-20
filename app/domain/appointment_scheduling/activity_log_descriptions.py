@@ -78,7 +78,3 @@ def format_turvo_pickup_updated_action(*, stop_name: str, start_time: str) -> st
 
 def format_appointment_confirmation_sent_action() -> str:
     return "Appointment confirmation reply sent"
-
-
-def format_appointment_reply_completed_action() -> str:
-    return "Appointment scheduling completed from customer reply"
