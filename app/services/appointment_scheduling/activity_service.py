@@ -10,7 +10,6 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_appointment_confirmation_sent_action,
     format_appointment_draft_created_action,
     format_appointment_email_sent_action,
-    format_appointment_reply_completed_action,
     format_appointment_scheduling_failed_action,
     format_ascend_dropoff_skipped_action,
     format_ascend_dropoff_updated_action,
@@ -521,11 +520,6 @@ class AppointmentSchedulingActivityService:
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=run_id,
                 steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_appointment_reply_completed_action(),
-                        metadata=metadata,
-                    ),
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         from_status=from_status or StatusType.PENDING_REVIEW,

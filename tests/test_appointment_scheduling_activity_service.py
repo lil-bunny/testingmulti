@@ -236,8 +236,7 @@ def test_record_reply_completed_writes_completed_status() -> None:
     )
 
     seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 2
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[1].to_status == StatusType.COMPLETED
-    assert seq.steps[1].to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED
+    assert len(seq.steps) == 1
+    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].to_status == StatusType.COMPLETED
+    assert seq.steps[0].to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED
