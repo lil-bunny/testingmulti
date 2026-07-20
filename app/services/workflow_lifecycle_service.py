@@ -703,3 +703,59 @@ class WorkflowLifecycleService:
         if self._lifecycles_repo is not None:
             return _insert(self._lifecycles_repo)
         return run_with_repos(lambda repos: _insert(self._repo(repos)))
+
+    def find_awaiting_customer_reply_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str,
+        workflow_name: str | None = None,
+    ) -> str | None:
+        from app.domain.appointment_scheduling.ingress_constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipments_row_id)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not sid:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_awaiting_customer_reply_lifecycle_id(
+                tenant_id=tid,
+                shipment_id=sid,
+                workflow_name=wn,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def find_awaiting_customer_reply_by_appt_subject_token(
+        self,
+        *,
+        tenant_id: str,
+        subject_token: str,
+        workflow_name: str | None = None,
+    ) -> str | None:
+        from app.domain.appointment_scheduling.ingress_constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        token = self._clean(subject_token)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not token:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_awaiting_customer_reply_by_appt_subject_token(
+                tenant_id=tid,
+                subject_token=token,
+                workflow_name=wn,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))

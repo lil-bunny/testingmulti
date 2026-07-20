@@ -48,6 +48,7 @@ class T3raAppointmentSchedulingSettings(BaseModel):
     ascend_email: str | None = None
     ascend_password: str | None = None
     email_cc: list[str] | str = ""
+    skip_ascend_writes: bool = True
 
 
 class T3raDriverAssignmentSettings(BaseModel):
@@ -90,6 +91,7 @@ class T3raAppointmentSchedulingPrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     scheduling_optimization: str
+    customer_reply: str | None = None
 
 
 class T3raPrompts(BaseModel):

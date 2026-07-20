@@ -7,6 +7,7 @@ from typing import Any
 
 from app.domain.appointment_scheduling.models import LlmSchedulingDecision
 from app.integrations.langsmith.types import PromptTraceMetadata
+from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
 from app.tools.llm_client import LLMClientError, chat_json
 
 
@@ -59,4 +60,5 @@ def run_scheduling_optimization(
         selected_pickup_time=raw.get("selected_pickup_time"),
         pcs_pickup_date=raw.get("pcs_pickup_date"),
         transit_days=raw.get("transit_days"),
+        weekend_shifted=is_weekend_shifted_truthy(raw.get("weekend_shifted")),
     )

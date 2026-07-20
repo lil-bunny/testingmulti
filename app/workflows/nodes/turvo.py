@@ -116,15 +116,9 @@ def resolve_load_to_shipment(state):
 def link_shipment_locations(state):
     """Resolve route endpoints to ``locations`` ids and update ``shipments`` FKs."""
     shipment = state.data.get("shipment") or {}
-    stops = global_route_stops_from_payload(
-        shipment if isinstance(shipment, dict) else {}
-    )
-    details = shipment.get("details") if isinstance(shipment.get("details"), dict) else None
-    result = ShipmentLocationLinkService().link_from_route_stops(
-        stops,
-        shipments_row_id=state.data.get("shipments_row_id"),
-        delivery_address_builder=delivery_address_from_global_route_stop,
-        shipment_details=details,
+    result = ShipmentLocationLinkService().link_from_turvo_shipment_payload(
+        shipment if isinstance(shipment, dict) else {},
+        shipments_row_id=str(state.data.get("shipments_row_id") or ""),
     )
     state.data["shipment_location_link"] = {
         "success": True,

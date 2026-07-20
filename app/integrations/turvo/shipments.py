@@ -208,6 +208,92 @@ def customer_name_from_payload(payload: dict[str, Any]) -> str | None:
     return _first_non_deleted_entity_name(details.get("customerOrder"), "customer")
 
 
+def _delivery_location_name_from_customer_order(details: dict[str, Any]) -> str | None:
+    """Repo A check_reply: last item deliveryLocation name on first active customer order."""
+    orders = details.get("customerOrder") or details.get("customer_orders") or []
+    if not isinstance(orders, list):
+        return None
+    for order in orders:
+        if not isinstance(order, dict) or order.get("deleted"):
+            continue
+        items = order.get("items") or []
+        if not isinstance(items, list) or not items:
+            continue
+        last_item = items[-1] if isinstance(items[-1], dict) else None
+        if not last_item:
+            continue
+        locations = (
+            last_item.get("deliveryLocation")
+            or last_item.get("delivery_location")
+            or []
+        )
+        if not isinstance(locations, list) or not locations:
+            continue
+        location = locations[0] if isinstance(locations[0], dict) else None
+        if not location:
+            continue
+        name = str(location.get("name") or location.get("stop_name") or "").strip()
+        if name:
+            return name
+    return None
+
+
+def delivery_stop_name_from_payload(payload: dict[str, Any]) -> str | None:
+    """Turvo globalRoute stop name for delivery appointment updates (not customer entity name)."""
+    if not isinstance(payload, dict):
+        return None
+    details = payload.get("details")
+    if isinstance(details, dict):
+        from_order = _delivery_location_name_from_customer_order(details)
+        if from_order:
+            return from_order
+    route_stops = active_route_stops(global_route_stops_from_payload(payload))
+    if route_stops:
+        last_stop = route_stops[-1]
+        name = str(last_stop.get("name") or "").strip()
+        if name:
+            return name
+    return None
+
+
+def pickup_stop_name_from_payload(payload: dict[str, Any]) -> str | None:
+    """Turvo globalRoute stop name for pickup appointment updates."""
+    if not isinstance(payload, dict):
+        return None
+    stop = _pickup_stop_from_global_route(payload)
+    if stop is not None:
+        name = str(stop.get("name") or "").strip()
+        if name:
+            return name
+    details = payload.get("details")
+    if isinstance(details, dict):
+        route_stop = _pickup_stop_from_customer_order_routes(details)
+        if route_stop is not None:
+            name = str(route_stop.get("name") or "").strip()
+            if name:
+                return name
+    return None
+
+
+def delivery_date_only_from_payload(payload: dict[str, Any]) -> str | None:
+    """Normalized ``YYYY-MM-DD`` delivery date for confirm-phase 0001 rule."""
+    from app.tools.appointment_scheduling.turvo_confirm import normalize_date_only
+
+    if not isinstance(payload, dict):
+        return None
+    delivery_dt, _ = delivery_appointment_from_payload(payload)
+    if delivery_dt is not None:
+        return delivery_dt.strftime("%Y-%m-%d")
+    details = payload.get("details")
+    if isinstance(details, dict):
+        end_date = details.get("endDate") or details.get("end_date") or {}
+        if isinstance(end_date, dict):
+            return normalize_date_only(
+                end_date.get("userDate") or end_date.get("date")
+            )
+    return None
+
+
 def _first_non_deleted_entity_name(
     orders: Any,
     entity_key: str,
@@ -822,3 +908,129 @@ async def replace_driver_on_shipment(
         params={"fullResponse": "true"},
         json_body=body,
     )
+
+
+_DEFAULT_STOP_TIMEZONE = "America/Los_Angeles"
+
+
+def _resolve_stop_timezone(stop: dict[str, Any], appointment: dict[str, Any]) -> str:
+    nested = stop.get("location") or {}
+    return (
+        str(stop.get("timezone") or stop.get("timeZone") or "").strip()
+        or str(appointment.get("timezone") or appointment.get("timeZone") or "").strip()
+        or str(nested.get("timezone") or nested.get("timeZone") or "").strip()
+        or _DEFAULT_STOP_TIMEZONE
+    )
+
+
+def _local_start_time_to_utc_iso(start_time: str, tz_name: str) -> str:
+    from zoneinfo import ZoneInfo
+
+    local_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+    local_dt = local_dt.replace(tzinfo=ZoneInfo(tz_name))
+    return local_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _find_global_route_stop_by_name(
+    payload: dict[str, Any],
+    stop_name: str,
+) -> dict[str, Any] | None:
+    target = str(stop_name or "").strip()
+    if not target:
+        return None
+    for stop in active_route_stops(global_route_stops_from_payload(payload)):
+        if str(stop.get("name") or "").strip() == target:
+            return stop
+    return None
+
+
+async def update_stop_appointment_time(
+    tenant_slug: str,
+    shipment_id: Any,
+    *,
+    stop_name: str,
+    start_time: str,
+    shipment_payload: dict[str, Any] | None = None,
+    client: Optional[TurvoApiClient] = None,
+) -> dict[str, Any]:
+    """PUT delivery stop ``appointment.date`` on Turvo Public API ``globalRoute``."""
+    slug = (tenant_slug or "").strip()
+    sid = str(shipment_id or "").strip()
+    name = str(stop_name or "").strip()
+    wall_time = str(start_time or "").strip()
+    if not slug or not sid or not name or not wall_time:
+        raise ValueError("tenant_slug, shipment_id, stop_name, and start_time are required")
+
+    payload = shipment_payload if isinstance(shipment_payload, dict) else None
+    if payload is None:
+        payload = await get_shipment(slug, sid, client=client)
+
+    stop = _find_global_route_stop_by_name(payload, name)
+    if stop is None:
+        return {
+            "ok": False,
+            "error": "stop_not_found",
+            "stop_name": name,
+            "shipment_id": sid,
+        }
+
+    route_id = stop.get("id")
+    if route_id is None:
+        return {
+            "ok": False,
+            "error": "missing_route_stop_id",
+            "stop_name": name,
+            "shipment_id": sid,
+        }
+
+    appointment = stop.get("appointment") if isinstance(stop.get("appointment"), dict) else {}
+    tz_name = _resolve_stop_timezone(stop, appointment)
+    new_start_utc = _local_start_time_to_utc_iso(wall_time, tz_name)
+    current_date = str(appointment.get("date") or "").strip()
+    if current_date == new_start_utc:
+        return {
+            "ok": True,
+            "updated": False,
+            "stop_name": name,
+            "start_time": wall_time,
+            "appointment_date_utc": new_start_utc,
+            "timezone": tz_name,
+        }
+
+    sid_int = int(sid) if sid.isdigit() else sid
+    body = {
+        "id": sid_int,
+        "globalRoute": [
+            {
+                "_operation": 1,
+                "id": route_id,
+                "name": stop.get("name") or name,
+                "appointment": {
+                    "date": new_start_utc,
+                    "timeZone": tz_name,
+                },
+            }
+        ],
+    }
+    api = client or TurvoApiClient()
+    response = await api.request(
+        slug,
+        "PUT",
+        f"/shipments/{sid}",
+        params={"fullResponse": "true"},
+        json_body=body,
+    )
+    success = isinstance(response, dict) and (
+        response.get("respMsg") == "SUCCESS_UPDATE" or response.get("Status") == "SUCCESS"
+    )
+    return {
+        "ok": bool(success),
+        "updated": bool(success),
+        "stop_name": name,
+        "start_time": wall_time,
+        "appointment_date_utc": new_start_utc,
+        "timezone": tz_name,
+        "payload": body,
+        "response": response,
+        "error": None if success else str((response or {}).get("respMsg") or "turvo_update_failed"),
+    }

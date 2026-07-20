@@ -1,0 +1,139 @@
+"""AppointmentReplyClassificationService unit tests."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+from app.services.appointment_scheduling.reply_classification_service import (
+    AppointmentReplyClassificationService,
+)
+from app.tools.appointment_scheduling.customer_reply import (
+    DO_NOTHING,
+    INSUFFICIENT,
+    SUFFICIENT,
+)
+
+_TENANT = "tenant-1"
+_LIFECYCLE = "lifecycle-1"
+_RUN = "run-1"
+_THREAD = "thread-1"
+
+
+def _tenant_settings() -> dict:
+    return {"prompts": {"appointment_scheduling": {"customer_reply": "appt-reply:staging"}}}
+
+
+def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> AppointmentReplyClassificationService:
+    comms = MagicMock()
+    comms.build_thread_llm_user_message.return_value = (thread_text, 1)
+    prompts = MagicMock()
+    activity = MagicMock()
+    activity.record_action.return_value = "activity-1"
+    return AppointmentReplyClassificationService(
+        communications_service=comms,
+        prompt_service=prompts,
+        activity_log_service=activity,
+    )
+
+
+def test_classify_sufficient_records_activity() -> None:
+    svc = _service()
+    llm_raw = {
+        "decision": SUFFICIENT,
+        "confidence": 0.95,
+        "reason": "explicit date and time",
+        "extracted_date": "2026-07-18",
+        "extracted_time": "10:30 AM",
+    }
+    with (
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.resolve_appointment_scheduling_customer_reply_prompts",
+            return_value=(MagicMock(system="sys", user="user"), MagicMock()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.chat_json",
+            return_value=llm_raw,
+        ),
+    ):
+        result = svc.classify_from_payload(
+            tenant_id=_TENANT,
+            thread_id=_THREAD,
+            fallback_body=llm_raw.get("extracted_date"),
+            tenant_settings=_tenant_settings(),
+            workflow_lifecycle_id=_LIFECYCLE,
+            workflow_run_id=_RUN,
+            communication_id="comm-1",
+        )
+
+    assert result.decision == SUFFICIENT
+    assert result.appointment_start_iso == "2026-07-18T10:30:00"
+    assert result.llm_activity_log_id == "activity-1"
+    svc._activity.record_action.assert_called_once()
+
+
+def test_classify_insufficient_records_activity_no_lifecycle_write() -> None:
+    svc = _service(thread_text="Maybe next week sometime")
+    llm_raw = {
+        "decision": INSUFFICIENT,
+        "confidence": 0.8,
+        "reason": "vague timing",
+        "extracted_date": None,
+        "extracted_time": None,
+    }
+    with (
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.resolve_appointment_scheduling_customer_reply_prompts",
+            return_value=(MagicMock(system="sys", user="user"), MagicMock()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.chat_json",
+            return_value=llm_raw,
+        ),
+    ):
+        result = svc.classify_from_payload(
+            tenant_id=_TENANT,
+            thread_id=_THREAD,
+            fallback_body="Maybe next week",
+            tenant_settings=_tenant_settings(),
+            workflow_lifecycle_id=_LIFECYCLE,
+            workflow_run_id=_RUN,
+        )
+
+    assert result.decision == INSUFFICIENT
+    svc._activity.record_action.assert_called_once()
+    patch_data = result.to_state_patch()
+    assert patch_data["customer_reply_decision"] == INSUFFICIENT
+    assert "confirmed_delivery_at" not in patch_data
+
+
+def test_classify_empty_body_do_nothing() -> None:
+    svc = _service(thread_text="")
+    svc._communications.build_thread_llm_user_message.return_value = ("", 0)
+    result = svc.classify_from_payload(
+        tenant_id=_TENANT,
+        thread_id=_THREAD,
+        fallback_body="",
+        tenant_settings=_tenant_settings(),
+        workflow_lifecycle_id=_LIFECYCLE,
+        workflow_run_id=_RUN,
+    )
+    assert result.decision == DO_NOTHING
+    svc._activity.record_action.assert_not_called()
+
+
+def test_classify_from_state() -> None:
+    svc = _service()
+    state = SimpleNamespace(
+        tenant_id=_TENANT,
+        execution_id=_RUN,
+        data={
+            "thread_id": _THREAD,
+            "tenant_settings": _tenant_settings(),
+            "workflow_lifecycle_id": _LIFECYCLE,
+            "body": "July 18 10:30 AM",
+        },
+    )
+    with patch.object(svc, "classify_from_payload", return_value=MagicMock(to_state_patch=lambda: {"customer_reply_decision": SUFFICIENT})) as mock:
+        svc.classify_from_state(state)
+    mock.assert_called_once()

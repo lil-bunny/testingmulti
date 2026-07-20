@@ -77,7 +77,7 @@ class T3raEmailIngressService:
     """
     Classify inbound T3RA mail and enqueue the matching workflow.
 
-    Priority: POD lifecycle → driver-details reply → ratecon. Out-of-order or
+    Priority: POD lifecycle → appointment reply → driver-details reply → ratecon. Out-of-order or
     duplicate POD paths return skip (no retry storm).
     """
 
@@ -108,6 +108,18 @@ class T3raEmailIngressService:
             )
             if pod_lifecycle_result is not None:
                 return pod_lifecycle_result
+
+        from app.services.appointment_scheduling.customer_reply_ingress import (
+            AppointmentCustomerReplyIngressService,
+        )
+
+        appointment_reply_result = AppointmentCustomerReplyIngressService().try_customer_reply_received(
+            payload=payload,
+            tenant=tenant,
+            communication_id=communication_id,
+        )
+        if appointment_reply_result is not None:
+            return appointment_reply_result
 
         driver_details_result = (
             self._driver_details_email_ingress.try_driver_details_email_received(

@@ -166,6 +166,43 @@ class ShipmentsService:
             "shipment_number": number,
         }
 
+    async def refresh_display_from_turvo(
+        self,
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        turvo_shipment_id: str,
+        load_id: str,
+    ) -> dict[str, Any]:
+        """Re-fetch Turvo shipment and upsert display columns (pickup/delivery dates)."""
+        tid = self._uuid_or_none(tenant_id)
+        slug = self._clean(tenant_slug)
+        number = self._clean(turvo_shipment_id)
+        load = self._clean(load_id)
+        if not tid or not slug or not number or not load:
+            return {"success": False, "message": "missing_refresh_fields"}
+
+        try:
+            turvo_payload = await get_turvo_shipment_async(slug, number)
+        except Exception:
+            logger.warning(
+                "Turvo get_shipment failed during display refresh tenant_slug=%s shipment_number=%s",
+                slug,
+                number,
+                exc_info=True,
+            )
+            return {"success": False, "message": "turvo_get_shipment_failed"}
+
+        if not isinstance(turvo_payload, dict):
+            return {"success": False, "message": "invalid_turvo_payload"}
+
+        return self.upsert_from_turvo(
+            tenant_id=tid,
+            turvo_shipment_id=number,
+            load_id=load,
+            turvo_payload=turvo_payload,
+        )
+
     async def upsert_from_load_id(
         self,
         *,

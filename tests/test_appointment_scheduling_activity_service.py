@@ -158,13 +158,36 @@ def test_record_email_sent_minimal_metadata() -> None:
     )
 
     seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 2
+    assert len(seq.steps) == 1
     assert seq.steps[0].metadata is None
     assert seq.steps[0].communication_id == "comm-uuid"
-    assert seq.steps[1].metadata is None
-    assert seq.steps[1].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
+    assert seq.steps[0].activity_type == ActivityType.ACTION
     assert seq.actor_type.value == "user"
     assert seq.actor_id == "99999999-9999-9999-9999-999999999999"
+
+
+def test_finalize_confirm_awaiting_reply_writes_status_change() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.finalize_confirm_awaiting_reply(
+        _state(actor_user_id="99999999-9999-9999-9999-999999999999"),
+        communication_id="comm-uuid",
+        actor_id="99999999-9999-9999-9999-999999999999",
+    )
+
+    seq = activity.record_sequence.call_args[0][0]
+    assert len(seq.steps) == 1
+    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
 
 
 def test_record_failed_writes_action_and_failed_status() -> None:
@@ -191,3 +214,30 @@ def test_record_failed_writes_action_and_failed_status() -> None:
     assert "missing_recipient_email" in (seq.steps[0].description or "")
     assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert seq.steps[1].to_status == StatusType.FAILED
+
+
+def test_record_reply_completed_writes_completed_status() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reply_completed(
+        _state(
+            confirmed_delivery_at="2026-07-18T10:30:00",
+            customer_reply_decision="sufficient",
+        )
+    )
+
+    seq = activity.record_sequence.call_args[0][0]
+    assert len(seq.steps) == 2
+    assert seq.steps[0].activity_type == ActivityType.ACTION
+    assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[1].to_status == StatusType.COMPLETED
+    assert seq.steps[1].to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED

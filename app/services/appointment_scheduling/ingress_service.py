@@ -17,7 +17,11 @@ from app.services.appointment_scheduling.ingress_gates import (
     evaluate_shipment_gates,
     evaluate_turvo_configured,
 )
+from app.services.appointment_scheduling.recipient_contact_gate import (
+    missing_recipient_email_skip_reason,
+)
 from app.services.appointment_scheduling.ingress_types import IngressHandleResult
+from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.services.shipments_service import ShipmentsService
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -158,6 +162,16 @@ class AppointmentSchedulingIngressService:
                 shipment_id=parsed.shipment_id,
             )
 
+        if reason := missing_recipient_email_skip_reason(
+            tenant_settings=tenant_settings,
+            shipment_payload=shipment_payload,
+        ):
+            return self._skip(
+                skip_reason=reason,
+                tenant_slug=tenant_slug,
+                shipment_id=parsed.shipment_id,
+            )
+
         upsert = self._shipments.upsert_from_turvo(
             tenant_id=tenant_uuid,
             turvo_shipment_id=parsed.shipment_id,
@@ -179,6 +193,11 @@ class AppointmentSchedulingIngressService:
                 tenant_slug=tenant_slug,
                 shipment_id=parsed.shipment_id,
             )
+
+        ShipmentLocationLinkService().try_link_from_turvo_shipment_payload(
+            shipment_payload,
+            shipments_row_id=shipments_row_id,
+        )
 
         try:
             lifecycle_id = self._lifecycle.create_appointment_scheduling_lifecycle(

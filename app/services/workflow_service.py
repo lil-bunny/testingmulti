@@ -43,6 +43,8 @@ from app.workflows.graph.routers import (
     tms_driver_router,
     scheduling_intake_router,
     appointment_scheduling_post_read_router,
+    scheduling_weekend_shifted_router,
+    customer_reply_router,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from typing import Optional
@@ -76,6 +78,8 @@ ROUTER_REGISTRY = {
     "tms_driver_router": tms_driver_router,
     "scheduling_intake_router": scheduling_intake_router,
     "appointment_scheduling_post_read_router": appointment_scheduling_post_read_router,
+    "scheduling_weekend_shifted_router": scheduling_weekend_shifted_router,
+    "customer_reply_router": customer_reply_router,
 }
 
 
@@ -419,6 +423,7 @@ class WorkflowService:
                     in (
                         WorkflowRunEventType.TURVO_PICKUP_CHANGED.value,
                         WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value,
+                        WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value,
                     )
                     and str(payload.get("workflow_lifecycle_id") or "").strip()
                 )

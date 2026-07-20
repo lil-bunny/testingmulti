@@ -11,6 +11,9 @@ from app.domain.tenant_settings.email_recipients import (
     coerce_email_list,
     unipile_recipients_from_addresses,
 )
+from app.services.appointment_scheduling.lifecycle_service import (
+    AppointmentSchedulingLifecycleService,
+)
 from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import Unipile, UnipileException
 
@@ -30,11 +33,16 @@ class AppointmentSchedulingEmailService:
         self,
         *,
         communications_service: CommunicationsService | None = None,
+        lifecycle_service: AppointmentSchedulingLifecycleService | None = None,
     ) -> None:
         self._communications = communications_service or CommunicationsService()
+        self._lifecycle = lifecycle_service or AppointmentSchedulingLifecycleService()
 
     @staticmethod
     def _draft_from_state(state) -> dict[str, Any]:
+        draft = state.data.get("email_draft")
+        if isinstance(draft, dict) and draft:
+            return draft
         meta = state.data.get("workflow_lifecycle_metadata") or {}
         if not isinstance(meta, dict):
             row = state.data.get("workflow_lifecycle_row") or {}
@@ -136,6 +144,13 @@ class AppointmentSchedulingEmailService:
         )
         if comm_id:
             send_result["communication_id"] = comm_id
+
+        lifecycle_id = str(data.get("workflow_lifecycle_id") or "").strip()
+        if lifecycle_id and comm_id:
+            self._lifecycle.mark_draft_outbound_sent(
+                lifecycle_id,
+                communication_id=comm_id,
+            )
 
         return AppointmentSchedulingSendResult(
             sent=True,

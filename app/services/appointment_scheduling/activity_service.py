@@ -7,10 +7,15 @@ from typing import Any
 from app.core.logger import get_logger
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.appointment_scheduling.activity_log_descriptions import (
+    format_appointment_confirmation_sent_action,
     format_appointment_draft_created_action,
     format_appointment_email_sent_action,
+    format_appointment_reply_completed_action,
     format_appointment_scheduling_failed_action,
+    format_ascend_dropoff_skipped_action,
+    format_ascend_dropoff_updated_action,
     format_scheduling_decision_info,
+    format_turvo_delivery_updated_action,
 )
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
@@ -222,13 +227,120 @@ class AppointmentSchedulingActivityService:
                         metadata=None,
                         communication_id=communication_id,
                     ),
+                ),
+            )
+        )
+
+    def finalize_confirm_awaiting_reply(
+        self,
+        state,
+        *,
+        communication_id: str | None,
+        actor_id: str | None,
+    ) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+
+        wl_id, tenant_id, run_id = scope
+        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        from_status = (
+            status_type_from_db(row.get("status")) if row else StatusType.PENDING_REVIEW
+        )
+        from_sub = (
+            sub_status_type_from_db(row.get("sub_status"))
+            if row
+            else StatusSubType.APPOINTMENT_DRAFT_CREATED
+        )
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                actor_type=ActorType.USER,
+                actor_id=actor_id,
+                steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         from_status=from_status or StatusType.PENDING_REVIEW,
                         from_sub_status=from_sub or StatusSubType.APPOINTMENT_DRAFT_CREATED,
                         to_status=StatusType.PENDING_REVIEW,
                         to_sub_status=StatusSubType.AWAITING_CUSTOMER_REPLY,
-                        metadata=None,
+                        metadata={"communication_id": communication_id} if communication_id else None,
+                    ),
+                ),
+            )
+        )
+
+    def record_weekend_pickup_update(self, state, *, result: dict[str, Any]) -> None:
+        if not isinstance(result, dict) or result.get("skipped"):
+            return
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        from app.domain.appointment_scheduling.activity_log_descriptions import (
+            format_ascend_pickup_updated_action,
+            format_turvo_pickup_updated_action,
+        )
+
+        steps: list[ActivityLogStep] = []
+        if result.get("ascend_updated"):
+            steps.append(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_ascend_pickup_updated_action(
+                        reference_number=str(state.data.get("reference_number") or ""),
+                        start_time=str(result.get("turvo_pickup_start_time") or ""),
+                    ),
+                    metadata={"ascend_response": result.get("ascend_response")},
+                )
+            )
+        if result.get("turvo_updated"):
+            steps.append(
+                ActivityLogStep(
+                    activity_type=ActivityType.ACTION,
+                    description=format_turvo_pickup_updated_action(
+                        stop_name=str(result.get("pickup_stop_name") or ""),
+                        start_time=str(result.get("turvo_pickup_start_time") or ""),
+                    ),
+                    metadata={"turvo_response": result.get("turvo_response")},
+                )
+            )
+        if not steps:
+            return
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=tuple(steps),
+            )
+        )
+
+    def record_turvo_confirm_placeholder(self, state, *, result: dict[str, Any]) -> None:
+        scope = self._scope_ids(state)
+        if scope is None or not isinstance(result, dict):
+            return
+        from app.domain.appointment_scheduling.activity_log_descriptions import (
+            format_turvo_delivery_placeholder_action,
+        )
+
+        wl_id, tenant_id, run_id = scope
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_turvo_delivery_placeholder_action(
+                            stop_name=str(result.get("stop_name") or ""),
+                            start_time=str(result.get("start_time") or ""),
+                        ),
+                        metadata={"updated": result.get("updated"), "ok": result.get("ok")},
                     ),
                 ),
             )
@@ -275,6 +387,152 @@ class AppointmentSchedulingActivityService:
                         from_sub_status=from_sub or StatusSubType.NONE,
                         to_status=StatusType.FAILED,
                         to_sub_status=StatusSubType.NONE,
+                    ),
+                ),
+            )
+        )
+
+    def record_ascend_update(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        result = state.data.get("ascend_update_result") or {}
+        if not isinstance(result, dict):
+            result = {}
+        reference = str(state.data.get("reference_number") or "").strip()
+        dry_run = bool(result.get("dry_run"))
+        skipped = bool(result.get("skipped"))
+        ok = bool(result.get("ok"))
+        extraction = state.data.get("customer_reply_extraction") or {}
+        appointment_start = str(
+            (extraction.get("appointment_start_iso") if isinstance(extraction, dict) else None)
+            or state.data.get("confirmed_delivery_at")
+            or ""
+        ).strip()
+
+        if dry_run or skipped:
+            description = format_ascend_dropoff_skipped_action(reference_number=reference)
+            metadata: dict[str, Any] = {"dry_run": True, "payload": result.get("payload")}
+        elif ok:
+            description = format_ascend_dropoff_updated_action(
+                reference_number=reference,
+                appointment_start=appointment_start,
+            )
+            metadata = {"payload": result.get("payload"), "response": result.get("response")}
+        else:
+            description = f"Ascend dropoff update failed for {reference or 'unknown'}"
+            metadata = {"error": result.get("error"), "payload": result.get("payload")}
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=description,
+                        metadata=metadata or None,
+                    ),
+                ),
+            )
+        )
+
+    def record_turvo_update(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        result = state.data.get("turvo_update_result") or {}
+        if not isinstance(result, dict):
+            result = {}
+        stop_name = str(result.get("stop_name") or state.data.get("customer_name") or "").strip()
+        start_time = str(result.get("start_time") or "").strip()
+        extraction = state.data.get("customer_reply_extraction") or {}
+        if not start_time and isinstance(extraction, dict):
+            start_time = str(extraction.get("turvo_start_time") or "").strip()
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_turvo_delivery_updated_action(
+                            stop_name=stop_name,
+                            start_time=start_time,
+                        ),
+                        metadata={"ok": result.get("ok"), "error": result.get("error")},
+                    ),
+                ),
+            )
+        )
+
+    def record_confirmation_sent(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        comm_id = str(state.data.get("confirmation_communication_id") or "").strip() or None
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_appointment_confirmation_sent_action(),
+                        communication_id=comm_id,
+                    ),
+                ),
+            )
+        )
+
+    def record_reply_completed(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        from_status = (
+            status_type_from_db(row.get("status")) if row else StatusType.PENDING_REVIEW
+        )
+        from_sub = (
+            sub_status_type_from_db(row.get("sub_status"))
+            if row
+            else StatusSubType.AWAITING_CUSTOMER_REPLY
+        )
+        if from_status == StatusType.COMPLETED and from_sub in (
+            StatusSubType.NONE,
+            StatusSubType.APPOINTMENT_SCHEDULED,
+        ):
+            return
+
+        confirmed_at = str(state.data.get("confirmed_delivery_at") or "").strip() or None
+        metadata = {"confirmed_delivery_at": confirmed_at} if confirmed_at else None
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_appointment_reply_completed_action(),
+                        metadata=metadata,
+                    ),
+                    ActivityLogStep(
+                        activity_type=ActivityType.STATUS_CHANGE,
+                        from_status=from_status or StatusType.PENDING_REVIEW,
+                        from_sub_status=from_sub or StatusSubType.AWAITING_CUSTOMER_REPLY,
+                        to_status=StatusType.COMPLETED,
+                        to_sub_status=StatusSubType.APPOINTMENT_SCHEDULED,
+                        metadata=metadata,
                     ),
                 ),
             )
