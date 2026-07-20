@@ -1,8 +1,10 @@
 """
 Strip rate confirmation pages from mixed POD PDFs during pre-graph assess.
 
-When ``ratecon_page_count`` (R) is known from shipments metadata, OCR from both
-ends with early-stop; otherwise OCR all pages and strip heading matches only.
+When ``ratecon_page_count`` (R) is known from ratecon
+``document_analysis.metadata.page_count`` and ``P >= R``, OCR page 1 and page P;
+on a terminal hit strip the contiguous R-window (verify far end, log miss, still
+strip). Otherwise OCR all pages and strip heading matches only.
 """
 
 from __future__ import annotations
@@ -41,9 +43,10 @@ class StripRateconPagesService:
     """
     Remove rate confirmation pages from one PDF before POD staging.
 
-    Smart path (R known and P >= R): both-ends header OCR until meet, contiguous
-    strip after two-point confirm, or strip when hit count == R.
-    Fallback: OCR all pages, strip heading matches only.
+    Smart path (R known and P >= R): OCR terminals (1 and P); front hit strips
+    ``1..R``, back hit strips ``P-R+1..P`` (front wins if both). Far-end verify
+    miss is logged but still strips by count. Neither terminal → match-only.
+    Fallback (missing R or P < R): OCR all pages, strip heading matches only.
     """
 
     def __init__(
@@ -118,14 +121,14 @@ class StripRateconPagesService:
                 excluded,
             )
         else:
-            excluded = self._find_pages_both_ends_smart(
+            excluded = self._find_pages_terminal_window(
                 pdf_bytes,
                 page_count=page_count,
                 ratecon_page_count=r,
                 doc_label=doc_label,
             )
             logger.info(
-                "strip_ratecon_pages: smart doc=%s P=%s R=%s excluded=%s",
+                "strip_ratecon_pages: terminal doc=%s P=%s R=%s excluded=%s",
                 doc_label,
                 page_count,
                 r,
@@ -172,7 +175,7 @@ class StripRateconPagesService:
                 )
         return {n: bool(match_cache.get(n)) for n in page_numbers}
 
-    def _find_pages_both_ends_smart(
+    def _find_pages_terminal_window(
         self,
         pdf_bytes: bytes,
         *,
@@ -181,115 +184,111 @@ class StripRateconPagesService:
         doc_label: str,
     ) -> list[int]:
         """
-        Both-ends header OCR until meet/overlap.
+        OCR page 1 and page P; strip an R-page window from a matching terminal.
 
-        Stop when ``len(hits) == R``, or contiguous window ends both match,
-        or fronts meet (then return accumulated hits only).
+        Front hit → ``1..R`` (wins if both terminals match). Back hit →
+        ``P-R+1..P``. Far-end heading miss is logged; window still stripped.
+        Neither terminal → match-only full scan.
         """
         r = ratecon_page_count
         p = page_count
-        mid = (p + 1) // 2
-        lo = 1
-        hi = p
-        hits: set[int] = set()
         match_cache: dict[int, bool] = {}
-
-        while lo <= hi:
-            round_pages = [lo] if lo == hi else [lo, hi]
-            matches = self._ocr_page_matches(
-                pdf_bytes,
-                round_pages,
-                doc_label=doc_label,
-                match_cache=match_cache,
-            )
-            new_hits: list[tuple[int, bool]] = []
-            for page_num in round_pages:
-                if matches.get(page_num):
-                    if page_num not in hits:
-                        new_hits.append((page_num, page_num <= mid))
-                    hits.add(page_num)
-
-            if len(hits) == r:
-                contiguous = self._contiguous_hits_block(hits, r)
-                if contiguous is not None:
-                    logger.info(
-                        "strip_ratecon_pages: stop hit_count==R contiguous doc=%s hits=%s",
-                        doc_label,
-                        contiguous,
-                    )
-                    return contiguous
-
-            for found_page, from_front in new_hits:
-                block = self._try_contiguous_window(
-                    pdf_bytes,
-                    found_page=found_page,
-                    from_front=from_front,
-                    ratecon_page_count=r,
-                    page_count=p,
-                    doc_label=doc_label,
-                    match_cache=match_cache,
-                )
-                if block is not None:
-                    logger.info(
-                        "strip_ratecon_pages: stop contiguous doc=%s F=%s block=%s",
-                        doc_label,
-                        found_page,
-                        block,
-                    )
-                    return block
-
-            lo += 1
-            hi -= 1
-
-        return sorted(hits)
-
-    @staticmethod
-    def _contiguous_hits_block(hits: set[int], ratecon_page_count: int) -> list[int] | None:
-        """Return sorted hits when they form a contiguous block of length ``R``."""
-        if len(hits) != ratecon_page_count:
-            return None
-        ordered = sorted(hits)
-        if ordered[-1] - ordered[0] + 1 != ratecon_page_count:
-            return None
-        return ordered
-
-    def _try_contiguous_window(
-        self,
-        pdf_bytes: bytes,
-        *,
-        found_page: int,
-        from_front: bool,
-        ratecon_page_count: int,
-        page_count: int,
-        doc_label: str,
-        match_cache: dict[int, bool],
-    ) -> list[int] | None:
-        """
-        Two-point confirm: first and last of proposed R-page window must match.
-
-        Front hit → window ``F .. F+R-1``. Back hit → ``F-R+1 .. F``.
-        """
-        r = ratecon_page_count
-        if from_front:
-            start = found_page
-            end = min(found_page + r - 1, page_count)
-        else:
-            end = found_page
-            start = max(1, found_page - r + 1)
-
-        if end < start:
-            return None
-
-        ends = [start] if start == end else [start, end]
+        terminals = [1] if p == 1 else [1, p]
         matches = self._ocr_page_matches(
             pdf_bytes,
-            ends,
+            terminals,
             doc_label=doc_label,
             match_cache=match_cache,
         )
-        if matches.get(start) and matches.get(end):
+        front_hit = bool(matches.get(1))
+        back_hit = bool(matches.get(p)) if p > 1 else front_hit
+
+        if front_hit and back_hit and p > 1:
+            logger.info(
+                "strip_ratecon_pages: both_terminals_match doc=%s P=%s R=%s "
+                "choosing_front",
+                doc_label,
+                p,
+                r,
+            )
+
+        if front_hit:
+            start, end = 1, r
+            far = end
+            if far != 1:
+                far_matches = self._ocr_page_matches(
+                    pdf_bytes,
+                    [far],
+                    doc_label=doc_label,
+                    match_cache=match_cache,
+                )
+                far_ok = bool(far_matches.get(far))
+            else:
+                far_ok = True
+            if not far_ok:
+                logger.warning(
+                    "strip_ratecon_pages: terminal_far_miss doc=%s anchor=front "
+                    "window=%s..%s far_page=%s still_stripping",
+                    doc_label,
+                    start,
+                    end,
+                    far,
+                )
+            else:
+                logger.info(
+                    "strip_ratecon_pages: terminal_front doc=%s window=%s..%s "
+                    "far_match=%s",
+                    doc_label,
+                    start,
+                    end,
+                    far_ok,
+                )
             return list(range(start, end + 1))
-        return None
+
+        if back_hit:
+            start, end = p - r + 1, p
+            far = start
+            if far != p:
+                far_matches = self._ocr_page_matches(
+                    pdf_bytes,
+                    [far],
+                    doc_label=doc_label,
+                    match_cache=match_cache,
+                )
+                far_ok = bool(far_matches.get(far))
+            else:
+                far_ok = True
+            if not far_ok:
+                logger.warning(
+                    "strip_ratecon_pages: terminal_far_miss doc=%s anchor=back "
+                    "window=%s..%s far_page=%s still_stripping",
+                    doc_label,
+                    start,
+                    end,
+                    far,
+                )
+            else:
+                logger.info(
+                    "strip_ratecon_pages: terminal_back doc=%s window=%s..%s "
+                    "far_match=%s",
+                    doc_label,
+                    start,
+                    end,
+                    far_ok,
+                )
+            return list(range(start, end + 1))
+
+        logger.info(
+            "strip_ratecon_pages: neither_terminal doc=%s P=%s R=%s → match_only",
+            doc_label,
+            p,
+            r,
+        )
+        return self.find_rate_confirmation_pages(
+            pdf_bytes,
+            prefer_native=False,
+            doc_label=doc_label,
+        )
 
     def _rebuild_without_pages(
         self,

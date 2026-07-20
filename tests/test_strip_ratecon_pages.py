@@ -22,6 +22,28 @@ def _pdf_with_page_texts(texts: list[str]) -> bytes:
         doc.close()
 
 
+def _fake_ocr(match_pages: set[int]):
+    def fake_ocr(pdf_bytes_arg, *, page_numbers, header_only, doc_label):
+        del pdf_bytes_arg, header_only, doc_label
+        return [
+            PageText(
+                page_number=n,
+                text="Rate confirmation" if n in match_pages else "BOL",
+                source="ocr",
+            )
+            for n in page_numbers
+        ]
+
+    return fake_ocr
+
+
+def _ocr_page_numbers(ocr_mock) -> list[int]:
+    pages: list[int] = []
+    for call in ocr_mock.call_args_list:
+        pages.extend(call.kwargs["page_numbers"])
+    return pages
+
+
 def test_page_has_rate_confirmation_heading_case_sensitive_ignores_spaces():
     assert page_has_rate_confirmation_heading("Rate confirmation\nShipment ID")
     assert page_has_rate_confirmation_heading("Prefix Rate confirmation suffix")
@@ -121,8 +143,8 @@ def test_strip_p_less_than_r_uses_match_only():
     ) as find_pages:
         with patch.object(
             strip_ratecon_pages_service,
-            "_find_pages_both_ends_smart",
-        ) as smart:
+            "_find_pages_terminal_window",
+        ) as terminal:
             result = strip_ratecon_pages_service.strip_pdf_bytes(
                 pdf_bytes,
                 ratecon_page_count=3,
@@ -130,148 +152,167 @@ def test_strip_p_less_than_r_uses_match_only():
 
     assert result.excluded_page_numbers == [1]
     find_pages.assert_called_once()
-    smart.assert_not_called()
+    terminal.assert_not_called()
 
 
-def test_smart_contiguous_strip_on_front_hit_and_window_end():
-    """Hit page 1, confirm page 3 (R=3) → strip 1..3 without walking the rest."""
+def test_terminal_front_hit_strips_1_to_r():
+    """Page 1 + far page R match → strip 1..R; never OCR mid pages."""
     pdf_bytes = _pdf_with_page_texts(["a"] * 8)
     strip_ratecon_pages_service = StripRateconPagesService()
-    # Pages that match heading when OCR'd
     match_pages = {1, 3}
-
-    def fake_ocr(pdf_bytes_arg, *, page_numbers, header_only, doc_label):
-        del pdf_bytes_arg, header_only, doc_label
-        return [
-            PageText(
-                page_number=n,
-                text="Rate confirmation" if n in match_pages else "BOL",
-                source="ocr",
-            )
-            for n in page_numbers
-        ]
 
     with patch.object(
         strip_ratecon_pages_service._page_text_extractor,
         "ocr_pages",
-        side_effect=fake_ocr,
+        side_effect=_fake_ocr(match_pages),
     ) as ocr:
         result = strip_ratecon_pages_service.strip_pdf_bytes(
             pdf_bytes,
             ratecon_page_count=3,
-            doc_label="smart",
+            doc_label="front",
         )
 
     assert result.success
     assert result.excluded_page_numbers == [1, 2, 3]
     assert result.kept_page_count == 5
-    # First round OCR 1+8; then window confirm OCR 3 (1 cached). Never all 8.
-    ocr_pages = []
-    for call in ocr.call_args_list:
-        ocr_pages.extend(call.kwargs["page_numbers"])
-    assert 1 in ocr_pages
-    assert 3 in ocr_pages
+    ocr_pages = _ocr_page_numbers(ocr)
+    assert set(ocr_pages) == {1, 3, 8}
     assert 4 not in ocr_pages
     assert 5 not in ocr_pages
 
 
-def test_smart_stop_when_hit_count_equals_r():
-    pdf_bytes = _pdf_with_page_texts(["a"] * 6)
+def test_terminal_front_far_miss_still_strips_window():
+    """Page 1 matches, page R misses → log + still strip 1..R."""
+    pdf_bytes = _pdf_with_page_texts(["a"] * 8)
     strip_ratecon_pages_service = StripRateconPagesService()
-    match_pages = {1, 2}
-
-    def fake_ocr(pdf_bytes_arg, *, page_numbers, header_only, doc_label):
-        del pdf_bytes_arg, header_only, doc_label
-        return [
-            PageText(
-                page_number=n,
-                text="Rate confirmation" if n in match_pages else "POD",
-                source="ocr",
-            )
-            for n in page_numbers
-        ]
+    match_pages = {1}  # far page 3 does not match
 
     with patch.object(
         strip_ratecon_pages_service._page_text_extractor,
         "ocr_pages",
-        side_effect=fake_ocr,
+        side_effect=_fake_ocr(match_pages),
     ):
-        # Force contiguous window miss so hit-count path stops (R=2, pages 1+2 contiguous).
-        with patch.object(
-            strip_ratecon_pages_service,
-            "_try_contiguous_window",
-            return_value=None,
-        ):
+        with patch(
+            "app.services.pod_lifecycle.strip_ratecon_pages.logger"
+        ) as log:
             result = strip_ratecon_pages_service.strip_pdf_bytes(
                 pdf_bytes,
-                ratecon_page_count=2,
+                ratecon_page_count=3,
             )
 
-    assert result.excluded_page_numbers == [1, 2]
+    assert result.excluded_page_numbers == [1, 2, 3]
+    assert any(
+        "terminal_far_miss" in str(c.args[0])
+        for c in log.warning.call_args_list
+    )
 
 
-def test_smart_window_end_miss_continues_then_strips_hits_at_meet():
-    pdf_bytes = _pdf_with_page_texts(["a"] * 4)
+def test_terminal_back_hit_strips_p_minus_r_plus_1_to_p():
+    """Page P matches → strip back window; OCR terminals + far start only."""
+    pdf_bytes = _pdf_with_page_texts(["a"] * 10)
     strip_ratecon_pages_service = StripRateconPagesService()
-    # Only page 2 matches; window 2..3 fails because 3 misses → walk to meet → strip {2}
-    match_pages = {2}
-
-    def fake_ocr(pdf_bytes_arg, *, page_numbers, header_only, doc_label):
-        del pdf_bytes_arg, header_only, doc_label
-        return [
-            PageText(
-                page_number=n,
-                text="Rate confirmation" if n in match_pages else "POD",
-                source="ocr",
-            )
-            for n in page_numbers
-        ]
+    # Front miss, back hit; far start page 6 also matches
+    match_pages = {6, 10}
 
     with patch.object(
         strip_ratecon_pages_service._page_text_extractor,
         "ocr_pages",
-        side_effect=fake_ocr,
+        side_effect=_fake_ocr(match_pages),
+    ) as ocr:
+        result = strip_ratecon_pages_service.strip_pdf_bytes(
+            pdf_bytes,
+            ratecon_page_count=5,
+        )
+
+    assert result.excluded_page_numbers == [6, 7, 8, 9, 10]
+    assert result.kept_page_count == 5
+    ocr_pages = _ocr_page_numbers(ocr)
+    assert set(ocr_pages) == {1, 6, 10}
+
+
+def test_terminal_back_far_miss_still_strips_window():
+    pdf_bytes = _pdf_with_page_texts(["a"] * 10)
+    strip_ratecon_pages_service = StripRateconPagesService()
+    match_pages = {10}  # far start page 6 misses
+
+    with patch.object(
+        strip_ratecon_pages_service._page_text_extractor,
+        "ocr_pages",
+        side_effect=_fake_ocr(match_pages),
+    ):
+        with patch(
+            "app.services.pod_lifecycle.strip_ratecon_pages.logger"
+        ) as log:
+            result = strip_ratecon_pages_service.strip_pdf_bytes(
+                pdf_bytes,
+                ratecon_page_count=5,
+            )
+
+    assert result.excluded_page_numbers == [6, 7, 8, 9, 10]
+    assert any(
+        "terminal_far_miss" in str(c.args[0])
+        for c in log.warning.call_args_list
+    )
+
+
+def test_terminal_both_hits_prefers_front():
+    pdf_bytes = _pdf_with_page_texts(["a"] * 8)
+    strip_ratecon_pages_service = StripRateconPagesService()
+    match_pages = {1, 3, 8}
+
+    with patch.object(
+        strip_ratecon_pages_service._page_text_extractor,
+        "ocr_pages",
+        side_effect=_fake_ocr(match_pages),
     ):
         result = strip_ratecon_pages_service.strip_pdf_bytes(
             pdf_bytes,
-            ratecon_page_count=2,
+            ratecon_page_count=3,
         )
 
-    assert result.excluded_page_numbers == [2]
-    assert result.kept_page_count == 3
+    assert result.excluded_page_numbers == [1, 2, 3]
 
 
-def test_smart_hit_count_ignores_non_contiguous_hits():
-    """Page 1 + last page both match with R=2 must not strip those ends as a block."""
+def test_terminal_neither_falls_back_to_match_only():
     pdf_bytes = _pdf_with_page_texts(["a"] * 6)
     strip_ratecon_pages_service = StripRateconPagesService()
-    match_pages = {1, 6}
-
-    def fake_ocr(pdf_bytes_arg, *, page_numbers, header_only, doc_label):
-        del pdf_bytes_arg, header_only, doc_label
-        return [
-            PageText(
-                page_number=n,
-                text="Rate confirmation" if n in match_pages else "POD",
-                source="ocr",
-            )
-            for n in page_numbers
-        ]
+    match_pages: set[int] = set()  # terminals miss
 
     with patch.object(
         strip_ratecon_pages_service._page_text_extractor,
         "ocr_pages",
-        side_effect=fake_ocr,
+        side_effect=_fake_ocr(match_pages),
     ):
         with patch.object(
             strip_ratecon_pages_service,
-            "_try_contiguous_window",
-            return_value=None,
-        ):
+            "find_rate_confirmation_pages",
+            return_value=[3, 4],
+        ) as find_pages:
             result = strip_ratecon_pages_service.strip_pdf_bytes(
                 pdf_bytes,
                 ratecon_page_count=2,
             )
 
-    # Walk completes; strip accumulated hits only (not treated as contiguous R-block).
-    assert result.excluded_page_numbers == [1, 6]
+    find_pages.assert_called_once()
+    assert result.excluded_page_numbers == [3, 4]
+    assert result.kept_page_count == 4
+
+
+def test_terminal_p_equals_r_all_excluded():
+    pdf_bytes = _pdf_with_page_texts(["a"] * 3)
+    strip_ratecon_pages_service = StripRateconPagesService()
+    match_pages = {1, 3}
+
+    with patch.object(
+        strip_ratecon_pages_service._page_text_extractor,
+        "ocr_pages",
+        side_effect=_fake_ocr(match_pages),
+    ):
+        result = strip_ratecon_pages_service.strip_pdf_bytes(
+            pdf_bytes,
+            ratecon_page_count=3,
+        )
+
+    assert not result.success
+    assert result.skip_reason == "all_pages_rate_confirmation"
+    assert result.excluded_page_numbers == [1, 2, 3]

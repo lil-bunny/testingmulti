@@ -12,14 +12,17 @@ from app.core.config import settings
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.models.document import DocumentType
-from app.models.document_analysis import DocumentAnalysisType
+from app.models.document_analysis import (
+    DOCUMENT_ANALYSIS_PAGE_COUNT_KEY,
+    DocumentAnalysisType,
+)
 from app.services.attachment_normalizer import (
     _sanitize_path_segment,
     ratecon_shipment_object_basename,
 )
 from app.services.ratecon_extraction import extract_from_pdf_path
 from app.services.s3bucket_service import bucket, normalize_object_key
-from app.services.shipments_service import RATECON_PAGE_COUNT_KEY
+from app.tools.document_analysis import metadata_with_page_count, normalize_page_count
 from app.tools.email import detect_attachment_bytes_type, get_email_attachments
 from app.tools.pdf_page_text_extractor import pdf_page_count
 from app.tools.pdf_to_images import PdfTooLargeError, freightx_stage_dir, make_temp_pdf
@@ -163,12 +166,11 @@ class RateconDocumentService:
             return patch
 
         persist = self._persist_ratecon_analysis(
-            tenant_id=str(data.get("tenant_id") or "").strip(),
             shipments_row_id=shipments_row_id,
             findings=analysis_out["findings"],
             confidence_score=analysis_out.get("confidence_score"),
             document_id=analysis_out.get("document_id"),
-            ratecon_page_count=analysis_out.get(RATECON_PAGE_COUNT_KEY),
+            page_count=analysis_out.get(DOCUMENT_ANALYSIS_PAGE_COUNT_KEY),
         )
         patch["document_analysis_ratecon"] = persist
         return patch
@@ -457,7 +459,6 @@ class RateconDocumentService:
                     "model": settings.LLM_MODEL,
                     "total_identifiers_found": len(extracted.get("shipment_identifiers") or []),
                     "identifiers_list": extracted.get("shipment_identifiers") or [],
-                    RATECON_PAGE_COUNT_KEY: ratecon_pages,
                 },
                 "extracted_fields": extracted,
                 "page_details": page_results,
@@ -475,7 +476,7 @@ class RateconDocumentService:
                 "findings": findings,
                 "document_id": document_id,
                 "confidence_score": confidence,
-                RATECON_PAGE_COUNT_KEY: ratecon_pages,
+                DOCUMENT_ANALYSIS_PAGE_COUNT_KEY: ratecon_pages,
             }
         except PdfTooLargeError as exc:
             logger.warning(
@@ -504,18 +505,13 @@ class RateconDocumentService:
     def _persist_ratecon_analysis(
         self,
         *,
-        tenant_id: str,
         shipments_row_id: str,
         findings: dict[str, Any],
         confidence_score: float | None,
         document_id: str | None,
-        ratecon_page_count: Any = None,
+        page_count: Any = None,
     ) -> dict[str, Any]:
-        """
-        Upsert ratecon ``document_analysis`` and optionally ``ratecon_page_count``.
-
-        Flow: validate ids → one ``run_with_repos`` for analysis row + metadata merge.
-        """
+        """Upsert ratecon ``document_analysis`` with ``metadata.page_count`` when known."""
         row_shipment_id = _uuid_or_none(shipments_row_id)
         if not row_shipment_id:
             return {"stored": False, "id": None, "error": "invalid_shipments_row_id"}
@@ -524,14 +520,10 @@ class RateconDocumentService:
         if document_id and not row_document_id:
             return {"stored": False, "id": None, "error": "invalid_document_id"}
 
-        tid = _uuid_or_none(tenant_id)
-        try:
-            pages_int = int(ratecon_page_count) if ratecon_page_count is not None else 0
-        except (TypeError, ValueError):
-            pages_int = 0
-
+        pages = normalize_page_count(page_count)
         row_id = str(uuid.uuid4())
         llm_model = {"model": settings.LLM_MODEL} if settings.LLM_MODEL else None
+        meta = metadata_with_page_count(pages)
 
         def _write(repos: Any) -> dict[str, Any]:
             row = repos.document_analysis.upsert_by_shipment_and_type(
@@ -542,30 +534,24 @@ class RateconDocumentService:
                 confidence_score=confidence_score,
                 llm_model=llm_model,
                 document_id=row_document_id,
+                metadata=meta,
             )
             if not row:
                 return {"stored": False, "id": None, "error": "upsert_returned_no_row"}
 
-            metadata_stored = False
-            if tid and pages_int >= 1:
-                metadata_stored = repos.shipments.merge_metadata_by_id_tx(
-                    tenant_id=tid,
-                    shipment_row_id=row_shipment_id,
-                    metadata_patch={RATECON_PAGE_COUNT_KEY: pages_int},
-                )
-                logger.info(
-                    "ratecon analysis: stored %s=%s shipment_row=%s stored=%s",
-                    RATECON_PAGE_COUNT_KEY,
-                    pages_int,
-                    row_shipment_id,
-                    metadata_stored,
-                )
-
+            logger.info(
+                "ratecon analysis: stored document_analysis id=%s shipment_row=%s "
+                "%s=%s",
+                row["id"],
+                row_shipment_id,
+                DOCUMENT_ANALYSIS_PAGE_COUNT_KEY,
+                pages,
+            )
             return {
                 "stored": True,
                 "id": row["id"],
                 "updated_at": row["updated_at"],
-                "ratecon_page_count_stored": metadata_stored,
+                "page_count_stored": pages is not None,
             }
 
         try:

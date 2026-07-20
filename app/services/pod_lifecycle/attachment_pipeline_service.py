@@ -28,7 +28,7 @@ from app.services.email_webhook_attachment_ingestion import (
     fetch_email_attachment_bytes_with_retry,
 )
 from app.services.pod_lifecycle.ingress_service import POD_EMAIL_SKIP_INVALID_ATTACHMENT
-from app.services.shipments_service import ShipmentsService
+from app.tools.document_analysis import resolve_ratecon_page_count
 from app.tools.documents import insert_document
 
 logger = get_logger(__name__)
@@ -77,15 +77,9 @@ class PodAttachmentPipelineService:
 
     @staticmethod
     def _resolve_ratecon_page_count(payload: dict[str, Any]) -> int | None:
-        """Read ratecon PDF page count from shipments.metadata when available."""
-        tenant_id = str(payload.get("tenant_id") or "").strip()
-        if not tenant_id:
-            return None
-        shipments_service = ShipmentsService()
-        return shipments_service.resolve_ratecon_page_count(
-            tenant_id=tenant_id,
-            shipments_row_id=str(payload.get("shipments_row_id") or "").strip() or None,
-            shipment_number=str(payload.get("shipment_id") or "").strip() or None,
+        """Read ratecon PDF page count from document_analysis.metadata.page_count."""
+        return resolve_ratecon_page_count(
+            str(payload.get("shipments_row_id") or "").strip() or None,
         )
 
     @staticmethod

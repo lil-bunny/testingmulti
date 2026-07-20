@@ -7,10 +7,47 @@ import uuid
 from typing import Any, Optional
 
 from app.core.db import db_scope, db_transaction
-from app.models.document_analysis import DocumentAnalysisType
+from app.models.document_analysis import (
+    DOCUMENT_ANALYSIS_PAGE_COUNT_KEY,
+    DocumentAnalysisType,
+)
 from app.tools.documents import _uuid_or_none
 
 logger = logging.getLogger(__name__)
+
+
+def page_count_from_analysis_row(row: dict[str, Any] | None) -> int | None:
+    """Parse ``metadata.page_count`` from a ``document_analysis`` row."""
+    if not row:
+        return None
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    raw = metadata.get(DOCUMENT_ANALYSIS_PAGE_COUNT_KEY)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 1 else None
+
+
+def normalize_page_count(value: Any) -> int | None:
+    """Return a positive int page count, or ``None``."""
+    if value is None:
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
+def metadata_with_page_count(page_count: Any = None) -> dict[str, Any] | None:
+    """Build a ``document_analysis.metadata`` patch with ``page_count`` when valid."""
+    n = normalize_page_count(page_count)
+    if n is None:
+        return None
+    return {DOCUMENT_ANALYSIS_PAGE_COUNT_KEY: n}
 
 
 def upsert_document_analysis(
@@ -21,6 +58,8 @@ def upsert_document_analysis(
     confidence_score: Optional[float] = None,
     llm_model: Optional[dict[str, Any]] = None,
     document_id: str | None = None,
+    page_count: Any = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Upsert one analysis row by ``(shipment_id, analysis_type)``. Returns ``{stored, id?, error?}``."""
 
@@ -33,6 +72,11 @@ def upsert_document_analysis(
     row_document_id = _uuid_or_none(document_id) if document_id else None
     if document_id and not row_document_id:
         return {"stored": False, "id": None, "error": "invalid_document_id"}
+
+    meta_patch: dict[str, Any] = dict(metadata) if isinstance(metadata, dict) else {}
+    page_patch = metadata_with_page_count(page_count)
+    if page_patch:
+        meta_patch.update(page_patch)
 
     row_id = str(uuid.uuid4())
 
@@ -47,6 +91,7 @@ def upsert_document_analysis(
                     confidence_score=confidence_score,
                     llm_model=llm_model,
                     document_id=row_document_id,
+                    metadata=meta_patch or None,
                 )
         if not row:
             return {"stored": False, "id": None, "error": "upsert_returned_no_row"}
@@ -88,6 +133,14 @@ def read_ratecon_extraction(shipments_row_id: str | None) -> dict[str, Any]:
         return {"found": False, "error": str(exc)}
 
 
+def resolve_ratecon_page_count(shipments_row_id: str | None) -> int | None:
+    """``metadata.page_count`` from the ratecon ``document_analysis`` row, if present."""
+    out = read_ratecon_extraction(shipments_row_id)
+    if not out.get("found"):
+        return None
+    return page_count_from_analysis_row(out.get("row"))
+
+
 def upsert_ratecon_extraction(
     shipments_row_id: str | None,
     *,
@@ -95,6 +148,7 @@ def upsert_ratecon_extraction(
     confidence_score: Optional[float] = None,
     llm_model: Optional[dict[str, Any]] = None,
     document_id: str | None = None,
+    page_count: Any = None,
 ) -> dict[str, Any]:
     """Upsert ``ratecon_extraction`` for ``shipments_row_id``. Returns ``{stored, id?, error?}``."""
 
@@ -105,5 +159,5 @@ def upsert_ratecon_extraction(
         confidence_score=confidence_score,
         llm_model=llm_model,
         document_id=document_id,
+        page_count=page_count,
     )
-
