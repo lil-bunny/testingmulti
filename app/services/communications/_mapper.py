@@ -36,23 +36,25 @@ _ORIGINAL_MESSAGE_RE = re.compile(
     r"-{3,}\s*Original Message\s*-{3,}",
     re.IGNORECASE,
 )
+# Values run until the next header label (space- or newline-separated) so
+# single-line forwards like "From: X Sent: Y Subject: Z" strip correctly.
 _FORWARD_HEADER_BLOCK_RE = re.compile(
     r"""
-    \bFrom:\s*.+?(?:\n|$)
-    \s*Sent:\s*.+?(?:\n|$)
-    (?:\s*To:\s*.+?(?:\n|$))?
-    (?:\s*(?:Cc|CC):\s*.+?(?:\n|$))?
-    \s*Subject:\s*.+?(?:\n|$)
+    \bFrom:\s*.+?
+    \s+Sent:\s*.+?
+    (?:\s+To:\s*.+?)?
+    (?:\s+(?:Cc|CC):\s*.+?)?
+    \s+Subject:\s*.+?(?:\n|$)
     """,
     re.IGNORECASE | re.MULTILINE | re.DOTALL | re.VERBOSE,
 )
 _FORWARD_HEADER_PREFIX_RE = re.compile(
-    r"^(?:From:\s*.+?(?:\n|$))"
-    r"(?:\s*Sent:\s*.+?(?:\n|$))?"
-    r"(?:\s*To:\s*.+?(?:\n|$))?"
-    r"(?:\s*(?:Cc|CC):\s*.+?(?:\n|$))?"
-    r"(?:\s*Subject:\s*.+?(?:\n|$))?\s*",
-    re.IGNORECASE | re.MULTILINE,
+    r"^(?:From:\s*.+?(?=\s+(?:Sent|To|Cc|CC|Subject):|\n|$))"
+    r"(?:\s+Sent:\s*.+?(?=\s+(?:To|Cc|CC|Subject):|\n|$))?"
+    r"(?:\s+To:\s*.+?(?=\s+(?:Cc|CC|Subject):|\n|$))?"
+    r"(?:\s+(?:Cc|CC):\s*.+?(?=\s+Subject:|\n|$))?"
+    r"(?:\s+Subject:\s*.+?(?:\n|$))?\s*",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
 _WS_RE = re.compile(r"\s+")
 _OUTBOUND_LLM_SENDER = "ops_rep"
