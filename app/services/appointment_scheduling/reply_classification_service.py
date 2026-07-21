@@ -13,6 +13,9 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
 from app.domain.prompt_step_keys import APPOINTMENT_SCHEDULING_CUSTOMER_REPLY
 from app.integrations.langsmith import PromptTraceMetadata, PromptUnavailableError
 from app.services.activity_log_service import ActivityLogService
+from app.services.appointment_scheduling.lifecycle_service import (
+    AppointmentSchedulingLifecycleService,
+)
 from app.services.communications.service import CommunicationsService
 from app.services.prompt_service import (
     PromptService,
@@ -74,10 +77,12 @@ class AppointmentReplyClassificationService:
         communications_service: CommunicationsService | None = None,
         prompt_service: PromptService | None = None,
         activity_log_service: ActivityLogService | None = None,
+        lifecycle_service: AppointmentSchedulingLifecycleService | None = None,
     ) -> None:
         self._communications = communications_service or CommunicationsService()
         self._prompts = prompt_service or PromptService()
         self._activity = activity_log_service or ActivityLogService()
+        self._lifecycle = lifecycle_service or AppointmentSchedulingLifecycleService()
 
     def classify_from_state(self, state) -> AppointmentReplyClassificationResult:
         tenant_id = (getattr(state, "tenant_id", None) or state.data.get("tenant_id") or "").strip()
@@ -109,10 +114,18 @@ class AppointmentReplyClassificationService:
         reply_text = ""
         thread_message_count = 0
         if tenant_id and thread_id:
-            reply_text, thread_message_count = self._communications.build_thread_llm_user_message(
-                tenant_id,
-                thread_id,
-                fallback_body=fallback_body,
+            draft_comm_id = None
+            if workflow_lifecycle_id:
+                draft_comm_id = self._lifecycle.draft_outbound_communication_id(
+                    workflow_lifecycle_id
+                )
+            reply_text, thread_message_count = (
+                self._communications.build_appointment_reply_thread_llm_user_message(
+                    tenant_id,
+                    thread_id,
+                    draft_communication_id=draft_comm_id,
+                    fallback_body=fallback_body,
+                )
             )
 
         if not (reply_text or "").strip():

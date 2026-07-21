@@ -1054,3 +1054,100 @@ class CommunicationsService:
             max_messages=max_messages,
         )
         return text, len(messages)
+
+    def _get_email_message_by_id(
+        self,
+        tenant_id: str,
+        communication_id: str,
+    ) -> dict[str, Any] | None:
+        tid = self._tenant_uuid_or_none(tenant_id)
+        comm_id = self._uuid_or_none(communication_id, field_name="communication_id")
+        if not tid or not comm_id:
+            return None
+        try:
+            if self._repository is not None:
+                return self._repository.get_email_by_id(
+                    tenant_id=tid,
+                    communication_id=comm_id,
+                )
+            return run_with_repos(
+                lambda repos: self._repo(repos).get_email_by_id(
+                    tenant_id=tid,
+                    communication_id=comm_id,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications get_email_by_id failed tenant_id=%s communication_id=%s",
+                tid,
+                comm_id,
+            )
+            return None
+
+    @staticmethod
+    def _merge_appointment_reply_thread_messages(
+        thread_messages: list[dict[str, Any]],
+        *,
+        draft_message: dict[str, Any] | None,
+        draft_communication_id: str,
+    ) -> list[dict[str, Any]]:
+        messages = list(thread_messages)
+        draft_id = str(draft_communication_id or "").strip()
+        if not draft_id:
+            return messages
+        if any(str(m.get("id") or "").strip() == draft_id for m in messages):
+            return messages
+        if any(str(m.get("direction") or "").strip().lower() == "outbound" for m in messages):
+            return messages
+        if not draft_message or not str(draft_message.get("content") or "").strip():
+            return messages
+
+        merged: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for row in sorted(
+            messages + [draft_message],
+            key=lambda item: item.get("created_at") or "",
+        ):
+            row_id = str(row.get("id") or "").strip()
+            if row_id:
+                if row_id in seen_ids:
+                    continue
+                seen_ids.add(row_id)
+            merged.append(row)
+        return merged
+
+    def build_appointment_reply_thread_llm_user_message(
+        self,
+        tenant_id: str,
+        thread_id: str,
+        *,
+        draft_communication_id: str | None = None,
+        fallback_body: str | None = None,
+        limit: int = 50,
+        max_messages: int | None = None,
+    ) -> tuple[str, int]:
+        """
+        Appointment reply LLM text: thread messages plus lifecycle draft outbound when
+        the draft is not linked on ``thread_id``.
+        """
+        messages = self.list_thread_messages(tenant_id, thread_id, limit=limit)
+        draft_id = self._clean(draft_communication_id)
+        draft_message = None
+        if draft_id:
+            draft_in_thread = any(str(m.get("id") or "").strip() == draft_id for m in messages)
+            thread_has_outbound = any(
+                str(m.get("direction") or "").strip().lower() == "outbound" for m in messages
+            )
+            if not draft_in_thread and not thread_has_outbound:
+                draft_message = self._get_email_message_by_id(tenant_id, draft_id)
+        merged = self._merge_appointment_reply_thread_messages(
+            messages,
+            draft_message=draft_message,
+            draft_communication_id=draft_id or "",
+        )
+        text = build_email_thread_llm_user_message(
+            merged,
+            fallback_body=fallback_body,
+            max_messages=max_messages,
+        )
+        return text, len(merged)

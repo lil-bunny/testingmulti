@@ -26,14 +26,17 @@ def _tenant_settings() -> dict:
 
 def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> AppointmentReplyClassificationService:
     comms = MagicMock()
-    comms.build_thread_llm_user_message.return_value = (thread_text, 1)
+    comms.build_appointment_reply_thread_llm_user_message.return_value = (thread_text, 1)
     prompts = MagicMock()
     activity = MagicMock()
     activity.record_action.return_value = "activity-1"
+    lifecycle = MagicMock()
+    lifecycle.draft_outbound_communication_id.return_value = None
     return AppointmentReplyClassificationService(
         communications_service=comms,
         prompt_service=prompts,
         activity_log_service=activity,
+        lifecycle_service=lifecycle,
     )
 
 
@@ -109,7 +112,7 @@ def test_classify_insufficient_records_activity_no_lifecycle_write() -> None:
 
 def test_classify_empty_body_do_nothing() -> None:
     svc = _service(thread_text="")
-    svc._communications.build_thread_llm_user_message.return_value = ("", 0)
+    svc._communications.build_appointment_reply_thread_llm_user_message.return_value = ("", 0)
     result = svc.classify_from_payload(
         tenant_id=_TENANT,
         thread_id=_THREAD,
@@ -137,3 +140,41 @@ def test_classify_from_state() -> None:
     with patch.object(svc, "classify_from_payload", return_value=MagicMock(to_state_patch=lambda: {"customer_reply_decision": SUFFICIENT})) as mock:
         svc.classify_from_state(state)
     mock.assert_called_once()
+
+
+def test_classify_passes_lifecycle_draft_comm_to_comms_builder() -> None:
+    svc = _service()
+    svc._lifecycle.draft_outbound_communication_id.return_value = "draft-comm-1"
+    llm_raw = {
+        "decision": INSUFFICIENT,
+        "confidence": 0.5,
+        "reason": "time only",
+        "extracted_date": None,
+        "extracted_time": "17:00",
+    }
+    with (
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.resolve_appointment_scheduling_customer_reply_prompts",
+            return_value=(MagicMock(system="sys", user="user"), MagicMock()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.chat_json",
+            return_value=llm_raw,
+        ),
+    ):
+        svc.classify_from_payload(
+            tenant_id=_TENANT,
+            thread_id=_THREAD,
+            fallback_body="5PM",
+            tenant_settings=_tenant_settings(),
+            workflow_lifecycle_id=_LIFECYCLE,
+            workflow_run_id=_RUN,
+        )
+
+    svc._lifecycle.draft_outbound_communication_id.assert_called_once_with(_LIFECYCLE)
+    svc._communications.build_appointment_reply_thread_llm_user_message.assert_called_once_with(
+        _TENANT,
+        _THREAD,
+        draft_communication_id="draft-comm-1",
+        fallback_body="5PM",
+    )

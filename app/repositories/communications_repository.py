@@ -47,6 +47,21 @@ def _carrier_anchors_ranked_sql(*, table_name: str) -> str:
     """
 
 
+def _email_message_dict(row: dict[str, Any]) -> dict[str, Any]:
+    meta = row.get("metadata")
+    if meta is None:
+        meta = {}
+    elif not isinstance(meta, dict):
+        meta = dict(meta)
+    return {
+        "id": row["id"],
+        "direction": row["direction"],
+        "content": row["content"],
+        "metadata": meta,
+        "created_at": row["created_at"],
+    }
+
+
 class CommunicationsRepository:
     TABLE_NAME = "communications"
 
@@ -81,23 +96,36 @@ class CommunicationsRepository:
             json_keys=frozenset({"metadata"}),
         )
 
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            meta = row.get("metadata")
-            if meta is None:
-                meta = {}
-            elif not isinstance(meta, dict):
-                meta = dict(meta)
-            out.append(
-                {
-                    "id": row["id"],
-                    "direction": row["direction"],
-                    "content": row["content"],
-                    "metadata": meta,
-                    "created_at": row["created_at"],
-                }
-            )
-        return out
+        return [_email_message_dict(row) for row in rows]
+
+    def get_email_by_id(
+        self,
+        *,
+        tenant_id: str,
+        communication_id: str,
+    ) -> dict[str, Any] | None:
+        """Return one email communication row by PK, tenant-scoped."""
+        row = fetchall_dicts(
+            self._session,
+            f"""
+            SELECT
+                id::text AS id,
+                direction::text AS direction,
+                content,
+                metadata,
+                created_at
+            FROM {self.TABLE_NAME}
+            WHERE tenant_id = CAST(:tenant_id AS uuid)
+              AND id = CAST(:communication_id AS uuid)
+              AND channel = 'email'::communication_channel
+            LIMIT 1
+            """,
+            {"tenant_id": tenant_id, "communication_id": communication_id},
+            json_keys=frozenset({"metadata"}),
+        )
+        if not row:
+            return None
+        return _email_message_dict(row[0])
 
     def find_active_lifecycle_id_for_thread(
         self,
