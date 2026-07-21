@@ -82,3 +82,8 @@ def format_turvo_pickup_updated_action(*, stop_name: str, start_time: str) -> st
 
 def format_appointment_confirmation_sent_action() -> str:
     return "Appointment confirmation reply sent"
+
+
+def format_turvo_tendered_action(*, reference_number: str) -> str:
+    ref = (reference_number or "").strip() or "unknown"
+    return f"Turvo shipment status updated to Tendered for {ref}"

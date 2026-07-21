@@ -311,6 +311,28 @@ def send_appointment_confirmation_reply(state):
     return state
 
 
+def apply_turvo_tender_status(state):
+    if not state.data.get("confirmation_sent"):
+        return state
+    import asyncio
+
+    result = asyncio.run(
+        AppointmentSchedulingTurvoWriteService().tender_from_state(state)
+    )
+    state.data["turvo_tender_result"] = {
+        "ok": result.ok,
+        "updated": result.updated,
+        "skipped": result.skipped,
+        "error": result.error,
+        "response": result.response,
+    }
+    if result.ok and (result.updated or result.skipped):
+        AppointmentSchedulingActivityService().record_turvo_tendered(state)
+    if not result.ok:
+        raise RuntimeError(result.error or "turvo_tender_failed")
+    return state
+
+
 def record_appointment_reply_completed(state):
     lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     confirmed_at = str(state.data.get("confirmed_delivery_at") or "").strip() or None

@@ -16,6 +16,7 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_ascend_dropoff_updated_action,
     format_scheduling_decision_info,
     format_turvo_delivery_updated_action,
+    format_turvo_tendered_action,
 )
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
@@ -455,6 +456,26 @@ class AppointmentSchedulingActivityService:
                         activity_type=ActivityType.ACTION,
                         description=format_appointment_confirmation_sent_action(),
                         communication_id=comm_id,
+                    ),
+                ),
+            )
+        )
+
+    def record_turvo_tendered(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        reference = str(state.data.get("reference_number") or "").strip()
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_turvo_tendered_action(reference_number=reference),
                     ),
                 ),
             )

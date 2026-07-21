@@ -135,6 +135,7 @@ class AppointmentSchedulingWeekendPickupService:
 
         tenant_id = str(data.get("tenant_id") or "").strip()
         load_id = str(data.get("load_id") or "").strip()
+        customer_name_override = str(data.get("customer_name") or "").strip() or None
         if tenant_id and load_id:
             refresh = asyncio.run(
                 ShipmentsService().refresh_display_from_turvo(
@@ -142,6 +143,7 @@ class AppointmentSchedulingWeekendPickupService:
                     tenant_slug=tenant_slug,
                     turvo_shipment_id=shipment_id,
                     load_id=load_id,
+                    customer_name_override=customer_name_override,
                 )
             )
             if not refresh.get("success"):

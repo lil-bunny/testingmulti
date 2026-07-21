@@ -104,6 +104,7 @@ from app.workflows.nodes.appointment_scheduling.nodes import (
     apply_ascend_dropoff_appointment,
     apply_turvo_delivery_appointment,
     apply_turvo_delivery_placeholder,
+    apply_turvo_tender_status,
     apply_weekend_shifted_pickup,
     build_email_scheduling_draft,
     classify_appointment_customer_reply,
@@ -215,6 +216,7 @@ NODE_REGISTRY = {
     "apply_ascend_dropoff_appointment": apply_ascend_dropoff_appointment,
     "apply_turvo_delivery_appointment": apply_turvo_delivery_appointment,
     "send_appointment_confirmation_reply": send_appointment_confirmation_reply,
+    "apply_turvo_tender_status": apply_turvo_tender_status,
     "record_appointment_reply_completed": record_appointment_reply_completed,
     "end": end,
 }
