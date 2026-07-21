@@ -5,11 +5,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
-SUFFICIENT = "sufficient"
-INSUFFICIENT = "insufficient"
+ACCEPTED = "accepted"
+REJECTED = "rejected"
 DO_NOTHING = "do_nothing"
 
-_CUSTOMER_REPLY_DECISIONS = frozenset({SUFFICIENT, INSUFFICIENT, DO_NOTHING})
+_CUSTOMER_REPLY_DECISIONS = frozenset({ACCEPTED, REJECTED, DO_NOTHING})
+_LEGACY_DECISION_ALIASES = {
+    "sufficient": ACCEPTED,
+    "insufficient": DO_NOTHING,
+}
 
 
 def _clean_field(value: Any) -> str | None:
@@ -25,11 +29,13 @@ def normalize_customer_reply_decision(raw: dict[str, Any]) -> str:
     decision = str(raw.get("decision") or "").strip().lower()
     if decision in _CUSTOMER_REPLY_DECISIONS:
         return decision
+    if decision in _LEGACY_DECISION_ALIASES:
+        return _LEGACY_DECISION_ALIASES[decision]
     success = raw.get("success")
     if success is True:
-        return SUFFICIENT
+        return ACCEPTED
     if success is False:
-        return INSUFFICIENT
+        return DO_NOTHING
     return DO_NOTHING
 
 
@@ -143,10 +149,10 @@ def build_customer_reply_result(raw: dict[str, Any]) -> dict[str, Any]:
     extracted_date = _clean_field(raw.get("extracted_date"))
     extracted_time = _clean_field(raw.get("extracted_time"))
     decision = normalize_customer_reply_decision(raw)
-    if decision == SUFFICIENT and not (
+    if decision == ACCEPTED and not (
         extracted_date and extracted_time and format_appointment_start_iso(extracted_date, extracted_time)
     ):
-        decision = INSUFFICIENT
+        decision = REJECTED
     try:
         confidence = float(raw.get("confidence", 0.0))
     except (TypeError, ValueError):

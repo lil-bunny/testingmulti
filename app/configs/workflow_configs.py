@@ -385,6 +385,7 @@ WORKFLOW_CONFIGS = {
             "send_appointment_confirmation_reply",
             "apply_turvo_tender_status",
             "record_appointment_reply_completed",
+            "record_appointment_reply_rejected",
             "end",
         ],
         "edges": [
@@ -403,6 +404,7 @@ WORKFLOW_CONFIGS = {
             ["send_appointment_confirmation_reply", "apply_turvo_tender_status"],
             ["apply_turvo_tender_status", "record_appointment_reply_completed"],
             ["record_appointment_reply_completed", "end"],
+            ["record_appointment_reply_rejected", "end"],
         ],
         "routers": {
             "route_event": {
@@ -440,8 +442,8 @@ WORKFLOW_CONFIGS = {
             "classify_appointment_customer_reply": {
                 "router": "customer_reply_router",
                 "map": {
-                    "sufficient": "apply_ascend_dropoff_appointment",
-                    "insufficient": "end",
+                    "accepted": "apply_ascend_dropoff_appointment",
+                    "rejected": "record_appointment_reply_rejected",
                     "do_nothing": "end",
                 },
             },

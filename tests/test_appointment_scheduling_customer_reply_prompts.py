@@ -12,7 +12,7 @@ def test_resolve_without_tenant_ref_loads_json_fallback() -> None:
         {"thread_text": thread},
     )
     assert "decision" in rendered.system
-    assert "sufficient" in rendered.system
+    assert "accepted" in rendered.system
     assert thread in rendered.user
     assert "Pls do it on 5PM" in rendered.user
     assert "please confirm" in rendered.user.lower()

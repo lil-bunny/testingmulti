@@ -50,6 +50,11 @@ def format_customer_reply_llm_action(
     )
 
 
+def format_appointment_reply_rejected_action(*, reason: str) -> str:
+    detail = (reason or "").strip() or "appointment not confirmed"
+    return f"Customer reply rejected: {detail}"
+
+
 def format_ascend_dropoff_updated_action(*, reference_number: str, appointment_start: str) -> str:
     ref = (reference_number or "").strip() or "unknown"
     return f"Ascend dropoff appointment updated for {ref} at {appointment_start}"

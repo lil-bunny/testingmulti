@@ -22,9 +22,9 @@ from app.services.prompt_service import (
     resolve_appointment_scheduling_customer_reply_prompts,
 )
 from app.tools.appointment_scheduling.customer_reply import (
+    ACCEPTED,
     DO_NOTHING,
-    INSUFFICIENT,
-    SUFFICIENT,
+    REJECTED,
     build_customer_reply_result,
 )
 from app.tools.llm_client import LLMClientError, chat_json
@@ -251,7 +251,7 @@ class AppointmentReplyClassificationService:
 __all__ = (
     "AppointmentReplyClassificationResult",
     "AppointmentReplyClassificationService",
-    "SUFFICIENT",
-    "INSUFFICIENT",
+    "ACCEPTED",
+    "REJECTED",
     "DO_NOTHING",
 )

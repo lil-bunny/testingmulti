@@ -115,6 +115,7 @@ from app.workflows.nodes.appointment_scheduling.nodes import (
     persist_scheduling_draft_ready,
     read_appointment_scheduling_lifecycle,
     record_appointment_reply_completed,
+    record_appointment_reply_rejected,
     record_appointment_scheduling_started,
     record_scheduling_decision,
     run_scheduling_intake,
@@ -218,5 +219,6 @@ NODE_REGISTRY = {
     "send_appointment_confirmation_reply": send_appointment_confirmation_reply,
     "apply_turvo_tender_status": apply_turvo_tender_status,
     "record_appointment_reply_completed": record_appointment_reply_completed,
+    "record_appointment_reply_rejected": record_appointment_reply_rejected,
     "end": end,
 }

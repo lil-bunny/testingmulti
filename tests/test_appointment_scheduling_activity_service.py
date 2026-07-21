@@ -225,7 +225,7 @@ def test_record_reply_completed_writes_completed_status() -> None:
     svc.record_reply_completed(
         _state(
             confirmed_delivery_at="2026-07-18T10:30:00",
-            customer_reply_decision="sufficient",
+            customer_reply_decision="accepted",
         )
     )
 
@@ -235,3 +235,31 @@ def test_record_reply_completed_writes_completed_status() -> None:
     assert seq.steps[0].metadata is None
     assert seq.steps[0].to_status == StatusType.COMPLETED
     assert seq.steps[0].to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED
+
+
+def test_record_reply_rejected_writes_completed_rejected() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_reply_rejected(
+        _state(
+            customer_reply_reason="counter-proposal",
+            customer_reply_decision="rejected",
+        )
+    )
+
+    seq = activity.record_sequence.call_args[0][0]
+    assert len(seq.steps) == 2
+    assert seq.steps[0].activity_type == ActivityType.ACTION
+    assert "rejected" in (seq.steps[0].description or "").lower()
+    assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[1].to_status == StatusType.COMPLETED
+    assert seq.steps[1].to_sub_status == StatusSubType.REJECTED
