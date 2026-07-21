@@ -56,3 +56,15 @@ target-version = "py311"
 
 [tool.ruff.lint]
 extend-select = ["TCH"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic.RootModel",
+    "pydantic_settings.BaseSettings",
+    "sqlmodel.SQLModel",
+]
+runtime-evaluated-decorators = [
+    "pydantic.field_validator",
+    "pydantic.model_validator",
+]

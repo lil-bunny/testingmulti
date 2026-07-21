@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
-if TYPE_CHECKING:
-    from app.domain.reminder_schedule import ReminderStepSpec
+from app.domain.reminder_schedule import ReminderStepSpec
 
 
 class DriverAssignmentRemindersConfig(BaseModel):

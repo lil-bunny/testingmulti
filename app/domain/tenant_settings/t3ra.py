@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, TYPE_CHECKING
+from typing import Annotated, Any
 
 from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field
 
-if TYPE_CHECKING:
-    from app.domain.driver_assignment.partial_follow_up_email import (
-        DriverAssignmentPartialFollowUpEmailConfig,
-    )
-    from app.domain.driver_assignment.confirmation_email import (
-        DriverAssignmentConfirmationEmailConfig,
-    )
-    from app.domain.tenant_settings.tms import TmsSettings
-    from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
-    from app.domain.reminder_schedule import WorkflowRemindersConfig
-    from app.domain.driver_assignment.reminders_config import DriverAssignmentRemindersConfig
-    from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
-    from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
+from app.domain.driver_assignment.confirmation_email import (
+    DriverAssignmentConfirmationEmailConfig,
+)
+from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSettings
+from app.domain.driver_assignment.partial_follow_up_email import (
+    DriverAssignmentPartialFollowUpEmailConfig,
+)
+from app.domain.driver_assignment.reminders_config import DriverAssignmentRemindersConfig
+from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
+from app.domain.reminder_schedule import WorkflowRemindersConfig
+from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
+from app.domain.tenant_settings.tms import TmsSettings
 
 
 class ShadowBypassLoadEntry(BaseModel):
