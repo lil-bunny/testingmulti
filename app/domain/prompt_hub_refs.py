@@ -9,6 +9,8 @@ POD_ATTACHMENT_CLASSIFIER_PROMPT = "pod-attachment-classifier"
 RATECON_PAGE_EXTRACTION_PROMPT = "ratecon-page-extraction"
 POD_VS_RATECON_SUMMARY_PROMPT = "pod-vs-ratecon-summary"
 POD_VS_RATECON_SEMANTIC_MATCH_PROMPT = "pod-vs-ratecon-semantic-match"
+APPOINTMENT_SCHEDULING_CUSTOMER_REPLY_PROMPT = "appt-reply"
+APPOINTMENT_SCHEDULING_OPTIMIZATION_PROMPT = "appt-scheduling-optimization"
 
 
 def hub_prompt_id(prompt_name: str, *, owner: str | None = None) -> str:

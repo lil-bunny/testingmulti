@@ -144,3 +144,12 @@ def test_load_ratecon_page_fallback_renders_user_mission() -> None:
     rendered = render_system_user(template, {})
     assert "document intelligence" in rendered.system.lower()
     assert "MISSION" in rendered.user
+
+
+def test_load_appt_reply_fallback_renders_thread_text() -> None:
+    template = load_fallback_prompt("appt-reply")
+    thread = "email 1 [outbound]\n04/03/2026\nemail 2 [inbound]\n5PM"
+    rendered = render_system_user(template, {"thread_text": thread})
+    assert "sufficient" in rendered.system
+    assert thread in rendered.user
+    assert "Sent Items and Inbox" in rendered.user
