@@ -9,9 +9,9 @@ from app.services.appointment_scheduling.reply_classification_service import (
     AppointmentReplyClassificationService,
 )
 from app.tools.appointment_scheduling.customer_reply import (
+    ACCEPTED,
     DO_NOTHING,
-    INSUFFICIENT,
-    SUFFICIENT,
+    REJECTED,
 )
 
 _TENANT = "tenant-1"
@@ -40,10 +40,10 @@ def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> Appo
     )
 
 
-def test_classify_sufficient_records_activity() -> None:
+def test_classify_accepted_records_activity() -> None:
     svc = _service()
     llm_raw = {
-        "decision": SUFFICIENT,
+        "decision": ACCEPTED,
         "confidence": 0.95,
         "reason": "explicit date and time",
         "extracted_date": "2026-07-18",
@@ -69,16 +69,16 @@ def test_classify_sufficient_records_activity() -> None:
             communication_id="comm-1",
         )
 
-    assert result.decision == SUFFICIENT
+    assert result.decision == ACCEPTED
     assert result.appointment_start_iso == "2026-07-18T10:30:00"
     assert result.llm_activity_log_id == "activity-1"
     svc._activity.record_action.assert_called_once()
 
 
-def test_classify_insufficient_records_activity_no_lifecycle_write() -> None:
+def test_classify_vague_reply_do_nothing() -> None:
     svc = _service(thread_text="Maybe next week sometime")
     llm_raw = {
-        "decision": INSUFFICIENT,
+        "decision": DO_NOTHING,
         "confidence": 0.8,
         "reason": "vague timing",
         "extracted_date": None,
@@ -103,11 +103,43 @@ def test_classify_insufficient_records_activity_no_lifecycle_write() -> None:
             workflow_run_id=_RUN,
         )
 
-    assert result.decision == INSUFFICIENT
+    assert result.decision == DO_NOTHING
     svc._activity.record_action.assert_called_once()
     patch_data = result.to_state_patch()
-    assert patch_data["customer_reply_decision"] == INSUFFICIENT
+    assert patch_data["customer_reply_decision"] == DO_NOTHING
     assert "confirmed_delivery_at" not in patch_data
+
+
+def test_classify_rejected_records_activity() -> None:
+    svc = _service(thread_text="Can we do next day at 4pm?")
+    llm_raw = {
+        "decision": REJECTED,
+        "confidence": 0.85,
+        "reason": "counter-proposal",
+        "extracted_date": None,
+        "extracted_time": "16:00",
+    }
+    with (
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.resolve_appointment_scheduling_customer_reply_prompts",
+            return_value=(MagicMock(system="sys", user="user"), MagicMock()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.reply_classification_service.chat_json",
+            return_value=llm_raw,
+        ),
+    ):
+        result = svc.classify_from_payload(
+            tenant_id=_TENANT,
+            thread_id=_THREAD,
+            fallback_body="Can we do next day at 4pm?",
+            tenant_settings=_tenant_settings(),
+            workflow_lifecycle_id=_LIFECYCLE,
+            workflow_run_id=_RUN,
+        )
+
+    assert result.decision == REJECTED
+    assert "confirmed_delivery_at" not in result.to_state_patch()
 
 
 def test_classify_empty_body_do_nothing() -> None:
@@ -137,7 +169,7 @@ def test_classify_from_state() -> None:
             "body": "July 18 10:30 AM",
         },
     )
-    with patch.object(svc, "classify_from_payload", return_value=MagicMock(to_state_patch=lambda: {"customer_reply_decision": SUFFICIENT})) as mock:
+    with patch.object(svc, "classify_from_payload", return_value=MagicMock(to_state_patch=lambda: {"customer_reply_decision": ACCEPTED})) as mock:
         svc.classify_from_state(state)
     mock.assert_called_once()
 
@@ -146,7 +178,7 @@ def test_classify_passes_lifecycle_draft_comm_to_comms_builder() -> None:
     svc = _service()
     svc._lifecycle.draft_outbound_communication_id.return_value = "draft-comm-1"
     llm_raw = {
-        "decision": INSUFFICIENT,
+        "decision": DO_NOTHING,
         "confidence": 0.5,
         "reason": "time only",
         "extracted_date": None,

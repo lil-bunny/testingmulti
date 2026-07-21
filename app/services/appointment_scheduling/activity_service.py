@@ -11,6 +11,7 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_appointment_draft_created_action,
     format_appointment_draft_teams_notification_action,
     format_appointment_email_sent_action,
+    format_appointment_reply_rejected_action,
     format_appointment_scheduling_failed_action,
     format_ascend_dropoff_skipped_action,
     format_ascend_dropoff_updated_action,
@@ -513,6 +514,45 @@ class AppointmentSchedulingActivityService:
                         from_sub_status=from_sub or StatusSubType.AWAITING_CUSTOMER_REPLY,
                         to_status=StatusType.COMPLETED,
                         to_sub_status=StatusSubType.APPOINTMENT_SCHEDULED,
+                    ),
+                ),
+            )
+        )
+
+    def record_reply_rejected(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+        wl_id, tenant_id, run_id = scope
+        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        from_status = (
+            status_type_from_db(row.get("status")) if row else StatusType.PENDING_REVIEW
+        )
+        from_sub = (
+            sub_status_type_from_db(row.get("sub_status"))
+            if row
+            else StatusSubType.AWAITING_CUSTOMER_REPLY
+        )
+        if from_status == StatusType.COMPLETED and from_sub == StatusSubType.REJECTED:
+            return
+
+        reason = str(state.data.get("customer_reply_reason") or "").strip()
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
+                    ActivityLogStep(
+                        activity_type=ActivityType.ACTION,
+                        description=format_appointment_reply_rejected_action(reason=reason),
+                    ),
+                    ActivityLogStep(
+                        activity_type=ActivityType.STATUS_CHANGE,
+                        from_status=from_status or StatusType.PENDING_REVIEW,
+                        from_sub_status=from_sub or StatusSubType.AWAITING_CUSTOMER_REPLY,
+                        to_status=StatusType.COMPLETED,
+                        to_sub_status=StatusSubType.REJECTED,
                     ),
                 ),
             )

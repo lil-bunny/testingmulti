@@ -120,10 +120,8 @@ def draft_ready_facts(
         ("Load ID", fields.load_id or "—"),
         ("Reference", fields.reference_number or "—"),
         ("Customer", fields.customer_name or "—"),
-        ("Pickup", fields.pickup_date or "—"),
-        ("Delivery", fields.delivery_date or "—"),
-        ("Draft subject", fields.draft_subject or "—"),
-        ("Lifecycle ID", fields.workflow_lifecycle_id or "—"),
+        ("Proposed pickup", fields.pickup_date or "—"),
+        ("Proposed delivery", fields.delivery_date or "—"),
     ]
 
 

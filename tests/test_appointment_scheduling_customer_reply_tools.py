@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from app.tools.appointment_scheduling.customer_reply import (
-    INSUFFICIENT,
-    SUFFICIENT,
+    ACCEPTED,
+    DO_NOTHING,
+    REJECTED,
     build_ascend_dropoff_update_payload,
     build_customer_reply_result,
     format_appointment_start_iso,
     format_turvo_stop_start_time,
+    normalize_customer_reply_decision,
 )
 
 
@@ -17,9 +19,10 @@ def test_format_appointment_start_iso_am_pm() -> None:
     assert format_turvo_stop_start_time("07/18/2026", "10:30 AM") == "2026-07-18 10:30:00"
 
 
-def test_build_customer_reply_result_sufficient() -> None:
+def test_build_customer_reply_result_accepted() -> None:
     parsed = build_customer_reply_result(
         {
+            "decision": ACCEPTED,
             "success": True,
             "extracted_date": "2026-07-18",
             "extracted_time": "14:00",
@@ -27,13 +30,14 @@ def test_build_customer_reply_result_sufficient() -> None:
             "reason": "confirmed",
         }
     )
-    assert parsed["decision"] == SUFFICIENT
+    assert parsed["decision"] == ACCEPTED
     assert parsed["appointment_start_iso"] == "2026-07-18T14:00:00"
 
 
-def test_build_customer_reply_result_missing_time_is_insufficient() -> None:
+def test_build_customer_reply_result_accepted_missing_time_is_rejected() -> None:
     parsed = build_customer_reply_result(
         {
+            "decision": ACCEPTED,
             "success": True,
             "extracted_date": "2026-07-18",
             "extracted_time": None,
@@ -41,7 +45,12 @@ def test_build_customer_reply_result_missing_time_is_insufficient() -> None:
             "reason": "date only",
         }
     )
-    assert parsed["decision"] == INSUFFICIENT
+    assert parsed["decision"] == REJECTED
+
+
+def test_normalize_legacy_sufficient_and_insufficient() -> None:
+    assert normalize_customer_reply_decision({"decision": "sufficient"}) == ACCEPTED
+    assert normalize_customer_reply_decision({"decision": "insufficient"}) == DO_NOTHING
 
 
 def test_build_ascend_dropoff_update_payload() -> None:

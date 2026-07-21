@@ -22,9 +22,9 @@ from app.tools.driver_details import (
     has_tms_searchable_fields,
 )
 from app.tools.appointment_scheduling.customer_reply import (
+    ACCEPTED as APPT_REPLY_ACCEPTED,
     DO_NOTHING as APPT_REPLY_DO_NOTHING,
-    INSUFFICIENT as APPT_REPLY_INSUFFICIENT,
-    SUFFICIENT as APPT_REPLY_SUFFICIENT,
+    REJECTED as APPT_REPLY_REJECTED,
 )
 from app.tools.tender_reminder_delivery_cutoff import is_past_delivery_cutoff
 
@@ -323,7 +323,7 @@ def scheduling_weekend_shifted_router(state):
 def customer_reply_router(state):
     """Route appointment customer-reply LLM decision to graph branch keys."""
     decision = str(state.data.get("customer_reply_decision") or APPT_REPLY_DO_NOTHING).strip()
-    if decision in (APPT_REPLY_SUFFICIENT, APPT_REPLY_INSUFFICIENT, APPT_REPLY_DO_NOTHING):
+    if decision in (APPT_REPLY_ACCEPTED, APPT_REPLY_REJECTED, APPT_REPLY_DO_NOTHING):
         return decision
     return APPT_REPLY_DO_NOTHING
 

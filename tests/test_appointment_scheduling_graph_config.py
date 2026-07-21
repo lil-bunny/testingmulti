@@ -23,3 +23,15 @@ def test_appointment_scheduling_confirm_tail_includes_turvo_tender() -> None:
     assert "apply_turvo_tender_status" in nodes
     assert ("send_appointment_confirmation_reply", "apply_turvo_tender_status") in edges
     assert ("apply_turvo_tender_status", "record_appointment_reply_completed") in edges
+
+
+def test_appointment_scheduling_classify_reply_router_map() -> None:
+    cfg = WORKFLOW_CONFIGS["appointment_scheduling"]
+    classify_map = cfg["routers"]["classify_appointment_customer_reply"]["map"]
+    edges = [tuple(edge) for edge in cfg["edges"]]
+
+    assert classify_map["accepted"] == "apply_ascend_dropoff_appointment"
+    assert classify_map["rejected"] == "record_appointment_reply_rejected"
+    assert classify_map["do_nothing"] == "end"
+    assert "record_appointment_reply_rejected" in cfg["nodes"]
+    assert ("record_appointment_reply_rejected", "end") in edges

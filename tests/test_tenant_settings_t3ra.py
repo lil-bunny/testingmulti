@@ -42,6 +42,9 @@ def test_t3ra_fixture_validates() -> None:
         model.prompts.appointment_scheduling.scheduling_optimization
         == "appt-scheduling-optimization:staging"
     )
+    assert model.appointment_scheduling is not None
+    assert model.appointment_scheduling.confirmation_reply is not None
+    assert model.appointment_scheduling.confirmation_reply.template_html
     parsed = parse_tenant_settings("t3ra", _T3RA_SETTINGS)
     assert isinstance(parsed, T3raTenantSettings)
 

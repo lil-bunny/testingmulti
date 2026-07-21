@@ -83,6 +83,9 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                 "teams_webhook_url": "https://example.invalid/webhook",
                 "message_title": "Appointment draft ready — Load {load_id}",
             },
+            "confirmation_reply": {
+                "template_html": "<html><body><p>Confirmed for load {load_id}. Thank you.</p></body></html>",
+            },
         },
         "prompts": T3RA_PROMPTS,
         "mikey_account_id": {

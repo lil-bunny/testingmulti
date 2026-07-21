@@ -343,3 +343,8 @@ def record_appointment_reply_completed(state):
             confirmed_delivery_at=confirmed_at,
         )
     return state
+
+
+def record_appointment_reply_rejected(state):
+    AppointmentSchedulingActivityService().record_reply_rejected(state)
+    return state

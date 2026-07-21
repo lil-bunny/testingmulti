@@ -41,6 +41,8 @@ SCHEDULING_REPLY_TERMINAL_STATUSES = frozenset(
 SCHEDULING_REPLY_TERMINAL_SUB_STATUSES = frozenset(
     {
         StatusSubType.RESOLVED_MANUALLY,
+        StatusSubType.REJECTED,
+        StatusSubType.APPOINTMENT_SCHEDULED,
     }
 )
 

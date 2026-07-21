@@ -6,13 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.confirmation_reply import resolve_confirmation_reply_body
 from app.domain.pod_lifecycle.settings import resolve_mikey_mailbox
 from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import UnipileException
 
 logger = get_logger(__name__)
-
-_CONFIRMATION_BODY = "Confirmed, Thank You"
 
 
 @dataclass(frozen=True)
@@ -42,11 +41,16 @@ class AppointmentSchedulingConfirmationEmailService:
         if not mailbox:
             return ConfirmationEmailResult(sent=False, error="missing_mikey_account_id")
 
+        tenant_settings = data.get("tenant_settings")
+        if not isinstance(tenant_settings, dict):
+            tenant_settings = {}
+        body = resolve_confirmation_reply_body(tenant_settings, data)
+
         try:
             result = self._communications.send_thread_reply(
                 tenant_id=tenant_id,
                 thread_id=thread_id,
-                body=_CONFIRMATION_BODY,
+                body=body,
                 account_id=mailbox.account_id,
                 from_email=mailbox.email_alias,
                 workflow_run_id=run_id or None,

@@ -13,6 +13,9 @@ from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSett
 from app.domain.driver_assignment.partial_follow_up_email import (
     DriverAssignmentPartialFollowUpEmailConfig,
 )
+from app.domain.appointment_scheduling.confirmation_reply import (
+    AppointmentSchedulingConfirmationReplySettings,
+)
 from app.domain.appointment_scheduling.teams_notification import (
     AppointmentSchedulingTeamsNotificationSettings,
 )
@@ -53,6 +56,7 @@ class T3raAppointmentSchedulingSettings(BaseModel):
     email_cc: list[str] | str = ""
     skip_ascend_writes: bool = True
     teams_notification: AppointmentSchedulingTeamsNotificationSettings | None = None
+    confirmation_reply: AppointmentSchedulingConfirmationReplySettings | None = None
 
 
 class T3raDriverAssignmentSettings(BaseModel):
