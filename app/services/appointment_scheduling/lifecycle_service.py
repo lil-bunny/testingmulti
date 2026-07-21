@@ -131,6 +131,14 @@ class AppointmentSchedulingLifecycleService:
         if turvo_shipment_id:
             state.data["shipment_id"] = turvo_shipment_id
 
+    def draft_outbound_communication_id(self, lifecycle_id: str) -> str | None:
+        row = self.load_context(lifecycle_id) or {}
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if not isinstance(meta, dict):
+            return None
+        comm_id = str(meta.get(APPOINTMENT_DRAFT_OUTBOUND_COMMUNICATION_ID) or "").strip()
+        return comm_id or None
+
     def mark_draft_outbound_sent(
         self,
         lifecycle_id: str,
