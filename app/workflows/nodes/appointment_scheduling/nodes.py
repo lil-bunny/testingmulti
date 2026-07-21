@@ -35,6 +35,9 @@ from app.services.appointment_scheduling.turvo_confirm_service import (
 from app.services.appointment_scheduling.confirmation_email_service import (
     AppointmentSchedulingConfirmationEmailService,
 )
+from app.services.appointment_scheduling.teams_notification_service import (
+    AppointmentSchedulingTeamsNotificationService,
+)
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 
 logger = get_logger(__name__)
@@ -164,6 +167,16 @@ def persist_scheduling_draft_ready(state):
     return state
 
 
+def notify_appointment_scheduling_draft_teams(state):
+    result = AppointmentSchedulingTeamsNotificationService().notify_from_state(state)
+    state.data["appointment_scheduling_teams_notification_sent"] = result.sent
+    if result.skip_reason:
+        state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason
+    if result.error:
+        state.data["appointment_scheduling_teams_notification_error"] = result.error
+    return state
+
+
 def record_appointment_scheduling_started(state):
     AppointmentSchedulingActivityService().record_started(state)
     return state
@@ -241,17 +254,6 @@ def send_appointment_scheduling_email(state):
     if not result.sent or not result.communication_id:
         raise RuntimeError(result.error or "appointment_draft_send_failed")
     state.data["communication_id"] = result.communication_id
-    return state
-
-
-def record_appointment_email_sent(state):
-    actor_id = str(state.data.get("actor_user_id") or "").strip() or None
-    communication_id = str(state.data.get("communication_id") or "").strip()
-    AppointmentSchedulingActivityService().record_email_sent(
-        state,
-        communication_id=communication_id,
-        actor_id=actor_id,
-    )
     return state
 
 

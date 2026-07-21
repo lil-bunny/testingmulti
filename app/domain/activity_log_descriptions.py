@@ -54,17 +54,23 @@ def generate_activity_log_description(
     """
     Build a transition description from templates.
 
-    ``STATUS_CHANGE``: status line only (sub-status columns may still differ).
+    ``STATUS_CHANGE``: status line when status changes; sub-status line when status
+    is unchanged but sub-status changed; otherwise ``None``.
     ``SUB_STATUS_CHANGE``: sub-status line only.
     ``ACTION`` / ``EXCEPTION`` / ``INFO``: no template — callers supply narrative text.
     """
     if activity_type == ActivityType.STATUS_CHANGE:
-        if from_status == to_status:
-            return None
-        return STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
-            from_status=label_status(from_status),
-            to_status=label_status(to_status),
-        )
+        if from_status != to_status:
+            return STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
+                from_status=label_status(from_status),
+                to_status=label_status(to_status),
+            )
+        if from_sub_status != to_sub_status:
+            return SUB_STATUS_CHANGE_DESCRIPTION_TEMPLATE.format(
+                from_sub_status=label_sub_status(from_sub_status),
+                to_sub_status=label_sub_status(to_sub_status),
+            )
+        return None
     if activity_type == ActivityType.SUB_STATUS_CHANGE:
         if from_sub_status == to_sub_status:
             return None

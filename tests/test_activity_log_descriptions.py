@@ -64,6 +64,19 @@ def test_generate_sub_status_change_routing_guide_tenant_carrier() -> None:
     )
 
 
+def test_generate_status_change_falls_back_to_sub_status_when_status_unchanged() -> None:
+    text = generate_activity_log_description(
+        activity_type=ActivityType.STATUS_CHANGE,
+        from_status=StatusType.PENDING_REVIEW,
+        to_status=StatusType.PENDING_REVIEW,
+        from_sub_status=StatusSubType.APPOINTMENT_DRAFT_CREATED,
+        to_sub_status=StatusSubType.AWAITING_CUSTOMER_REPLY,
+    )
+    assert text == (
+        "Sub-status changed from Appointment Draft Created to Awaiting Customer Reply"
+    )
+
+
 def test_generate_action_returns_none() -> None:
     assert (
         generate_activity_log_description(

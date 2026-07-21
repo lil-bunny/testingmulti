@@ -9,6 +9,7 @@ from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_appointment_confirmation_sent_action,
     format_appointment_draft_created_action,
+    format_appointment_draft_teams_notification_action,
     format_appointment_email_sent_action,
     format_appointment_scheduling_failed_action,
     format_ascend_dropoff_skipped_action,
@@ -51,6 +52,25 @@ class AppointmentSchedulingActivityService:
             return False
         status = status_type_from_db(row.get("status"))
         return status not in (None, StatusType.NONE)
+
+    @staticmethod
+    def _build_sub_status_transition_step(
+        *,
+        current_status: StatusType | None,
+        new_sub: StatusSubType,
+    ) -> ActivityLogStep:
+        to_status = StatusType.PENDING_REVIEW
+        if current_status == to_status:
+            return ActivityLogStep(
+                activity_type=ActivityType.SUB_STATUS_CHANGE,
+                to_status=to_status,
+                to_sub_status=new_sub,
+            )
+        return ActivityLogStep(
+            activity_type=ActivityType.STATUS_CHANGE,
+            to_status=to_status,
+            to_sub_status=new_sub,
+        )
 
     def record_started(self, state) -> None:
         scope = self._scope_ids(state)
@@ -171,41 +191,21 @@ class AppointmentSchedulingActivityService:
             )
         )
 
-    def record_email_sent(
-        self,
-        state,
-        *,
-        communication_id: str,
-        actor_id: str | None,
-    ) -> None:
+    def record_draft_teams_notification(self, state) -> None:
         scope = self._scope_ids(state)
         if scope is None:
             return
 
         wl_id, tenant_id, run_id = scope
-        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
-        from_status = (
-            status_type_from_db(row.get("status")) if row else StatusType.PENDING_REVIEW
-        )
-        from_sub = (
-            sub_status_type_from_db(row.get("sub_status"))
-            if row
-            else StatusSubType.APPOINTMENT_DRAFT_CREATED
-        )
-
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=run_id,
-                actor_type=ActorType.USER,
-                actor_id=actor_id,
                 steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
-                        description=format_appointment_email_sent_action(),
-                        metadata=None,
-                        communication_id=communication_id,
+                        description=format_appointment_draft_teams_notification_action(),
                     ),
                 ),
             )
@@ -224,13 +224,10 @@ class AppointmentSchedulingActivityService:
 
         wl_id, tenant_id, run_id = scope
         row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
-        from_status = (
-            status_type_from_db(row.get("status")) if row else StatusType.PENDING_REVIEW
-        )
-        from_sub = (
-            sub_status_type_from_db(row.get("sub_status"))
-            if row
-            else StatusSubType.APPOINTMENT_DRAFT_CREATED
+        current_status = status_type_from_db(row.get("status")) if row else None
+        transition_step = self._build_sub_status_transition_step(
+            current_status=current_status,
+            new_sub=StatusSubType.AWAITING_CUSTOMER_REPLY,
         )
 
         self._activity.record_sequence(
@@ -242,12 +239,12 @@ class AppointmentSchedulingActivityService:
                 actor_id=actor_id,
                 steps=(
                     ActivityLogStep(
-                        activity_type=ActivityType.STATUS_CHANGE,
-                        from_status=from_status or StatusType.PENDING_REVIEW,
-                        from_sub_status=from_sub or StatusSubType.APPOINTMENT_DRAFT_CREATED,
-                        to_status=StatusType.PENDING_REVIEW,
-                        to_sub_status=StatusSubType.AWAITING_CUSTOMER_REPLY,
+                        activity_type=ActivityType.ACTION,
+                        description=format_appointment_email_sent_action(),
+                        metadata=None,
+                        communication_id=communication_id,
                     ),
+                    transition_step,
                 ),
             )
         )
