@@ -141,34 +141,19 @@ def test_record_draft_ready_writes_action_and_status_change() -> None:
     assert seq.steps[1].to_sub_status == StatusSubType.APPOINTMENT_DRAFT_CREATED
 
 
-def test_record_email_sent_minimal_metadata() -> None:
+def test_record_draft_teams_notification_writes_action_only() -> None:
     activity = MagicMock()
-    lifecycle = MagicMock()
-    lifecycle.read_lifecycle_row_by_id.return_value = {
-        "status": StatusType.PENDING_REVIEW.value,
-        "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
-    }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = AppointmentSchedulingActivityService(activity_log_service=activity)
 
-    svc.record_email_sent(
-        _state(actor_user_id="99999999-9999-9999-9999-999999999999"),
-        communication_id="comm-uuid",
-        actor_id="99999999-9999-9999-9999-999999999999",
-    )
+    svc.record_draft_teams_notification(_state())
 
     seq = activity.record_sequence.call_args[0][0]
     assert len(seq.steps) == 1
-    assert seq.steps[0].metadata is None
-    assert seq.steps[0].communication_id == "comm-uuid"
     assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.actor_type.value == "user"
-    assert seq.actor_id == "99999999-9999-9999-9999-999999999999"
+    assert seq.steps[0].description == "Sent notification on Teams"
 
 
-def test_finalize_confirm_awaiting_reply_writes_status_change() -> None:
+def test_finalize_confirm_awaiting_reply_writes_action_and_sub_status_change() -> None:
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -187,10 +172,16 @@ def test_finalize_confirm_awaiting_reply_writes_status_change() -> None:
     )
 
     seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert len(seq.steps) == 2
+    assert seq.steps[0].activity_type == ActivityType.ACTION
     assert seq.steps[0].metadata is None
-    assert seq.steps[0].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
+    assert seq.steps[0].communication_id == "comm-uuid"
+    assert seq.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert seq.steps[1].metadata is None
+    assert seq.steps[1].communication_id is None
+    assert seq.steps[1].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
+    assert seq.actor_type.value == "user"
+    assert seq.actor_id == "99999999-9999-9999-9999-999999999999"
 
 
 def test_record_failed_writes_action_and_failed_status() -> None:

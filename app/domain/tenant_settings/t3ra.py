@@ -13,6 +13,9 @@ from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSett
 from app.domain.driver_assignment.partial_follow_up_email import (
     DriverAssignmentPartialFollowUpEmailConfig,
 )
+from app.domain.appointment_scheduling.teams_notification import (
+    AppointmentSchedulingTeamsNotificationSettings,
+)
 from app.domain.driver_assignment.reminders_config import DriverAssignmentRemindersConfig
 from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
@@ -49,6 +52,7 @@ class T3raAppointmentSchedulingSettings(BaseModel):
     ascend_password: str | None = None
     email_cc: list[str] | str = ""
     skip_ascend_writes: bool = True
+    teams_notification: AppointmentSchedulingTeamsNotificationSettings | None = None
 
 
 class T3raDriverAssignmentSettings(BaseModel):

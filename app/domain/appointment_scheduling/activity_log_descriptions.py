@@ -26,6 +26,10 @@ def format_appointment_draft_created_action() -> str:
     return "Appointment draft email created"
 
 
+def format_appointment_draft_teams_notification_action() -> str:
+    return "Sent notification on Teams"
+
+
 def format_appointment_email_sent_action() -> str:
     return "Appointment request email sent"
 

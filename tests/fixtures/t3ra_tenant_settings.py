@@ -78,6 +78,10 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
             "ascend_email": "ascend@example.com",
             "ascend_password": "secret",
             "email_cc": "ops@example.com",
+            "teams_notification": {
+                "teams_webhook_url": "https://example.invalid/webhook",
+                "message_title": "Appointment draft ready — Load {load_id}",
+            },
         },
         "prompts": T3RA_PROMPTS,
         "mikey_account_id": {
