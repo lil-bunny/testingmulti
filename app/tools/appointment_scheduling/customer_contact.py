@@ -1,4 +1,4 @@
-"""Excel row → customer contact (email-only; ignores APPOINTMENT MODE)."""
+"""Excel row → customer contact (pure parsing; APPOINTMENT MODE enforced at service gate)."""
 
 from __future__ import annotations
 
@@ -14,6 +14,36 @@ _EMAIL_RE = re.compile(
 
 def _normalize_customer(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def normalize_appointment_mode(raw: Any) -> str:
+    return str(raw or "").strip().lower()
+
+
+def is_email_appointment_mode(mode: str) -> bool:
+    return mode == "email"
+
+
+def appointment_mode_from_row(row: dict[str, Any]) -> str:
+    for key in ("APPOINTMENT MODE", "Appointment Mode"):
+        if key in row and row.get(key) not in (None, ""):
+            return normalize_appointment_mode(row.get(key))
+    return ""
+
+
+def find_customer_sheet_row(
+    rows: list[dict[str, Any]],
+    customer_name: str,
+) -> dict[str, Any] | None:
+    target = _normalize_customer(customer_name)
+    if not target:
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _normalize_customer(row.get("CUSTOMER")) == target:
+            return row
+    return None
 
 
 def _extract_email(contact_details: Any) -> str | None:
@@ -41,24 +71,22 @@ def _transit_time_value(row: dict[str, Any]) -> str:
     return ""
 
 
+def customer_contact_from_row(row: dict[str, Any]) -> CustomerContactRow | None:
+    email = _extract_email(_contact_details_value(row))
+    if not email:
+        return None
+    return CustomerContactRow(
+        email=email,
+        customer=str(row.get("CUSTOMER") or "").strip(),
+        transit_time=_transit_time_value(row),
+    )
+
+
 def customer_contact_from_rows(
     rows: list[dict[str, Any]],
     customer_name: str,
 ) -> CustomerContactRow | None:
-    target = _normalize_customer(customer_name)
-    if not target:
+    row = find_customer_sheet_row(rows, customer_name)
+    if row is None:
         return None
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        if _normalize_customer(row.get("CUSTOMER")) != target:
-            continue
-        email = _extract_email(_contact_details_value(row))
-        if not email:
-            return None
-        return CustomerContactRow(
-            email=email,
-            customer=str(row.get("CUSTOMER") or "").strip(),
-            transit_time=_transit_time_value(row),
-        )
-    return None
+    return customer_contact_from_row(row)

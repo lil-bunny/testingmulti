@@ -9,7 +9,7 @@ from app.domain.tenant_settings.enabled_processes import enabled_processes_from_
 from app.domain.tenant_settings.tms import has_tms_partner_config
 from app.tools.turvo_scheduling_ingress import (
     ParsedShipmentUpdateWebhook,
-    is_multi_stop,
+    is_multi_stop_shipment,
     load_id_from_turvo_shipment,
     pickup_changed_in_activity_delta,
     reference_number_from_turvo_shipment,
@@ -51,8 +51,6 @@ def evaluate_parsed_webhook(parsed: ParsedShipmentUpdateWebhook | None) -> str |
 
 
 def evaluate_activity_gates(activity_json: dict) -> str | None:
-    if is_multi_stop(activity_json):
-        return "multi_stop"
     if not pickup_changed_in_activity_delta(activity_json):
         return "no_pickup_change"
     return None
@@ -63,6 +61,9 @@ def evaluate_shipment_gates(
     *,
     webhook_load_id: str | None,
 ) -> tuple[str | None, FetchedSchedulingIngressData | None]:
+    if is_multi_stop_shipment(shipment_payload):
+        return "multi_stop", None
+
     reference_number = reference_number_from_turvo_shipment(shipment_payload)
     if not reference_number:
         return "missing_reference_number", None

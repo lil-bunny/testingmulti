@@ -71,7 +71,25 @@ def _activity_json(*, pickup_changed: bool = True) -> dict:
     }
 
 
-def _turvo_shipment_payload(*, reference: str = "DIAMOND-RPN-999") -> dict:
+def _turvo_shipment_payload(
+    *,
+    reference: str = "DIAMOND-RPN-999",
+    global_route: list[dict] | None = None,
+) -> dict:
+    route = global_route
+    if route is None:
+        route = [
+            {
+                "deleted": False,
+                "name": "Acme Pickup",
+                "stopType": {"value": "Pickup"},
+            },
+            {
+                "deleted": False,
+                "name": "PETCO DC 810",
+                "stopType": {"value": "Delivery"},
+            },
+        ]
     return {
         "details": {
             "customerOrder": [
@@ -82,6 +100,7 @@ def _turvo_shipment_payload(*, reference: str = "DIAMOND-RPN-999") -> dict:
                 }
             ],
             "customId": _LOAD_ID,
+            "globalRoute": route,
         }
     }
 
@@ -232,6 +251,33 @@ async def test_handle_shipment_update_skips_sheet_gate_before_db_writes(
 
 
 @pytest.mark.asyncio
+async def test_handle_shipment_update_skips_multi_stop_from_shipment_not_activity() -> None:
+    from tests.test_shipment_location_link import THREE_STOP_ROUTE
+
+    svc = _service()
+    activity_mock = AsyncMock(return_value=_activity_json())
+    with (
+        patch(
+            "app.services.appointment_scheduling.ingress_service.get_shipment",
+            new=AsyncMock(
+                return_value=_turvo_shipment_payload(global_route=THREE_STOP_ROUTE),
+            ),
+        ),
+        patch(
+            "app.services.appointment_scheduling.ingress_service.fetch_shipment_activity_list",
+            new=activity_mock,
+        ),
+    ):
+        result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
+
+    assert result.handled is True
+    assert result.enqueued is False
+    assert result.skip_reason == "multi_stop"
+    activity_mock.assert_not_called()
+    svc._shipments.upsert_from_turvo.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_handle_shipment_update_happy_path_enqueues() -> None:
     svc = _service()
     celery_task = MagicMock(id="celery-task-1")
@@ -263,6 +309,8 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
 
     assert result.enqueued is True
     assert result.execution_id
+    upsert_kwargs = svc._shipments.upsert_from_turvo.call_args.kwargs
+    assert upsert_kwargs["display_fields"].customer_name == "PETCO DC 810"
     location_link.try_link_from_turvo_shipment_payload.assert_called_once_with(
         _turvo_shipment_payload(),
         shipments_row_id=_SHIPMENTS_ROW_ID,
