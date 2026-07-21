@@ -87,7 +87,8 @@ def test_record_decision_info_includes_llm_source() -> None:
 
     seq = activity.record_sequence.call_args[0][0]
     assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[0].metadata["decision_source"] == "llm"
+    assert seq.steps[0].metadata is None
+    assert "source=llm" in (seq.steps[0].description or "")
 
 
 def test_record_decision_info_uses_transit_days_for_costco() -> None:
@@ -107,8 +108,8 @@ def test_record_decision_info_uses_transit_days_for_costco() -> None:
     )
 
     seq = activity.record_sequence.call_args[0][0]
-    assert seq.steps[0].metadata["decision_source"] == "transit_days"
-    assert seq.steps[0].metadata["transit_days"] == 3
+    assert seq.steps[0].metadata is None
+    assert "source=transit_days" in (seq.steps[0].description or "")
 
 
 def test_record_draft_ready_writes_action_and_status_change() -> None:
@@ -134,6 +135,7 @@ def test_record_draft_ready_writes_action_and_status_change() -> None:
     seq = activity.record_sequence.call_args[0][0]
     assert len(seq.steps) == 2
     assert seq.steps[0].activity_type == ActivityType.ACTION
+    assert seq.steps[0].metadata is None
     assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
     assert seq.steps[1].to_status == StatusType.PENDING_REVIEW
     assert seq.steps[1].to_sub_status == StatusSubType.APPOINTMENT_DRAFT_CREATED
@@ -187,6 +189,7 @@ def test_finalize_confirm_awaiting_reply_writes_status_change() -> None:
     seq = activity.record_sequence.call_args[0][0]
     assert len(seq.steps) == 1
     assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].metadata is None
     assert seq.steps[0].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
 
 
@@ -238,5 +241,6 @@ def test_record_reply_completed_writes_completed_status() -> None:
     seq = activity.record_sequence.call_args[0][0]
     assert len(seq.steps) == 1
     assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].metadata is None
     assert seq.steps[0].to_status == StatusType.COMPLETED
     assert seq.steps[0].to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED

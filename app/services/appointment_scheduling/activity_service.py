@@ -105,24 +105,18 @@ class AppointmentSchedulingActivityService:
             "transit_days" if is_costco_customer(customer_name) else "llm"
         )
 
-        metadata: dict[str, Any] = {
-            "reference_number": str(state.data.get("reference_number") or ""),
-            "selected_pickup_date": str(decision.get("selected_pickup_date") or ""),
-            "calculated_delivery_date": str(decision.get("calculated_delivery_date") or ""),
-            "calculated_delivery_weekday": str(
-                decision.get("calculated_delivery_weekday") or ""
-            ),
-            "decision_source": decision_source,
-        }
-        transit_days = decision.get("transit_days")
-        if transit_days is not None:
-            metadata["transit_days"] = transit_days
+        reference_number = str(state.data.get("reference_number") or "")
+        selected_pickup_date = str(decision.get("selected_pickup_date") or "")
+        calculated_delivery_date = str(decision.get("calculated_delivery_date") or "")
+        calculated_delivery_weekday = str(
+            decision.get("calculated_delivery_weekday") or ""
+        )
 
         description = format_scheduling_decision_info(
-            reference_number=metadata["reference_number"],
-            pickup_date=metadata["selected_pickup_date"],
-            delivery_date=metadata["calculated_delivery_date"],
-            delivery_weekday=metadata["calculated_delivery_weekday"],
+            reference_number=reference_number,
+            pickup_date=selected_pickup_date,
+            delivery_date=calculated_delivery_date,
+            delivery_weekday=calculated_delivery_weekday,
             decision_source=decision_source,
         )
 
@@ -135,7 +129,6 @@ class AppointmentSchedulingActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=description,
-                        metadata=metadata,
                     ),
                 ),
             )
@@ -157,17 +150,6 @@ class AppointmentSchedulingActivityService:
         from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
         from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
 
-        action_metadata: dict[str, Any] = {}
-        to_email = str(email_draft.get("to") or "").strip()
-        subject = str(email_draft.get("subject") or "").strip()
-        reference = str(scheduling_payload.get("reference_number") or "").strip()
-        if to_email:
-            action_metadata["to"] = to_email
-        if subject:
-            action_metadata["subject"] = subject
-        if reference:
-            action_metadata["reference_number"] = reference
-
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -177,7 +159,6 @@ class AppointmentSchedulingActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_appointment_draft_created_action(),
-                        metadata=action_metadata or None,
                     ),
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
@@ -266,7 +247,6 @@ class AppointmentSchedulingActivityService:
                         from_sub_status=from_sub or StatusSubType.APPOINTMENT_DRAFT_CREATED,
                         to_status=StatusType.PENDING_REVIEW,
                         to_sub_status=StatusSubType.AWAITING_CUSTOMER_REPLY,
-                        metadata={"communication_id": communication_id} if communication_id else None,
                     ),
                 ),
             )
@@ -293,7 +273,6 @@ class AppointmentSchedulingActivityService:
                         reference_number=str(state.data.get("reference_number") or ""),
                         start_time=str(result.get("turvo_pickup_start_time") or ""),
                     ),
-                    metadata={"ascend_response": result.get("ascend_response")},
                 )
             )
         if result.get("turvo_updated"):
@@ -304,7 +283,6 @@ class AppointmentSchedulingActivityService:
                         stop_name=str(result.get("pickup_stop_name") or ""),
                         start_time=str(result.get("turvo_pickup_start_time") or ""),
                     ),
-                    metadata={"turvo_response": result.get("turvo_response")},
                 )
             )
         if not steps:
@@ -339,7 +317,6 @@ class AppointmentSchedulingActivityService:
                             stop_name=str(result.get("stop_name") or ""),
                             start_time=str(result.get("start_time") or ""),
                         ),
-                        metadata={"updated": result.get("updated"), "ok": result.get("ok")},
                     ),
                 ),
             )
@@ -412,16 +389,13 @@ class AppointmentSchedulingActivityService:
 
         if dry_run or skipped:
             description = format_ascend_dropoff_skipped_action(reference_number=reference)
-            metadata: dict[str, Any] = {"dry_run": True, "payload": result.get("payload")}
         elif ok:
             description = format_ascend_dropoff_updated_action(
                 reference_number=reference,
                 appointment_start=appointment_start,
             )
-            metadata = {"payload": result.get("payload"), "response": result.get("response")}
         else:
             description = f"Ascend dropoff update failed for {reference or 'unknown'}"
-            metadata = {"error": result.get("error"), "payload": result.get("payload")}
 
         self._activity.record_sequence(
             ActivityLogSequence(
@@ -432,7 +406,6 @@ class AppointmentSchedulingActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=description,
-                        metadata=metadata or None,
                     ),
                 ),
             )
@@ -464,7 +437,6 @@ class AppointmentSchedulingActivityService:
                             stop_name=stop_name,
                             start_time=start_time,
                         ),
-                        metadata={"ok": result.get("ok"), "error": result.get("error")},
                     ),
                 ),
             )
@@ -511,9 +483,6 @@ class AppointmentSchedulingActivityService:
         ):
             return
 
-        confirmed_at = str(state.data.get("confirmed_delivery_at") or "").strip() or None
-        metadata = {"confirmed_delivery_at": confirmed_at} if confirmed_at else None
-
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -526,7 +495,6 @@ class AppointmentSchedulingActivityService:
                         from_sub_status=from_sub or StatusSubType.AWAITING_CUSTOMER_REPLY,
                         to_status=StatusType.COMPLETED,
                         to_sub_status=StatusSubType.APPOINTMENT_SCHEDULED,
-                        metadata=metadata,
                     ),
                 ),
             )
