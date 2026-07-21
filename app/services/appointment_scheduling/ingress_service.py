@@ -8,7 +8,10 @@ from app.core.logger import get_logger
 from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.integrations.turvo.activity import fetch_shipment_activity_list
 from app.integrations.turvo.public_api_client import TurvoApiError
-from app.integrations.turvo.shipments import get_shipment
+from app.integrations.turvo.shipments import (
+    appointment_scheduling_display_fields_from_payload,
+    get_shipment,
+)
 from app.services.appointment_scheduling.enqueue import enqueue_appointment_scheduling_pickup_changed
 from app.services.appointment_scheduling.ingress_gates import (
     evaluate_activity_gates,
@@ -112,31 +115,6 @@ class AppointmentSchedulingIngressService:
             )
 
         try:
-            activity_json = await fetch_shipment_activity_list(
-                tenant_slug,
-                parsed.shipment_id,
-            )
-        except (TurvoApiError, ValueError) as exc:
-            logger.warning(
-                "appointment_scheduling activity fetch failed tenant_slug=%s shipment_id=%s error=%s",
-                tenant_slug,
-                parsed.shipment_id,
-                exc,
-            )
-            return self._skip(
-                skip_reason="turvo_activity_fetch_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        if reason := evaluate_activity_gates(activity_json):
-            return self._skip(
-                skip_reason=reason,
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        try:
             shipment_payload = await get_shipment(tenant_slug, parsed.shipment_id)
         except (TurvoApiError, ValueError) as exc:
             logger.warning(
@@ -162,6 +140,31 @@ class AppointmentSchedulingIngressService:
                 shipment_id=parsed.shipment_id,
             )
 
+        try:
+            activity_json = await fetch_shipment_activity_list(
+                tenant_slug,
+                parsed.shipment_id,
+            )
+        except (TurvoApiError, ValueError) as exc:
+            logger.warning(
+                "appointment_scheduling activity fetch failed tenant_slug=%s shipment_id=%s error=%s",
+                tenant_slug,
+                parsed.shipment_id,
+                exc,
+            )
+            return self._skip(
+                skip_reason="turvo_activity_fetch_failed",
+                tenant_slug=tenant_slug,
+                shipment_id=parsed.shipment_id,
+            )
+
+        if reason := evaluate_activity_gates(activity_json):
+            return self._skip(
+                skip_reason=reason,
+                tenant_slug=tenant_slug,
+                shipment_id=parsed.shipment_id,
+            )
+
         if reason := missing_recipient_email_skip_reason(
             tenant_settings=tenant_settings,
             shipment_payload=shipment_payload,
@@ -172,12 +175,14 @@ class AppointmentSchedulingIngressService:
                 shipment_id=parsed.shipment_id,
             )
 
+        display_fields = appointment_scheduling_display_fields_from_payload(shipment_payload)
         upsert = self._shipments.upsert_from_turvo(
             tenant_id=tenant_uuid,
             turvo_shipment_id=parsed.shipment_id,
             load_id=fetched.load_id,
             metadata={"reference_number": fetched.reference_number},
             turvo_payload=shipment_payload,
+            display_fields=display_fields,
         )
         if not upsert.get("success"):
             return self._skip(

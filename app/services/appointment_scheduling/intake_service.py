@@ -14,7 +14,10 @@ from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.errors import AscendApiError
 from app.integrations.ascend.shipments import fetched_shipment_details
 from app.integrations.google.sheets import GoogleSheetsError
-from app.integrations.turvo.shipments import get_shipment as get_shipment_async
+from app.integrations.turvo.shipments import (
+    delivery_stop_name_from_payload,
+    get_shipment as get_shipment_async,
+)
 from app.services.appointment_scheduling.sheet_loader import load_appointment_sheet_rows
 from app.tools.appointment_scheduling.ascend_transforms import pickup_dropoff_from_ascend_shipment
 from app.services.appointment_scheduling.recipient_contact_gate import (
@@ -27,7 +30,6 @@ from app.tools.appointment_scheduling.draft_email import (
 )
 from app.tools.appointment_scheduling.ingress import (
     customer_id_from_turvo_shipment,
-    customer_name_from_turvo_shipment,
     reference_number_from_turvo_shipment,
 )
 
@@ -75,7 +77,7 @@ class AppointmentSchedulingIntakeService:
             or reference_number_from_turvo_shipment(turvo_shipment)
             or ""
         )
-        customer_name = customer_name_from_turvo_shipment(turvo_shipment) or ""
+        sheet_customer = delivery_stop_name_from_payload(turvo_shipment) or ""
         customer_id = customer_id_from_turvo_shipment(turvo_shipment) or ""
 
         sheet_source = str(settings.appointment_data_source or "").strip()
@@ -86,10 +88,10 @@ class AppointmentSchedulingIntakeService:
         except (OSError, GoogleSheetsError, ValueError):
             return IntakeResult(ok=False, skip_reason="appointment_sheet_unreadable")
 
-        if skip := contact_from_rows_skip_reason(rows, customer_name):
+        if skip := contact_from_rows_skip_reason(rows, sheet_customer):
             return IntakeResult(ok=False, skip_reason=skip)
 
-        contact = customer_contact_from_rows(rows, customer_name)
+        contact = customer_contact_from_rows(rows, sheet_customer)
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number)
         if not settings.ascend_email or not settings.ascend_password:
@@ -140,7 +142,7 @@ class AppointmentSchedulingIntakeService:
             customer_contact=contact,
             pickup_dropoff_data=pickup_dropoff,
             draft_static=draft_static,
-            customer_name=customer_name,
+            customer_name=sheet_customer,
             customer_id=customer_id,
             reference_number=reference_number,
             office_code=office_code,

@@ -14,6 +14,8 @@ from app.domain.appointment_scheduling.ingress_constants import (
 from app.domain.appointment_scheduling.scheduling_reference import (
     is_diamond_scheduling_reference,
 )
+from app.domain.shipment_route_locations import active_route_stops
+from app.integrations.turvo.shipments import global_route_stops_from_payload
 from app.integrations.turvo.webhook_mapping import extract_shipment_and_load_ids
 
 
@@ -100,6 +102,11 @@ def ship_location_count(activity_json: dict[str, Any]) -> int:
 
 def is_multi_stop(activity_json: dict[str, Any]) -> bool:
     return ship_location_count(activity_json) > 2
+
+
+def is_multi_stop_shipment(payload: dict[str, Any]) -> bool:
+    """True when shipment ``globalRoute`` has more than pickup + one delivery."""
+    return len(active_route_stops(global_route_stops_from_payload(payload))) > 2
 
 
 def pickup_changed_in_activity_delta(activity_json: dict[str, Any]) -> bool:
@@ -243,6 +250,7 @@ __all__ = [
     "customer_name_from_turvo_shipment",
     "is_diamond_scheduling_reference",
     "is_multi_stop",
+    "is_multi_stop_shipment",
     "load_id_from_turvo_shipment",
     "parse_shipment_update_webhook",
     "pickup_changed_in_activity_delta",

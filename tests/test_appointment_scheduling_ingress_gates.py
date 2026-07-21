@@ -11,10 +11,12 @@ from app.services.appointment_scheduling.ingress_gates import (
 )
 from app.tools.turvo_scheduling_ingress import (
     is_multi_stop,
+    is_multi_stop_shipment,
     parse_shipment_update_webhook,
     pickup_changed_in_activity_delta,
     reference_number_from_turvo_shipment,
 )
+from tests.test_shipment_location_link import THREE_STOP_ROUTE
 
 
 def _activity_entry(*, creator: str, prev_date: str, final_date: str) -> dict:
@@ -107,6 +109,34 @@ def test_is_multi_stop() -> None:
     assert is_multi_stop(activity) is True
 
 
+def test_is_multi_stop_shipment_three_active_stops() -> None:
+    payload = {"details": {"globalRoute": THREE_STOP_ROUTE}}
+    assert is_multi_stop_shipment(payload) is True
+
+
+def test_is_multi_stop_shipment_two_stops_false() -> None:
+    payload = {
+        "details": {
+            "globalRoute": [
+                {"deleted": False, "name": "Pickup"},
+                {"deleted": False, "name": "Delivery"},
+            ]
+        }
+    }
+    assert is_multi_stop_shipment(payload) is False
+
+
+def test_is_multi_stop_shipment_ignores_deleted_stops() -> None:
+    route = [
+        {"deleted": False, "name": "Pickup"},
+        {"deleted": True, "name": "Removed"},
+        {"deleted": False, "name": "Delivery 1"},
+        {"deleted": False, "name": "Delivery 2"},
+    ]
+    payload = {"details": {"globalRoute": route}}
+    assert is_multi_stop_shipment(payload) is True
+
+
 def test_is_diamond_reference() -> None:
     assert is_diamond_scheduling_reference("DIAMOND-RPN-123") is True
     assert is_diamond_scheduling_reference("ACME-1") is False
@@ -156,17 +186,16 @@ def test_evaluate_parsed_webhook_requires_tender_accepted() -> None:
     assert evaluate_parsed_webhook(parsed) == "status_not_tender_accepted"
 
 
-def test_evaluate_activity_gates_stops_on_multi_stop_before_pickup() -> None:
+def test_evaluate_activity_gates_ignores_multi_stop_activity_snapshot() -> None:
     activity = {
         "data": [
-            {
-                "context_snapshot": {
-                    "global_route": {"ship_locations": [{}, {}, {}]},
-                }
-            }
+            _activity_entry(creator="Ops", prev_date="2026-03-20", final_date="2026-03-21"),
         ]
     }
-    assert evaluate_activity_gates(activity) == "multi_stop"
+    activity["data"][0]["context_snapshot"]["global_route"] = {
+        "ship_locations": [{}, {}, {}],
+    }
+    assert evaluate_activity_gates(activity) is None
 
 
 def _shipment_update_body(*, tender_accepted: bool = True) -> dict:
@@ -191,4 +220,21 @@ def test_evaluate_shipment_gates_non_diamond() -> None:
         webhook_load_id="47361",
     )
     assert reason == "non_diamond_customer"
+    assert fetched is None
+
+
+def test_evaluate_shipment_gates_multi_stop() -> None:
+    payload = {
+        "details": {
+            "customerOrder": [
+                {
+                    "deleted": False,
+                    "externalIds": [{"idValue": "DIAMOND-RPN-999"}],
+                }
+            ],
+            "globalRoute": THREE_STOP_ROUTE,
+        }
+    }
+    reason, fetched = evaluate_shipment_gates(payload, webhook_load_id="47361")
+    assert reason == "multi_stop"
     assert fetched is None

@@ -6,7 +6,12 @@ from app.tools.appointment_scheduling.ascend_transforms import (
     llm_location_input_from_pickup_dropoff,
     pickup_dropoff_from_ascend_shipment,
 )
-from app.tools.appointment_scheduling.customer_contact import customer_contact_from_rows
+from app.tools.appointment_scheduling.customer_contact import (
+    customer_contact_from_rows,
+    find_customer_sheet_row,
+    is_email_appointment_mode,
+    normalize_appointment_mode,
+)
 from app.tools.appointment_scheduling.draft_email import (
     build_draft_static_from_turvo,
     build_email_draft,
@@ -45,6 +50,23 @@ def test_pickup_dropoff_from_ascend_shipment():
     assert result["po_number"] == "PO-9"
     assert result["pallet_count"] == 12
     assert result["pickup_data"]["location"] == "Origin WH"
+
+
+def test_normalize_appointment_mode() -> None:
+    assert normalize_appointment_mode("Email") == "email"
+    assert normalize_appointment_mode("  CALL  ") == "call"
+    assert normalize_appointment_mode(None) == ""
+
+
+def test_is_email_appointment_mode() -> None:
+    assert is_email_appointment_mode("email") is True
+    assert is_email_appointment_mode("call") is False
+
+
+def test_find_customer_sheet_row() -> None:
+    rows = [{"CUSTOMER": "Acme Corp", "APPOINTMENT MODE": "email"}]
+    assert find_customer_sheet_row(rows, "acme corp") == rows[0]
+    assert find_customer_sheet_row(rows, "Other") is None
 
 
 def test_customer_contact_ignores_appointment_mode_column():

@@ -19,6 +19,7 @@ def appointment_sheet(tmp_path: Path):
         [
             {
                 "CUSTOMER": "Acme Foods",
+                "APPOINTMENT MODE": "email",
                 "CONTACT DETAILS(EMAILS)": "scheduling <acme@example.com>",
                 "Transit time": "3 days",
             }
@@ -42,6 +43,7 @@ def test_intake_success(appointment_sheet):
                 {
                     "customer": {"name": "Acme Foods", "id": "CUST-42"},
                     "externalIds": [{"idValue": "DIAMOND-RPN-99"}],
+                    "items": [{"deliveryLocation": [{"name": "Acme Foods"}]}],
                 }
             ]
         }
@@ -78,6 +80,7 @@ def test_intake_success(appointment_sheet):
     assert result.customer_contact is not None
     assert result.customer_contact.email == "acme@example.com"
     assert result.reference_number == "DIAMOND-RPN-99"
+    assert result.customer_name == "Acme Foods"
 
 
 def test_intake_missing_recipient_email(appointment_sheet):
@@ -95,6 +98,7 @@ def test_intake_missing_recipient_email(appointment_sheet):
                 {
                     "customer": {"name": "Unknown Customer", "id": "CUST-1"},
                     "externalIds": [{"idValue": "DIAMOND-RPN-1"}],
+                    "items": [{"deliveryLocation": [{"name": "Unknown Customer"}]}],
                 }
             ]
         }
@@ -131,6 +135,9 @@ def test_intake_success_from_google_sheets_url():
                 {
                     "customer": {"name": "COSTCO #960 DEPOT SC", "id": "CUST-42"},
                     "externalIds": [{"idValue": "DIAMOND-RPN-99"}],
+                    "items": [
+                        {"deliveryLocation": [{"name": "COSTCO #960 DEPOT SC"}]},
+                    ],
                 }
             ]
         }
@@ -138,6 +145,7 @@ def test_intake_success_from_google_sheets_url():
     sheet_rows = [
         {
             "CUSTOMER": "COSTCO #960 DEPOT SC",
+            "APPOINTMENT MODE": "email",
             "CONTACT DETAILS": "mitej@theagentic.ai",
             "TRANSIT TIME": "7 hrs 31 mins",
         }

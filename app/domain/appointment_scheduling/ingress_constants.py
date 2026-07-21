@@ -62,5 +62,6 @@ SCHEDULING_INGRESS_SKIP_REASONS = frozenset(
         "duplicate_lifecycle",
         "lifecycle_create_failed",
         "enqueue_failed",
+        "appointment_mode_not_email",
     }
 )
