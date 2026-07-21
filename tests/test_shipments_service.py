@@ -278,6 +278,32 @@ async def test_refresh_display_from_turvo_fetches_and_upserts() -> None:
 
 
 @pytest.mark.asyncio
+async def test_refresh_display_from_turvo_applies_customer_name_override() -> None:
+    repo = MagicMock()
+    repo.upsert_by_tenant_and_shipment_number_tx.return_value = ShipmentUpsertResult(
+        shipment_id=_SHIPMENTS_ROW_UUID,
+        created=False,
+    )
+    svc = ShipmentsService(shipments_repository=repo)
+
+    with patch(
+        "app.services.shipments_service.get_turvo_shipment_async",
+        new=AsyncMock(return_value=SHIPMENT_1000324895_FIXTURE),
+    ):
+        out = await svc.refresh_display_from_turvo(
+            tenant_id=_TENANT_UUID,
+            tenant_slug="t3ra",
+            turvo_shipment_id="1000324895",
+            load_id="30389",
+            customer_name_override="PETCO DC 810",
+        )
+
+    assert out["success"] is True
+    call_kw = repo.upsert_by_tenant_and_shipment_number_tx.call_args.kwargs
+    assert call_kw["customer_name"] == "PETCO DC 810"
+
+
+@pytest.mark.asyncio
 async def test_refresh_display_from_turvo_soft_fails_on_get_error() -> None:
     svc = ShipmentsService(shipments_repository=MagicMock())
 

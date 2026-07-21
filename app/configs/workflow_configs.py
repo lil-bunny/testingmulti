@@ -383,6 +383,7 @@ WORKFLOW_CONFIGS = {
             "apply_ascend_dropoff_appointment",
             "apply_turvo_delivery_appointment",
             "send_appointment_confirmation_reply",
+            "apply_turvo_tender_status",
             "record_appointment_reply_completed",
             "end",
         ],
@@ -399,7 +400,8 @@ WORKFLOW_CONFIGS = {
             ["finalize_confirm_awaiting_reply", "end"],
             ["apply_ascend_dropoff_appointment", "apply_turvo_delivery_appointment"],
             ["apply_turvo_delivery_appointment", "send_appointment_confirmation_reply"],
-            ["send_appointment_confirmation_reply", "record_appointment_reply_completed"],
+            ["send_appointment_confirmation_reply", "apply_turvo_tender_status"],
+            ["apply_turvo_tender_status", "record_appointment_reply_completed"],
             ["record_appointment_reply_completed", "end"],
         ],
         "routers": {

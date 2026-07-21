@@ -9,7 +9,7 @@ Shipment-scoped POD checks use ``GET /v1/documents/list`` — see
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
@@ -677,6 +677,17 @@ def shipment_display_fields_from_payload(payload: dict[str, Any]) -> ShipmentDis
     )
 
 
+def appointment_scheduling_display_fields_from_payload(
+    payload: dict[str, Any],
+) -> ShipmentDisplayFields:
+    """Display fields for appointment scheduling: ``customer_name`` is delivery stop, not bill-to."""
+    fields = shipment_display_fields_from_payload(payload)
+    stop = delivery_stop_name_from_payload(payload)
+    if stop:
+        return replace(fields, customer_name=stop)
+    return fields
+
+
 async def get_shipment(
     tenant_slug: str,
     shipment_id: Any,
@@ -1008,6 +1019,7 @@ async def update_stop_appointment_time(
                 "appointment": {
                     "date": new_start_utc,
                     "timeZone": tz_name,
+                    "hasTime": True,
                 },
             }
         ],

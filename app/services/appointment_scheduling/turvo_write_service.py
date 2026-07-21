@@ -7,11 +7,20 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.integrations.turvo.public_api_client import TurvoApiError
+from app.integrations.turvo.shipment_status import (
+    build_tender_status_body,
+    fetch_app_shipment_details,
+    fragment_id_from_shipment_payload,
+    status_code_key_from_shipment_payload,
+    timezone_from_shipment_payload,
+    update_shipment_tender_status,
+)
 from app.integrations.turvo.shipments import (
     delivery_stop_name_from_payload,
     get_shipment,
     update_stop_appointment_time,
 )
+from app.integrations.turvo.webhook_mapping import TENDERED_STATUS_CODE_KEY
 from app.services.shipments_service import ShipmentsService
 
 logger = get_logger(__name__)
@@ -21,6 +30,7 @@ logger = get_logger(__name__)
 class TurvoWriteResult:
     ok: bool
     updated: bool = False
+    skipped: bool = False
     error: str | None = None
     stop_name: str | None = None
     start_time: str | None = None
@@ -45,6 +55,7 @@ class AppointmentSchedulingTurvoWriteService:
             shipment_payload=data.get("shipment") if isinstance(data.get("shipment"), dict) else None,
             tenant_id=str(data.get("tenant_id") or "").strip(),
             load_id=str(data.get("load_id") or "").strip(),
+            customer_name_override=str(data.get("customer_name") or "").strip() or None,
         )
 
     async def apply_delivery(
@@ -57,6 +68,7 @@ class AppointmentSchedulingTurvoWriteService:
         shipment_payload: dict[str, Any] | None = None,
         tenant_id: str = "",
         load_id: str = "",
+        customer_name_override: str | None = None,
     ) -> TurvoWriteResult:
         slug = str(tenant_slug or "").strip()
         sid = str(shipment_id or "").strip()
@@ -110,11 +122,15 @@ class AppointmentSchedulingTurvoWriteService:
         tid = str(tenant_id or "").strip()
         lid = str(load_id or "").strip()
         if ok and tid and lid:
+            override = str(customer_name_override or "").strip()
+            if not override and payload is not None:
+                override = str(delivery_stop_name_from_payload(payload) or "").strip()
             refresh = await ShipmentsService().refresh_display_from_turvo(
                 tenant_id=tid,
                 tenant_slug=slug,
                 turvo_shipment_id=sid,
                 load_id=lid,
+                customer_name_override=override or None,
             )
             if not refresh.get("success"):
                 logger.warning(
@@ -123,6 +139,76 @@ class AppointmentSchedulingTurvoWriteService:
                     refresh.get("message"),
                 )
         return result
+
+    async def tender_from_state(self, state) -> TurvoWriteResult:
+        data = state.data or {}
+        return await self.apply_tender(
+            tenant_slug=str(data.get("tenant_slug") or "").strip(),
+            shipment_id=str(data.get("shipment_id") or "").strip(),
+            tenant_id=str(data.get("tenant_id") or "").strip(),
+            load_id=str(data.get("load_id") or "").strip(),
+            customer_name_override=str(data.get("customer_name") or "").strip() or None,
+        )
+
+    async def apply_tender(
+        self,
+        *,
+        tenant_slug: str,
+        shipment_id: str,
+        tenant_id: str = "",
+        load_id: str = "",
+        customer_name_override: str | None = None,
+    ) -> TurvoWriteResult:
+        slug = str(tenant_slug or "").strip()
+        sid = str(shipment_id or "").strip()
+        if not slug or not sid:
+            return TurvoWriteResult(ok=False, error="missing_turvo_tender_fields")
+
+        try:
+            payload = await fetch_app_shipment_details(slug, sid)
+        except (TurvoApiError, ValueError) as exc:
+            logger.warning(
+                "turvo tender shipment fetch failed shipment_id=%s: %s",
+                sid,
+                exc,
+            )
+            return TurvoWriteResult(ok=False, error=str(exc))
+
+        if status_code_key_from_shipment_payload(payload) == TENDERED_STATUS_CODE_KEY:
+            return TurvoWriteResult(ok=True, updated=False, skipped=True, response={"already_tendered": True})
+
+        fragment_id = fragment_id_from_shipment_payload(payload)
+        if not fragment_id:
+            return TurvoWriteResult(ok=False, error="missing_fragment_id")
+
+        tz = timezone_from_shipment_payload(payload)
+        body = build_tender_status_body(fragment_id=fragment_id, timezone=tz)
+
+        try:
+            raw = await update_shipment_tender_status(slug, sid, body)
+        except (TurvoApiError, ValueError) as exc:
+            logger.warning("turvo tender status PUT failed shipment_id=%s: %s", sid, exc)
+            return TurvoWriteResult(ok=False, error=str(exc))
+
+        tid = str(tenant_id or "").strip()
+        lid = str(load_id or "").strip()
+        if tid and lid:
+            override = str(customer_name_override or "").strip() or None
+            refresh = await ShipmentsService().refresh_display_from_turvo(
+                tenant_id=tid,
+                tenant_slug=slug,
+                turvo_shipment_id=sid,
+                load_id=lid,
+                customer_name_override=override,
+            )
+            if not refresh.get("success"):
+                logger.warning(
+                    "shipment display refresh failed after turvo tender shipment_id=%s: %s",
+                    sid,
+                    refresh.get("message"),
+                )
+
+        return TurvoWriteResult(ok=True, updated=True, response=raw)
 
 
 __all__ = ("AppointmentSchedulingTurvoWriteService", "TurvoWriteResult")

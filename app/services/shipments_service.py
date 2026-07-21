@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
@@ -173,6 +174,7 @@ class ShipmentsService:
         tenant_slug: str,
         turvo_shipment_id: str,
         load_id: str,
+        customer_name_override: str | None = None,
     ) -> dict[str, Any]:
         """Re-fetch Turvo shipment and upsert display columns (pickup/delivery dates)."""
         tid = self._uuid_or_none(tenant_id)
@@ -196,11 +198,17 @@ class ShipmentsService:
         if not isinstance(turvo_payload, dict):
             return {"success": False, "message": "invalid_turvo_payload"}
 
+        fields = shipment_display_fields_from_payload(turvo_payload)
+        override = self._clean(customer_name_override) if customer_name_override else ""
+        if override:
+            fields = replace(fields, customer_name=override)
+
         return self.upsert_from_turvo(
             tenant_id=tid,
             turvo_shipment_id=number,
             load_id=load,
             turvo_payload=turvo_payload,
+            display_fields=fields,
         )
 
     async def upsert_from_load_id(

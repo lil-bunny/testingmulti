@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.integrations.turvo.shipments import (
+    appointment_scheduling_display_fields_from_payload,
     delivery_appointment_from_payload,
     shipment_display_fields_from_payload,
 )
@@ -55,6 +56,23 @@ SHIPMENT_1000324895_FIXTURE: dict = {
 def test_shipment_display_fields_from_payload_full_fixture() -> None:
     out = shipment_display_fields_from_payload(SHIPMENT_1000324895_FIXTURE)
     assert out.customer_name == "DIAMOND PET FOODS"
+    assert out.carrier_name == "Turvo Test Carrier"
+    assert out.pickup_date == datetime(2026, 3, 30, 14, 0, tzinfo=timezone.utc)
+    assert out.pickup_timezone == "America/Los_Angeles"
+    assert out.delivery_date == datetime(2026, 4, 1, 7, 1, tzinfo=timezone.utc)
+    assert out.delivery_timezone == "America/New_York"
+
+
+def test_appointment_scheduling_display_fields_uses_delivery_stop_as_customer_name() -> None:
+    standard = shipment_display_fields_from_payload(SHIPMENT_1000324895_FIXTURE)
+    out = appointment_scheduling_display_fields_from_payload(SHIPMENT_1000324895_FIXTURE)
+    assert standard.customer_name == "DIAMOND PET FOODS"
+    assert out.customer_name == "PETCO DC 810"
+    assert out.carrier_name == standard.carrier_name
+    assert out.pickup_date == standard.pickup_date
+    assert out.pickup_timezone == standard.pickup_timezone
+    assert out.delivery_date == standard.delivery_date
+    assert out.delivery_timezone == standard.delivery_timezone
     assert out.carrier_name == "Turvo Test Carrier"
     assert out.pickup_date == datetime(2026, 3, 30, 14, 0, tzinfo=timezone.utc)
     assert out.pickup_timezone == "America/Los_Angeles"

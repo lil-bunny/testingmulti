@@ -51,6 +51,7 @@ async def test_update_stop_appointment_time_puts_global_route() -> None:
     body = client.request.call_args.kwargs["json_body"]
     assert body["globalRoute"][0]["id"] == 202
     assert body["globalRoute"][0]["appointment"]["timeZone"] == "America/Los_Angeles"
+    assert body["globalRoute"][0]["appointment"]["hasTime"] is True
 
 
 @pytest.mark.asyncio
