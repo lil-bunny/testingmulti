@@ -1,0 +1,81 @@
+{
+    "lc": 1,
+    "type": "constructor",
+    "id": [
+        "langchain",
+        "prompts",
+        "chat",
+        "ChatPromptTemplate"
+    ],
+    "kwargs": {
+        "input_variables": [
+            "thread_text"
+        ],
+        "messages": [
+            {
+                "lc": 1,
+                "type": "constructor",
+                "id": [
+                    "langchain",
+                    "prompts",
+                    "chat",
+                    "SystemMessagePromptTemplate"
+                ],
+                "kwargs": {
+                    "prompt": {
+                        "lc": 1,
+                        "type": "constructor",
+                        "id": [
+                            "langchain",
+                            "prompts",
+                            "prompt",
+                            "PromptTemplate"
+                        ],
+                        "kwargs": {
+                            "input_variables": [],
+                            "template": "You support delivery scheduling operations. Extract date and time from email threads for appointment scheduling automation.\n\nReturn JSON only with keys: decision, success, extracted_date, extracted_time, confidence, reason.\n\ndecision must be exactly one of: \"sufficient\", \"insufficient\", \"do_nothing\".\n\nWhen the thread contains numeric dates (e.g. 01/02/2026 or 01-02-2026), interpret them as MM/DD/YYYY unless context clearly specifies otherwise. When the month is named (e.g. March 15, 15 March), use that to get the correct date.\n\nUnderstand context and references like \"same date\", \"that date\", \"as mentioned\".\n\nSet success true and decision \"sufficient\" when the thread establishes a definite date AND time that can be used without human confirmation.\n\nSet success false and decision \"insufficient\" when the customer or facility replied but the thread is not yet actionable.\n\nSet success false and decision \"do_nothing\" for auto-replies, empty content, or non-appointment chatter.\n\nReturn extracted_date and extracted_time whenever you can infer them, even if decision is insufficient or do_nothing.",
+                            "template_format": "f-string"
+                        },
+                        "name": "PromptTemplate"
+                    }
+                }
+            },
+            {
+                "lc": 1,
+                "type": "constructor",
+                "id": [
+                    "langchain",
+                    "prompts",
+                    "chat",
+                    "HumanMessagePromptTemplate"
+                ],
+                "kwargs": {
+                    "prompt": {
+                        "lc": 1,
+                        "type": "constructor",
+                        "id": [
+                            "langchain",
+                            "prompts",
+                            "prompt",
+                            "PromptTemplate"
+                        ],
+                        "kwargs": {
+                            "input_variables": [
+                                "thread_text"
+                            ],
+                            "template": "Extract date and time information from the following email thread.\nThe thread may contain multiple messages. Look for references like \"same date\", \"that date\", \"as mentioned\", etc.\nthat refer to dates or times mentioned earlier in the thread.\n\nWhen reading dates from the thread:\n- Treat numeric dates (with slash or hyphen, e.g. 01/02/2026 or 01-02-2026) as MM/DD/YYYY unless the context explicitly indicates otherwise. Do not assume DD/MM/YYYY or YYYY/MM/DD.\n- When the month is given by name (e.g. \"March 15\", \"march 15th\", \"15 March\"), use that to determine the date and convert correctly.\n\nExtract:\n- extracted_date: YYYY-MM-DD or MM/DD/YYYY (or null)\n- extracted_time: 24-hour HH:MM or clear AM/PM form (e.g. 5:00 PM). If AM/PM is specified, you may return either normalized 24h or AM/PM.\n\nThread context:\n- The same carrier outbound message may appear twice (e.g. Sent Items and Inbox). Count it once; do not treat that as a missing facility reply.\n\nUse decision \"sufficient\" (success true) when the thread establishes a definite date AND time without human confirmation. This includes:\n- Explicit confirmations (e.g. \"Confirmed 10am\", \"Confrmd 11 AM\").\n- A short reply that only gives a time in response to a previous message that already specified the date (e.g. \"Pls do it on 5PM\", \"10 am\", \"11 AM\").\n- A short reply that only gives a date in response to a message that already specified the time.\n- When the facility / consignee / warehouse states a concrete delivery appointment (e.g. \"noted for [date] @[time]\", \"scheduled for\", \"your appointment is\") with explicit date and time\u2014even if they add \"Please confirm\" (that normally requests acknowledgment, not an open counter-offer).\n\nUse decision \"insufficient\" (success false) when:\n- The relevant content is a question (e.g. \"Can we do next day at 4pm?\") that still requires the other party to confirm.\n- The date/time is only a proposal with no indication the other side agreed.\n- The thread does not clearly establish both date and time.\n\nDo not use \"insufficient\" solely because the facility closed with \"please confirm\" after stating a specific date and time.\n\nUse decision \"do_nothing\" (success false) for auto-replies, empty content, or non-appointment chatter.\n\nconfidence: 0.0 to 1.0.\nreason: one short sentence explaining the decision.\n\nText:\n{thread_text}\n\nReturn JSON only:\n{{\n    \"decision\": \"sufficient\" | \"insufficient\" | \"do_nothing\",\n    \"success\": true | false,\n    \"extracted_date\": \"YYYY-MM-DD or MM/DD/YYYY\" or null,\n    \"extracted_time\": \"HH:MM or H:MM AM/PM\" or null,\n    \"confidence\": number,\n    \"reason\": \"str\"\n}}",
+                            "template_format": "f-string"
+                        },
+                        "name": "PromptTemplate"
+                    }
+                }
+            }
+        ],
+        "metadata": {
+            "lc_hub_owner": "-",
+            "lc_hub_repo": "appt-reply",
+            "lc_hub_commit_hash": "pushed-via-script"
+        }
+    },
+    "name": "ChatPromptTemplate"
+}

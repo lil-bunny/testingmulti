@@ -8,7 +8,6 @@ from langchain_core.load.load import loads
 
 from app.domain.appointment_scheduling.scheduling_prompt_templates import (
     format_availability_text,
-    render_inline_scheduling_optimization_prompts,
     scheduling_optimization_prompt_variables,
 )
 from app.integrations.langsmith.render import render_system_user
@@ -38,19 +37,8 @@ def test_scheduling_prompt_variables_include_availability_text():
     assert variables["customer_name"] == "WINCO FOODS"
 
 
-def test_inline_prompt_render_includes_shipment_context():
-    variables = scheduling_optimization_prompt_variables(
-        location_input={"miles": 100, "startDateInput": "07/01/2026", "startTimeInput": "09:00"},
-        availability={"availability": {}},
-        customer_name="CHEWY",
-    )
-    system, user = render_inline_scheduling_optimization_prompts(variables)
-    assert "CHEWY" in system
-    assert "Structured input" in user
-
-
 def test_fallback_prompt_template_loads_and_renders():
-    path = Path("prompts/fallbacks/scheduling-optimization.json")
+    path = Path("prompts/fallbacks/appt-scheduling-optimization.json")
     template = loads(path.read_text(encoding="utf-8"))
     variables = scheduling_optimization_prompt_variables(
         location_input={"miles": 250, "startDateInput": "07/02/2026", "startTimeInput": "11:00"},
@@ -63,11 +51,25 @@ def test_fallback_prompt_template_loads_and_renders():
     assert "250" in rendered.system
 
 
+def test_resolve_without_tenant_ref_loads_json_fallback():
+    variables = scheduling_optimization_prompt_variables(
+        location_input={"miles": 100, "startDateInput": "07/01/2026", "startTimeInput": "09:00"},
+        availability={"availability": {}},
+        customer_name="CHEWY",
+    )
+    rendered, metadata = resolve_appointment_scheduling_optimization_prompts(None, variables)
+    assert rendered.system
+    assert rendered.user
+    assert "CHEWY" in rendered.system
+    assert metadata.source == "fallback"
+    assert metadata.tenant_prompt_ref == "appt-scheduling-optimization"
+
+
 def test_resolve_uses_tenant_prompt_ref_without_hub():
     tenant_settings = {
         "prompts": {
             "appointment_scheduling": {
-                "scheduling_optimization": "scheduling-optimization:staging",
+                "scheduling_optimization": "appt-scheduling-optimization:staging",
             }
         }
     }
@@ -82,7 +84,7 @@ def test_resolve_uses_tenant_prompt_ref_without_hub():
     )
     assert rendered.system
     assert rendered.user
-    assert metadata.tenant_prompt_ref == "scheduling-optimization:staging"
+    assert metadata.tenant_prompt_ref == "appt-scheduling-optimization:staging"
 
 
 def test_format_availability_text_empty():

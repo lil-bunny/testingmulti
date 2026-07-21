@@ -18,7 +18,8 @@ T3RA_PROMPTS: dict[str, Any] = {
         "driver_details": "driver-details-extract:staging",
     },
     "appointment_scheduling": {
-        "scheduling_optimization": "scheduling-optimization:staging",
+        "scheduling_optimization": "appt-scheduling-optimization:staging",
+        "customer_reply": "appt-reply:staging",
     },
 }
 

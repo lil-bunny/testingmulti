@@ -13,10 +13,16 @@ from app.integrations.langsmith.types import (
     RenderedPrompt,
 )
 from app.domain.prompt_step_keys import (
+    APPOINTMENT_SCHEDULING_CUSTOMER_REPLY,
     APPOINTMENT_SCHEDULING_OPTIMIZATION,
     DRIVER_ASSIGNMENT_DRIVER_DETAILS,
     LOAD_TENDERING_CARRIER_ACK,
 )
+from app.domain.prompt_hub_refs import (
+    APPOINTMENT_SCHEDULING_CUSTOMER_REPLY_PROMPT,
+    APPOINTMENT_SCHEDULING_OPTIMIZATION_PROMPT,
+)
+from app.integrations.langsmith import PromptUnavailableError
 from app.services.prompt_service import PromptService
 
 
@@ -113,7 +119,7 @@ def test_render_step_appointment_scheduling_prompt_ref() -> None:
         RenderedPrompt(system="sched sys", user="sched usr"),
         PromptLoadMetadata(
             source="hub",
-            tenant_prompt_ref="scheduling-optimization:staging",
+            tenant_prompt_ref="appt-scheduling-optimization:staging",
             commit_hash="def456",
         ),
     )
@@ -123,7 +129,7 @@ def test_render_step_appointment_scheduling_prompt_ref() -> None:
         tenant_settings={
             "prompts": {
                 "appointment_scheduling": {
-                    "scheduling_optimization": "scheduling-optimization:staging",
+                    "scheduling_optimization": "appt-scheduling-optimization:staging",
                 }
             }
         },
@@ -131,8 +137,65 @@ def test_render_step_appointment_scheduling_prompt_ref() -> None:
         variables=variables,
     )
     assert rendered.system == "sched sys"
-    assert metadata.tenant_prompt_ref == "scheduling-optimization:staging"
+    assert metadata.tenant_prompt_ref == "appt-scheduling-optimization:staging"
     client.load_and_render.assert_called_once_with(
-        "scheduling-optimization:staging",
+        "appt-scheduling-optimization:staging",
         variables,
     )
+
+
+def test_render_json_managed_step_no_ref_loads_json_fallback() -> None:
+    prompt_service = PromptService(prompt_client=MagicMock())
+    rendered, metadata = prompt_service.render_json_managed_step(
+        tenant_settings={},
+        prompt_step_key=APPOINTMENT_SCHEDULING_CUSTOMER_REPLY,
+        hub_id=APPOINTMENT_SCHEDULING_CUSTOMER_REPLY_PROMPT,
+        variables={"thread_text": "Confirmed 10am"},
+    )
+    assert rendered.system
+    assert "Confirmed 10am" in rendered.user
+    assert metadata.source == "fallback"
+    assert metadata.tenant_prompt_ref == APPOINTMENT_SCHEDULING_CUSTOMER_REPLY_PROMPT
+
+
+def test_render_json_managed_step_with_ref_uses_client() -> None:
+    client = MagicMock()
+    client.load_and_render.return_value = (
+        RenderedPrompt(system="sched sys", user="sched usr"),
+        PromptLoadMetadata(
+            source="hub",
+            tenant_prompt_ref="appt-scheduling-optimization:staging",
+            commit_hash="def456",
+        ),
+    )
+    prompt_service = PromptService(prompt_client=client)
+    variables = {"miles": "100", "scheduling_input_json": "{}"}
+    rendered, metadata = prompt_service.render_json_managed_step(
+        tenant_settings={
+            "prompts": {
+                "appointment_scheduling": {
+                    "scheduling_optimization": "appt-scheduling-optimization:staging",
+                }
+            }
+        },
+        prompt_step_key=APPOINTMENT_SCHEDULING_OPTIMIZATION,
+        hub_id=APPOINTMENT_SCHEDULING_OPTIMIZATION_PROMPT,
+        variables=variables,
+    )
+    assert rendered.system == "sched sys"
+    assert metadata.tenant_prompt_ref == "appt-scheduling-optimization:staging"
+    client.load_and_render.assert_called_once_with(
+        "appt-scheduling-optimization:staging",
+        variables,
+    )
+
+
+def test_render_json_managed_step_missing_json_raises() -> None:
+    prompt_service = PromptService(prompt_client=MagicMock())
+    with pytest.raises(PromptUnavailableError):
+        prompt_service.render_json_managed_step(
+            tenant_settings={},
+            prompt_step_key=APPOINTMENT_SCHEDULING_OPTIMIZATION,
+            hub_id="nonexistent-appt-prompt",
+            variables={"miles": "1"},
+        )

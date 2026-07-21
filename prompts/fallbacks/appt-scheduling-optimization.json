@@ -21,11 +21,6 @@
             "scheduling_input_json",
             "special_rule"
         ],
-        "metadata": {
-            "lc_hub_owner": "-",
-            "lc_hub_repo": "scheduling-optimization",
-            "lc_hub_commit_hash": "local-fallback-v1"
-        },
         "messages": [
             {
                 "lc": 1,
@@ -96,7 +91,12 @@
                     }
                 }
             }
-        ]
+        ],
+        "metadata": {
+            "lc_hub_owner": "-",
+            "lc_hub_repo": "appt-scheduling-optimization",
+            "lc_hub_commit_hash": "pushed-via-script"
+        }
     },
     "name": "ChatPromptTemplate"
 }

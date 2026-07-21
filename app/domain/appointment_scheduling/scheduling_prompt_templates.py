@@ -1,47 +1,10 @@
-"""LangSmith scheduling optimization prompt variables and inline fallback."""
+"""LangSmith scheduling optimization prompt variable builders."""
 
 from __future__ import annotations
 
 import json
 from datetime import datetime
 from typing import Any
-
-SCHEDULING_OPTIMIZATION_SYSTEM_TEMPLATE = """You are a logistics scheduling expert optimizing pickup times and delivery dates for freight shipments.
-
-SHIPMENT DETAILS:
-- Distance: {miles} miles
-- Pickup Location: {pickup_location}
-- Dropoff Location: {dropoff_location}
-- Dropoff State: {dropoff_state}
-- Customer: {customer_name}
-- Extra rules (override others on conflict): {special_rule}
-- Is Chewy Customer: {is_chewy_customer}
-
-BASE PICKUP CONTEXT (SOURCE OF TRUTH FOR INITIAL CALCULATION):
-- Base Pickup Date: {base_pickup_date}
-- Base Pickup Time: {base_pickup_time}
-
-AVAILABLE PICKUP TIMES:
-{availability_text}
-
-Follow the standard T3RA scheduling rule chain: baseline pickup lock, customer-specific windows (CHEWY/AFCO/PETCO), distance-based transit days, initial delivery from base pickup, conditional weekend reschedule, final validation.
-
-OUTPUT FORMAT (JSON only, no other text):
-{{
-  "selected_pickup_date": "YYYY-MM-DD",
-  "selected_pickup_time": "HH:MM",
-  "pcs_pickup_date": "MM/DD/YYYY",
-  "calculated_delivery_date": "MM/DD/YYYY",
-  "calculated_delivery_weekday": "MONDAY",
-  "transit_days": 0,
-  "reasoning": "step-by-step explanation",
-  "time_category": "morning",
-  "weekend_shifted": false
-}}"""
-
-SCHEDULING_OPTIMIZATION_USER_TEMPLATE = (
-    "Analyze the data and return ONLY valid JSON.\n\nStructured input:\n{scheduling_input_json}"
-)
 
 
 def format_availability_text(availability: dict[str, Any]) -> str:
@@ -91,12 +54,3 @@ def scheduling_optimization_prompt_variables(
             ensure_ascii=False,
         ),
     }
-
-
-def render_inline_scheduling_optimization_prompts(
-    variables: dict[str, str],
-) -> tuple[str, str]:
-    return (
-        SCHEDULING_OPTIMIZATION_SYSTEM_TEMPLATE.format(**variables),
-        SCHEDULING_OPTIMIZATION_USER_TEMPLATE.format(**variables),
-    )
