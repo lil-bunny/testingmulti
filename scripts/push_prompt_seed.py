@@ -42,6 +42,7 @@ load_dotenv(_REPO_ROOT / ".env", override=False)
 
 from app.core.config import settings  # noqa: E402
 from app.domain.prompt_hub_refs import (  # noqa: E402
+    APPOINTMENT_SCHEDULING_CUSTOMER_REPLY_PROMPT,
     CARRIER_ACK_CLASSIFY_PROMPT,
     DRIVER_DETAILS_EXTRACT_PROMPT,
     POD_ATTACHMENT_CLASSIFIER_PROMPT,
