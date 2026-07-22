@@ -21,6 +21,7 @@ from app.tools.appointment_scheduling.draft_email import (
 )
 from app.tools.appointment_scheduling.proposed_appointments import (
     parse_proposed_appointment_date,
+    proposed_wall_clock_to_utc,
 )
 from app.domain.appointment_scheduling.models import DraftStatic, LlmSchedulingDecision, PickupDropoffData
 
@@ -184,3 +185,19 @@ def test_parse_proposed_appointment_date_accepts_us_and_iso():
     assert us is not None and us.month == 8 and us.day == 4
     assert parse_proposed_appointment_date("") is None
     assert parse_proposed_appointment_date("not-a-date") is None
+
+
+def test_proposed_wall_clock_to_utc_converts_stop_timezone():
+    utc = proposed_wall_clock_to_utc(
+        "07/04/2026",
+        time_raw="06:00",
+        timezone_name="America/Chicago",
+    )
+    assert utc is not None
+    assert utc.hour == 11
+    assert utc.minute == 0
+
+
+def test_proposed_wall_clock_to_utc_date_only_defaults_midnight_utc():
+    utc = proposed_wall_clock_to_utc("2026-07-30")
+    assert utc == parse_proposed_appointment_date("2026-07-30")

@@ -37,6 +37,10 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
     activity = MagicMock()
     shipments = MagicMock()
     shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
     service = AppointmentSchedulingLifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
@@ -76,8 +80,168 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         shipment_row_id=_SHIPMENT_ROW_ID,
         proposed_pickup_at="2026-07-30",
         proposed_delivery_at="08/04/2026",
+        proposed_pickup_time=None,
+        proposed_delivery_time=None,
+        pickup_timezone="America/Chicago",
+        delivery_timezone="America/Los_Angeles",
     )
+    shipments.get_by_id.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_id=_SHIPMENT_ROW_ID,
+    )
+    shipments.merge_metadata.assert_not_called()
     lifecycle.update_lifecycle_status.assert_not_called()
+
+
+def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    scheduling_payload = {
+        "proposed_pickup_at": "2026-07-30",
+        "proposed_delivery_at": "08/04/2026",
+    }
+    state = _state(customer_name="COSTCO #584 NW")
+
+    service.persist_draft_ready(
+        state,
+        lifecycle_id="lifecycle-1",
+        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        scheduling_payload=scheduling_payload,
+        llm_scheduling_decision={"selected_pickup_time": "08:30"},
+    )
+
+    shipments.update_proposed_appointments.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENT_ROW_ID,
+        proposed_pickup_at="2026-07-30",
+        proposed_delivery_at="08/04/2026",
+        proposed_pickup_time="08:30",
+        proposed_delivery_time="06:00",
+        pickup_timezone="America/Chicago",
+        delivery_timezone="America/Los_Angeles",
+    )
+
+
+def test_persist_draft_ready_merges_po_number_when_resolved():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    turvo_payload = {
+        "details": {
+            "globalRoute": [
+                {"stopType": {"value": "Pickup"}, "deleted": False},
+                {
+                    "stopType": {"value": "Delivery"},
+                    "poNumbers": "006900520275",
+                    "deleted": False,
+                },
+            ]
+        }
+    }
+    state = _state(
+        customer_name="Costco Wholesale",
+        shipment=turvo_payload,
+        pickup_dropoff_data={"po_number": "IGNORED"},
+    )
+
+    service.persist_draft_ready(
+        state,
+        lifecycle_id="lifecycle-1",
+        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        scheduling_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
+    )
+
+    shipments.merge_metadata.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENT_ROW_ID,
+        metadata_patch={"po_number": "006900520275"},
+    )
+    lifecycle_patch = lifecycle.patch_metadata.call_args.kwargs["metadata_patch"]
+    assert "po_number" not in lifecycle_patch
+    assert "draft_context" not in lifecycle_patch
+
+
+def test_persist_draft_ready_skips_merge_when_po_empty():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    state = _state(
+        customer_name="Other Customer",
+        pickup_dropoff_data={},
+    )
+
+    service.persist_draft_ready(
+        state,
+        lifecycle_id="lifecycle-1",
+        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        scheduling_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
+    )
+
+    shipments.merge_metadata.assert_not_called()
+
+
+def test_persist_draft_ready_non_costco_uses_ascend_pickup_po():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    state = _state(
+        customer_name="Diamond Pet Foods",
+        pickup_dropoff_data={"po_number": "A1165831"},
+    )
+
+    service.persist_draft_ready(
+        state,
+        lifecycle_id="lifecycle-1",
+        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        scheduling_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
+    )
+
+    shipments.merge_metadata.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENT_ROW_ID,
+        metadata_patch={"po_number": "A1165831"},
+    )
 
 
 def test_mark_failed_delegates_activity_and_patches_metadata():

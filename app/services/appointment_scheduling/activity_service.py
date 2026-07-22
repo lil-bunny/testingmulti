@@ -23,7 +23,7 @@ from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tools.appointment_scheduling.draft_email import is_costco_customer
+from app.domain.appointment_scheduling.costco import is_costco_customer
 
 logger = get_logger(__name__)
 

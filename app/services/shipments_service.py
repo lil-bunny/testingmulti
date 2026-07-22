@@ -449,10 +449,14 @@ class ShipmentsService:
         shipment_row_id: str,
         proposed_pickup_at: str | None = None,
         proposed_delivery_at: str | None = None,
+        proposed_pickup_time: str | None = None,
+        proposed_delivery_time: str | None = None,
+        pickup_timezone: str | None = None,
+        delivery_timezone: str | None = None,
     ) -> bool:
-        """Persist LLM scheduling dates on ``shipments.proposed_*``; no-op when unparseable."""
+        """Persist scheduling dates on ``shipments.proposed_*`` as UTC; no-op when unparseable."""
         from app.tools.appointment_scheduling.proposed_appointments import (
-            parse_proposed_appointment_date,
+            proposed_wall_clock_to_utc,
         )
 
         tid = self._uuid_or_none(tenant_id)
@@ -460,8 +464,26 @@ class ShipmentsService:
         if not tid or not sid:
             return False
 
-        proposed_pickup = parse_proposed_appointment_date(proposed_pickup_at)
-        proposed_delivery = parse_proposed_appointment_date(proposed_delivery_at)
+        pickup_tz = str(pickup_timezone or "").strip() or None
+        delivery_tz = str(delivery_timezone or "").strip() or None
+        if (proposed_pickup_at and not pickup_tz) or (proposed_delivery_at and not delivery_tz):
+            row = self.get_by_id(tenant_id=tenant_id, shipment_id=shipment_row_id)
+            if row:
+                if proposed_pickup_at and not pickup_tz:
+                    pickup_tz = str(row.get("pickup_timezone") or "").strip() or None
+                if proposed_delivery_at and not delivery_tz:
+                    delivery_tz = str(row.get("delivery_timezone") or "").strip() or None
+
+        proposed_pickup = proposed_wall_clock_to_utc(
+            proposed_pickup_at,
+            time_raw=proposed_pickup_time,
+            timezone_name=pickup_tz,
+        )
+        proposed_delivery = proposed_wall_clock_to_utc(
+            proposed_delivery_at,
+            time_raw=proposed_delivery_time,
+            timezone_name=delivery_tz,
+        )
         if proposed_pickup is None and proposed_delivery is None:
             return False
 

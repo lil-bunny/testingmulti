@@ -18,7 +18,7 @@ from app.tools.appointment_scheduling.ascend_transforms import (
     llm_location_input_from_pickup_dropoff,
     normalize_availability_slots,
 )
-from app.tools.appointment_scheduling.draft_email import is_costco_customer
+from app.domain.appointment_scheduling.costco import is_costco_customer
 from app.tools.appointment_scheduling.scheduling_optimization import run_scheduling_optimization
 
 

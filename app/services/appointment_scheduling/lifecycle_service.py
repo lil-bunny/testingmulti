@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.appointment_scheduling.costco import (
+    COSTCO_PROPOSED_DELIVERY_WALL_TIME,
+    is_costco_customer,
+)
 from app.domain.appointment_scheduling.metadata_keys import (
     APPOINTMENT_DRAFT_OUTBOUND_COMMUNICATION_ID,
     APPOINTMENT_DRAFT_OUTBOUND_SENT,
@@ -16,6 +20,7 @@ from app.services.appointment_scheduling.activity_service import (
 )
 from app.services.shipments_service import ShipmentsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.tools.appointment_scheduling.po_number import resolve_scheduling_po_number
 
 
 class AppointmentSchedulingLifecycleService:
@@ -63,12 +68,52 @@ class AppointmentSchedulingLifecycleService:
         shipments_row_id = str(state.data.get("shipments_row_id") or "").strip()
         tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
         if shipments_row_id and tenant_id:
+            customer_name = str(state.data.get("customer_name") or "").strip()
+            pickup_time = str(decision.get("selected_pickup_time") or "").strip() or None
+            delivery_time = (
+                COSTCO_PROPOSED_DELIVERY_WALL_TIME
+                if is_costco_customer(customer_name)
+                else None
+            )
+            shipment_row = self._shipments.get_by_id(
+                tenant_id=tenant_id,
+                shipment_id=shipments_row_id,
+            )
+            pickup_tz = (
+                str(shipment_row.get("pickup_timezone") or "").strip() or None
+                if shipment_row
+                else None
+            )
+            delivery_tz = (
+                str(shipment_row.get("delivery_timezone") or "").strip() or None
+                if shipment_row
+                else None
+            )
             self._shipments.update_proposed_appointments(
                 tenant_id=tenant_id,
                 shipment_row_id=shipments_row_id,
                 proposed_pickup_at=scheduling_payload.get("proposed_pickup_at"),
                 proposed_delivery_at=scheduling_payload.get("proposed_delivery_at"),
+                proposed_pickup_time=pickup_time,
+                proposed_delivery_time=delivery_time,
+                pickup_timezone=pickup_tz,
+                delivery_timezone=delivery_tz,
             )
+            po = resolve_scheduling_po_number(
+                customer_name=customer_name,
+                turvo_payload=state.data.get("shipment")
+                if isinstance(state.data.get("shipment"), dict)
+                else None,
+                pickup_dropoff=state.data.get("pickup_dropoff_data")
+                if isinstance(state.data.get("pickup_dropoff_data"), dict)
+                else None,
+            )
+            if po:
+                self._shipments.merge_metadata(
+                    tenant_id=tenant_id,
+                    shipment_row_id=shipments_row_id,
+                    metadata_patch={"po_number": po},
+                )
 
     def hydrate_confirm_context(self, state) -> None:
         """Load persisted draft/decision metadata into state for confirm branch."""
