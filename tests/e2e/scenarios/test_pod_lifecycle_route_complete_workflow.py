@@ -479,14 +479,20 @@ async def test_live_put_sandbox_route_complete_and_listen_turvo_status_ack(monke
 
     celery_calls: list[dict[str, Any]] = []
 
-    def _fake_apply_async(*_a: Any, **_kw: Any) -> MagicMock:
-        inner = _kw.get("kwargs") or {}
-        celery_calls.append(dict(inner))
-        m = MagicMock()
-        m.id = "test-celery-task-id"
-        return m
+    class _FakeSerializer:
+        def resolve_then_enqueue(self, **kwargs: Any) -> MagicMock:
+            celery_calls.append(dict(kwargs))
+            m = MagicMock()
+            m.status = "started"
+            m.celery_task_id = "test-celery-task-id"
+            m.lifecycle_id = "lc-e2e-1"
+            m.workflow_lifecycle_id = "lc-e2e-1"
+            return m
 
-    monkeypatch.setattr("app.api.v1.webhooks.run_workflow_async.apply_async", _fake_apply_async)
+    monkeypatch.setattr(
+        "app.api.v1.webhooks.LifecycleRunSerializerService",
+        _FakeSerializer,
+    )
 
     captured: dict = {}
 

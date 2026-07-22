@@ -46,6 +46,12 @@ class PodManualUploadIngressService:
         uploaded_by: str | None = None,
         uploaded_by_user_id: str | None = None,
     ) -> PodManualUploadEnqueueResult:
+        """
+        Stage or resolve a POD PDF, then serialize-enqueue ``pod_lifecycle``.
+
+        Lifecycle id comes from staging resolve; uses ``enqueue`` (not resolve)
+        because the id is already known.
+        """
         resolution = self._staging.resolve_pod_lifecycle(
             tenant_slug=tenant_slug,
             shipment_id=shipment_id,
@@ -86,21 +92,19 @@ class PodManualUploadIngressService:
         if document_id:
             payload["manual_pod_document_id"] = document_id
 
-        from app.services.worker_queue_routing import apply_async_on_work_queue
-        from app.tasks.workflows import run_workflow_async
+        from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
 
-        task = apply_async_on_work_queue(
-            run_workflow_async,
+        lifecycle_run_serializer_service = LifecycleRunSerializerService()
+        result = lifecycle_run_serializer_service.enqueue(
             tenant_slug=TenantSlug.T3RA,
-            kwargs={
-                "tenant_slug": TenantSlug.T3RA,
-                "workflow_name": POD_LIFECYCLE_WORKFLOW,
-                "payload": payload,
-            },
+            workflow_name=POD_LIFECYCLE_WORKFLOW,
+            payload=payload,
         )
         logger.info(
-            "pod_manual_upload queued task_id=%s execution_id=%s lifecycle_id=%s shipment_id=%s",
-            task.id,
+            "pod_manual_upload serialize status=%s celery_task_id=%s execution_id=%s "
+            "lifecycle_id=%s shipment_id=%s",
+            result.status,
+            result.celery_task_id,
             execution_id,
             resolution.workflow_lifecycle_id,
             resolution.shipment_number,
@@ -111,7 +115,7 @@ class PodManualUploadIngressService:
             shipment_id=resolution.shipments_row_id,
             object_key=object_key,
             document_id=document_id,
-            celery_task_id=task.id,
+            celery_task_id=result.celery_task_id,
             source=source,
         )
 

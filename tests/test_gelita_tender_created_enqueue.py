@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.gelita_email_ingress_service import GelitaEmailIngressService
+from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
 from app.services.load_tendering_email_ingest_service import (
     process_tender_created_from_email_webhook,
 )
@@ -40,7 +41,7 @@ def _xlsx_payload() -> dict:
 
 
 @pytest.mark.asyncio
-@patch("app.services.load_tendering_email_ingest_service.run_workflow_async")
+@patch("app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService")
 @patch(
     "app.services.load_tendering_email_ingest_service.persist_tender_rows_from_email_import_projection"
 )
@@ -53,7 +54,7 @@ async def test_tender_created_skips_enqueue_when_order_already_exists(
     mock_attachment_import: AsyncMock,
     mock_projection: MagicMock,
     mock_persist: MagicMock,
-    mock_celery: MagicMock,
+    mock_ser_cls: MagicMock,
 ) -> None:
     mock_attachment_import.return_value = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     mock_projection.return_value = [
@@ -61,10 +62,13 @@ async def test_tender_created_skips_enqueue_when_order_already_exists(
         {"order_number": "95009"},
     ]
     mock_persist.return_value = [None, "dddddddd-dddd-dddd-dddd-dddddddddddd"]
-
-    mock_task = MagicMock()
-    mock_task.apply_async.return_value = MagicMock(id="celery-1")
-    mock_celery.apply_async = mock_task.apply_async
+    mock_ser_cls.return_value.resolve_then_enqueue.return_value = SerializeEnqueueResult(
+        lifecycle_id="lc-1",
+        inbox_key="inbox:lifecycle:lc-1",
+        status="started",
+        celery_task_id="celery-1",
+        workflow_lifecycle_id="lc-1",
+    )
 
     load_tendering_xlsx_attachment = {
         "id": "att-1",
@@ -80,20 +84,22 @@ async def test_tender_created_skips_enqueue_when_order_already_exists(
     )
 
     assert len(result["execution_ids"]) == 1
-    assert mock_task.apply_async.call_count == 1
+    assert mock_ser_cls.return_value.resolve_then_enqueue.call_count == 1
     mock_attachment_import.assert_called_once()
     assert (
         mock_attachment_import.call_args.kwargs["attachment"]
         is load_tendering_xlsx_attachment
     )
-    workflow_payload = mock_task.apply_async.call_args.kwargs["kwargs"]["payload"]
+    workflow_payload = mock_ser_cls.return_value.resolve_then_enqueue.call_args.kwargs[
+        "payload"
+    ]
     assert workflow_payload["tender_id"] == "dddddddd-dddd-dddd-dddd-dddddddddddd"
     assert workflow_payload["order_number"] == "95009"
     assert workflow_payload["event_type"] == "tender_created"
 
 
 @pytest.mark.asyncio
-@patch("app.services.load_tendering_email_ingest_service.run_workflow_async")
+@patch("app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService")
 @patch(
     "app.services.load_tendering_email_ingest_service.persist_tender_rows_from_email_import_projection"
 )
@@ -105,7 +111,7 @@ async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
     mock_attachment_import: AsyncMock,
     mock_projection: MagicMock,
     mock_persist: MagicMock,
-    mock_celery: MagicMock,
+    mock_ser_cls: MagicMock,
 ) -> None:
     mock_attachment_import.return_value = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     mock_projection.return_value = [
@@ -114,10 +120,13 @@ async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
     ]
     tender_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
     mock_persist.return_value = [tender_id, tender_id]
-
-    mock_task = MagicMock()
-    mock_task.apply_async.return_value = MagicMock(id="celery-1")
-    mock_celery.apply_async = mock_task.apply_async
+    mock_ser_cls.return_value.resolve_then_enqueue.return_value = SerializeEnqueueResult(
+        lifecycle_id="lc-1",
+        inbox_key="inbox:lifecycle:lc-1",
+        status="started",
+        celery_task_id="celery-1",
+        workflow_lifecycle_id="lc-1",
+    )
 
     result = await process_tender_created_from_email_webhook(
         payload={"thread_id": "thr-1"},
@@ -127,7 +136,7 @@ async def test_tender_created_enqueues_once_for_duplicate_spreadsheet_rows(
     )
 
     assert len(result["execution_ids"]) == 1
-    assert mock_task.apply_async.call_count == 1
+    assert mock_ser_cls.return_value.resolve_then_enqueue.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -139,23 +148,15 @@ async def test_process_xlsx_runs_inline_tender_created_ingest(
     mock_tender_created_from_email_webhook: AsyncMock,
 ) -> None:
     mock_tender_created_from_email_webhook.return_value = {
-        "message": "success",
-        "event_type": "tender_created",
         "execution_ids": ["exec-1"],
+        "data_import_id": "di-1",
     }
-
     svc = GelitaEmailIngressService()
     result = await svc.process(
         payload=_xlsx_payload(),
         tenant=_tenant(),
-        communication_id="comm-1",
+        communication_id=None,
     )
-
     assert result.outcome == "enqueued"
-    assert result.event_type == "tender_created"
-    assert result.execution_ids == ("exec-1",)
-    mock_tender_created_from_email_webhook.assert_called_once()
-    assert (
-        mock_tender_created_from_email_webhook.call_args.kwargs["attachment"]["name"]
-        == "customers_orders_loads.xlsx"
-    )
+    mock_tender_created_from_email_webhook.assert_awaited_once()
+

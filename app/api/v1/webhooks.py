@@ -26,8 +26,7 @@ from app.services.pod_lifecycle.ingress_service import (
     PodLifecycleIngressService,
 )
 from app.domain.unipile_email import extract_email_id_or_none
-from app.services.inbound_webhook_enqueue import enqueue_inbound_unipile_email
-from app.services.worker_queue_routing import apply_async_on_work_queue
+from app.services.inbound_webhook_enqueue import accept_inbound_unipile_email
 from app.services.shipments_service import ShipmentsService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
 from app.integrations.turvo.workflow_cancel import shipment_tendered_trigger_from_turvo
@@ -35,7 +34,7 @@ from app.services.workflow_lifecycle_cancel_orchestrator import (
     WorkflowLifecycleCancelOrchestrator,
 )
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tasks.workflows import run_workflow_async
+from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])
 logger = get_logger(__name__)
@@ -74,14 +73,13 @@ async def webhook_email(
     ],
 ):
     """
-    Unipile email webhook — L1 edge only (auth, tenant resolve, enqueue Celery).
+    Unipile email webhook: auth, tenant resolve, then Ingress accept on-request.
 
-    Returns ``202`` when a new ingress task is queued, ``200`` when the same
-    ``{tenant_uuid}:{email_id}`` was already queued (Unipile retry). L2 classification
-    and workflow enqueue run in ``inbound.unipile_email`` worker handler.
+    Outcomes: ``202`` when work is accepted or buffered on a lifecycle run queue;
+    ``200`` when the delivery was already claimed, skipped, or unmatched.
     """
     try:
-        # Bearer auth — reject before parsing body on bad credentials.
+        # Guard: reject before parsing body on bad credentials.
         if (
             credentials is None
             or credentials.scheme.lower() != "bearer"
@@ -90,7 +88,6 @@ async def webhook_email(
             raise HTTPException(status_code=401, detail="Unauthorized")
         payload = await request.json()
 
-        # Map connected Unipile account → FreightX tenant (recipient / account metadata).
         try:
             tenant = resolve_unipile_tenant(payload=payload)
         except TenantResolutionError as e:
@@ -99,32 +96,21 @@ async def webhook_email(
         if tenant is None:
             return {"message": "invalid webhook"}
 
-        # No slug allowlist here: L1 (resolve_unipile_tenant) already requires
-        # tenants.slug ∈ TENANT_CONFIGS and a matching inbound_routing_emails row.
-        # L2 ingress is selected in the Celery worker from tenant_slug.
-        # if tenant.tenant_slug not in (TenantSlug.GELITA, TenantSlug.T3RA):
-        #     logger.warning(
-        #         "unipile webhook: unsupported tenant_slug=%r",
-        #         tenant.tenant_slug,
-        #     )
-        #     return {"message": "invalid webhook"}
-
         email_id = extract_email_id_or_none(payload)
         if not email_id:
             return {"message": "invalid webhook"}
 
-        # Deterministic Celery task_id — duplicate Unipile delivery → already_queued.
-        ingress_task_id, queue_status = enqueue_inbound_unipile_email(
+        email_id, queue_status = await accept_inbound_unipile_email(
             tenant_uuid=tenant.tenant_uuid,
             tenant_slug=tenant.tenant_slug,
             payload=payload,
         )
         content = {
             "accepted": True,
-            "ingress_task_id": ingress_task_id,
+            "email_id": email_id,
             "status": queue_status,
         }
-        if queue_status == "queued":
+        if queue_status in ("accepted", "buffered"):
             return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=content)
         return JSONResponse(status_code=status.HTTP_200_OK, content=content)
     except HTTPException:
@@ -292,19 +278,30 @@ async def listen_turvo_status(
         queued_payload = {**payload, "execution_id": execution_id}
         if lifecycle_shipment_uuid:
             queued_payload["shipments_row_id"] = lifecycle_shipment_uuid
-        task = apply_async_on_work_queue(
-            run_workflow_async,
+
+        tenant_id_for_resolve = tenant_uuid or workflow_tenant
+        lifecycle_run_serializer_service = LifecycleRunSerializerService()
+        result = lifecycle_run_serializer_service.resolve_then_enqueue(
+            tenant_id=str(tenant_id_for_resolve),
             tenant_slug=workflow_tenant,
-            kwargs={
-                "tenant_slug": workflow_tenant,
-                "workflow_name": LISTEN_TURVO_WORKFLOW_NAME,
-                "payload": queued_payload,
-            }
+            workflow_name=LISTEN_TURVO_WORKFLOW_NAME,
+            payload=queued_payload,
         )
-        logger.info("Turvo webhook queued task_id=%s", task.id)
+        logger.info(
+            "Turvo webhook serialize status=%s celery_task_id=%s execution_id=%s "
+            "lifecycle_id=%s",
+            result.status,
+            result.celery_task_id,
+            execution_id,
+            result.lifecycle_id,
+        )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"execution_id": execution_id},
+            content={
+                "execution_id": execution_id,
+                "status": result.status,
+                "workflow_lifecycle_id": result.lifecycle_id,
+            },
         )
     except HTTPException:
         raise

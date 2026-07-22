@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import psycopg
 import pytest
@@ -154,13 +155,13 @@ def seed_inbound_routing_tenants() -> Iterator[dict[str, dict[str, Any]]]:
 def ingress_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     captured: list[dict] = []
 
-    def _enqueue(**kwargs: object) -> tuple[str, str]:
+    async def _accept(**kwargs: object) -> tuple[str, str]:
         captured.append(dict(kwargs))  # type: ignore[arg-type]
-        return "test-ingress-task-id", "queued"
+        return "mail-1", "accepted"
 
     monkeypatch.setattr(
-        "app.api.v1.webhooks.enqueue_inbound_unipile_email",
-        _enqueue,
+        "app.api.v1.webhooks.accept_inbound_unipile_email",
+        AsyncMock(side_effect=_accept),
     )
     return captured
 
@@ -180,7 +181,7 @@ def test_webhook_routes_gelita_by_recipient_email(
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["accepted"] is True
-    assert body["status"] == "queued"
+    assert body["status"] == "accepted"
     assert len(ingress_capture) == 1
     assert ingress_capture[0]["tenant_slug"] == "gelita"
 
@@ -200,7 +201,7 @@ def test_webhook_routes_t3ra_by_recipient_email(
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["accepted"] is True
-    assert body["status"] == "queued"
+    assert body["status"] == "accepted"
     assert len(ingress_capture) == 1
     assert ingress_capture[0]["tenant_slug"] == "t3ra"
 
