@@ -27,20 +27,28 @@ def _state(**overrides):
 
 
 @patch("app.services.appointment_scheduling.email_service.Unipile")
-def test_send_from_state_records_communication(mock_unipile_cls: MagicMock) -> None:
+def test_send_from_state_records_communication_and_transitions_sub_status(
+    mock_unipile_cls: MagicMock,
+) -> None:
     mock_unipile_cls.return_value.send_email.return_value = {
         "success": True,
         "tracking_id": "trk-1",
     }
     communications = MagicMock()
     communications.record_outbound_from_send.return_value = "comm-1"
-    svc = AppointmentSchedulingEmailService(communications_service=communications)
+    activity = MagicMock()
+    svc = AppointmentSchedulingEmailService(
+        communications_service=communications,
+        activity_service=activity,
+    )
 
     result = svc.send_from_state(_state())
 
     assert result.sent is True
     assert result.communication_id == "comm-1"
     communications.record_outbound_from_send.assert_called_once()
+    activity.record_confirm_email_sent.assert_called_once()
+    activity.record_awaiting_customer_reply.assert_called_once()
     extra = communications.record_outbound_from_send.call_args.kwargs["extra_metadata"]
     assert extra["source"] == "appointment_draft_send"
 

@@ -11,8 +11,8 @@ from app.domain.tenant_settings.email_recipients import (
     coerce_email_list,
     unipile_recipients_from_addresses,
 )
-from app.services.appointment_scheduling.lifecycle_service import (
-    AppointmentSchedulingLifecycleService,
+from app.services.appointment_scheduling.activity_service import (
+    AppointmentSchedulingActivityService,
 )
 from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import Unipile, UnipileException
@@ -33,10 +33,10 @@ class AppointmentSchedulingEmailService:
         self,
         *,
         communications_service: CommunicationsService | None = None,
-        lifecycle_service: AppointmentSchedulingLifecycleService | None = None,
+        activity_service: AppointmentSchedulingActivityService | None = None,
     ) -> None:
         self._communications = communications_service or CommunicationsService()
-        self._lifecycle = lifecycle_service or AppointmentSchedulingLifecycleService()
+        self._activity = activity_service or AppointmentSchedulingActivityService()
 
     @staticmethod
     def _draft_from_state(state) -> dict[str, Any]:
@@ -144,13 +144,14 @@ class AppointmentSchedulingEmailService:
         )
         if comm_id:
             send_result["communication_id"] = comm_id
-
-        lifecycle_id = str(data.get("workflow_lifecycle_id") or "").strip()
-        if lifecycle_id and comm_id:
-            self._lifecycle.mark_draft_outbound_sent(
-                lifecycle_id,
+            state.data["communication_id"] = comm_id
+            actor_id = str(data.get("actor_user_id") or "").strip() or None
+            self._activity.record_confirm_email_sent(
+                state,
                 communication_id=comm_id,
+                actor_id=actor_id,
             )
+            self._activity.record_awaiting_customer_reply(state)
 
         return AppointmentSchedulingSendResult(
             sent=True,

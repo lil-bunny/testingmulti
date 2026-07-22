@@ -355,14 +355,7 @@ def apply_turvo_tender_status(state):
 
 
 def record_appointment_reply_completed(state):
-    lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
-    confirmed_at = str(state.data.get("confirmed_delivery_at") or "").strip() or None
     AppointmentSchedulingActivityService().record_reply_completed(state)
-    if lifecycle_id:
-        AppointmentSchedulingLifecycleService().mark_completed(
-            lifecycle_id,
-            confirmed_delivery_at=confirmed_at,
-        )
     return state
 
 

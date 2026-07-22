@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 
 from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
-    LLM_SCHEDULING_DECISION,
-    SCHEDULING_PAYLOAD,
 )
 from app.services.appointment_scheduling.lifecycle_service import AppointmentSchedulingLifecycleService
 
@@ -71,8 +69,6 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         lifecycle_id="lifecycle-1",
         metadata_patch={
             EMAIL_DRAFT: email_draft,
-            SCHEDULING_PAYLOAD: scheduling_payload,
-            LLM_SCHEDULING_DECISION: {},
         },
     )
     shipments.update_proposed_appointments.assert_called_once_with(
@@ -89,7 +85,11 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         tenant_id=_TENANT_UUID,
         shipment_id=_SHIPMENT_ROW_ID,
     )
-    shipments.merge_metadata.assert_not_called()
+    shipments.merge_metadata.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENT_ROW_ID,
+        metadata_patch={"reference_number": "DIAMOND-1"},
+    )
     lifecycle.update_lifecycle_status.assert_not_called()
 
 
@@ -177,9 +177,6 @@ def test_persist_draft_ready_merges_po_number_when_resolved():
         shipment_row_id=_SHIPMENT_ROW_ID,
         metadata_patch={"po_number": "006900520275"},
     )
-    lifecycle_patch = lifecycle.patch_metadata.call_args.kwargs["metadata_patch"]
-    assert "po_number" not in lifecycle_patch
-    assert "draft_context" not in lifecycle_patch
 
 
 def test_persist_draft_ready_skips_merge_when_po_empty():
@@ -244,6 +241,50 @@ def test_persist_draft_ready_non_costco_uses_ascend_pickup_po():
     )
 
 
+def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    state = _state(
+        customer_name="Diamond Pet Foods",
+        load_id="30381",
+        draft_static={"commodity": "DIAMOND PET FOODS"},
+        pickup_dropoff_data={"pallet_count": 28},
+    )
+
+    service.persist_draft_ready(
+        state,
+        lifecycle_id="lifecycle-1",
+        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        scheduling_payload={
+            "reference_number": "DIAMOND-RPN00008809",
+            "proposed_pickup_at": "2026-07-30",
+            "proposed_delivery_at": "08/04/2026",
+        },
+    )
+
+    shipments.merge_metadata.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENT_ROW_ID,
+        metadata_patch={
+            "reference_number": "DIAMOND-RPN00008809",
+            "load_id": "30381",
+            "pallet_count": 28,
+            "commodity": "DIAMOND PET FOODS",
+        },
+    )
+
+
 def test_mark_failed_delegates_activity_and_patches_metadata():
     from app.domain.appointment_scheduling.failure import SchedulingFailure
     from app.domain.appointment_scheduling.metadata_keys import SCHEDULING_FAILURE_REASON
@@ -292,13 +333,14 @@ def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
                 "subject": "DEL APPT REQ \"30381\"",
                 "full_html": "<html/>",
             },
-            SCHEDULING_PAYLOAD: {"reference_number": "DIAMOND-RPN00008809"},
-            LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
         },
     }
     lifecycle.read_correlation_by_id.return_value = {"shipment_id": _SHIPMENT_ROW_ID}
     shipments = MagicMock()
-    shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
+    shipments.get_by_id.return_value = {
+        "shipment_number": "1000324895",
+        "metadata": {"reference_number": "DIAMOND-RPN00008809"},
+    }
     service = AppointmentSchedulingLifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
@@ -315,10 +357,8 @@ def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
     assert state.data["reference_number"] == "DIAMOND-RPN00008809"
     assert state.data["shipments_row_id"] == _SHIPMENT_ROW_ID
     assert state.data["shipment_id"] == "1000324895"
-    shipments.get_by_id.assert_called_once_with(
-        tenant_id=_TENANT_UUID,
-        shipment_id=_SHIPMENT_ROW_ID,
-    )
+    assert state.data["scheduling_payload"]["reference_number"] == "DIAMOND-RPN00008809"
+    assert shipments.get_by_id.call_count == 2
 
 
 def test_hydrate_confirm_context_keeps_turvo_id_when_shipments_row_already_in_state():

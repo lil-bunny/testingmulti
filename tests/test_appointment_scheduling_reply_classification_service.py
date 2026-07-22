@@ -27,16 +27,14 @@ def _tenant_settings() -> dict:
 def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> AppointmentReplyClassificationService:
     comms = MagicMock()
     comms.build_appointment_reply_thread_llm_user_message.return_value = (thread_text, 1)
+    comms.find_outbound_draft_communication_id.return_value = None
     prompts = MagicMock()
     activity = MagicMock()
     activity.record_action.return_value = "activity-1"
-    lifecycle = MagicMock()
-    lifecycle.draft_outbound_communication_id.return_value = None
     return AppointmentReplyClassificationService(
         communications_service=comms,
         prompt_service=prompts,
         activity_log_service=activity,
-        lifecycle_service=lifecycle,
     )
 
 
@@ -176,7 +174,7 @@ def test_classify_from_state() -> None:
 
 def test_classify_passes_lifecycle_draft_comm_to_comms_builder() -> None:
     svc = _service()
-    svc._lifecycle.draft_outbound_communication_id.return_value = "draft-comm-1"
+    svc._communications.find_outbound_draft_communication_id.return_value = "draft-comm-1"
     llm_raw = {
         "decision": DO_NOTHING,
         "confidence": 0.5,
@@ -203,7 +201,10 @@ def test_classify_passes_lifecycle_draft_comm_to_comms_builder() -> None:
             workflow_run_id=_RUN,
         )
 
-    svc._lifecycle.draft_outbound_communication_id.assert_called_once_with(_LIFECYCLE)
+    svc._communications.find_outbound_draft_communication_id.assert_called_once_with(
+        tenant_id=_TENANT,
+        workflow_lifecycle_id=_LIFECYCLE,
+    )
     svc._communications.build_appointment_reply_thread_llm_user_message.assert_called_once_with(
         _TENANT,
         _THREAD,

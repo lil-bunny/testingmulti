@@ -60,6 +60,16 @@ def display_fields_from_data(data: dict[str, Any]) -> ConfirmationReplyDisplayFi
     if not isinstance(decision, dict):
         decision = {}
 
+    pickup_date = str(
+        data.get("pickup_date") or decision.get("selected_pickup_date") or ""
+    ).strip()
+    delivery_date = str(
+        data.get("delivery_date")
+        or data.get("confirmed_delivery_at")
+        or decision.get("calculated_delivery_date")
+        or ""
+    ).strip()
+
     return ConfirmationReplyDisplayFields(
         load_id=str(data.get("load_id") or "").strip(),
         reference_number=str(data.get("reference_number") or "").strip(),
@@ -67,8 +77,8 @@ def display_fields_from_data(data: dict[str, Any]) -> ConfirmationReplyDisplayFi
         confirmed_delivery_at=str(data.get("confirmed_delivery_at") or "").strip(),
         shipment_id=str(data.get("shipment_id") or "").strip(),
         workflow_lifecycle_id=str(data.get("workflow_lifecycle_id") or "").strip(),
-        pickup_date=str(decision.get("selected_pickup_date") or "").strip(),
-        delivery_date=str(decision.get("calculated_delivery_date") or "").strip(),
+        pickup_date=pickup_date,
+        delivery_date=delivery_date,
     )
 
 
