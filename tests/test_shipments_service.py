@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 from datetime import datetime, timezone
 
@@ -217,6 +218,7 @@ def test_clear_driver_details_returns_false_for_invalid_ids():
 
 def test_update_proposed_appointments_delegates_parsed_dates_to_repo():
     repo = MagicMock()
+    repo.get_by_tenant_and_id_tx.return_value = None
     repo.update_proposed_appointments_tx.return_value = True
     svc = ShipmentsService(shipments_repository=repo)
 
@@ -234,6 +236,28 @@ def test_update_proposed_appointments_delegates_parsed_dates_to_repo():
     assert kwargs["shipment_row_id"] == _SHIPMENTS_ROW_UUID
     assert kwargs["proposed_pickup"] == datetime(2026, 7, 30, tzinfo=timezone.utc)
     assert kwargs["proposed_delivery"] == datetime(2026, 8, 4, tzinfo=timezone.utc)
+
+
+def test_update_proposed_appointments_uses_stop_timezone_and_wall_time():
+    repo = MagicMock()
+    repo.update_proposed_appointments_tx.return_value = True
+    svc = ShipmentsService(shipments_repository=repo)
+
+    ok = svc.update_proposed_appointments(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENTS_ROW_UUID,
+        proposed_delivery_at="07/04/2026",
+        proposed_delivery_time="06:00",
+        delivery_timezone="America/Chicago",
+    )
+
+    assert ok is True
+    kwargs = repo.update_proposed_appointments_tx.call_args.kwargs
+    stored = kwargs["proposed_delivery"]
+    assert stored is not None
+    assert stored.hour == 11
+    assert stored.minute == 0
+    repo.get_by_tenant_and_id_tx.assert_not_called()
 
 
 def test_update_proposed_appointments_noop_when_unparseable():

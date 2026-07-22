@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.domain.appointment_scheduling.costco import is_costco_customer
 from app.domain.appointment_scheduling.models import (
     DraftStatic,
     EmailDraft,
@@ -45,11 +46,6 @@ def _n(value: Any) -> int | None:
         return int(float(str(value).strip()))
     except (TypeError, ValueError):
         return None
-
-
-def is_costco_customer(customer_name: str) -> bool:
-    name = str(customer_name or "").lower()
-    return "costco" in name or "pet food experts" in name
 
 
 def build_draft_static_from_turvo(

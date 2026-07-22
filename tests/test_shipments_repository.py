@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import psycopg
 import pytest
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import _session_factory
@@ -256,6 +257,68 @@ def test_clear_driver_details_tx_nulls_jsonb(repo: ShipmentsRepository) -> None:
     )
     assert row is not None
     assert row["driver_details"] == {"name": None, "phone": None}
+
+
+def _proposed_appointments_from_db(
+    session: Session,
+    shipment_id: str,
+) -> tuple[datetime | None, datetime | None]:
+    row = session.execute(
+        text(
+            """
+            SELECT proposed_pickup, proposed_delivery
+            FROM shipments
+            WHERE id = CAST(:shipment_id AS uuid)
+            """
+        ),
+        {"shipment_id": shipment_id},
+    ).first()
+    if row is None:
+        return None, None
+    return row[0], row[1]
+
+
+@pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or shipments migration missing")
+def test_update_proposed_appointments_tx_persists_and_coalesces(
+    repo: ShipmentsRepository,
+) -> None:
+    number = f"test-{uuid.uuid4().hex[:12]}"
+    upsert = repo.upsert_by_tenant_and_shipment_number_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_number=number,
+        metadata={"load_id": "LOAD-P"},
+    )
+    pickup_at = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    delivery_at = datetime(2026, 8, 4, tzinfo=timezone.utc)
+
+    assert repo.update_proposed_appointments_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=upsert.shipment_id,
+        proposed_pickup=pickup_at,
+        proposed_delivery=delivery_at,
+    )
+
+    stored_pickup, stored_delivery = _proposed_appointments_from_db(
+        repo._session,
+        upsert.shipment_id,
+    )
+    assert stored_pickup == pickup_at
+    assert stored_delivery == delivery_at
+
+    new_delivery = datetime(2026, 8, 5, tzinfo=timezone.utc)
+    assert repo.update_proposed_appointments_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=upsert.shipment_id,
+        proposed_pickup=None,
+        proposed_delivery=new_delivery,
+    )
+
+    stored_pickup, stored_delivery = _proposed_appointments_from_db(
+        repo._session,
+        upsert.shipment_id,
+    )
+    assert stored_pickup == pickup_at
+    assert stored_delivery == new_delivery
 
 
 def _any_two_location_ids() -> tuple[str, str] | None:
