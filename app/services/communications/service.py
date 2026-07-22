@@ -689,6 +689,40 @@ class CommunicationsService:
             )
             return None
 
+    def find_outbound_draft_communication_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+        source: str = "appointment_draft_send",
+    ) -> str | None:
+        """Latest outbound appointment draft communication for reply thread assembly."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        lid = self._uuid_or_none(workflow_lifecycle_id, field_name="workflow_lifecycle_id")
+        if not tid or not lid:
+            return None
+        try:
+            if self._repository is not None:
+                return self._repository.find_outbound_draft_communication_id(
+                    tenant_id=tid,
+                    workflow_lifecycle_id=lid,
+                    source=source,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.find_outbound_draft_communication_id(
+                    tenant_id=tid,
+                    workflow_lifecycle_id=lid,
+                    source=source,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications draft lookup failed tenant_id=%s lifecycle_id=%s",
+                tid,
+                lid,
+            )
+            return None
+
     def _enrich_outbound_from_sent_folder(
         self,
         *,

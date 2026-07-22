@@ -91,32 +91,32 @@ def test_send_service_conflict_when_not_draft_created(mock_enqueue: MagicMock) -
 
 
 @patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
-def test_send_service_conflict_when_outbound_sent_flag(mock_enqueue: MagicMock) -> None:
+def test_send_service_enqueues_when_draft_created(mock_enqueue: MagicMock) -> None:
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": "pending_review",
         "sub_status": "appointment_draft_created",
         "metadata": {
-            "appointment_draft_outbound_sent": True,
             "email_draft": {
                 "to": "wh@example.com",
                 "subject": "DEL APPT",
                 "full_html": "<p>Hi</p>",
-            },
+            }
         },
     }
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {"id": "tenant-uuid"}
+    mock_enqueue.return_value = "task-1"
     svc = AppointmentSchedulingSendService(
         lifecycle_service=lifecycle,
         tenants_service=tenants,
     )
 
-    with pytest.raises(AppointmentSchedulingSendConflictError):
-        svc.validate_and_enqueue(
-            tenant_slug="t3ra",
-            workflow_lifecycle_id="wl-1",
-            actor_user_id="user-1",
-        )
+    task_id = svc.validate_and_enqueue(
+        tenant_slug="t3ra",
+        workflow_lifecycle_id="wl-1",
+        actor_user_id="user-1",
+    )
 
-    mock_enqueue.assert_not_called()
+    assert task_id == "task-1"
+    mock_enqueue.assert_called_once()

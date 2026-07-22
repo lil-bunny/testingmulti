@@ -147,25 +147,15 @@ class AppointmentCustomerReplyIngressService:
             shipment_id=shipments_row_id,
         )
         metadata = (shipment_row or {}).get("metadata") or {}
-        lifecycle_meta = (
-            (self._lifecycle_service.read_lifecycle_row_by_id(lifecycle_id) or {}).get(
-                "metadata"
-            )
-            or {}
-        )
-        if not isinstance(lifecycle_meta, dict):
-            lifecycle_meta = {}
         if not isinstance(metadata, dict):
             metadata = {}
 
         reference_number = self._clean(
-            lifecycle_meta.get("reference_number")
-            or metadata.get("reference_number")
+            metadata.get("reference_number")
             or (shipment_row or {}).get("shipment_number")
         )
         customer_name = self._clean(
-            lifecycle_meta.get("customer_name")
-            or (shipment_row or {}).get("customer_name")
+            (shipment_row or {}).get("customer_name")
             or metadata.get("customer_name")
         )
         turvo_shipment_id = self._clean((shipment_row or {}).get("shipment_number"))

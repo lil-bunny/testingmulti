@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.appointment_scheduling.metadata_keys import APPOINTMENT_DRAFT_OUTBOUND_SENT
 from app.core.logger import get_logger
 from app.models.status import StatusSubType, StatusType
 from app.services.appointment_scheduling.enqueue import enqueue_appointment_draft_send
@@ -70,10 +69,6 @@ class AppointmentSchedulingSendService:
             )
 
         metadata = row.get("metadata") or {}
-        if isinstance(metadata, dict) and metadata.get(APPOINTMENT_DRAFT_OUTBOUND_SENT):
-            raise AppointmentSchedulingSendConflictError(
-                "Draft email was already sent or lifecycle is not ready to send"
-            )
         if not self._email_draft_ready(metadata):
             raise ValueError("missing_email_draft")
 
