@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, TYPE_CHECKING
+from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Security, status
 from pydantic import BaseModel, Field
@@ -10,13 +10,11 @@ from pydantic import BaseModel, Field
 from app.api.deps import get_current_user
 from app.api.security import portal_bearer
 from app.core.logger import get_logger
+from app.domain.api_user import ApiUser
 from app.services.workflow_review_service import (
     WorkflowLifecycleNotFoundError,
     WorkflowReviewService,
 )
-
-if TYPE_CHECKING:
-    from app.domain.api_user import ApiUser
 
 router = APIRouter(prefix="/workflow-lifecycles", tags=["workflow-lifecycles"])
 logger = get_logger(__name__)

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
+from app.domain.appointment_scheduling.skip_reasons import resolve_scheduling_error
 from app.integrations.turvo.activity import fetch_shipment_activity_list
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
@@ -52,12 +53,26 @@ class AppointmentSchedulingIngressService:
         tenant_slug: str,
         shipment_id: str | None = None,
     ) -> IngressHandleResult:
-        logger.info(
-            "appointment_scheduling ingress skipped tenant_slug=%s shipment_id=%s reason=%s",
-            tenant_slug,
-            shipment_id,
-            skip_reason,
-        )
+        resolved = resolve_scheduling_error(skip_reason)
+        if resolved is not None:
+            catalog, message = resolved
+            logger.info(
+                "appointment_scheduling ingress skipped tenant_slug=%s shipment_id=%s "
+                "reason=%s error_code=%s error_category=%s error_description=%s",
+                tenant_slug,
+                shipment_id,
+                skip_reason,
+                catalog.value,
+                catalog.category.value,
+                message,
+            )
+        else:
+            logger.info(
+                "appointment_scheduling ingress skipped tenant_slug=%s shipment_id=%s reason=%s",
+                tenant_slug,
+                shipment_id,
+                skip_reason,
+            )
         return IngressHandleResult(handled=True, enqueued=False, skip_reason=skip_reason)
 
     async def handle_shipment_update(

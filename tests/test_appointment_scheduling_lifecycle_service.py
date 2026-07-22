@@ -245,16 +245,24 @@ def test_persist_draft_ready_non_costco_uses_ascend_pickup_po():
 
 
 def test_mark_failed_delegates_activity_and_patches_metadata():
+    from app.domain.appointment_scheduling.failure import SchedulingFailure
+    from app.domain.appointment_scheduling.metadata_keys import SCHEDULING_FAILURE_REASON
+    from app.domain.error_catalog import BusinessError, format_error_message
+
     lifecycle = MagicMock()
     activity = MagicMock()
     service = AppointmentSchedulingLifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
     )
+    failure = SchedulingFailure.from_catalog(
+        BusinessError.MISSING_RECIPIENT_EMAIL,
+        format_error_message(BusinessError.MISSING_RECIPIENT_EMAIL, customer_name="Acme"),
+    )
 
     service.mark_failed(
         "lifecycle-1",
-        "missing_recipient_email",
+        failure,
         tenant_id=_TENANT_UUID,
         workflow_run_id=_RUN_UUID,
     )
@@ -263,11 +271,13 @@ def test_mark_failed_delegates_activity_and_patches_metadata():
         tenant_id=_TENANT_UUID,
         workflow_lifecycle_id="lifecycle-1",
         workflow_run_id=_RUN_UUID,
-        reason="missing_recipient_email",
+        failure=failure,
     )
     lifecycle.patch_metadata.assert_called_once_with(
         lifecycle_id="lifecycle-1",
-        metadata_patch={"scheduling_failure_reason": "missing_recipient_email"},
+        metadata_patch={
+            SCHEDULING_FAILURE_REASON: BusinessError.MISSING_RECIPIENT_EMAIL.value,
+        },
     )
     lifecycle.update_lifecycle_status.assert_not_called()
 

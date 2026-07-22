@@ -7,12 +7,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
 from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
-from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
+from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
+from app.domain.error_catalog import IntegrationError, format_error_message
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots, update_appointment
 from app.integrations.ascend.auth import login_ascend_api
+from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
+from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     get_shipment,
@@ -31,13 +35,17 @@ class WeekendPickupResult:
     ok: bool
     skipped: bool = False
     dry_run: bool = False
-    error: str | None = None
+    failure: SchedulingFailure | None = None
     ascend_updated: bool = False
     turvo_updated: bool = False
     turvo_pickup_start_time: str | None = None
     pickup_stop_name: str | None = None
     ascend_response: dict[str, Any] | None = None
     turvo_response: dict[str, Any] | None = None
+
+    @property
+    def error(self) -> str | None:
+        return self.failure.message if self.failure else None
 
 
 class AppointmentSchedulingWeekendPickupService:
@@ -80,7 +88,13 @@ class AppointmentSchedulingWeekendPickupService:
             tenant_settings.get("appointment_scheduling") or {}
         )
         if not settings.ascend_email or not settings.ascend_password:
-            return WeekendPickupResult(ok=False, error="missing_ascend_credentials")
+            failure = scheduling_failure_from_skip("ascend_not_configured")
+            if failure is None:
+                failure = SchedulingFailure.from_catalog(
+                    IntegrationError.VENDOR_API_ERROR,
+                    "Ascend credentials are not configured.",
+                )
+            return WeekendPickupResult(ok=False, failure=failure)
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
         try:
@@ -100,7 +114,16 @@ class AppointmentSchedulingWeekendPickupService:
                     return WeekendPickupResult(ok=True, skipped=True)
 
             if not plan.update_body or not plan.appointment_id:
-                return WeekendPickupResult(ok=False, error="invalid_ascend_pickup_plan")
+                failure = scheduling_failure_from_skip(
+                    "invalid_ascend_pickup_plan",
+                    reference_number=reference_number,
+                )
+                if failure is None:
+                    failure = SchedulingFailure.from_catalog(
+                        IntegrationError.VENDOR_API_ERROR,
+                        "Invalid Ascend pickup plan.",
+                    )
+                return WeekendPickupResult(ok=False, failure=failure)
 
             ascend_response = update_appointment(
                 appointment_id=plan.appointment_id,
@@ -114,7 +137,15 @@ class AppointmentSchedulingWeekendPickupService:
                 reference_number,
                 exc,
             )
-            return WeekendPickupResult(ok=False, error=str(exc))
+            catalog, message = catalog_from_ascend_api_error(
+                exc,
+                operation="pickup_update",
+                reference_number=reference_number,
+            )
+            return WeekendPickupResult(
+                ok=False,
+                failure=SchedulingFailure.from_catalog(catalog, message),
+            )
 
         turvo_result = self._apply_turvo_pickup(
             tenant_slug=tenant_slug,
@@ -123,9 +154,14 @@ class AppointmentSchedulingWeekendPickupService:
             start_time=str(plan.turvo_pickup_start_time or ""),
         )
         if not turvo_result.get("ok"):
+            turvo_msg = str(turvo_result.get("error") or "turvo_pickup_update_failed")
             return WeekendPickupResult(
                 ok=False,
-                error=str(turvo_result.get("error") or "turvo_pickup_update_failed"),
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.VENDOR_API_ERROR,
+                    format_error_message(IntegrationError.VENDOR_API_ERROR)
+                    + f" ({turvo_msg})",
+                ),
                 ascend_updated=True,
                 turvo_pickup_start_time=plan.turvo_pickup_start_time,
                 pickup_stop_name=turvo_result.get("stop_name"),
