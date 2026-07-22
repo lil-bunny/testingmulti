@@ -711,7 +711,7 @@ class WorkflowLifecyclesRepository:
         subject_token: str,
         workflow_name: str = "appointment_scheduling",
     ) -> str | None:
-        """Latest awaiting-reply lifecycle matching load_id or reference_number in subject."""
+        """Latest awaiting-reply lifecycle matching subject token (RPN, load id, etc.)."""
         token = str(subject_token or "").strip()
         if not token:
             return None
@@ -726,6 +726,8 @@ class WorkflowLifecyclesRepository:
                   AND wl.sub_status = CAST(:awaiting_reply AS lifecycle_sub_status)
                   AND (
                     wl.metadata->>'reference_number' = :subject_token
+                    OR wl.metadata->'scheduling_payload'->>'reference_number' = :subject_token
+                    OR s.metadata->>'reference_number' = :subject_token
                     OR s.metadata->>'load_id' = :subject_token
                   )
                 ORDER BY wl.updated_at DESC
