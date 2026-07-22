@@ -20,12 +20,14 @@ def _shipment(*, stop_name: str = "Costco Depot") -> dict:
                     "deleted": False,
                     "id": 101,
                     "name": "Ripon Pickup",
+                    "stopType": {"key": "1500", "value": "Pickup"},
                     "appointment": {"date": "2026-07-01T12:00:00Z", "timeZone": "America/Los_Angeles"},
                 },
                 {
                     "deleted": False,
                     "id": 202,
                     "name": stop_name,
+                    "stopType": {"key": "1501", "value": "Delivery"},
                     "appointment": {"date": "2026-07-10T15:00:00Z", "timeZone": "America/Los_Angeles"},
                 },
             ]

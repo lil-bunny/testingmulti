@@ -143,6 +143,63 @@ def test_try_customer_reply_enqueues_via_subject_fallback_when_thread_miss() -> 
     )
 
 
+def test_try_customer_reply_enqueues_via_costco_rpn_subject_fallback() -> None:
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "id": _LC,
+        "status": "pending_review",
+        "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+        "metadata": {
+            "scheduling_payload": {"reference_number": "DIAMOND-RPN00006732"},
+        },
+    }
+    lifecycle.read_correlation_by_id.return_value = {"shipment_id": "ship-row-1"}
+    lifecycle.find_awaiting_customer_reply_lifecycle_id.return_value = None
+    lifecycle.find_awaiting_customer_reply_by_appt_subject_token.return_value = _LC
+    comms = MagicMock()
+    comms.find_active_lifecycle_id_for_thread.return_value = None
+    comms.find_shipment_context_for_thread.return_value = []
+    shipments = MagicMock()
+    shipments.get_by_id.return_value = {
+        "shipment_number": "1000338217",
+        "metadata": {
+            "load_id": "30394",
+            "reference_number": "DIAMOND-RPN00006732",
+        },
+    }
+    svc = AppointmentCustomerReplyIngressService(
+        lifecycle_service=lifecycle,
+        communications_service=comms,
+        shipments_service=shipments,
+        runs_service=MagicMock(),
+        process_enabled_check=lambda _s: True,
+    )
+
+    with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
+        import sys
+
+        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = MagicMock()
+        with patch(
+            "app.services.tenants_service.TenantsService.get_by_slug",
+            return_value={"settings": _enabled_settings()},
+        ):
+            result = svc.try_customer_reply_received(
+                payload={
+                    **_reply_payload(),
+                    "subject": 'Re: DEL APPT REQ "DIAMOND-RPN00006732"',
+                },
+                tenant=_TENANT,
+                communication_id="comm-1",
+            )
+
+    assert isinstance(result, IngressResult)
+    assert result.outcome == "enqueued"
+    lifecycle.find_awaiting_customer_reply_by_appt_subject_token.assert_called_once_with(
+        tenant_id=_TENANT.tenant_uuid,
+        subject_token="DIAMOND-RPN00006732",
+    )
+
+
 def test_try_customer_reply_skips_when_thread_and_subject_miss() -> None:
     lifecycle = MagicMock()
     lifecycle.find_awaiting_customer_reply_lifecycle_id.return_value = None

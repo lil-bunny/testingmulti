@@ -239,20 +239,15 @@ def _delivery_location_name_from_customer_order(details: dict[str, Any]) -> str 
 
 
 def delivery_stop_name_from_payload(payload: dict[str, Any]) -> str | None:
-    """Turvo globalRoute stop name for delivery appointment updates (not customer entity name)."""
+    """Operational delivery stop name: active globalRoute Delivery stop, then customerOrder fallback."""
     if not isinstance(payload, dict):
         return None
+    from_route = _delivery_stop_name_from_global_route(payload)
+    if from_route:
+        return from_route
     details = payload.get("details")
     if isinstance(details, dict):
-        from_order = _delivery_location_name_from_customer_order(details)
-        if from_order:
-            return from_order
-    route_stops = active_route_stops(global_route_stops_from_payload(payload))
-    if route_stops:
-        last_stop = route_stops[-1]
-        name = str(last_stop.get("name") or "").strip()
-        if name:
-            return name
+        return _delivery_location_name_from_customer_order(details)
     return None
 
 
@@ -313,6 +308,7 @@ def _first_non_deleted_entity_name(
 
 
 _PICKUP_STOP_VALUE = "pickup"
+_DELIVERY_STOP_VALUE = "delivery"
 
 
 @dataclass(frozen=True)
@@ -334,6 +330,20 @@ def _stop_type_value(stop: dict[str, Any]) -> str:
 
 def _is_pickup_stop(stop: dict[str, Any]) -> bool:
     return _stop_type_value(stop) == _PICKUP_STOP_VALUE
+
+
+def _is_delivery_stop(stop: dict[str, Any]) -> bool:
+    return _stop_type_value(stop) == _DELIVERY_STOP_VALUE
+
+
+def _delivery_stop_name_from_global_route(payload: dict[str, Any]) -> str | None:
+    for stop in reversed(active_route_stops(global_route_stops_from_payload(payload))):
+        if not _is_delivery_stop(stop):
+            continue
+        name = str(stop.get("name") or "").strip()
+        if name:
+            return name
+    return None
 
 
 def _datetime_from_appointment_dict(

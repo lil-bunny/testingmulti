@@ -8,13 +8,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.logger import get_logger
 from app.domain.prompt_step_keys import resolve_prompt_ref
 from app.integrations.langsmith import (
     LangSmithPromptClient,
     MissingTenantPromptRefError,
     PromptLoadMetadata,
+    PromptUnavailableError,
     RenderedPrompt,
 )
+
+logger = get_logger(__name__)
 
 
 class PromptService:
@@ -39,12 +43,6 @@ class PromptService:
                 f"missing tenant prompt ref for step {prompt_step_key!r}"
             )
         return self._prompt_client.load_and_render(tenant_prompt_ref, variables)
-
-
-def _tenant_settings_dict(
-    tenant_settings: dict[str, Any] | None,
-) -> dict[str, Any]:
-    return tenant_settings if isinstance(tenant_settings, dict) else {}
 
     def render_json_managed_step(
         self,
@@ -90,6 +88,12 @@ def _tenant_settings_dict(
                 commit_hash=None,
             ),
         )
+
+
+def _tenant_settings_dict(
+    tenant_settings: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return tenant_settings if isinstance(tenant_settings, dict) else {}
 
 
 def resolve_pod_vision_prompts(
