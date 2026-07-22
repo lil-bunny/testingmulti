@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.domain.error_catalog import IntegrationError
+from app.exceptions import WorkflowException
 from app.services.appointment_scheduling.decision_service import (
     AppointmentSchedulingDecisionService,
 )
@@ -39,6 +41,7 @@ from app.services.appointment_scheduling.teams_notification_service import (
     AppointmentSchedulingTeamsNotificationService,
 )
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
+from app.workflows.utils.decorators import safe_node
 
 logger = get_logger(__name__)
 
@@ -61,18 +64,19 @@ def run_scheduling_intake(state):
         payload=state.data,
     )
     if not result.ok:
-        state.data["scheduling_intake_skip_reason"] = result.skip_reason
+        failure = result.failure
         lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
-        if lifecycle_id:
+        if failure and lifecycle_id:
+            state.data["scheduling_intake_skip_reason"] = failure.code
             AppointmentSchedulingLifecycleService().mark_failed(
                 lifecycle_id,
-                result.skip_reason or "intake_failed",
+                failure,
                 tenant_id=(state.tenant_id or state.data.get("tenant_id") or "").strip() or None,
                 workflow_run_id=str(state.execution_id or "").strip() or None,
             )
         logger.info(
-            "run_scheduling_intake skip reason=%s lifecycle_id=%s",
-            result.skip_reason,
+            "run_scheduling_intake skip code=%s lifecycle_id=%s",
+            failure.code if failure else None,
             lifecycle_id,
         )
         return state
@@ -193,6 +197,7 @@ def hydrate_appointment_confirm_context(state):
     return state
 
 
+@safe_node
 def apply_weekend_shifted_pickup(state):
     result = AppointmentSchedulingWeekendPickupService().apply_from_state(state)
     state.data["weekend_pickup_result"] = {
@@ -211,11 +216,12 @@ def apply_weekend_shifted_pickup(state):
         state,
         result=state.data["weekend_pickup_result"],
     )
-    if not result.ok and not result.skipped:
-        raise RuntimeError(result.error or "weekend_pickup_update_failed")
+    if not result.ok and not result.skipped and result.failure:
+        raise WorkflowException(result.failure.code, result.failure.message)
     return state
 
 
+@safe_node
 def apply_turvo_delivery_placeholder(state):
     import asyncio
 
@@ -235,7 +241,10 @@ def apply_turvo_delivery_placeholder(state):
         result=state.data["turvo_confirm_result"],
     )
     if not result.ok:
-        raise RuntimeError(result.error or "turvo_delivery_placeholder_failed")
+        raise WorkflowException(
+            IntegrationError.VENDOR_API_ERROR,
+            result.error or IntegrationError.VENDOR_API_ERROR.description,
+        )
     return state
 
 
@@ -252,10 +261,14 @@ def finalize_confirm_awaiting_reply(state):
     return state
 
 
+@safe_node
 def send_appointment_scheduling_email(state):
     result = AppointmentSchedulingEmailService().send_from_state(state)
     if not result.sent or not result.communication_id:
-        raise RuntimeError(result.error or "appointment_draft_send_failed")
+        raise WorkflowException(
+            IntegrationError.EMAIL_SEND_FAILED,
+            result.error or IntegrationError.EMAIL_SEND_FAILED.description,
+        )
     state.data["communication_id"] = result.communication_id
     return state
 
@@ -266,6 +279,7 @@ def classify_appointment_customer_reply(state):
     return state
 
 
+@safe_node
 def apply_ascend_dropoff_appointment(state):
     result = AppointmentSchedulingAscendWriteService().apply_dropoff_from_state(state)
     state.data["ascend_update_result"] = {
@@ -277,11 +291,12 @@ def apply_ascend_dropoff_appointment(state):
         "response": result.response,
     }
     AppointmentSchedulingActivityService().record_ascend_update(state)
-    if not result.ok:
-        raise RuntimeError(result.error or "ascend_dropoff_update_failed")
+    if not result.ok and result.failure:
+        raise WorkflowException(result.failure.code, result.failure.message)
     return state
 
 
+@safe_node
 def apply_turvo_delivery_appointment(state):
     import asyncio
 
@@ -298,7 +313,10 @@ def apply_turvo_delivery_appointment(state):
     }
     AppointmentSchedulingActivityService().record_turvo_update(state)
     if not result.ok:
-        raise RuntimeError(result.error or "turvo_delivery_update_failed")
+        raise WorkflowException(
+            IntegrationError.VENDOR_API_ERROR,
+            result.error or IntegrationError.VENDOR_API_ERROR.description,
+        )
     return state
 
 

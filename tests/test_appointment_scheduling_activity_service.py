@@ -256,7 +256,10 @@ def test_record_confirm_email_sent_skips_when_already_awaiting() -> None:
     activity.record_sequence.assert_not_called()
 
 
-def test_record_failed_writes_action_and_failed_status() -> None:
+def test_record_failed_writes_exception_and_pending_review_status() -> None:
+    from app.domain.appointment_scheduling.failure import SchedulingFailure
+    from app.domain.error_catalog import BusinessError, format_error_message
+
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -267,19 +270,24 @@ def test_record_failed_writes_action_and_failed_status() -> None:
         activity_log_service=activity,
         lifecycle_service=lifecycle,
     )
+    failure = SchedulingFailure.from_catalog(
+        BusinessError.MISSING_RECIPIENT_EMAIL,
+        format_error_message(BusinessError.MISSING_RECIPIENT_EMAIL, customer_name="Acme"),
+    )
 
     svc.record_failed(
         tenant_id=_TENANT_UUID,
         workflow_lifecycle_id=_LIFECYCLE_UUID,
         workflow_run_id=_RUN_UUID,
-        reason="missing_recipient_email",
+        failure=failure,
     )
 
+    exception_write = activity.record_exception.call_args[0][0]
+    assert exception_write.metadata["error"] == BusinessError.MISSING_RECIPIENT_EMAIL.value
+    assert exception_write.metadata["error_category"] == BusinessError.CATEGORY.value
     seq = activity.record_sequence.call_args[0][0]
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert "missing_recipient_email" in (seq.steps[0].description or "")
-    assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[1].to_status == StatusType.FAILED
+    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].to_status == StatusType.PENDING_REVIEW
 
 
 def test_record_reply_completed_writes_completed_status() -> None:

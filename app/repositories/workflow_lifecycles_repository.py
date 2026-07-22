@@ -636,6 +636,10 @@ class WorkflowLifecyclesRepository:
                   AND NOT (
                       wl.status = CAST(:failed_status AS lifecycle_status)
                       OR wl.sub_status = CAST(:resolved_manually AS lifecycle_sub_status)
+                      OR (
+                          wl.status = CAST(:pending_review_status AS lifecycle_status)
+                          AND NULLIF(wl.metadata->>'scheduling_failure_reason', '') IS NOT NULL
+                      )
                   )
                 ORDER BY wl.updated_at DESC
                 LIMIT 1
@@ -647,6 +651,7 @@ class WorkflowLifecyclesRepository:
                 "shipment_number": number,
                 "failed_status": StatusType.FAILED.value,
                 "resolved_manually": StatusSubType.RESOLVED_MANUALLY.value,
+                "pending_review_status": StatusType.PENDING_REVIEW.value,
             },
         ).first()
         if row and row[0]:

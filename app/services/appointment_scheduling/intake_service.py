@@ -6,23 +6,27 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.models import CustomerContactRow, DraftStatic, PickupDropoffData
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
+from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
+from app.domain.error_catalog import SystemError
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.errors import AscendApiError
+from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.shipments import fetched_shipment_details
 from app.integrations.google.sheets import GoogleSheetsError
 from app.integrations.turvo.shipments import (
     delivery_stop_name_from_payload,
     get_shipment as get_shipment_async,
 )
-from app.services.appointment_scheduling.sheet_loader import load_appointment_sheet_rows
-from app.tools.appointment_scheduling.ascend_transforms import pickup_dropoff_from_ascend_shipment
 from app.services.appointment_scheduling.recipient_contact_gate import (
     contact_from_rows_skip_reason,
 )
+from app.services.appointment_scheduling.sheet_loader import load_appointment_sheet_rows
+from app.tools.appointment_scheduling.ascend_transforms import pickup_dropoff_from_ascend_shipment
 from app.tools.appointment_scheduling.customer_contact import customer_contact_from_rows
 from app.tools.appointment_scheduling.draft_email import (
     build_draft_static_from_turvo,
@@ -37,7 +41,7 @@ from app.tools.appointment_scheduling.ingress import (
 @dataclass(frozen=True)
 class IntakeResult:
     ok: bool
-    skip_reason: str | None = None
+    failure: SchedulingFailure | None = None
     shipment: dict[str, Any] | None = None
     ascend_shipment: dict[str, Any] | None = None
     customer_contact: CustomerContactRow | None = None
@@ -59,6 +63,26 @@ class AppointmentSchedulingIntakeService:
             return raw
         return T3raAppointmentSchedulingSettings.model_validate(raw)
 
+    @staticmethod
+    def _failure(
+        skip_reason: str,
+        *,
+        customer_name: str = "",
+        reference_number: str = "",
+    ) -> IntakeResult:
+        failure = scheduling_failure_from_skip(
+            skip_reason,
+            customer_name=customer_name,
+            reference_number=reference_number,
+        )
+        if failure is None:
+            failure = SchedulingFailure(
+                code=skip_reason,
+                message=skip_reason.replace("_", " "),
+                category=SystemError.UNEXPECTED_NODE_FAILURE.category,
+            )
+        return IntakeResult(ok=False, failure=failure)
+
     def run_intake(
         self,
         *,
@@ -69,7 +93,7 @@ class AppointmentSchedulingIntakeService:
         settings = self._settings(tenant_settings)
         shipment_id = str(payload.get("shipment_id") or "").strip()
         if not shipment_id:
-            return IntakeResult(ok=False, skip_reason="missing_shipment_id")
+            return self._failure("missing_shipment_id")
 
         turvo_shipment = asyncio.run(get_shipment_async(tenant_slug, shipment_id))
         reference_number = (
@@ -82,26 +106,36 @@ class AppointmentSchedulingIntakeService:
 
         sheet_source = str(settings.appointment_data_source or "").strip()
         if not sheet_source:
-            return IntakeResult(ok=False, skip_reason="missing_appointment_data_source")
+            return self._failure("missing_appointment_data_source", customer_name=sheet_customer)
+
         try:
             rows = load_appointment_sheet_rows(sheet_source)
         except (OSError, GoogleSheetsError, ValueError):
-            return IntakeResult(ok=False, skip_reason="appointment_sheet_unreadable")
+            return self._failure("appointment_sheet_unreadable", customer_name=sheet_customer)
 
         if skip := contact_from_rows_skip_reason(rows, sheet_customer):
-            return IntakeResult(ok=False, skip_reason=skip)
+            return self._failure(skip, customer_name=sheet_customer)
 
         contact = customer_contact_from_rows(rows, sheet_customer)
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number)
         if not settings.ascend_email or not settings.ascend_password:
-            return IntakeResult(ok=False, skip_reason="ascend_not_configured")
+            return self._failure("ascend_not_configured", customer_name=sheet_customer)
+
         try:
             auth = login_ascend_api(
                 email=settings.ascend_email,
                 password=settings.ascend_password,
             )
             access_token = str(auth.get("accessToken") or "")
+        except AscendApiError as exc:
+            catalog, message = catalog_from_ascend_api_error(exc, operation="login")
+            return IntakeResult(
+                ok=False,
+                failure=SchedulingFailure.from_catalog(catalog, message),
+            )
+
+        try:
             ascend_shipment = fetched_shipment_details(
                 reference_number=reference_number,
                 access_token=access_token,
@@ -112,12 +146,23 @@ class AppointmentSchedulingIntakeService:
                 access_token=access_token,
                 office_code=office_code,
             )
-        except AscendApiError:
-            return IntakeResult(ok=False, skip_reason="ascend_fetch_failed")
+        except AscendApiError as exc:
+            catalog, message = catalog_from_ascend_api_error(
+                exc,
+                operation="shipment_fetch",
+                reference_number=reference_number,
+            )
+            return IntakeResult(
+                ok=False,
+                failure=SchedulingFailure.from_catalog(catalog, message),
+            )
 
         pickup_raw = pickup_dropoff_from_ascend_shipment(ascend_shipment)
         if pickup_raw.get("error"):
-            return IntakeResult(ok=False, skip_reason="pickup_dropoff_extract_failed")
+            return self._failure(
+                "pickup_dropoff_extract_failed",
+                reference_number=reference_number,
+            )
 
         pickup_dropoff = PickupDropoffData.model_validate(pickup_raw)
         shipment_details = build_shipment_details_summary(

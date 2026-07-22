@@ -86,4 +86,5 @@ def test_missing_credentials_when_writes_enabled() -> None:
             appointment_start_iso=_ISO,
         )
     assert result.ok is False
-    assert result.error == "missing_ascend_credentials"
+    assert result.failure is not None
+    assert result.failure.code == "ascend_not_configured"

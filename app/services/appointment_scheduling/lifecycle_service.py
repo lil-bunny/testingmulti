@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.costco import (
     COSTCO_PROPOSED_DELIVERY_WALL_TIME,
     is_costco_customer,
@@ -13,6 +14,7 @@ from app.domain.appointment_scheduling.metadata_keys import (
     APPOINTMENT_DRAFT_OUTBOUND_SENT,
     EMAIL_DRAFT,
     LLM_SCHEDULING_DECISION,
+    SCHEDULING_FAILURE_REASON,
     SCHEDULING_PAYLOAD,
 )
 from app.services.appointment_scheduling.activity_service import (
@@ -202,7 +204,7 @@ class AppointmentSchedulingLifecycleService:
     def mark_failed(
         self,
         lifecycle_id: str,
-        reason: str,
+        failure: SchedulingFailure,
         *,
         tenant_id: str | None = None,
         workflow_run_id: str | None = None,
@@ -212,11 +214,11 @@ class AppointmentSchedulingLifecycleService:
                 tenant_id=tenant_id,
                 workflow_lifecycle_id=lifecycle_id,
                 workflow_run_id=workflow_run_id,
-                reason=reason,
+                failure=failure,
             )
         self._lifecycle.patch_metadata(
             lifecycle_id=lifecycle_id,
-            metadata_patch={"scheduling_failure_reason": reason},
+            metadata_patch={SCHEDULING_FAILURE_REASON: failure.code},
         )
 
     def mark_completed(

@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
+from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep, ActivityLogWrite
+from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_appointment_confirmation_sent_action,
     format_appointment_draft_created_action,
     format_appointment_draft_teams_notification_action,
     format_appointment_email_sent_action,
-    format_appointment_scheduling_failed_action,
     format_ascend_dropoff_skipped_action,
     format_ascend_dropoff_updated_action,
     format_scheduling_decision_info,
@@ -358,13 +358,37 @@ class AppointmentSchedulingActivityService:
             )
         )
 
+    def _record_catalog_exception(
+        self,
+        *,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+        failure: SchedulingFailure,
+    ) -> None:
+        metadata = {
+            "error": failure.code,
+            "error_category": failure.category.value,
+            "error_description": failure.message,
+        }
+        self._activity.record_exception(
+            ActivityLogWrite(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
+                description=failure.message,
+                metadata=metadata,
+                actor_type=ActorType.SYSTEM,
+            )
+        )
+
     def record_failed(
         self,
         *,
         tenant_id: str,
         workflow_lifecycle_id: str,
         workflow_run_id: str | None,
-        reason: str,
+        failure: SchedulingFailure,
     ) -> None:
         wl_id = str(workflow_lifecycle_id or "").strip()
         tenant = str(tenant_id or "").strip()
@@ -379,6 +403,13 @@ class AppointmentSchedulingActivityService:
             )
             return
 
+        self._record_catalog_exception(
+            tenant_id=tenant,
+            workflow_lifecycle_id=wl_id,
+            workflow_run_id=run_id,
+            failure=failure,
+        )
+
         row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
         from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
         from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
@@ -390,14 +421,10 @@ class AppointmentSchedulingActivityService:
                 workflow_run_id=run_id,
                 steps=(
                     ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_appointment_scheduling_failed_action(reason=reason),
-                    ),
-                    ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         from_status=from_status or StatusType.PROCESSING,
                         from_sub_status=from_sub or StatusSubType.NONE,
-                        to_status=StatusType.FAILED,
+                        to_status=StatusType.PENDING_REVIEW,
                         to_sub_status=StatusSubType.NONE,
                     ),
                 ),
@@ -431,7 +458,7 @@ class AppointmentSchedulingActivityService:
                 appointment_start=appointment_start,
             )
         else:
-            description = f"Ascend dropoff update failed for {reference or 'unknown'}"
+            return
 
         self._activity.record_sequence(
             ActivityLogSequence(

@@ -124,6 +124,43 @@ class BusinessError(_CatalogError):
         "missing_routing_guide_carrier_email",
         "Carrier email is missing for route guide plan {plan_carrier}.",
     )
+    # Appointment scheduling
+    ASCEND_NOT_CONFIGURED = (
+        "ascend_not_configured",
+        "Ascend credentials are not configured for this tenant.",
+    )
+    MISSING_APPOINTMENT_DATA_SOURCE = (
+        "missing_appointment_data_source",
+        "Appointment customer sheet URL is not configured.",
+    )
+    APPOINTMENT_SHEET_UNREADABLE = (
+        "appointment_sheet_unreadable",
+        "Appointment customer sheet could not be loaded.",
+    )
+    MISSING_RECIPIENT_EMAIL = (
+        "missing_recipient_email",
+        "Recipient email is missing for customer {customer_name}.",
+    )
+    APPOINTMENT_MODE_NOT_EMAIL = (
+        "appointment_mode_not_email",
+        "Customer {customer_name} is not configured for email appointments.",
+    )
+    ASCEND_PICKUP_DROPOFF_EXTRACT_FAILED = (
+        "ascend_pickup_dropoff_extract_failed",
+        "Could not extract pickup/dropoff from Ascend shipment {reference_number}.",
+    )
+    ASCEND_INVALID_PAYLOAD = (
+        "ascend_invalid_payload",
+        "Ascend update payload is invalid for {reference_number}.",
+    )
+    ASCEND_MISSING_REFERENCE = (
+        "ascend_missing_reference",
+        "Reference number is required for Ascend API calls.",
+    )
+    SCHEDULING_MISSING_SHIPMENT_ID = (
+        "scheduling_missing_shipment_id",
+        "Shipment id is missing for scheduling intake.",
+    )
 
 
 class IntegrationError(_CatalogError):
@@ -146,6 +183,27 @@ class IntegrationError(_CatalogError):
     TMS_CONNECTION_TIMED_OUT = (
         "tms_connection_timed_out",
         "TMS connection timed out.",
+    )
+    # Appointment scheduling / Ascend
+    ASCEND_LOGIN_FAILED = (
+        "ascend_login_failed",
+        "Ascend login failed (HTTP {status_code}).",
+    )
+    ASCEND_SHIPMENT_FETCH_FAILED = (
+        "ascend_shipment_fetch_failed",
+        "Ascend shipment fetch failed for {reference_number} (HTTP {status_code}).",
+    )
+    ASCEND_AVAILABILITY_FETCH_FAILED = (
+        "ascend_availability_fetch_failed",
+        "Ascend warehouse availability fetch failed for {reference_number}.",
+    )
+    ASCEND_PICKUP_UPDATE_FAILED = (
+        "ascend_pickup_update_failed",
+        "Ascend pickup appointment update failed for {reference_number}.",
+    )
+    ASCEND_DROPOFF_UPDATE_FAILED = (
+        "ascend_dropoff_update_failed",
+        "Ascend dropoff appointment update failed for {reference_number}.",
     )
 
 

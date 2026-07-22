@@ -113,7 +113,8 @@ def test_intake_missing_recipient_email(appointment_sheet):
             payload={"shipment_id": "12345"},
         )
     assert result.ok is False
-    assert result.skip_reason == "missing_recipient_email"
+    assert result.failure is not None
+    assert result.failure.code == "missing_recipient_email"
 
 
 def test_intake_success_from_google_sheets_url():
