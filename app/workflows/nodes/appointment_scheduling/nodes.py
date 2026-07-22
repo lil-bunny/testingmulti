@@ -174,6 +174,7 @@ def notify_appointment_scheduling_draft_teams(state):
         state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason
     if result.error:
         state.data["appointment_scheduling_teams_notification_error"] = result.error
+    AppointmentSchedulingActivityService().record_draft_pending_review(state)
     return state
 
 
@@ -241,11 +242,13 @@ def apply_turvo_delivery_placeholder(state):
 def finalize_confirm_awaiting_reply(state):
     actor_id = str(state.data.get("actor_user_id") or "").strip() or None
     communication_id = str(state.data.get("communication_id") or "").strip() or None
-    AppointmentSchedulingActivityService().finalize_confirm_awaiting_reply(
+    svc = AppointmentSchedulingActivityService()
+    svc.record_confirm_email_sent(
         state,
         communication_id=communication_id,
         actor_id=actor_id,
     )
+    svc.record_awaiting_customer_reply(state)
     return state
 
 

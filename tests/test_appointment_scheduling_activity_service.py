@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.models.activity_type import ActivityType
+from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.appointment_scheduling.activity_service import (
     AppointmentSchedulingActivityService,
@@ -112,13 +112,9 @@ def test_record_decision_info_uses_transit_days_for_costco() -> None:
     assert "source=transit_days" in (seq.steps[0].description or "")
 
 
-def test_record_draft_ready_writes_action_and_status_change() -> None:
+def test_record_draft_ready_writes_action_only() -> None:
     activity = MagicMock()
     lifecycle = MagicMock()
-    lifecycle.read_lifecycle_row_by_id.return_value = {
-        "status": StatusType.PROCESSING.value,
-        "sub_status": StatusSubType.APPOINTMENT_SCHEDULING_STARTED.value,
-    }
     svc = AppointmentSchedulingActivityService(
         activity_log_service=activity,
         lifecycle_service=lifecycle,
@@ -133,12 +129,31 @@ def test_record_draft_ready_writes_action_and_status_change() -> None:
     )
 
     seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 2
+    assert len(seq.steps) == 1
     assert seq.steps[0].activity_type == ActivityType.ACTION
     assert seq.steps[0].metadata is None
-    assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[1].to_status == StatusType.PENDING_REVIEW
-    assert seq.steps[1].to_sub_status == StatusSubType.APPOINTMENT_DRAFT_CREATED
+    lifecycle.read_lifecycle_row_by_id.assert_not_called()
+
+
+def test_record_draft_pending_review_writes_status_change() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.APPOINTMENT_SCHEDULING_STARTED.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_draft_pending_review(_state())
+
+    seq = activity.record_sequence.call_args[0][0]
+    assert len(seq.steps) == 1
+    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].to_status == StatusType.PENDING_REVIEW
+    assert seq.steps[0].to_sub_status == StatusSubType.APPOINTMENT_DRAFT_CREATED
 
 
 def test_record_draft_teams_notification_writes_action_only() -> None:
@@ -153,7 +168,7 @@ def test_record_draft_teams_notification_writes_action_only() -> None:
     assert seq.steps[0].description == "Sent notification on Teams"
 
 
-def test_finalize_confirm_awaiting_reply_writes_action_and_sub_status_change() -> None:
+def test_record_confirm_email_sent_writes_user_action_with_communication() -> None:
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
@@ -165,23 +180,80 @@ def test_finalize_confirm_awaiting_reply_writes_action_and_sub_status_change() -
         lifecycle_service=lifecycle,
     )
 
-    svc.finalize_confirm_awaiting_reply(
+    svc.record_confirm_email_sent(
         _state(actor_user_id="99999999-9999-9999-9999-999999999999"),
         communication_id="comm-uuid",
         actor_id="99999999-9999-9999-9999-999999999999",
     )
 
+    activity.record_sequence.assert_called_once()
     seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 2
+    assert len(seq.steps) == 1
     assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[0].metadata is None
     assert seq.steps[0].communication_id == "comm-uuid"
-    assert seq.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
-    assert seq.steps[1].metadata is None
-    assert seq.steps[1].communication_id is None
-    assert seq.steps[1].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
-    assert seq.actor_type.value == "user"
+    assert seq.actor_type == ActorType.USER
     assert seq.actor_id == "99999999-9999-9999-9999-999999999999"
+
+
+def test_record_awaiting_customer_reply_writes_system_sub_status_change() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_awaiting_customer_reply(_state())
+
+    activity.record_sequence.assert_called_once()
+    seq = activity.record_sequence.call_args[0][0]
+    assert len(seq.steps) == 1
+    assert seq.steps[0].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert seq.steps[0].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
+    assert seq.actor_type == ActorType.SYSTEM
+    assert seq.actor_id is None
+
+
+def test_record_awaiting_customer_reply_skips_when_already_awaiting() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_awaiting_customer_reply(_state())
+
+    activity.record_sequence.assert_not_called()
+
+
+def test_record_confirm_email_sent_skips_when_already_awaiting() -> None:
+    activity = MagicMock()
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": StatusType.PENDING_REVIEW.value,
+        "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+    }
+    svc = AppointmentSchedulingActivityService(
+        activity_log_service=activity,
+        lifecycle_service=lifecycle,
+    )
+
+    svc.record_confirm_email_sent(
+        _state(),
+        communication_id="comm-uuid",
+        actor_id="99999999-9999-9999-9999-999999999999",
+    )
+
+    activity.record_sequence.assert_not_called()
 
 
 def test_record_failed_writes_action_and_failed_status() -> None:
@@ -257,9 +329,8 @@ def test_record_reply_rejected_writes_completed_rejected() -> None:
     )
 
     seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 2
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert "rejected" in (seq.steps[0].description or "").lower()
-    assert seq.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[1].to_status == StatusType.COMPLETED
-    assert seq.steps[1].to_sub_status == StatusSubType.REJECTED
+    assert len(seq.steps) == 1
+    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert seq.steps[0].metadata is None
+    assert seq.steps[0].to_status == StatusType.COMPLETED
+    assert seq.steps[0].to_sub_status == StatusSubType.REJECTED

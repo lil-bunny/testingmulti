@@ -11,7 +11,6 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_appointment_draft_created_action,
     format_appointment_draft_teams_notification_action,
     format_appointment_email_sent_action,
-    format_appointment_reply_rejected_action,
     format_appointment_scheduling_failed_action,
     format_ascend_dropoff_skipped_action,
     format_ascend_dropoff_updated_action,
@@ -168,10 +167,6 @@ class AppointmentSchedulingActivityService:
             return
 
         wl_id, tenant_id, run_id = scope
-        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
-        from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
-        from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
-
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -182,6 +177,26 @@ class AppointmentSchedulingActivityService:
                         activity_type=ActivityType.ACTION,
                         description=format_appointment_draft_created_action(),
                     ),
+                ),
+            )
+        )
+
+    def record_draft_pending_review(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+
+        wl_id, tenant_id, run_id = scope
+        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
+        from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         from_status=from_status or StatusType.PROCESSING,
@@ -213,7 +228,7 @@ class AppointmentSchedulingActivityService:
             )
         )
 
-    def finalize_confirm_awaiting_reply(
+    def record_confirm_email_sent(
         self,
         state,
         *,
@@ -226,11 +241,9 @@ class AppointmentSchedulingActivityService:
 
         wl_id, tenant_id, run_id = scope
         row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
-        current_status = status_type_from_db(row.get("status")) if row else None
-        transition_step = self._build_sub_status_transition_step(
-            current_status=current_status,
-            new_sub=StatusSubType.AWAITING_CUSTOMER_REPLY,
-        )
+        current_sub = sub_status_type_from_db(row.get("sub_status")) if row else None
+        if current_sub == StatusSubType.AWAITING_CUSTOMER_REPLY:
+            return
 
         self._activity.record_sequence(
             ActivityLogSequence(
@@ -243,11 +256,35 @@ class AppointmentSchedulingActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_appointment_email_sent_action(),
-                        metadata=None,
                         communication_id=communication_id,
                     ),
-                    transition_step,
                 ),
+            )
+        )
+
+    def record_awaiting_customer_reply(self, state) -> None:
+        scope = self._scope_ids(state)
+        if scope is None:
+            return
+
+        wl_id, tenant_id, run_id = scope
+        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
+        current_status = status_type_from_db(row.get("status")) if row else None
+        current_sub = sub_status_type_from_db(row.get("sub_status")) if row else None
+        if current_sub == StatusSubType.AWAITING_CUSTOMER_REPLY:
+            return
+
+        transition_step = self._build_sub_status_transition_step(
+            current_status=current_status,
+            new_sub=StatusSubType.AWAITING_CUSTOMER_REPLY,
+        )
+
+        self._activity.record_sequence(
+            ActivityLogSequence(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=wl_id,
+                workflow_run_id=run_id,
+                steps=(transition_step,),
             )
         )
 
@@ -536,17 +573,12 @@ class AppointmentSchedulingActivityService:
         if from_status == StatusType.COMPLETED and from_sub == StatusSubType.REJECTED:
             return
 
-        reason = str(state.data.get("customer_reply_reason") or "").strip()
         self._activity.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
                 workflow_lifecycle_id=wl_id,
                 workflow_run_id=run_id,
                 steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_appointment_reply_rejected_action(reason=reason),
-                    ),
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         from_status=from_status or StatusType.PENDING_REVIEW,
