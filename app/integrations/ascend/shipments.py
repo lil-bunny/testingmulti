@@ -81,5 +81,4 @@ def update_shipment_stops(
             status_code=response.status_code,
             body=response.text,
         )
-    data = response.json()
-    return data if isinstance(data, dict) else {"raw": data}
+    return {}

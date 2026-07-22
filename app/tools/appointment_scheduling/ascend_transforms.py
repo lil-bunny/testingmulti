@@ -5,6 +5,55 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+EXCLUDED_DOCK_NAMES = frozenset({"Diamond Internal ONLY - Not for Carriers"})
+
+
+def _format_slot_time(time_str: Any) -> str | None:
+    if not time_str:
+        return None
+    parts = str(time_str).split(":")
+    if len(parts) >= 2:
+        return f"{parts[0]}:{parts[1]}"
+    text = str(time_str).strip()
+    return text or None
+
+
+def _times_from_dock(dock: dict[str, Any], all_times: set[str]) -> None:
+    nested = dock.get("slots")
+    if isinstance(nested, list) and nested:
+        for slot in nested:
+            if not isinstance(slot, dict):
+                continue
+            t = _format_slot_time(slot.get("startTime"))
+            if t:
+                all_times.add(t)
+        return
+    for key in ("startTime", "time", "slotTime"):
+        t = _format_slot_time(dock.get(key))
+        if t:
+            all_times.add(t)
+
+
+def _times_from_warehouse_availability(raw: Any) -> list[str]:
+    """Parse Ascend warehouse-availability (list of docks or legacy dict)."""
+    if isinstance(raw, list):
+        docks: list[Any] = raw
+    elif isinstance(raw, dict):
+        maybe = raw.get("docks") or raw.get("slots")
+        docks = maybe if isinstance(maybe, list) else [raw]
+    else:
+        return []
+
+    all_times: set[str] = set()
+    for dock in docks:
+        if not isinstance(dock, dict):
+            continue
+        dock_name = str(dock.get("dockName") or "").strip()
+        if dock_name in EXCLUDED_DOCK_NAMES:
+            continue
+        _times_from_dock(dock, all_times)
+    return sorted(all_times)
+
 
 def _parse_datetime(iso_date_string: Any) -> dict[str, str | None]:
     if not iso_date_string:
@@ -112,17 +161,7 @@ def normalize_availability_slots(
             continue
         iso_date = current.strftime("%Y-%m-%d")
         raw = fetch_slots(str(location_ref), iso_date, office_code)
-        slots: list[str] = []
-        if isinstance(raw, dict):
-            docks = raw.get("docks") or raw.get("slots") or []
-            if isinstance(docks, list):
-                for dock in docks:
-                    if not isinstance(dock, dict):
-                        continue
-                    for key in ("startTime", "time", "slotTime"):
-                        val = dock.get(key)
-                        if val:
-                            slots.append(str(val))
+        slots = _times_from_warehouse_availability(raw)
         if slots:
             availability[current.strftime("%m/%d/%Y")] = {
                 "pcs_format": current.strftime("%m/%d/%Y"),
