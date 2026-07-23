@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, TYPE_CHECKING
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import psycopg
 import pytest
@@ -12,6 +12,9 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import create_app
+from app.services.email_ingress_work_queue_serializer_service import (
+    EmailIngressAdmitResult,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -166,12 +169,40 @@ def ingress_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return captured
 
 
+@pytest.fixture
+def heavy_ingress_admit_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    captured: list[dict] = []
+
+    class _StubSerializer:
+        def admit(self, **kwargs: object) -> EmailIngressAdmitResult:
+            captured.append(dict(kwargs))
+            return EmailIngressAdmitResult(
+                email_id=str(kwargs["email_id"]),
+                inbox_key=f"inbox:email_ingress:{kwargs['email_id']}",
+                status="started",
+                length=1,
+                celery_task_id="task-1",
+            )
+
+    monkeypatch.setattr(
+        "app.api.v1.webhooks.EmailIngressWorkQueueSerializerService",
+        MagicMock(return_value=_StubSerializer()),
+    )
+    return captured
+
+
 @pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or gelita/t3ra tenants missing")
 @pytest.mark.usefixtures("seed_inbound_routing_tenants")
 def test_webhook_routes_gelita_by_recipient_email(
     webhook_headers: dict[str, str],
     ingress_capture: list[dict],
+    heavy_ingress_admit_capture: list[dict],
 ) -> None:
+    """
+    Gelita xlsx attachment is heavy (Edge Heavy-Work Gate match): tenant routing
+    still resolves via ``inbound_routing_emails``, but Ingress admits to the
+    Pre-Lifecycle Work Queue instead of running inline.
+    """
     client = TestClient(create_app())
     r = client.post(
         "/api/v1/webhook/email",
@@ -181,9 +212,10 @@ def test_webhook_routes_gelita_by_recipient_email(
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["accepted"] is True
-    assert body["status"] == "accepted"
-    assert len(ingress_capture) == 1
-    assert ingress_capture[0]["tenant_slug"] == "gelita"
+    assert body["status"] == "queued_for_processing"
+    assert len(ingress_capture) == 0
+    assert len(heavy_ingress_admit_capture) == 1
+    assert heavy_ingress_admit_capture[0]["tenant_slug"] == "gelita"
 
 
 @pytest.mark.skipif(not _db_available(), reason="DATABASE_URL unset or gelita/t3ra tenants missing")

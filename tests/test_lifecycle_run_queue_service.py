@@ -9,6 +9,7 @@ import pytest
 
 from app.services.lifecycle_run_queue_service import (
     LifecycleRunQueueService,
+    email_ingress_work_queue_key,
     lifecycle_run_queue_key,
 )
 
@@ -64,6 +65,17 @@ class _FakePipe:
 
 def test_lifecycle_run_queue_key() -> None:
     assert lifecycle_run_queue_key(lifecycle_id="abc") == "inbox:lifecycle:abc"
+
+
+def test_email_ingress_work_queue_key_uses_distinct_scope() -> None:
+    assert email_ingress_work_queue_key(email_id="mail-1") == "inbox:email_ingress:mail-1"
+
+
+def test_lifecycle_and_email_ingress_scopes_never_collide_for_same_id() -> None:
+    same_id = "shared-id-123"
+    assert lifecycle_run_queue_key(lifecycle_id=same_id) != email_ingress_work_queue_key(
+        email_id=same_id
+    )
 
 
 def test_admit_empty_should_enqueue() -> None:

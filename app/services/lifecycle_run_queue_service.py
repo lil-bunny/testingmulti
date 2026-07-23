@@ -1,4 +1,11 @@
-"""Lifecycle run queue Redis primitives (serialize-enqueue / start-next). No Celery publish."""
+"""Run queue Redis primitives (serialize-enqueue / start-next). No Celery publish.
+
+Scope-agnostic FIFO reused by two callers: the ``lifecycle`` scope (one graph
+Celery task in flight per ``workflow_lifecycle_id``) and the ``email_ingress``
+scope (one Heavy Ingress Work Item in flight per Unipile ``email_id``, before
+any workflow lifecycle exists). Same admit/complete invariants, different key
+namespace only.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +19,7 @@ from app.integrations.redis.client import get_redis_client
 logger = get_logger(__name__)
 
 SCOPE_LIFECYCLE = "lifecycle"
+SCOPE_EMAIL_INGRESS = "email_ingress"
 
 
 @dataclass(frozen=True)
@@ -33,19 +41,31 @@ class CompleteResult:
     should_chain: bool
 
 
+def _run_queue_key(*, scope: str, key_id: str) -> str:
+    kid = str(key_id or "").strip()
+    if not kid:
+        raise ValueError(f"id required for {scope} run queue key")
+    return f"inbox:{scope}:{kid}"
+
+
 def lifecycle_run_queue_key(*, lifecycle_id: str) -> str:
-    lid = str(lifecycle_id or "").strip()
-    if not lid:
-        raise ValueError("lifecycle_id required for lifecycle run queue")
-    return f"inbox:{SCOPE_LIFECYCLE}:{lid}"
+    return _run_queue_key(scope=SCOPE_LIFECYCLE, key_id=lifecycle_id)
+
+
+def email_ingress_work_queue_key(*, email_id: str) -> str:
+    """Pre-Lifecycle Work Queue key for one Inbound Email Delivery (``email_id``)."""
+    return _run_queue_key(scope=SCOPE_EMAIL_INGRESS, key_id=email_id)
 
 
 class LifecycleRunQueueService:
     """
-    Redis FIFO keyed by one ``workflow_lifecycle_id``.
+    Redis FIFO keyed by one caller-supplied id (lifecycle or email delivery).
 
-    Invariant: at most one in-flight graph Celery task per lifecycle; further
-    Work items buffer on the list until start-next after complete.
+    Invariant: at most one in-flight Celery task per key; further Work items
+    buffer on the list until start-next after complete. The key namespace
+    (``lifecycle`` vs ``email_ingress``) is chosen by the caller via
+    ``lifecycle_run_queue_key`` / ``email_ingress_work_queue_key``; this class
+    only operates on the resulting ``inbox_key`` string.
     """
 
     def __init__(self, redis_client: Any | None = None) -> None:
