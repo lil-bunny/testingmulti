@@ -53,21 +53,37 @@ def test_compute_decision_uses_langsmith_prompt_and_trace():
     assert kwargs["prompt_trace"].prompt_step_key == APPOINTMENT_SCHEDULING_OPTIMIZATION
 
 
-def test_compute_decision_skips_llm_for_costco():
+def test_compute_decision_uses_llm_for_costco():
+    """Costco takes the same LLM + availability path as every other email customer."""
     service = AppointmentSchedulingDecisionService()
     pickup = PickupDropoffData(
-        pickup_data={"date": "07/01/2026"},
-        dropoff_data={},
+        pickup_data={"date": "07/01/2026", "time": "10:00", "location": "Ripon", "state_name": "CA"},
+        dropoff_data={"location": "Aurora", "state_name": "OR"},
+        miles=500,
     )
+    rendered = RenderedPrompt(system="system rules", user="user payload")
+    metadata = PromptLoadMetadata(source="fallback", tenant_prompt_ref="inline")
+
     with patch(
+        "app.services.appointment_scheduling.decision_service.normalize_availability_slots",
+        return_value={"availability": {"07/01/2026": {"times": ["15:00"], "pcs_format": "07/01/2026"}}},
+    ) as mock_avail, patch(
+        "app.services.appointment_scheduling.decision_service.resolve_appointment_scheduling_optimization_prompts",
+        return_value=(rendered, metadata),
+    ), patch(
         "app.services.appointment_scheduling.decision_service.run_scheduling_optimization",
+        return_value=LlmSchedulingDecision(
+            calculated_delivery_date="07/03/2026",
+            calculated_delivery_weekday="FRIDAY",
+        ),
     ) as mock_llm:
         result = service.compute_decision(
             pickup_dropoff=pickup,
-            ascend_context={},
+            ascend_context={"office_code": "DIAMOND-RPN", "appointments": [{"warehouse": "WH-1"}]},
             tenant_settings=minimal_t3ra_tenant_settings(),
             customer_name="Costco Wholesale",
-            customer_contact_transit_time="3 days",
         )
-    mock_llm.assert_not_called()
-    assert result.calculated_delivery_date
+
+    mock_avail.assert_called_once()
+    mock_llm.assert_called_once()
+    assert result.calculated_delivery_date == "07/03/2026"

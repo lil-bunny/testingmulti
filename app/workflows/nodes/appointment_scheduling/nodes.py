@@ -121,13 +121,11 @@ def compute_scheduling_decision(state):
     from app.domain.appointment_scheduling.models import PickupDropoffData
 
     pickup = PickupDropoffData.model_validate(state.data.get("pickup_dropoff_data") or {})
-    contact = state.data.get("customer_contact") or {}
     decision = AppointmentSchedulingDecisionService().compute_decision(
         pickup_dropoff=pickup,
         ascend_context=state.data.get("ascend_context") or {},
         tenant_settings=state.data.get("tenant_settings") or {},
         customer_name=str(state.data.get("customer_name") or ""),
-        customer_contact_transit_time=str(contact.get("transit_time") or ""),
     )
     state.data["llm_scheduling_decision"] = decision.model_dump(mode="json")
     return state

@@ -36,7 +36,7 @@ def test_resolve_costco_po_from_turvo_delivery_stop() -> None:
 
 def test_resolve_costco_po_joins_list_values() -> None:
     po = resolve_scheduling_po_number(
-        customer_name="Pet Food Experts",
+        customer_name="Costco Wholesale",
         turvo_payload=_turvo_payload(po_numbers=["PO-A", "PO-B"]),
         pickup_dropoff=None,
     )

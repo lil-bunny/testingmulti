@@ -70,6 +70,23 @@ def test_find_customer_sheet_row() -> None:
     assert find_customer_sheet_row(rows, "Other") is None
 
 
+def test_find_customer_sheet_row_prefers_email_over_portal_row() -> None:
+    # Portal row appears first; the email row must still win so we don't skip.
+    rows = [
+        {"CUSTOMER": "Costco Wholesale", "APPOINTMENT MODE": "portal"},
+        {"CUSTOMER": "Costco Wholesale", "APPOINTMENT MODE": "email"},
+    ]
+    assert find_customer_sheet_row(rows, "Costco Wholesale") == rows[1]
+
+
+def test_find_customer_sheet_row_falls_back_to_first_when_no_email() -> None:
+    rows = [
+        {"CUSTOMER": "Costco Wholesale", "APPOINTMENT MODE": "portal"},
+        {"CUSTOMER": "Costco Wholesale", "APPOINTMENT MODE": "call"},
+    ]
+    assert find_customer_sheet_row(rows, "Costco Wholesale") == rows[0]
+
+
 def test_customer_contact_ignores_appointment_mode_column():
     rows = [
         {
@@ -174,7 +191,9 @@ def test_llm_location_input_from_pickup_dropoff():
 
 
 def test_is_costco_customer():
-    assert is_costco_customer("Pet Food Experts LLC")
+    assert is_costco_customer("Costco Wholesale #584")
+    # Email parity: Pet Food Experts is NOT treated as Costco (standard layout).
+    assert not is_costco_customer("Pet Food Experts LLC")
     assert not is_costco_customer("Random Shipper")
 
 
