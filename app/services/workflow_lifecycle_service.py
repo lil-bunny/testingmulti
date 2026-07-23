@@ -447,6 +447,29 @@ class WorkflowLifecycleService:
             )
         )
 
+    def claim_appointment_draft_send_queued(
+        self,
+        *,
+        lifecycle_id: str,
+        expected_tenant_id: str,
+    ) -> str:
+        """Claim portal draft send (``metadata.draft_send_queued``) in one transaction."""
+        lid = self._clean(lifecycle_id)
+        tenant_id = self._clean(expected_tenant_id)
+        if not lid or not tenant_id:
+            return "not_found"
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.claim_appointment_draft_send_queued(
+                lifecycle_id=lid,
+                expected_tenant_id=tenant_id,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).claim_appointment_draft_send_queued(
+                lifecycle_id=lid,
+                expected_tenant_id=tenant_id,
+            )
+        )
+
     def update_lifecycle_sub_status(
         self,
         *,

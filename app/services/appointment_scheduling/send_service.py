@@ -7,7 +7,6 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
-from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -17,7 +16,7 @@ logger = get_logger(__name__)
 
 
 class SendConflictError(Exception):
-    """Lifecycle is not in appointment_draft_created (already sent or wrong phase)."""
+    """Lifecycle is not ready to send (already queued/sent or wrong phase)."""
 
 
 class SendService:
@@ -39,19 +38,6 @@ class SendService:
             return str(uuid.UUID(raw))
         except (ValueError, AttributeError):
             return None
-
-    @staticmethod
-    def _email_draft_ready(metadata: Any) -> bool:
-        if not isinstance(metadata, dict):
-            return False
-        draft = metadata.get("email_draft")
-        if not isinstance(draft, dict):
-            return False
-        return bool(
-            str(draft.get("to") or "").strip()
-            and str(draft.get("subject") or "").strip()
-            and str(draft.get("full_html") or "").strip()
-        )
 
     def validate_and_enqueue_draft_send(
         self,
@@ -75,26 +61,24 @@ class SendService:
         if not caller_tenant_uuid:
             raise ValueError("tenant_not_found")
 
-        row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
-        if not row:
+        claim = self._lifecycle.claim_appointment_draft_send_queued(
+            lifecycle_id=wl_id,
+            expected_tenant_id=caller_tenant_uuid,
+        )
+        if claim == "not_found":
             raise ValueError("lifecycle_not_found")
-
-        row_tenant_uuid = self._normalize_uuid(row.get("tenant_id"))
-        if row_tenant_uuid != caller_tenant_uuid:
-            raise ValueError("lifecycle_not_found")
-
-        status = str(row.get("status") or "").strip()
-        sub_status = str(row.get("sub_status") or "").strip()
-        if status != StatusType.PENDING_REVIEW.value:
+        if claim == "invalid_status":
             raise ValueError("invalid_lifecycle_status")
-        if sub_status != StatusSubType.APPOINTMENT_DRAFT_CREATED.value:
+        if claim == "missing_email_draft":
+            raise ValueError("missing_email_draft")
+        if claim == "conflict":
             raise SendConflictError(
                 "Draft email was already sent or lifecycle is not ready to send"
             )
-
-        metadata = row.get("metadata") or {}
-        if not self._email_draft_ready(metadata):
-            raise ValueError("missing_email_draft")
+        if claim != "claimed":
+            raise SendConflictError(
+                "Draft email was already sent or lifecycle is not ready to send"
+            )
 
         payload: dict[str, Any] = {
             "tenant_id": caller_tenant_uuid,
