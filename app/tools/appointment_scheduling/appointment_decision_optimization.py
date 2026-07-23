@@ -1,11 +1,11 @@
-"""LLM scheduling optimization wrapper (tools layer only)."""
+"""LLM appointment decision optimization wrapper (tools layer only)."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
 
-from app.domain.appointment_scheduling.models import LlmSchedulingDecision
+from app.domain.appointment_scheduling.models import LlmAppointmentDecision
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.tools.appointment_scheduling.scheduling_fallback import fallback_scheduling_decision
 from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
@@ -21,7 +21,7 @@ def _weekday_from_date(date_mm_dd_yyyy: str) -> str:
     return "DAY"
 
 
-def _fallback_decision(location_input: dict[str, Any]) -> LlmSchedulingDecision:
+def _fallback_decision(location_input: dict[str, Any]) -> LlmAppointmentDecision:
     return fallback_scheduling_decision(
         pickup_mm_dd_yyyy=str(location_input.get("startDateInput") or ""),
         miles=location_input.get("miles") or 0,
@@ -29,13 +29,13 @@ def _fallback_decision(location_input: dict[str, Any]) -> LlmSchedulingDecision:
     )
 
 
-def run_scheduling_optimization(
+def run_appointment_decision_optimization(
     *,
     system_prompt: str,
     user_prompt: str,
     location_input: dict[str, Any],
     prompt_trace: PromptTraceMetadata | None = None,
-) -> LlmSchedulingDecision:
+) -> LlmAppointmentDecision:
     try:
         raw = chat_json(
             system_prompt,
@@ -52,7 +52,7 @@ def run_scheduling_optimization(
     weekday = str(raw.get("calculated_delivery_weekday") or "")
     if delivery_date and not weekday:
         weekday = _weekday_from_date(delivery_date)
-    return LlmSchedulingDecision(
+    return LlmAppointmentDecision(
         calculated_delivery_date=delivery_date,
         calculated_delivery_weekday=weekday,
         selected_pickup_date=raw.get("selected_pickup_date"),

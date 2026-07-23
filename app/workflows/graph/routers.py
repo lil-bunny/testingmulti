@@ -1,4 +1,8 @@
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.metadata_keys import (
+    APPOINTMENT_INGRESS_SKIP_REASON,
+    LLM_APPOINTMENT_DECISION,
+)
 from app.domain.appointment_scheduling.ingress_constants import (
     SCHEDULING_REPLY_TERMINAL_STATUSES,
     SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,
@@ -260,7 +264,7 @@ def tms_driver_router(state):
 
 
 def appointment_ingress_router(state):
-    if state.data.get("scheduling_prepare_skip_reason"):
+    if state.data.get(APPOINTMENT_INGRESS_SKIP_REASON):
         return "end"
     return "continue"
 
@@ -318,7 +322,7 @@ def appointment_post_read_router(state):
 def appointment_weekend_pickup_router(state):
     from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
 
-    decision = state.data.get("llm_scheduling_decision") or {}
+    decision = state.data.get(LLM_APPOINTMENT_DECISION) or {}
     if not isinstance(decision, dict):
         decision = {}
     return "apply" if is_weekend_shifted_truthy(decision.get("weekend_shifted")) else "skip"

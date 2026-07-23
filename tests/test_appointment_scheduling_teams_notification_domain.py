@@ -36,7 +36,7 @@ def test_display_fields_from_data() -> None:
             "reference_number": "DIAMOND-RPN00008809",
             "customer_name": "BUCHANAN CELLERS",
             "workflow_lifecycle_id": "11111111-2222-3333-4444-555555555555",
-            "llm_scheduling_decision": {
+            "llm_appointment_decision": {
                 "selected_pickup_date": "07/01/2026",
                 "calculated_delivery_date": "07/04/2026",
             },

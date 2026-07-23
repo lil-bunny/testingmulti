@@ -53,7 +53,7 @@ class EmailDraft(BaseModel):
     full_html: str
 
 
-class SchedulingPayload(BaseModel):
+class AppointmentPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reference_number: str = ""
@@ -62,7 +62,7 @@ class SchedulingPayload(BaseModel):
     proposed_delivery_at: str | None = None
 
 
-class LlmSchedulingDecision(BaseModel):
+class LlmAppointmentDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     calculated_delivery_date: str = ""
@@ -72,3 +72,7 @@ class LlmSchedulingDecision(BaseModel):
     pcs_pickup_date: str | None = None
     transit_days: int | None = None
     weekend_shifted: bool = False
+
+
+SchedulingPayload = AppointmentPayload
+LlmSchedulingDecision = LlmAppointmentDecision

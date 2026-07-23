@@ -155,7 +155,7 @@ def test_try_customer_reply_enqueues_via_costco_rpn_subject_fallback() -> None:
         "status": "pending_review",
         "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
         "metadata": {
-            "scheduling_payload": {"reference_number": "DIAMOND-RPN00006732"},
+            "appointment_payload": {"reference_number": "DIAMOND-RPN00006732"},
         },
     }
     lifecycle.read_correlation_by_id.return_value = {"shipment_id": "ship-row-1"}

@@ -8,10 +8,11 @@ from unittest.mock import MagicMock
 
 from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
-    LLM_SCHEDULING_DECISION,
+    LLM_APPOINTMENT_DECISION,
 )
 from app.services.appointment_scheduling.lifecycle_service import LifecycleService
-from app.workflows.graph.routers import appointment_weekend_pickup_router
+from app.workflows.graph.routers import appointment_ingress_router, appointment_weekend_pickup_router
+from app.domain.appointment_scheduling.metadata_hydration import normalize_appointment_state_data
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _RUN_UUID = "22222222-3333-4444-5555-666666666666"
@@ -59,13 +60,13 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         state,
         lifecycle_id="lifecycle-1",
         email_draft=email_draft,
-        scheduling_payload=scheduling_payload,
+        appointment_payload=scheduling_payload,
     )
 
     activity.record_draft_ready.assert_called_once_with(
         state,
         email_draft=email_draft,
-        scheduling_payload=scheduling_payload,
+        appointment_payload=scheduling_payload,
     )
     lifecycle.patch_metadata.assert_called_once_with(
         lifecycle_id="lifecycle-1",
@@ -122,15 +123,15 @@ def test_persist_draft_ready_patches_llm_scheduling_decision():
         state,
         lifecycle_id="lifecycle-1",
         email_draft=email_draft,
-        scheduling_payload=scheduling_payload,
-        llm_scheduling_decision=decision,
+        appointment_payload=scheduling_payload,
+        llm_appointment_decision=decision,
     )
 
     lifecycle.patch_metadata.assert_called_once_with(
         lifecycle_id="lifecycle-1",
         metadata_patch={
             EMAIL_DRAFT: email_draft,
-            LLM_SCHEDULING_DECISION: decision,
+            LLM_APPOINTMENT_DECISION: decision,
         },
     )
 
@@ -159,8 +160,8 @@ def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
         state,
         lifecycle_id="lifecycle-1",
         email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
-        scheduling_payload=scheduling_payload,
-        llm_scheduling_decision={"selected_pickup_time": "08:30"},
+        appointment_payload=scheduling_payload,
+        llm_appointment_decision={"selected_pickup_time": "08:30"},
     )
 
     shipments.update_proposed_appointments.assert_called_once_with(
@@ -211,7 +212,7 @@ def test_persist_draft_ready_merges_po_number_when_resolved():
         state,
         lifecycle_id="lifecycle-1",
         email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
-        scheduling_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
+        appointment_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
     )
 
     shipments.merge_metadata.assert_called_once_with(
@@ -244,7 +245,7 @@ def test_persist_draft_ready_skips_merge_when_po_empty():
         state,
         lifecycle_id="lifecycle-1",
         email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
-        scheduling_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
+        appointment_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
     )
 
     shipments.merge_metadata.assert_not_called()
@@ -273,7 +274,7 @@ def test_persist_draft_ready_non_costco_uses_ascend_pickup_po():
         state,
         lifecycle_id="lifecycle-1",
         email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
-        scheduling_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
+        appointment_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
     )
 
     shipments.merge_metadata.assert_called_once_with(
@@ -308,7 +309,7 @@ def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
         state,
         lifecycle_id="lifecycle-1",
         email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
-        scheduling_payload={
+        appointment_payload={
             "reference_number": "DIAMOND-RPN00008809",
             "proposed_pickup_at": "2026-07-30",
             "proposed_delivery_at": "08/04/2026",
@@ -329,7 +330,7 @@ def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
 
 def test_mark_restartable_skip_delegates_to_mark_failed() -> None:
     from app.domain.appointment_scheduling.failure import SchedulingFailure
-    from app.domain.appointment_scheduling.metadata_keys import SCHEDULING_FAILURE_REASON
+    from app.domain.appointment_scheduling.metadata_keys import APPOINTMENT_FAILURE_REASON
     from app.domain.error_catalog import SystemError
 
     lifecycle = MagicMock()
@@ -352,14 +353,14 @@ def test_mark_restartable_skip_delegates_to_mark_failed() -> None:
     lifecycle.patch_metadata.assert_called_once_with(
         lifecycle_id="lifecycle-1",
         metadata_patch={
-            SCHEDULING_FAILURE_REASON: SystemError.UNEXPECTED_NODE_FAILURE.value,
+            APPOINTMENT_FAILURE_REASON: SystemError.UNEXPECTED_NODE_FAILURE.value,
         },
     )
 
 
 def test_mark_failed_delegates_activity_and_patches_metadata():
     from app.domain.appointment_scheduling.failure import SchedulingFailure
-    from app.domain.appointment_scheduling.metadata_keys import SCHEDULING_FAILURE_REASON
+    from app.domain.appointment_scheduling.metadata_keys import APPOINTMENT_FAILURE_REASON
     from app.domain.error_catalog import BusinessError, format_error_message
 
     lifecycle = MagicMock()
@@ -389,7 +390,7 @@ def test_mark_failed_delegates_activity_and_patches_metadata():
     lifecycle.patch_metadata.assert_called_once_with(
         lifecycle_id="lifecycle-1",
         metadata_patch={
-            SCHEDULING_FAILURE_REASON: BusinessError.MISSING_RECIPIENT_EMAIL.value,
+            APPOINTMENT_FAILURE_REASON: BusinessError.MISSING_RECIPIENT_EMAIL.value,
         },
     )
     lifecycle.update_lifecycle_status.assert_not_called()
@@ -429,7 +430,7 @@ def test_hydrate_appointment_send_context_maps_portal_shipment_uuid_to_turvo_id(
     assert state.data["reference_number"] == "DIAMOND-RPN00008809"
     assert state.data["shipments_row_id"] == _SHIPMENT_ROW_ID
     assert state.data["shipment_id"] == "1000324895"
-    assert state.data["scheduling_payload"]["reference_number"] == "DIAMOND-RPN00008809"
+    assert state.data["appointment_payload"]["reference_number"] == "DIAMOND-RPN00008809"
     assert shipments.get_by_id.call_count == 2
 
 
@@ -453,6 +454,28 @@ def test_hydrate_appointment_send_context_keeps_turvo_id_when_shipments_row_alre
     lifecycle.read_correlation_by_id.assert_not_called()
 
 
+def test_legacy_checkpoint_llm_decision_routes_after_normalize() -> None:
+    state = _state(
+        event_type="appointment_draft_send",
+        shipments_row_id=_SHIPMENT_ROW_ID,
+    )
+    state.data["llm_scheduling_decision"] = {
+        "weekend_shifted": True,
+        "selected_pickup_date": "2026-07-01",
+    }
+    normalize_appointment_state_data(state.data)
+    assert state.data["llm_appointment_decision"]["weekend_shifted"] is True
+    assert appointment_weekend_pickup_router(state) == "apply"
+
+
+def test_legacy_checkpoint_ingress_skip_routes_after_normalize() -> None:
+    state = _state()
+    state.data["scheduling_prepare_skip_reason"] = "duplicate_event"
+    normalize_appointment_state_data(state.data)
+    assert state.data["appointment_ingress_skip_reason"] == "duplicate_event"
+    assert appointment_ingress_router(state) == "end"
+
+
 def test_hydrate_appointment_send_context_restores_llm_scheduling_decision_for_send_path():
     decision = {
         "weekend_shifted": True,
@@ -468,7 +491,7 @@ def test_hydrate_appointment_send_context_restores_llm_scheduling_decision_for_s
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
-            LLM_SCHEDULING_DECISION: decision,
+            LLM_APPOINTMENT_DECISION: decision,
         },
     }
     shipments = MagicMock()
@@ -487,7 +510,7 @@ def test_hydrate_appointment_send_context_restores_llm_scheduling_decision_for_s
 
     service.hydrate_appointment_send_context(state)
 
-    assert state.data["llm_scheduling_decision"] == decision
+    assert state.data["llm_appointment_decision"] == decision
     assert appointment_weekend_pickup_router(state) == "apply"
 
 
@@ -516,7 +539,7 @@ def test_hydrate_appointment_send_context_weekend_router_skips_without_decision(
 
     service.hydrate_appointment_send_context(state)
 
-    assert "llm_scheduling_decision" not in state.data
+    assert "llm_appointment_decision" not in state.data
     assert appointment_weekend_pickup_router(state) == "skip"
 
 
@@ -531,7 +554,7 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
-            LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
+            LLM_APPOINTMENT_DECISION: {"weekend_shifted": False},
         },
     }
     service = LifecycleService(lifecycle_service=lifecycle)
@@ -544,7 +567,7 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
     assert state.data["email_draft"]["to"] == "a@example.com"
     assert "workflow_lifecycle_row" not in state.data
     assert "workflow_lifecycle_metadata" not in state.data
-    assert "llm_scheduling_decision" not in state.data
+    assert "llm_appointment_decision" not in state.data
 
 
 def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metadata():
@@ -553,7 +576,7 @@ def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metada
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: {"to": "a@example.com", "subject": "s", "full_html": "<p/>"},
-            LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
+            LLM_APPOINTMENT_DECISION: {"weekend_shifted": False},
         },
     }
     shipments = MagicMock()
@@ -567,4 +590,4 @@ def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metada
     service.hydrate_appointment_send_context(state)
 
     assert "workflow_lifecycle_metadata" not in state.data
-    assert state.data["llm_scheduling_decision"] == {"weekend_shifted": False}
+    assert state.data["llm_appointment_decision"] == {"weekend_shifted": False}

@@ -2,10 +2,31 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
-from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT, LLM_SCHEDULING_DECISION
+from app.domain.appointment_scheduling.boundary import iso_or_empty
+from app.domain.appointment_scheduling.metadata_keys import (
+    APPOINTMENT_PAYLOAD,
+    EMAIL_DRAFT,
+    LEGACY_STATE_KEY_ALIASES,
+    LLM_APPOINTMENT_DECISION,
+)
+
+
+def normalize_appointment_state_data(data: dict[str, Any]) -> None:
+    """Promote legacy checkpoint/metadata keys to canonical appointment_* names."""
+    for canonical, legacy_keys in LEGACY_STATE_KEY_ALIASES.items():
+        if canonical in data:
+            continue
+        for legacy in legacy_keys:
+            if legacy in data:
+                data[canonical] = data[legacy]
+                break
+
+
+def _lifecycle_metadata_value(metadata: dict[str, Any], canonical: str) -> Any:
+    normalize_appointment_state_data(metadata)
+    return metadata.get(canonical)
 
 
 def apply_lifecycle_email_draft_to_state(
@@ -13,31 +34,28 @@ def apply_lifecycle_email_draft_to_state(
     lifecycle_metadata: dict[str, Any],
 ) -> None:
     if isinstance(lifecycle_metadata.get(EMAIL_DRAFT), dict):
-        state.data["email_draft"] = lifecycle_metadata[EMAIL_DRAFT]
+        state.data[EMAIL_DRAFT] = lifecycle_metadata[EMAIL_DRAFT]
 
 
-def apply_lifecycle_scheduling_decision_to_state(
+def apply_lifecycle_appointment_decision_to_state(
     state,
     lifecycle_metadata: dict[str, Any],
 ) -> None:
-    decision = lifecycle_metadata.get(LLM_SCHEDULING_DECISION)
+    decision = _lifecycle_metadata_value(lifecycle_metadata, LLM_APPOINTMENT_DECISION)
     if isinstance(decision, dict) and decision:
-        state.data["llm_scheduling_decision"] = decision
+        state.data[LLM_APPOINTMENT_DECISION] = decision
 
 
-def _iso_or_empty(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value).strip()
+# ponytail: alias until callers finish migrating import names
+apply_lifecycle_scheduling_decision_to_state = apply_lifecycle_appointment_decision_to_state
 
 
-def rebuild_scheduling_payload_from_shipment(
+def rebuild_appointment_payload_from_shipment(
     *,
     shipment_row: dict[str, Any] | None,
     state_data: dict[str, Any],
 ) -> dict[str, Any]:
+    normalize_appointment_state_data(state_data)
     meta = (shipment_row or {}).get("metadata") or {}
     if not isinstance(meta, dict):
         meta = {}
@@ -49,20 +67,23 @@ def rebuild_scheduling_payload_from_shipment(
     payload: dict[str, Any] = {}
     if reference:
         payload["reference_number"] = reference
-    existing = state_data.get("scheduling_payload")
+    existing = state_data.get(APPOINTMENT_PAYLOAD)
     if isinstance(existing, dict):
         for key in ("proposed_pickup_at", "proposed_delivery_at", "shipment_details"):
             val = str(existing.get(key) or "").strip()
             if val:
                 payload[key] = val
     if shipment_row:
-        pickup = _iso_or_empty(shipment_row.get("proposed_pickup"))
-        delivery = _iso_or_empty(shipment_row.get("proposed_delivery"))
+        pickup = iso_or_empty(shipment_row.get("proposed_pickup"))
+        delivery = iso_or_empty(shipment_row.get("proposed_delivery"))
         if pickup and "proposed_pickup_at" not in payload:
             payload["proposed_pickup_at"] = pickup
         if delivery and "proposed_delivery_at" not in payload:
             payload["proposed_delivery_at"] = delivery
     return payload
+
+
+rebuild_scheduling_payload_from_shipment = rebuild_appointment_payload_from_shipment
 
 
 def hydrate_shipment_facts_into_state(
@@ -82,13 +103,13 @@ def hydrate_shipment_facts_into_state(
     customer_name = str(shipment_row.get("customer_name") or state.data.get("customer_name") or "").strip()
     if customer_name:
         state.data["customer_name"] = customer_name
-    pickup_date = _iso_or_empty(shipment_row.get("pickup_date"))
-    delivery_date = _iso_or_empty(shipment_row.get("delivery_date"))
+    pickup_date = iso_or_empty(shipment_row.get("pickup_date"))
+    delivery_date = iso_or_empty(shipment_row.get("delivery_date"))
     if pickup_date:
         state.data["pickup_date"] = pickup_date
     if delivery_date:
         state.data["delivery_date"] = delivery_date
-    state.data["scheduling_payload"] = rebuild_scheduling_payload_from_shipment(
+    state.data[APPOINTMENT_PAYLOAD] = rebuild_appointment_payload_from_shipment(
         shipment_row=shipment_row,
         state_data=state.data,
     )

@@ -7,11 +7,11 @@ from typing import Any
 
 from app.domain.appointment_scheduling.costco import is_costco_customer
 from app.domain.appointment_scheduling.models import (
+    AppointmentPayload,
     DraftStatic,
     EmailDraft,
-    LlmSchedulingDecision,
+    LlmAppointmentDecision,
     PickupDropoffData,
-    SchedulingPayload,
 )
 
 _DEFAULT_COMMODITY = "DIAMOND PET FOODS"
@@ -93,13 +93,13 @@ def build_shipment_details_summary(
 def build_email_draft(
     *,
     pickup_dropoff: PickupDropoffData | dict[str, Any],
-    llm_decision: LlmSchedulingDecision | dict[str, Any],
+    llm_decision: LlmAppointmentDecision | dict[str, Any],
     draft_static: DraftStatic | dict[str, Any],
     to_email: str,
     cc: list[str] | str,
     load_id: str,
     customer_name: str,
-) -> tuple[EmailDraft, SchedulingPayload]:
+) -> tuple[EmailDraft, AppointmentPayload]:
     pickup = pickup_dropoff if isinstance(pickup_dropoff, dict) else pickup_dropoff.model_dump()
     llm = llm_decision if isinstance(llm_decision, dict) else llm_decision.model_dump()
     static = draft_static if isinstance(draft_static, dict) else draft_static.model_dump()
@@ -186,10 +186,10 @@ def build_email_draft(
         subject=subject,
         full_html=full_html,
     )
-    scheduling_payload = SchedulingPayload(
+    appointment_payload = AppointmentPayload(
         reference_number=reference_number,
         shipment_details=shipment_details,
         proposed_pickup_at=_e(llm.get("pcs_pickup_date") or llm.get("selected_pickup_date")) or None,
         proposed_delivery_at=date or None,
     )
-    return email_draft, scheduling_payload
+    return email_draft, appointment_payload

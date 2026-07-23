@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.domain.appointment_scheduling.models import DraftStatic, LlmSchedulingDecision, PickupDropoffData
+from app.domain.appointment_scheduling.models import DraftStatic, LlmAppointmentDecision, PickupDropoffData
 from app.services.appointment_scheduling.intake_service import IntakeService
 
 
@@ -17,7 +17,7 @@ def test_build_email_draft_from_state_success():
                 pickup_data={"date": "07/01/2026"},
                 dropoff_data={},
             ).model_dump(mode="json"),
-            "llm_scheduling_decision": LlmSchedulingDecision(
+            "llm_appointment_decision": LlmAppointmentDecision(
                 calculated_delivery_date="07/04/2026",
                 calculated_delivery_weekday="SATURDAY",
                 pcs_pickup_date="07/01/2026",
@@ -42,5 +42,5 @@ def test_build_email_draft_from_state_success():
     assert result.email_draft["to"] == "customer@example.com"
     assert result.email_draft["subject"] == 'DEL APPT REQ "63294"'
     assert result.email_draft["full_html"]
-    assert result.scheduling_payload["reference_number"] == "DIAMOND-RPN-22"
-    assert result.scheduling_payload["proposed_delivery_at"] == "07/04/2026"
+    assert result.appointment_payload["reference_number"] == "DIAMOND-RPN-22"
+    assert result.appointment_payload["proposed_delivery_at"] == "07/04/2026"

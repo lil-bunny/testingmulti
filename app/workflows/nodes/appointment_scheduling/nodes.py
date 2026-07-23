@@ -7,6 +7,14 @@ from app.domain.appointment_scheduling.failure import (
     raise_email_send_error,
     raise_scheduling_result_failure,
 )
+from app.domain.appointment_scheduling.metadata_hydration import (
+    normalize_appointment_state_data,
+)
+from app.domain.appointment_scheduling.metadata_keys import (
+    APPOINTMENT_INGRESS_SKIP_REASON,
+    APPOINTMENT_PAYLOAD,
+    LLM_APPOINTMENT_DECISION,
+)
 from app.services.appointment_scheduling.activity_service import (
     ActivityService,
 )
@@ -43,6 +51,7 @@ logger = get_logger(__name__)
 
 
 def prepare_appointment_ingress(state):
+    normalize_appointment_state_data(state.data)
     tenant_slug = str(state.data.get("tenant_slug") or state.tenant_slug or "").strip()
     tenant_id = str(state.data.get("tenant_id") or state.tenant_id or "").strip()
     tenant_settings = state.data.get("tenant_settings") or {}
@@ -53,7 +62,7 @@ def prepare_appointment_ingress(state):
         payload=state.data,
     )
     if not result.ok:
-        state.data["scheduling_prepare_skip_reason"] = result.skip_reason
+        state.data[APPOINTMENT_INGRESS_SKIP_REASON] = result.skip_reason
         logger.info(
             "prepare_appointment_ingress skip reason=%s shipment_id=%s",
             result.skip_reason,
@@ -71,6 +80,7 @@ def prepare_appointment_ingress(state):
 
 
 def read_appointment_lifecycle(state):
+    normalize_appointment_state_data(state.data)
     LifecycleService().hydrate_read_context(state)
     return state
 
@@ -107,14 +117,14 @@ def compute_appointment_decision(state):
         tenant_settings=state.data.get("tenant_settings") or {},
         customer_name=str(state.data.get("customer_name") or ""),
     )
-    state.data["llm_scheduling_decision"] = decision.model_dump(mode="json")
+    state.data[LLM_APPOINTMENT_DECISION] = decision.model_dump(mode="json")
     return state
 
 
 def build_appointment_draft(state):
     draft_result = IntakeService().build_email_draft_from_state(state)
     state.data["email_draft"] = draft_result.email_draft
-    state.data["scheduling_payload"] = draft_result.scheduling_payload
+    state.data[APPOINTMENT_PAYLOAD] = draft_result.appointment_payload
     return state
 
 
@@ -125,8 +135,8 @@ def persist_appointment_draft_ready(state):
         state,
         lifecycle_id=lifecycle_id,
         email_draft=state.data.get("email_draft") or {},
-        scheduling_payload=state.data.get("scheduling_payload") or {},
-        llm_scheduling_decision=state.data.get("llm_scheduling_decision") or {},
+        appointment_payload=state.data.get(APPOINTMENT_PAYLOAD) or {},
+        llm_appointment_decision=state.data.get(LLM_APPOINTMENT_DECISION) or {},
     )
     return state
 
@@ -147,6 +157,7 @@ def record_appointment_decision(state):
 
 
 def hydrate_appointment_send_context(state):
+    normalize_appointment_state_data(state.data)
     LifecycleService().hydrate_appointment_send_context(state)
     return state
 

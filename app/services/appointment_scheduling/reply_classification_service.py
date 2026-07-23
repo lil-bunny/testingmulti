@@ -143,7 +143,7 @@ class ReplyClassificationService:
             )
         except PromptUnavailableError as exc:
             logger.warning(
-                "classify_customer_reply prompt unavailable lifecycle_id=%s: %s",
+                "classify_appointment_customer_reply prompt unavailable lifecycle_id=%s: %s",
                 workflow_lifecycle_id,
                 exc,
             )
