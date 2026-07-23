@@ -16,8 +16,8 @@ celery_app = Celery(
 celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
-    task_acks_late=True,
-    task_reject_on_worker_lost=True,
+    task_acks_late=False,
+    task_reject_on_worker_lost=False,
     worker_prefetch_multiplier=1,
 )
 
