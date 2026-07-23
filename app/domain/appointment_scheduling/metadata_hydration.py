@@ -14,7 +14,6 @@ def apply_lifecycle_email_draft_to_state(
 ) -> None:
     if isinstance(lifecycle_metadata.get(EMAIL_DRAFT), dict):
         state.data["email_draft"] = lifecycle_metadata[EMAIL_DRAFT]
-        state.data.setdefault("workflow_lifecycle_metadata", lifecycle_metadata)
 
 
 def apply_lifecycle_scheduling_decision_to_state(
@@ -24,7 +23,6 @@ def apply_lifecycle_scheduling_decision_to_state(
     decision = lifecycle_metadata.get(LLM_SCHEDULING_DECISION)
     if isinstance(decision, dict) and decision:
         state.data["llm_scheduling_decision"] = decision
-        state.data.setdefault("workflow_lifecycle_metadata", lifecycle_metadata)
 
 
 def _iso_or_empty(value: Any) -> str:

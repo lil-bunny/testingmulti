@@ -52,15 +52,15 @@ class AppointmentSchedulingIngressPrepareService:
         tenant_settings: dict[str, Any],
         payload: dict[str, Any],
     ) -> IngressPrepareResult:
-        shipment_payload = payload.get("shipment")
-        if not isinstance(shipment_payload, dict):
-            return IngressPrepareResult(ok=False, skip_reason="turvo_shipment_fetch_failed")
-
         existing_lifecycle_id = str(payload.get("workflow_lifecycle_id") or "").strip()
         existing_shipments_row_id = str(payload.get("shipments_row_id") or "").strip()
+        shipment_payload = payload.get("shipment")
+        if not isinstance(shipment_payload, dict):
+            shipment_payload = None
+
         if existing_lifecycle_id and existing_shipments_row_id:
             customer_name = str(payload.get("customer_name") or "").strip() or None
-            if not customer_name:
+            if not customer_name and isinstance(shipment_payload, dict):
                 customer_name = delivery_stop_name_from_payload(shipment_payload) or None
             raw_contact = payload.get("customer_contact")
             contact: CustomerContactRow | None = None
@@ -74,10 +74,13 @@ class AppointmentSchedulingIngressPrepareService:
                 workflow_lifecycle_id=existing_lifecycle_id,
                 shipments_row_id=existing_shipments_row_id,
                 reference_number=reference_number,
-                shipment=shipment_payload,
+                shipment=None,
                 customer_contact=contact,
                 customer_name=customer_name,
             )
+
+        if not isinstance(shipment_payload, dict):
+            return IngressPrepareResult(ok=False, skip_reason="turvo_shipment_fetch_failed")
 
         shipment_id = str(payload.get("shipment_id") or "").strip()
         load_id = str(payload.get("load_id") or "").strip()

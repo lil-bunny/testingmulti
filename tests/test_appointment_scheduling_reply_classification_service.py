@@ -71,6 +71,13 @@ def test_classify_accepted_records_activity() -> None:
     assert result.appointment_start_iso == "2026-07-18T10:30:00"
     assert result.llm_activity_log_id == "activity-1"
     svc._activity.record_action.assert_called_once()
+    call_kwargs = svc._activity.record_action.call_args.args[0]
+    assert call_kwargs.metadata == {
+        "decision": ACCEPTED,
+        "confidence": 0.95,
+        "reason": "explicit date and time",
+        "thread_message_count": 1,
+    }
 
 
 def test_classify_vague_reply_do_nothing() -> None:
@@ -105,6 +112,9 @@ def test_classify_vague_reply_do_nothing() -> None:
     svc._activity.record_action.assert_called_once()
     patch_data = result.to_state_patch()
     assert patch_data["customer_reply_decision"] == DO_NOTHING
+    assert "customer_reply_llm" not in patch_data
+    assert "customer_reply_thread_llm_input" not in patch_data
+    assert "customer_reply_thread_message_count" not in patch_data
     assert "confirmed_delivery_at" not in patch_data
 
 

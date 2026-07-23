@@ -18,6 +18,7 @@ from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
 from app.integrations.ascend.shipments import fetched_shipment_details, update_shipment_stops
+from app.domain.appointment_scheduling.state_hygiene import slim_ascend_write_result
 from app.tools.appointment_scheduling.customer_reply import (
     build_ascend_dropoff_update_payload,
     extract_dropoff_stop,
@@ -38,6 +39,14 @@ class AscendWriteResult:
     @property
     def error(self) -> str | None:
         return self.failure.message if self.failure else None
+
+    def to_checkpoint_dict(self) -> dict[str, Any]:
+        return slim_ascend_write_result(
+            ok=self.ok,
+            skipped=self.skipped,
+            dry_run=self.dry_run,
+            error=self.error,
+        )
 
 
 class AppointmentSchedulingAscendWriteService:
@@ -94,6 +103,8 @@ class AppointmentSchedulingAscendWriteService:
 
         if skip_ascend_writes_enabled(tenant_settings):
             dropoff = extract_dropoff_stop(ascend_shipment or {})
+            if not dropoff and tenant_slug:
+                dropoff = self._fetch_dropoff_stop(tenant_slug=tenant_slug, reference_number=ref)
             payload = build_ascend_dropoff_update_payload(dropoff, iso_start)
             if not payload:
                 return AscendWriteResult(
@@ -162,6 +173,27 @@ class AppointmentSchedulingAscendWriteService:
                 ok=False,
                 failure=SchedulingFailure.from_catalog(catalog, message),
             )
+
+    @staticmethod
+    def _fetch_dropoff_stop(*, tenant_slug: str, reference_number: str) -> dict[str, Any]:
+        settings = load_appointment_scheduling_settings(tenant_slug)
+        if not settings.ascend_email or not settings.ascend_password:
+            return {}
+        office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
+        try:
+            token_data = login_ascend_api(
+                email=str(settings.ascend_email),
+                password=str(settings.ascend_password),
+            )
+            access_token = str(token_data.get("accessToken") or "")
+            shipment = fetched_shipment_details(
+                reference_number=reference_number,
+                access_token=access_token,
+                office_code=office_code,
+            )
+            return extract_dropoff_stop(shipment)
+        except AscendApiError:
+            return {}
 
 
 __all__ = ("AppointmentSchedulingAscendWriteService", "AscendWriteResult")

@@ -226,10 +226,12 @@ class AppointmentSchedulingIngressService:
                 mode="json"
             )
 
+        enqueue_payload = {k: v for k, v in payload.items() if k != "shipment"}
+
         try:
             execution_id = enqueue_appointment_scheduling_pickup_changed(
                 tenant_slug=tenant_slug,
-                payload=payload,
+                payload=enqueue_payload,
             )
         except Exception:
             logger.exception(

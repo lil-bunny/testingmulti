@@ -240,6 +240,7 @@ class WorkflowService:
         payload["tenant_settings"] = tenant_settings_for_workflow_state(
             tenant_slug,
             tenant_row.get("settings") or {},
+            workflow_name=workflow_name,
         )
         payload = await self._email_graph_task_prep(
             tenant_id=tenant_id,

@@ -25,16 +25,12 @@ def test_post_read_router_routes_send_when_eligible() -> None:
     route = appointment_scheduling_post_read_router(
         _state(
             event_type="appointment_draft_send",
-            workflow_lifecycle_row={
-                "status": "pending_review",
-                "sub_status": "appointment_draft_created",
-            },
-            workflow_lifecycle_metadata={
-                "email_draft": {
-                    "to": "wh@example.com",
-                    "subject": "DEL APPT",
-                    "full_html": "<p>Hi</p>",
-                }
+            workflow_lifecycle_status="pending_review",
+            workflow_lifecycle_sub_status="appointment_draft_created",
+            email_draft={
+                "to": "wh@example.com",
+                "subject": "DEL APPT",
+                "full_html": "<p>Hi</p>",
             },
         )
     )
@@ -45,11 +41,9 @@ def test_post_read_router_end_when_already_sent() -> None:
     route = appointment_scheduling_post_read_router(
         _state(
             event_type="appointment_draft_send",
-            workflow_lifecycle_row={
-                "status": "pending_review",
-                "sub_status": "awaiting_customer_reply",
-            },
-            workflow_lifecycle_metadata={"email_draft": {"to": "a@b.com", "subject": "s", "full_html": "b"}},
+            workflow_lifecycle_status="pending_review",
+            workflow_lifecycle_sub_status="awaiting_customer_reply",
+            email_draft={"to": "a@b.com", "subject": "s", "full_html": "b"},
         )
     )
     assert route == "end"

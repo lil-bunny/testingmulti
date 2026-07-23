@@ -177,8 +177,6 @@ class AppointmentCustomerReplyIngressService:
             "reference_number": reference_number,
             "customer_name": customer_name,
             "communication_id": communication_id,
-            "body": payload.get("body"),
-            "subject": payload.get("subject"),
         }
 
     def enqueue_reply_event_and_link(

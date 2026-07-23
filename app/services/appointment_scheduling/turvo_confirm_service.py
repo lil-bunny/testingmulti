@@ -20,6 +20,7 @@ from app.integrations.turvo.shipments import (
     get_shipment,
     update_stop_appointment_time,
 )
+from app.domain.appointment_scheduling.state_hygiene import slim_turvo_confirm_result
 from app.tools.appointment_scheduling.turvo_confirm import prepare_delivery_placeholder
 
 logger = get_logger(__name__)
@@ -34,6 +35,15 @@ class TurvoConfirmResult:
     stop_name: str | None = None
     start_time: str | None = None
     response: dict[str, Any] | None = None
+
+    def to_checkpoint_dict(self) -> dict[str, Any]:
+        return slim_turvo_confirm_result(
+            ok=self.ok,
+            updated=self.updated,
+            error=self.error,
+            stop_name=self.stop_name,
+            start_time=self.start_time,
+        )
 
 
 class AppointmentSchedulingTurvoConfirmService:

@@ -25,6 +25,7 @@ from app.integrations.turvo.shipments import (
     pickup_stop_name_from_payload,
     update_stop_appointment_time,
 )
+from app.domain.appointment_scheduling.state_hygiene import slim_weekend_pickup_result
 from app.tools.appointment_scheduling.ascend_pickup_update import plan_ascend_pickup_update
 from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
 from app.services.shipments_service import ShipmentsService
@@ -48,6 +49,18 @@ class WeekendPickupResult:
     @property
     def error(self) -> str | None:
         return self.failure.message if self.failure else None
+
+    def to_checkpoint_dict(self) -> dict[str, Any]:
+        return slim_weekend_pickup_result(
+            ok=self.ok,
+            skipped=self.skipped,
+            dry_run=self.dry_run,
+            error=self.error,
+            ascend_updated=self.ascend_updated,
+            turvo_updated=self.turvo_updated,
+            turvo_pickup_start_time=self.turvo_pickup_start_time,
+            pickup_stop_name=self.pickup_stop_name,
+        )
 
 
 class AppointmentSchedulingWeekendPickupService:

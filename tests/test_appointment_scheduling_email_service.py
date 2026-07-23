@@ -13,13 +13,11 @@ def _state(**overrides):
         "workflow_lifecycle_id": "11111111-2222-3333-4444-555555555555",
         "tenant_id": "00000000-0000-4000-8000-0000000000e1",
         "tenant_settings": {"mikey_account_id": "acc-1"},
-        "workflow_lifecycle_metadata": {
-            "email_draft": {
-                "to": "wh@example.com",
-                "cc": ["cc@example.com"],
-                "subject": "DEL APPT REQ",
-                "full_html": "<p>Hello</p>",
-            }
+        "email_draft": {
+            "to": "wh@example.com",
+            "cc": ["cc@example.com"],
+            "subject": "DEL APPT REQ",
+            "full_html": "<p>Hello</p>",
         },
     }
     data.update(overrides)
@@ -54,7 +52,7 @@ def test_send_from_state_records_communication_and_transitions_sub_status(
 
 
 def test_send_from_state_missing_draft() -> None:
-    state = _state(workflow_lifecycle_metadata={"email_draft": {"to": "a@b.com"}})
+    state = _state(email_draft={"to": "a@b.com"})
     result = AppointmentSchedulingEmailService().send_from_state(state)
     assert result.sent is False
     assert result.error == "missing_email_draft"

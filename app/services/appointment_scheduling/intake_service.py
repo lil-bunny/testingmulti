@@ -36,10 +36,8 @@ from app.tools.appointment_scheduling.draft_email import (
 from app.services.appointment_scheduling.ascend_settings import (
     load_appointment_scheduling_settings,
 )
-from app.tools.appointment_scheduling.ingress import (
-    customer_id_from_turvo_shipment,
-    reference_number_from_turvo_shipment,
-)
+from app.services.shipment_location_link_service import ShipmentLocationLinkService
+from app.tools.appointment_scheduling.ingress import reference_number_from_turvo_shipment
 
 
 @dataclass(frozen=True)
@@ -52,13 +50,19 @@ class IntakeResult:
     pickup_dropoff_data: PickupDropoffData | None = None
     draft_static: DraftStatic | None = None
     customer_name: str | None = None
-    customer_id: str | None = None
     reference_number: str | None = None
     office_code: str | None = None
     ascend_appointments: list[dict[str, Any]] | None = None
 
 
 class AppointmentSchedulingIntakeService:
+    def __init__(
+        self,
+        *,
+        location_link_service: ShipmentLocationLinkService | None = None,
+    ) -> None:
+        self._location_link = location_link_service or ShipmentLocationLinkService()
+
     @staticmethod
     def _turvo_shipment_from_payload(
         payload: dict[str, Any],
@@ -168,7 +172,6 @@ class AppointmentSchedulingIntakeService:
             or delivery_stop_name_from_payload(turvo_shipment)
             or ""
         )
-        customer_id = customer_id_from_turvo_shipment(turvo_shipment) or ""
 
         contact, contact_failure = self._contact_from_payload(
             payload,
@@ -244,6 +247,13 @@ class AppointmentSchedulingIntakeService:
             footer_email=footer_email or "mikey@t3ralogistics.com",
         )
 
+        shipments_row_id = str(payload.get("shipments_row_id") or "").strip()
+        if shipments_row_id:
+            self._location_link.try_link_from_turvo_shipment_payload(
+                turvo_shipment,
+                shipments_row_id=shipments_row_id,
+            )
+
         return IntakeResult(
             ok=True,
             shipment=turvo_shipment,
@@ -252,8 +262,33 @@ class AppointmentSchedulingIntakeService:
             pickup_dropoff_data=pickup_dropoff,
             draft_static=draft_static,
             customer_name=sheet_customer,
-            customer_id=customer_id,
             reference_number=reference_number,
             office_code=office_code,
             ascend_appointments=appointments,
         )
+
+    @staticmethod
+    def build_intake_state_patch(result: IntakeResult) -> dict[str, Any]:
+        if not result.ok:
+            return {}
+        patch: dict[str, Any] = {}
+        if result.shipment is not None:
+            patch["shipment"] = result.shipment
+        if result.ascend_shipment is not None:
+            patch["ascend_shipment"] = result.ascend_shipment
+        if result.customer_contact is not None:
+            patch["customer_contact"] = result.customer_contact.model_dump(mode="json")
+        if result.pickup_dropoff_data is not None:
+            patch["pickup_dropoff_data"] = result.pickup_dropoff_data.model_dump(mode="json")
+        if result.draft_static is not None:
+            patch["draft_static"] = result.draft_static.model_dump(mode="json")
+        if result.customer_name:
+            patch["customer_name"] = result.customer_name
+        if result.reference_number:
+            patch["reference_number"] = result.reference_number
+        if result.office_code is not None or result.ascend_appointments is not None:
+            patch["ascend_context"] = {
+                "office_code": result.office_code,
+                "appointments": result.ascend_appointments,
+            }
+        return patch

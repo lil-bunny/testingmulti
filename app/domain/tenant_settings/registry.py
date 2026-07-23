@@ -72,16 +72,49 @@ def _remove_secret_setting_paths(settings: dict[str, Any]) -> None:
                 node.pop(path[-1], None)
 
 
-def tenant_settings_for_workflow_state(slug: str, raw: Any) -> dict[str, Any]:
+_APPOINTMENT_SCHEDULING_WORKFLOW_SETTING_KEYS: tuple[str, ...] = (
+    "mikey_account_id",
+    "appointment_scheduling",
+)
+
+
+def _project_settings_for_workflow(
+    workflow_name: str | None,
+    settings: dict[str, Any],
+) -> dict[str, Any]:
+    wf = (workflow_name or "").strip()
+    if wf != "appointment_scheduling":
+        return settings
+    projected: dict[str, Any] = {}
+    for key in _APPOINTMENT_SCHEDULING_WORKFLOW_SETTING_KEYS:
+        if key in settings:
+            projected[key] = copy.deepcopy(settings[key])
+    prompts = settings.get("prompts")
+    if isinstance(prompts, dict):
+        appt_prompts = prompts.get("appointment_scheduling")
+        if appt_prompts is not None:
+            projected["prompts"] = {
+                "appointment_scheduling": copy.deepcopy(appt_prompts),
+            }
+    return projected
+
+
+def tenant_settings_for_workflow_state(
+    slug: str,
+    raw: Any,
+    *,
+    workflow_name: str | None = None,
+) -> dict[str, Any]:
     """
     Validated tenant settings safe for Celery payloads and LangGraph checkpoints.
 
-    Strips credentials (TMS secrets, Ascend password) while keeping prompts,
-    feature flags, sheet URLs, mikey, CC, and Teams webhook config.
+    Strips credentials (TMS secrets, Ascend password). For ``appointment_scheduling``,
+    keeps only mikey, appointment_scheduling config, and appointment prompts.
+    Other workflows keep the full normalized settings (minus secrets).
     """
     normalized = normalize_tenant_settings_dict(slug, raw)
     if not isinstance(normalized, dict):
         return {}
     projected = copy.deepcopy(normalized)
     _remove_secret_setting_paths(projected)
-    return projected
+    return _project_settings_for_workflow(workflow_name, projected)
