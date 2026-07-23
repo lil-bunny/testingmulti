@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.core.logger import get_logger
 from app.integrations.turvo.public_api_client import TurvoApiClient
 
+logger = get_logger(__name__)
 
-def shipment_id_from_list_response(list_body: dict[str, Any], load_id: str) -> str | None:
+
+def shipment_id_from_list_response(
+    list_body: dict[str, Any],
+    load_id: str,
+    *,
+    allow_single_row_without_custom_id: bool = True,
+) -> str | None:
     """Parse Turvo ``/shipments/list`` JSON: first matching row's ``id`` (numeric shipment id)."""
     if not isinstance(list_body, dict):
         return None
@@ -22,13 +30,20 @@ def shipment_id_from_list_response(list_body: dict[str, Any], load_id: str) -> s
         if not isinstance(row, dict):
             continue
         custom = row.get("customId")
-        if custom is not None and str(custom).strip() != lid:
+        custom_s = str(custom).strip() if custom is not None else ""
+        if allow_single_row_without_custom_id:
+            if custom is not None and custom_s != lid:
+                continue
+        elif custom_s != lid:
             continue
         sid = row.get("id")
         if sid is not None and str(sid).strip():
             return str(sid)
-    # List was filtered by customId[eq]; tolerate missing customId on row
-    if len(shipments) == 1 and isinstance(shipments[0], dict):
+    if (
+        allow_single_row_without_custom_id
+        and len(shipments) == 1
+        and isinstance(shipments[0], dict)
+    ):
         sid = shipments[0].get("id")
         if sid is not None and str(sid).strip():
             return str(sid)
@@ -41,7 +56,11 @@ async def load_id_to_shipment_id_async(
     *,
     client: Optional[TurvoApiClient] = None,
 ) -> str | None:
-    """Resolve load/custom id to Turvo shipment id (``id`` field from shipments list)."""
+    """Resolve load/custom id to Turvo shipment id (``id`` field from shipments list).
+
+    Tries ``customId[eq]`` first. If that returns no match, falls back to an
+    unfiltered ``/shipments/list`` call and matches ``customId`` client-side.
+    """
     slug = (tenant_slug or "").strip()
     lid = str(load_id).strip() if load_id is not None else ""
     if not slug:
@@ -56,4 +75,26 @@ async def load_id_to_shipment_id_async(
         "/shipments/list",
         params={"customId[eq]": lid},
     )
-    return shipment_id_from_list_response(list_body, lid)
+    sid = shipment_id_from_list_response(list_body, lid)
+    if sid:
+        return sid
+
+    logger.warning(
+        "Turvo customId[eq] miss; falling back to unfiltered list tenant_slug=%s load_id=%s",
+        slug,
+        lid,
+    )
+    fallback_body = await api.request(slug, "GET", "/shipments/list")
+    sid = shipment_id_from_list_response(
+        fallback_body,
+        lid,
+        allow_single_row_without_custom_id=False,
+    )
+    if sid:
+        logger.info(
+            "Turvo customId fallback matched tenant_slug=%s load_id=%s shipment_id=%s",
+            slug,
+            lid,
+            sid,
+        )
+    return sid

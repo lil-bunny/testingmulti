@@ -12,7 +12,10 @@ from fastapi.testclient import TestClient
 
 from app.domain.tenant_settings.tms import TmsSettings
 from app.integrations.turvo import documents as documents_module
-from app.integrations.turvo.load_to_shipment import shipment_id_from_list_response
+from app.integrations.turvo.load_to_shipment import (
+    load_id_to_shipment_id_async,
+    shipment_id_from_list_response,
+)
 from app.integrations.turvo.public_api_client import TurvoApiClient
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
 from app.main import app
@@ -140,6 +143,57 @@ def test_turvo_load_id_to_shipment_id_success():
         },
     }
     assert shipment_id_from_list_response(body, "30381") == "1000315335"
+
+
+@pytest.mark.asyncio
+async def test_load_id_to_shipment_id_async_uses_custom_id_eq_first():
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def request(self, tenant_slug: str, method: str, path: str, **kwargs: Any):
+            self.calls.append({"tenant_slug": tenant_slug, "method": method, "path": path, **kwargs})
+            return {
+                "details": {
+                    "shipments": [{"id": 1000315335, "customId": "30381"}],
+                },
+            }
+
+    fake = _FakeApi()
+    sid = await load_id_to_shipment_id_async("t3ra", "30381", client=fake)
+
+    assert sid == "1000315335"
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["params"] == {"customId[eq]": "30381"}
+
+
+@pytest.mark.asyncio
+async def test_load_id_to_shipment_id_async_falls_back_to_unfiltered_list():
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def request(self, tenant_slug: str, method: str, path: str, **kwargs: Any):
+            self.calls.append({"tenant_slug": tenant_slug, "method": method, "path": path, **kwargs})
+            params = kwargs.get("params") or {}
+            if "customId[eq]" in params:
+                return {"details": {"shipments": []}}
+            return {
+                "details": {
+                    "shipments": [
+                        {"id": 1, "customId": "other"},
+                        {"id": 1000315335, "customId": "30381"},
+                    ],
+                },
+            }
+
+    fake = _FakeApi()
+    sid = await load_id_to_shipment_id_async("t3ra", "30381", client=fake)
+
+    assert sid == "1000315335"
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["params"] == {"customId[eq]": "30381"}
+    assert "params" not in fake.calls[1]
 
 
 @pytest.mark.asyncio
