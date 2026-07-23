@@ -99,7 +99,6 @@ def run_scheduling_intake(state):
     state.data["reference_number"] = result.reference_number
     state.data["ascend_context"] = {
         "office_code": result.office_code,
-        "access_token": result.ascend_access_token,
         "appointments": result.ascend_appointments,
     }
     shipments_row_id = str(state.data.get("shipments_row_id") or "").strip()

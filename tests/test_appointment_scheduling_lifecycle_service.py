@@ -8,8 +8,10 @@ from unittest.mock import MagicMock
 
 from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
+    LLM_SCHEDULING_DECISION,
 )
 from app.services.appointment_scheduling.lifecycle_service import AppointmentSchedulingLifecycleService
+from app.workflows.graph.routers import scheduling_weekend_shifted_router
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _RUN_UUID = "22222222-3333-4444-5555-666666666666"
@@ -91,6 +93,46 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         metadata_patch={"reference_number": "DIAMOND-1"},
     )
     lifecycle.update_lifecycle_status.assert_not_called()
+
+
+def test_persist_draft_ready_patches_llm_scheduling_decision():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    email_draft = {"to": "a@example.com", "cc": [], "subject": "subj", "full_html": "<html/>"}
+    scheduling_payload = {"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"}
+    decision = {
+        "weekend_shifted": True,
+        "selected_pickup_date": "2026-07-01",
+        "selected_pickup_time": "08:00",
+    }
+    state = _state()
+
+    service.persist_draft_ready(
+        state,
+        lifecycle_id="lifecycle-1",
+        email_draft=email_draft,
+        scheduling_payload=scheduling_payload,
+        llm_scheduling_decision=decision,
+    )
+
+    lifecycle.patch_metadata.assert_called_once_with(
+        lifecycle_id="lifecycle-1",
+        metadata_patch={
+            EMAIL_DRAFT: email_draft,
+            LLM_SCHEDULING_DECISION: decision,
+        },
+    )
 
 
 def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
@@ -379,3 +421,70 @@ def test_hydrate_confirm_context_keeps_turvo_id_when_shipments_row_already_in_st
 
     assert state.data["shipment_id"] == "1000324895"
     lifecycle.read_correlation_by_id.assert_not_called()
+
+
+def test_hydrate_confirm_context_restores_llm_scheduling_decision_for_send_path():
+    decision = {
+        "weekend_shifted": True,
+        "selected_pickup_date": "2026-07-01",
+        "selected_pickup_time": "08:00",
+    }
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "tenant_id": _TENANT_UUID,
+        "metadata": {
+            EMAIL_DRAFT: {
+                "to": "a@example.com",
+                "subject": "DEL APPT",
+                "full_html": "<html/>",
+            },
+            LLM_SCHEDULING_DECISION: decision,
+        },
+    }
+    shipments = MagicMock()
+    shipments.get_by_id.return_value = {
+        "shipment_number": "1000324895",
+        "metadata": {"reference_number": "DIAMOND-RPN1"},
+    }
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        shipments_service=shipments,
+    )
+    state = _state(
+        event_type="appointment_draft_send",
+        shipments_row_id=_SHIPMENT_ROW_ID,
+    )
+
+    service.hydrate_confirm_context(state)
+
+    assert state.data["llm_scheduling_decision"] == decision
+    assert scheduling_weekend_shifted_router(state) == "apply"
+
+
+def test_hydrate_confirm_context_weekend_router_skips_without_decision():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "tenant_id": _TENANT_UUID,
+        "metadata": {
+            EMAIL_DRAFT: {
+                "to": "a@example.com",
+                "subject": "DEL APPT",
+                "full_html": "<html/>",
+            },
+        },
+    }
+    shipments = MagicMock()
+    shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        shipments_service=shipments,
+    )
+    state = _state(
+        event_type="appointment_draft_send",
+        shipments_row_id=_SHIPMENT_ROW_ID,
+    )
+
+    service.hydrate_confirm_context(state)
+
+    assert "llm_scheduling_decision" not in state.data
+    assert scheduling_weekend_shifted_router(state) == "skip"
