@@ -13,7 +13,7 @@ from app.domain.appointment_scheduling.state_hygiene import (
 )
 from app.services.appointment_scheduling.ascend_write_service import AscendWriteResult
 from app.services.appointment_scheduling.lifecycle_service import (
-    AppointmentSchedulingLifecycleService,
+    LifecycleService,
 )
 from app.services.appointment_scheduling.turvo_stop_update_service import TurvoWriteResult
 from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT
@@ -87,7 +87,7 @@ def test_slim_weekend_pickup_result_omits_vendor_responses() -> None:
 
 def test_lifecycle_strip_intake_checkpoint_delegates_to_domain() -> None:
     state = SimpleNamespace(data={"shipment": {"x": 1}, "reference_number": "R1"})
-    AppointmentSchedulingLifecycleService().strip_intake_checkpoint(state)
+    LifecycleService().strip_intake_checkpoint(state)
     assert "shipment" not in state.data
     assert state.data["reference_number"] == "R1"
 

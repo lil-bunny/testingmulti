@@ -32,7 +32,7 @@ class IngressPrepareResult:
     customer_name: str | None = None
 
 
-class AppointmentSchedulingIngressPrepareService:
+class IngressPrepareService:
     def __init__(
         self,
         *,
@@ -146,6 +146,6 @@ class AppointmentSchedulingIngressPrepareService:
 
 
 __all__ = (
-    "AppointmentSchedulingIngressPrepareService",
+    "IngressPrepareService",
     "IngressPrepareResult",
 )

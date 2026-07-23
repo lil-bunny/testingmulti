@@ -1,4 +1,4 @@
-"""AppointmentReplyClassificationService unit tests."""
+"""ReplyClassificationService unit tests."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.services.appointment_scheduling.reply_classification_service import (
-    AppointmentReplyClassificationService,
+    ReplyClassificationService,
 )
 from app.tools.appointment_scheduling.customer_reply import (
     ACCEPTED,
@@ -24,14 +24,14 @@ def _tenant_settings() -> dict:
     return {"prompts": {"appointment_scheduling": {"customer_reply": "appt-reply:staging"}}}
 
 
-def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> AppointmentReplyClassificationService:
+def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> ReplyClassificationService:
     comms = MagicMock()
     comms.build_appointment_reply_thread_llm_user_message.return_value = (thread_text, 1)
     comms.find_outbound_draft_communication_id.return_value = None
     prompts = MagicMock()
     activity = MagicMock()
     activity.record_action.return_value = "activity-1"
-    return AppointmentReplyClassificationService(
+    return ReplyClassificationService(
         communications_service=comms,
         prompt_service=prompts,
         activity_log_service=activity,

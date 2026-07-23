@@ -14,7 +14,7 @@ from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 
 
-class AppointmentSchedulingActivityService:
+class ActivityService:
     def __init__(
         self,
         *,
@@ -112,4 +112,4 @@ class AppointmentSchedulingActivityService:
         self._reply.record_reply_rejected(state)
 
 
-__all__ = ("AppointmentSchedulingActivityService",)
+__all__ = ("ActivityService",)

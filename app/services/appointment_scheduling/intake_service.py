@@ -48,9 +48,7 @@ from app.tools.appointment_scheduling.draft_email import (
     build_email_draft,
     build_shipment_details_summary,
 )
-from app.services.appointment_scheduling.ascend_settings import (
-    load_appointment_scheduling_settings,
-)
+from app.domain.appointment_scheduling.settings import load_appointment_scheduling_settings
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.tools.appointment_scheduling.ingress import reference_number_from_turvo_shipment
 
@@ -76,7 +74,7 @@ class IntakeResult:
     ascend_appointments: list[dict[str, Any]] | None = None
 
 
-class AppointmentSchedulingIntakeService:
+class IntakeService:
     def __init__(
         self,
         *,
@@ -110,22 +108,22 @@ class AppointmentSchedulingIntakeService:
         if isinstance(raw_contact, dict) and str(raw_contact.get("email") or "").strip():
             return CustomerContactRow.model_validate(raw_contact), None
 
-        settings = AppointmentSchedulingIntakeService._settings(tenant_settings)
+        settings = IntakeService._settings(tenant_settings)
         sheet_source = str(settings.appointment_data_source or "").strip()
         if not sheet_source:
-            return None, AppointmentSchedulingIntakeService._failure(
+            return None, IntakeService._failure(
                 "missing_appointment_data_source",
                 customer_name=sheet_customer,
             )
         try:
             rows = load_appointment_sheet_rows(sheet_source)
         except (OSError, GoogleSheetsError, ValueError):
-            return None, AppointmentSchedulingIntakeService._failure(
+            return None, IntakeService._failure(
                 "appointment_sheet_unreadable",
                 customer_name=sheet_customer,
             )
         if skip := contact_from_rows_skip_reason(rows, sheet_customer):
-            return None, AppointmentSchedulingIntakeService._failure(
+            return None, IntakeService._failure(
                 skip,
                 customer_name=sheet_customer,
             )
@@ -386,7 +384,7 @@ def resolve_recipient_contact(
     shipment_payload: dict[str, Any],
 ) -> tuple[str | None, CustomerContactRow | None]:
     """Load appointment sheet once; return skip reason or resolved contact."""
-    settings = AppointmentSchedulingIntakeService._settings(tenant_settings)
+    settings = IntakeService._settings(tenant_settings)
     sheet_source = str(settings.appointment_data_source or "").strip()
     if not sheet_source:
         return MISSING_APPOINTMENT_DATA_SOURCE, None

@@ -10,8 +10,8 @@ from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
     LLM_SCHEDULING_DECISION,
 )
-from app.services.appointment_scheduling.lifecycle_service import AppointmentSchedulingLifecycleService
-from app.workflows.graph.routers import scheduling_weekend_shifted_router
+from app.services.appointment_scheduling.lifecycle_service import LifecycleService
+from app.workflows.graph.routers import appointment_weekend_pickup_router
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _RUN_UUID = "22222222-3333-4444-5555-666666666666"
@@ -41,7 +41,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -104,7 +104,7 @@ def test_persist_draft_ready_patches_llm_scheduling_decision():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -144,7 +144,7 @@ def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -184,7 +184,7 @@ def test_persist_draft_ready_merges_po_number_when_resolved():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -230,7 +230,7 @@ def test_persist_draft_ready_skips_merge_when_po_empty():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -259,7 +259,7 @@ def test_persist_draft_ready_non_costco_uses_ascend_pickup_po():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -292,7 +292,7 @@ def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
         shipments_service=shipments,
@@ -334,7 +334,7 @@ def test_mark_restartable_skip_delegates_to_mark_failed() -> None:
 
     lifecycle = MagicMock()
     activity = MagicMock()
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
     )
@@ -364,7 +364,7 @@ def test_mark_failed_delegates_activity_and_patches_metadata():
 
     lifecycle = MagicMock()
     activity = MagicMock()
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         activity_service=activity,
     )
@@ -395,7 +395,7 @@ def test_mark_failed_delegates_activity_and_patches_metadata():
     lifecycle.update_lifecycle_status.assert_not_called()
 
 
-def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
+def test_hydrate_appointment_send_context_maps_portal_shipment_uuid_to_turvo_id():
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
@@ -413,7 +413,7 @@ def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
         "shipment_number": "1000324895",
         "metadata": {"reference_number": "DIAMOND-RPN00008809"},
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
     )
@@ -423,7 +423,7 @@ def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
         shipments_row_id="",
     )
 
-    service.hydrate_confirm_context(state)
+    service.hydrate_appointment_send_context(state)
 
     assert state.data["email_draft"]["subject"] == 'DEL APPT REQ "30381"'
     assert state.data["reference_number"] == "DIAMOND-RPN00008809"
@@ -433,7 +433,7 @@ def test_hydrate_confirm_context_maps_portal_shipment_uuid_to_turvo_id():
     assert shipments.get_by_id.call_count == 2
 
 
-def test_hydrate_confirm_context_keeps_turvo_id_when_shipments_row_already_in_state():
+def test_hydrate_appointment_send_context_keeps_turvo_id_when_shipments_row_already_in_state():
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
@@ -441,19 +441,19 @@ def test_hydrate_confirm_context_keeps_turvo_id_when_shipments_row_already_in_st
     }
     shipments = MagicMock()
     shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
     )
     state = _state(shipment_id=_SHIPMENT_ROW_ID, shipments_row_id=_SHIPMENT_ROW_ID)
 
-    service.hydrate_confirm_context(state)
+    service.hydrate_appointment_send_context(state)
 
     assert state.data["shipment_id"] == "1000324895"
     lifecycle.read_correlation_by_id.assert_not_called()
 
 
-def test_hydrate_confirm_context_restores_llm_scheduling_decision_for_send_path():
+def test_hydrate_appointment_send_context_restores_llm_scheduling_decision_for_send_path():
     decision = {
         "weekend_shifted": True,
         "selected_pickup_date": "2026-07-01",
@@ -476,7 +476,7 @@ def test_hydrate_confirm_context_restores_llm_scheduling_decision_for_send_path(
         "shipment_number": "1000324895",
         "metadata": {"reference_number": "DIAMOND-RPN1"},
     }
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
     )
@@ -485,13 +485,13 @@ def test_hydrate_confirm_context_restores_llm_scheduling_decision_for_send_path(
         shipments_row_id=_SHIPMENT_ROW_ID,
     )
 
-    service.hydrate_confirm_context(state)
+    service.hydrate_appointment_send_context(state)
 
     assert state.data["llm_scheduling_decision"] == decision
-    assert scheduling_weekend_shifted_router(state) == "apply"
+    assert appointment_weekend_pickup_router(state) == "apply"
 
 
-def test_hydrate_confirm_context_weekend_router_skips_without_decision():
+def test_hydrate_appointment_send_context_weekend_router_skips_without_decision():
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
@@ -505,7 +505,7 @@ def test_hydrate_confirm_context_weekend_router_skips_without_decision():
     }
     shipments = MagicMock()
     shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
     )
@@ -514,10 +514,10 @@ def test_hydrate_confirm_context_weekend_router_skips_without_decision():
         shipments_row_id=_SHIPMENT_ROW_ID,
     )
 
-    service.hydrate_confirm_context(state)
+    service.hydrate_appointment_send_context(state)
 
     assert "llm_scheduling_decision" not in state.data
-    assert scheduling_weekend_shifted_router(state) == "skip"
+    assert appointment_weekend_pickup_router(state) == "skip"
 
 
 def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
@@ -534,7 +534,7 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
             LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
         },
     }
-    service = AppointmentSchedulingLifecycleService(lifecycle_service=lifecycle)
+    service = LifecycleService(lifecycle_service=lifecycle)
     state = _state(event_type="appointment_draft_send")
 
     service.hydrate_read_context(state)
@@ -547,7 +547,7 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
     assert "llm_scheduling_decision" not in state.data
 
 
-def test_hydrate_confirm_context_does_not_set_workflow_lifecycle_metadata():
+def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metadata():
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
@@ -558,13 +558,13 @@ def test_hydrate_confirm_context_does_not_set_workflow_lifecycle_metadata():
     }
     shipments = MagicMock()
     shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
-    service = AppointmentSchedulingLifecycleService(
+    service = LifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
     )
     state = _state(shipments_row_id=_SHIPMENT_ROW_ID)
 
-    service.hydrate_confirm_context(state)
+    service.hydrate_appointment_send_context(state)
 
     assert "workflow_lifecycle_metadata" not in state.data
     assert state.data["llm_scheduling_decision"] == {"weekend_shifted": False}

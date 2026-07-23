@@ -16,9 +16,7 @@ from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots, u
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
-from app.services.appointment_scheduling.ascend_settings import (
-    load_appointment_scheduling_settings,
-)
+from app.domain.appointment_scheduling.settings import load_appointment_scheduling_settings
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     get_shipment,
@@ -29,7 +27,7 @@ from app.domain.appointment_scheduling.state_hygiene import slim_weekend_pickup_
 from app.tools.appointment_scheduling.ascend_pickup_update import plan_ascend_pickup_update
 from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 from app.services.shipments_service import ShipmentsService
 
@@ -66,23 +64,23 @@ class WeekendPickupResult:
         )
 
 
-class AppointmentSchedulingWeekendPickupService:
+class WeekendPickupService:
     def __init__(
         self,
         *,
-        activity_service: AppointmentSchedulingActivityService | None = None,
+        activity_service: ActivityService | None = None,
     ) -> None:
-        self._activity = activity_service or AppointmentSchedulingActivityService()
+        self._activity = activity_service or ActivityService()
 
-    def apply_from_state(self, state) -> WeekendPickupResult:
-        result = self._apply_from_state(state)
+    def apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
+        result = self._apply_weekend_shifted_pickup_from_state(state)
         self._activity.record_weekend_pickup_update(
             state,
             result=result.to_checkpoint_dict(),
         )
         return result
 
-    def _apply_from_state(self, state) -> WeekendPickupResult:
+    def _apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
         data = state.data or {}
         decision = data.get("llm_scheduling_decision") or {}
         if not isinstance(decision, dict):
@@ -266,4 +264,4 @@ class AppointmentSchedulingWeekendPickupService:
             return {"ok": False, "error": str(exc)}
 
 
-__all__ = ("AppointmentSchedulingWeekendPickupService", "WeekendPickupResult")
+__all__ = ("WeekendPickupService", "WeekendPickupResult")

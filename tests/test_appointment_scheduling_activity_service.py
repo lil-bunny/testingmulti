@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingActivityService."""
+"""Tests for ActivityService."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
@@ -38,7 +38,7 @@ def _state(**data_overrides):
 
 
 def _svc(*, transitions=None, lifecycle=None, activity_log=None):
-    return AppointmentSchedulingActivityService(
+    return ActivityService(
         transition_service=transitions,
         lifecycle_service=lifecycle,
         activity_log_service=activity_log,

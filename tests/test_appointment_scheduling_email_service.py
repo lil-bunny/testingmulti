@@ -1,11 +1,11 @@
-"""Tests for AppointmentSchedulingEmailService."""
+"""Tests for EmailService."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.services.appointment_scheduling.email_service import AppointmentSchedulingEmailService
+from app.services.appointment_scheduling.email_service import EmailService
 
 
 def _state(**overrides):
@@ -35,7 +35,7 @@ def test_send_from_state_records_communication_and_transitions_sub_status(
     communications = MagicMock()
     communications.record_outbound_from_send.return_value = "comm-1"
     activity = MagicMock()
-    svc = AppointmentSchedulingEmailService(
+    svc = EmailService(
         communications_service=communications,
         activity_service=activity,
     )
@@ -53,6 +53,6 @@ def test_send_from_state_records_communication_and_transitions_sub_status(
 
 def test_send_from_state_missing_draft() -> None:
     state = _state(email_draft={"to": "a@b.com"})
-    result = AppointmentSchedulingEmailService().send_draft_from_state(state)
+    result = EmailService().send_draft_from_state(state)
     assert result.sent is False
     assert result.error == "missing_email_draft"

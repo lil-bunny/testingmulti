@@ -35,7 +35,7 @@ from app.integrations.turvo.shipments import (
 )
 from app.integrations.turvo.webhook_mapping import TENDERED_STATUS_CODE_KEY
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 from app.services.shipments_service import ShipmentsService
 from app.tools.appointment_scheduling.dates import prepare_delivery_placeholder
@@ -106,13 +106,13 @@ async def _fetch_shipment_payload(
         )
 
 
-class AppointmentSchedulingTurvoStopUpdateService:
+class TurvoStopUpdateService:
     def __init__(
         self,
         *,
-        activity_service: AppointmentSchedulingActivityService | None = None,
+        activity_service: ActivityService | None = None,
     ) -> None:
-        self._activity = activity_service or AppointmentSchedulingActivityService()
+        self._activity = activity_service or ActivityService()
 
     def apply_delivery_placeholder_from_state(self, state) -> TurvoConfirmResult:
         result = run_sync(self._apply_delivery_placeholder_from_state_async(state))
@@ -359,13 +359,13 @@ class AppointmentSchedulingTurvoStopUpdateService:
                 )
         return result
 
-    def tender_from_state(self, state) -> TurvoWriteResult:
-        result = run_sync(self._tender_from_state_async(state))
+    def apply_turvo_tender_from_state(self, state) -> TurvoWriteResult:
+        result = run_sync(self._apply_turvo_tender_from_state_async(state))
         if result.ok and (result.updated or result.skipped):
             self._activity.record_turvo_tendered(state)
         return result
 
-    async def _tender_from_state_async(self, state) -> TurvoWriteResult:
+    async def _apply_turvo_tender_from_state_async(self, state) -> TurvoWriteResult:
         data = state.data or {}
         return await self.apply_tender(
             tenant_slug=str(data.get("tenant_slug") or "").strip(),
@@ -462,7 +462,7 @@ class AppointmentSchedulingTurvoStopUpdateService:
 
 
 __all__ = (
-    "AppointmentSchedulingTurvoStopUpdateService",
+    "TurvoStopUpdateService",
     "TurvoConfirmResult",
     "TurvoWriteResult",
 )

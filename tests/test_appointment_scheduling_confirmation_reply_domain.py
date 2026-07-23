@@ -15,7 +15,7 @@ from app.domain.appointment_scheduling.confirmation_reply import (
     resolve_confirmation_reply_body,
 )
 from app.services.appointment_scheduling.email_service import (
-    AppointmentSchedulingEmailService,
+    EmailService,
 )
 
 _STATE_DATA: dict[str, Any] = {
@@ -132,10 +132,10 @@ class _FakeState:
     data: dict[str, Any]
 
 
-def test_confirmation_email_service_uses_default_body() -> None:
+def test_email_service_confirmation_reply_uses_default_body() -> None:
     comms = MagicMock()
     comms.send_thread_reply.return_value = {"communication_id": "comm-1"}
-    svc = AppointmentSchedulingEmailService(communications_service=comms)
+    svc = EmailService(communications_service=comms)
     state = _FakeState(
         tenant_id="tenant-1",
         execution_id="run-1",
@@ -151,10 +151,10 @@ def test_confirmation_email_service_uses_default_body() -> None:
     assert comms.send_thread_reply.call_args.kwargs["body"] == DEFAULT_CONFIRMATION_REPLY_BODY
 
 
-def test_confirmation_email_service_uses_tenant_html() -> None:
+def test_email_service_confirmation_reply_uses_tenant_html() -> None:
     comms = MagicMock()
     comms.send_thread_reply.return_value = {"communication_id": "comm-2"}
-    svc = AppointmentSchedulingEmailService(communications_service=comms)
+    svc = EmailService(communications_service=comms)
     state = _FakeState(
         tenant_id="tenant-1",
         execution_id="run-1",

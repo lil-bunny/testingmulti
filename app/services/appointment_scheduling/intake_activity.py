@@ -33,7 +33,7 @@ class IntakeActivity:
         scope = scope_ids(state)
         if scope is None:
             logger.warning(
-                "record_appointment_scheduling_started skipped missing ids "
+                "record_appointment_started skipped missing ids "
                 "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
                 bool(getattr(state, "data", {}).get("workflow_lifecycle_id")),
                 bool(getattr(state, "tenant_id", None) or getattr(state, "data", {}).get("tenant_id")),
@@ -45,7 +45,7 @@ class IntakeActivity:
         row = self._deps.lifecycle.read_lifecycle_row_by_id(wl_id)
         if lifecycle_already_started(row):
             logger.info(
-                "record_appointment_scheduling_started skipping already started lifecycle_id=%s",
+                "record_appointment_started skipping already started lifecycle_id=%s",
                 wl_id,
             )
             return
@@ -145,7 +145,7 @@ class IntakeActivity:
         run_id = str(workflow_run_id or "").strip() or None
         if not wl_id or not tenant or not run_id:
             logger.warning(
-                "record_appointment_scheduling_failed skipped missing ids "
+                "record_appointment_failed skipped missing ids "
                 "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
                 bool(wl_id),
                 bool(tenant),

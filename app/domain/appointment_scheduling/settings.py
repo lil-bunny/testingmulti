@@ -6,6 +6,8 @@ import os
 from typing import Any
 
 from app.core.config import settings
+from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
+from app.services.tenants_service import TenantsService
 
 
 def skip_ascend_writes_enabled(tenant_settings: dict[str, Any] | None) -> bool:
@@ -27,3 +29,20 @@ def skip_ascend_writes_enabled(tenant_settings: dict[str, Any] | None) -> bool:
     # ponytail: default safe until team enables Ascend in prod
     _ = settings
     return True
+
+
+def load_appointment_scheduling_settings(
+    tenant_slug: str,
+    *,
+    tenants_service: TenantsService | None = None,
+) -> T3raAppointmentSchedulingSettings:
+    slug = str(tenant_slug or "").strip()
+    row = (tenants_service or TenantsService()).get_by_slug(slug) or {}
+    settings_row = row.get("settings") if isinstance(row.get("settings"), dict) else {}
+    block = settings_row.get("appointment_scheduling")
+    if not isinstance(block, dict):
+        block = {}
+    return T3raAppointmentSchedulingSettings.model_validate(block)
+
+
+__all__ = ("load_appointment_scheduling_settings", "skip_ascend_writes_enabled")

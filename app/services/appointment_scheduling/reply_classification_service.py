@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 
 
 @dataclass
-class AppointmentReplyClassificationResult:
+class ReplyClassificationResult:
     decision: str = DO_NOTHING
     reason: str = ""
     confidence: float = 0.0
@@ -64,7 +64,7 @@ class AppointmentReplyClassificationResult:
         return patch
 
 
-class AppointmentReplyClassificationService:
+class ReplyClassificationService:
     def __init__(
         self,
         *,
@@ -76,7 +76,7 @@ class AppointmentReplyClassificationService:
         self._prompts = prompt_service or PromptService()
         self._activity = activity_log_service or ActivityLogService()
 
-    def classify_from_state(self, state) -> AppointmentReplyClassificationResult:
+    def classify_from_state(self, state) -> ReplyClassificationResult:
         tenant_id = (getattr(state, "tenant_id", None) or state.data.get("tenant_id") or "").strip()
         thread_id = str(state.data.get("thread_id") or "").strip()
         tenant_settings = state.data.get("tenant_settings") or {}
@@ -102,7 +102,7 @@ class AppointmentReplyClassificationService:
         workflow_lifecycle_id: str,
         workflow_run_id: str,
         communication_id: str | None = None,
-    ) -> AppointmentReplyClassificationResult:
+    ) -> ReplyClassificationResult:
         reply_text = ""
         thread_message_count = 0
         if tenant_id and thread_id:
@@ -122,7 +122,7 @@ class AppointmentReplyClassificationService:
             )
 
         if not (reply_text or "").strip():
-            return AppointmentReplyClassificationResult(
+            return ReplyClassificationResult(
                 decision=DO_NOTHING,
                 reason="empty reply body",
                 confidence=1.0,
@@ -177,7 +177,7 @@ class AppointmentReplyClassificationService:
             )
 
         parsed = build_customer_reply_result(raw if isinstance(raw, dict) else {})
-        result = AppointmentReplyClassificationResult(
+        result = ReplyClassificationResult(
             decision=parsed["decision"],
             reason=parsed["reason"],
             confidence=parsed["confidence"],
@@ -221,8 +221,8 @@ class AppointmentReplyClassificationService:
         reply_text: str,
         thread_message_count: int,
         reason: str,
-    ) -> AppointmentReplyClassificationResult:
-        return AppointmentReplyClassificationResult(
+    ) -> ReplyClassificationResult:
+        return ReplyClassificationResult(
             decision=DO_NOTHING,
             reason=reason,
             confidence=0.0,
@@ -237,8 +237,8 @@ class AppointmentReplyClassificationService:
 
 
 __all__ = (
-    "AppointmentReplyClassificationResult",
-    "AppointmentReplyClassificationService",
+    "ReplyClassificationResult",
+    "ReplyClassificationService",
     "ACCEPTED",
     "REJECTED",
     "DO_NOTHING",

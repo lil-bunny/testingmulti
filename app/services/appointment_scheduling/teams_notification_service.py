@@ -16,29 +16,29 @@ from app.domain.state import WorkflowState
 from app.integrations.teams.webhook import TeamsWebhookError, post_message_card_sync
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 
 logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class AppointmentSchedulingTeamsNotificationResult:
+class TeamsNotificationResult:
     sent: bool = False
     skipped: bool = False
     skip_reason: str | None = None
     error: str | None = None
 
 
-class AppointmentSchedulingTeamsNotificationService:
+class TeamsNotificationService:
     def __init__(
         self,
         *,
-        activity_service: AppointmentSchedulingActivityService | None = None,
+        activity_service: ActivityService | None = None,
     ) -> None:
-        self._activity = activity_service or AppointmentSchedulingActivityService()
+        self._activity = activity_service or ActivityService()
 
-    def notify_from_state(self, state: WorkflowState) -> AppointmentSchedulingTeamsNotificationResult:
+    def notify_from_state(self, state: WorkflowState) -> TeamsNotificationResult:
         data = state.data
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):
@@ -46,21 +46,21 @@ class AppointmentSchedulingTeamsNotificationService:
 
         settings = parse_appointment_scheduling_teams_notification_settings(tenant_settings)
         if settings is None:
-            return AppointmentSchedulingTeamsNotificationResult(
+            return TeamsNotificationResult(
                 skipped=True,
                 skip_reason="no_teams_notification_settings",
             )
 
         event_type = str(data.get("event_type") or "").strip()
         if event_type != WorkflowRunEventType.TURVO_PICKUP_CHANGED.value:
-            return AppointmentSchedulingTeamsNotificationResult(
+            return TeamsNotificationResult(
                 skipped=True,
                 skip_reason="not_intake_event",
             )
 
         fields = display_fields_from_data(data)
         if fields is None:
-            return AppointmentSchedulingTeamsNotificationResult(
+            return TeamsNotificationResult(
                 skipped=True,
                 skip_reason="draft_not_ready",
             )
@@ -83,7 +83,7 @@ class AppointmentSchedulingTeamsNotificationService:
                 wl_id,
                 exc.status_code,
             )
-            return AppointmentSchedulingTeamsNotificationResult(error="teams_post_failed")
+            return TeamsNotificationResult(error="teams_post_failed")
 
         self._activity.record_draft_teams_notification(state)
         logger.info(
@@ -91,10 +91,10 @@ class AppointmentSchedulingTeamsNotificationService:
             wl_id,
             fields.load_id,
         )
-        return AppointmentSchedulingTeamsNotificationResult(sent=True)
+        return TeamsNotificationResult(sent=True)
 
 
 __all__ = (
-    "AppointmentSchedulingTeamsNotificationResult",
-    "AppointmentSchedulingTeamsNotificationService",
+    "TeamsNotificationResult",
+    "TeamsNotificationService",
 )

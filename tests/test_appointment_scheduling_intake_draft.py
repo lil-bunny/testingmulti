@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.domain.appointment_scheduling.models import DraftStatic, LlmSchedulingDecision, PickupDropoffData
-from app.services.appointment_scheduling.intake_service import AppointmentSchedulingIntakeService
+from app.services.appointment_scheduling.intake_service import IntakeService
 
 
 def test_build_email_draft_from_state_success():
@@ -38,7 +38,7 @@ def test_build_email_draft_from_state_success():
             "customer_name": "Acme",
         }
     )
-    result = AppointmentSchedulingIntakeService().build_email_draft_from_state(state)
+    result = IntakeService().build_email_draft_from_state(state)
     assert result.email_draft["to"] == "customer@example.com"
     assert result.email_draft["subject"] == 'DEL APPT REQ "63294"'
     assert result.email_draft["full_html"]

@@ -11,16 +11,14 @@ from app.domain.appointment_scheduling.scheduling_reference import ascend_office
 from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
 from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
 from app.domain.error_catalog import SystemError
-from app.services.appointment_scheduling.ascend_settings import (
-    load_appointment_scheduling_settings,
-)
+from app.domain.appointment_scheduling.settings import load_appointment_scheduling_settings
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
 from app.integrations.ascend.shipments import fetched_shipment_details, update_shipment_stops
 from app.domain.appointment_scheduling.state_hygiene import slim_ascend_write_result
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 from app.tools.appointment_scheduling.customer_reply import (
     build_ascend_dropoff_update_payload,
@@ -52,13 +50,13 @@ class AscendWriteResult:
         )
 
 
-class AppointmentSchedulingAscendWriteService:
+class AscendWriteService:
     def __init__(
         self,
         *,
-        activity_service: AppointmentSchedulingActivityService | None = None,
+        activity_service: ActivityService | None = None,
     ) -> None:
-        self._activity = activity_service or AppointmentSchedulingActivityService()
+        self._activity = activity_service or ActivityService()
 
     @staticmethod
     def _catalog_failure(skip_reason: str, **context: str) -> SchedulingFailure:
@@ -209,4 +207,4 @@ class AppointmentSchedulingAscendWriteService:
             return {}
 
 
-__all__ = ("AppointmentSchedulingAscendWriteService", "AscendWriteResult")
+__all__ = ("AscendWriteService", "AscendWriteResult")

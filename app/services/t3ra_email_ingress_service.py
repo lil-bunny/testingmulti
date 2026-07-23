@@ -110,10 +110,10 @@ class T3raEmailIngressService:
                 return pod_lifecycle_result
 
         from app.services.appointment_scheduling.customer_reply_ingress import (
-            AppointmentCustomerReplyIngressService,
+            CustomerReplyIngressService,
         )
 
-        appointment_reply_result = AppointmentCustomerReplyIngressService().try_customer_reply_received(
+        appointment_reply_result = CustomerReplyIngressService().try_customer_reply_received(
             payload=payload,
             tenant=tenant,
             communication_id=communication_id,
