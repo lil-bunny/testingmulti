@@ -366,6 +366,7 @@ WORKFLOW_CONFIGS = {
         "exit": "end",
         "nodes": [
             "route_event",
+            "prepare_scheduling_ingress",
             "read_appointment_scheduling_lifecycle",
             "record_appointment_scheduling_started",
             "run_scheduling_intake",
@@ -410,10 +411,17 @@ WORKFLOW_CONFIGS = {
             "route_event": {
                 "router": "event_type",
                 "map": {
-                    "turvo_pickup_changed": "read_appointment_scheduling_lifecycle",
+                    "turvo_pickup_changed": "prepare_scheduling_ingress",
                     "appointment_draft_send": "read_appointment_scheduling_lifecycle",
                     "appointment_customer_reply_received": "read_appointment_scheduling_lifecycle",
                     "missing": "end",
+                },
+            },
+            "prepare_scheduling_ingress": {
+                "router": "scheduling_prepare_router",
+                "map": {
+                    "continue": "read_appointment_scheduling_lifecycle",
+                    "end": "end",
                 },
             },
             "read_appointment_scheduling_lifecycle": {

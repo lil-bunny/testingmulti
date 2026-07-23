@@ -10,6 +10,9 @@ from app.services.appointment_scheduling.decision_service import (
 )
 from app.services.appointment_scheduling.draft_service import AppointmentSchedulingDraftService
 from app.services.appointment_scheduling.intake_service import AppointmentSchedulingIntakeService
+from app.services.appointment_scheduling.ingress_prepare_service import (
+    AppointmentSchedulingIngressPrepareService,
+)
 from app.services.appointment_scheduling.lifecycle_service import (
     AppointmentSchedulingLifecycleService,
 )
@@ -44,6 +47,35 @@ from app.services.shipment_location_link_service import ShipmentLocationLinkServ
 from app.workflows.utils.decorators import safe_node
 
 logger = get_logger(__name__)
+
+
+def prepare_scheduling_ingress(state):
+    tenant_slug = str(state.data.get("tenant_slug") or state.tenant_slug or "").strip()
+    tenant_id = str(state.data.get("tenant_id") or state.tenant_id or "").strip()
+    tenant_settings = state.data.get("tenant_settings") or {}
+    result = AppointmentSchedulingIngressPrepareService().prepare_pickup_changed(
+        tenant_slug=tenant_slug,
+        tenant_id=tenant_id,
+        tenant_settings=tenant_settings,
+        payload=state.data,
+    )
+    if not result.ok:
+        state.data["scheduling_prepare_skip_reason"] = result.skip_reason
+        logger.info(
+            "prepare_scheduling_ingress skip reason=%s shipment_id=%s",
+            result.skip_reason,
+            state.data.get("shipment_id"),
+        )
+        return state
+
+    state.data["workflow_lifecycle_id"] = result.workflow_lifecycle_id
+    state.data["shipments_row_id"] = result.shipments_row_id
+    state.data["reference_number"] = result.reference_number
+    state.data["shipment"] = result.shipment
+    state.data["customer_name"] = result.customer_name
+    if result.customer_contact is not None:
+        state.data["customer_contact"] = result.customer_contact.model_dump(mode="json")
+    return state
 
 
 def read_appointment_scheduling_lifecycle(state):
@@ -220,11 +252,7 @@ def apply_weekend_shifted_pickup(state):
 
 @safe_node
 def apply_turvo_delivery_placeholder(state):
-    import asyncio
-
-    result = asyncio.run(
-        AppointmentSchedulingTurvoConfirmService().apply_delivery_placeholder_from_state(state)
-    )
+    result = AppointmentSchedulingTurvoConfirmService().apply_delivery_placeholder_from_state(state)
     state.data["turvo_confirm_result"] = {
         "ok": result.ok,
         "updated": result.updated,
@@ -295,11 +323,7 @@ def apply_ascend_dropoff_appointment(state):
 
 @safe_node
 def apply_turvo_delivery_appointment(state):
-    import asyncio
-
-    result = asyncio.run(
-        AppointmentSchedulingTurvoWriteService().apply_delivery_from_state(state)
-    )
+    result = AppointmentSchedulingTurvoWriteService().apply_delivery_from_state(state)
     state.data["turvo_update_result"] = {
         "ok": result.ok,
         "updated": result.updated,
@@ -332,11 +356,8 @@ def send_appointment_confirmation_reply(state):
 def apply_turvo_tender_status(state):
     if not state.data.get("confirmation_sent"):
         return state
-    import asyncio
 
-    result = asyncio.run(
-        AppointmentSchedulingTurvoWriteService().tender_from_state(state)
-    )
+    result = AppointmentSchedulingTurvoWriteService().tender_from_state(state)
     state.data["turvo_tender_result"] = {
         "ok": result.ok,
         "updated": result.updated,

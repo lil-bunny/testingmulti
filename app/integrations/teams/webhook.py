@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)

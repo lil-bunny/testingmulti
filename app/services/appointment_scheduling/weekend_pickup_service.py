@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+from app.core.asyncio_util import run_sync
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,7 +16,9 @@ from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots, u
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
-from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
+from app.services.appointment_scheduling.ascend_settings import (
+    load_appointment_scheduling_settings,
+)
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     get_shipment,
@@ -84,9 +86,7 @@ class AppointmentSchedulingWeekendPickupService:
                 turvo_pickup_start_time=plan.turvo_pickup_start_time,
             )
 
-        settings = T3raAppointmentSchedulingSettings.model_validate(
-            tenant_settings.get("appointment_scheduling") or {}
-        )
+        settings = load_appointment_scheduling_settings(tenant_slug)
         if not settings.ascend_email or not settings.ascend_password:
             failure = scheduling_failure_from_skip("ascend_not_configured")
             if failure is None:
@@ -173,14 +173,12 @@ class AppointmentSchedulingWeekendPickupService:
         load_id = str(data.get("load_id") or "").strip()
         customer_name_override = str(data.get("customer_name") or "").strip() or None
         if tenant_id and load_id:
-            refresh = asyncio.run(
-                ShipmentsService().refresh_display_from_turvo(
-                    tenant_id=tenant_id,
-                    tenant_slug=tenant_slug,
-                    turvo_shipment_id=shipment_id,
-                    load_id=load_id,
-                    customer_name_override=customer_name_override,
-                )
+            refresh = ShipmentsService().refresh_display_from_turvo_sync(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                turvo_shipment_id=shipment_id,
+                load_id=load_id,
+                customer_name_override=customer_name_override,
             )
             if not refresh.get("success"):
                 logger.warning(
@@ -216,11 +214,11 @@ class AppointmentSchedulingWeekendPickupService:
         payload = shipment_payload
         try:
             if payload is None:
-                payload = asyncio.run(get_shipment(slug, sid))
+                payload = run_sync(get_shipment(slug, sid))
             stop_name = str(pickup_stop_name_from_payload(payload or {}) or "").strip()
             if not stop_name:
                 return {"ok": False, "error": "missing_pickup_stop_name"}
-            return asyncio.run(
+            return run_sync(
                 update_stop_appointment_time(
                     slug,
                     sid,

@@ -290,8 +290,6 @@ class AppointmentCustomerReplyIngressService:
             )
             return None
 
-        workflow_payload["tenant_settings"] = tenant_settings
-
         execution_id = self.enqueue_reply_event_and_link(
             tenant_uuid=tenant.tenant_uuid,
             tenant_slug=tenant.tenant_slug,

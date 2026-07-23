@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.models import CustomerContactRow, DraftStatic, PickupDropoffData
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
@@ -32,6 +32,9 @@ from app.tools.appointment_scheduling.draft_email import (
     build_draft_static_from_turvo,
     build_shipment_details_summary,
 )
+from app.services.appointment_scheduling.ascend_settings import (
+    load_appointment_scheduling_settings,
+)
 from app.tools.appointment_scheduling.ingress import (
     customer_id_from_turvo_shipment,
     reference_number_from_turvo_shipment,
@@ -55,6 +58,53 @@ class IntakeResult:
 
 
 class AppointmentSchedulingIntakeService:
+    @staticmethod
+    def _turvo_shipment_from_payload(
+        payload: dict[str, Any],
+        *,
+        tenant_slug: str,
+        shipment_id: str,
+    ) -> dict[str, Any]:
+        cached = payload.get("shipment")
+        if isinstance(cached, dict):
+            return cached
+        return run_sync(get_shipment_async(tenant_slug, shipment_id))
+
+    @staticmethod
+    def _contact_from_payload(
+        payload: dict[str, Any],
+        *,
+        tenant_settings: dict[str, Any],
+        turvo_shipment: dict[str, Any],
+        sheet_customer: str,
+    ) -> tuple[CustomerContactRow | None, IntakeResult | None]:
+        raw_contact = payload.get("customer_contact")
+        if isinstance(raw_contact, CustomerContactRow):
+            return raw_contact, None
+        if isinstance(raw_contact, dict) and str(raw_contact.get("email") or "").strip():
+            return CustomerContactRow.model_validate(raw_contact), None
+
+        settings = AppointmentSchedulingIntakeService._settings(tenant_settings)
+        sheet_source = str(settings.appointment_data_source or "").strip()
+        if not sheet_source:
+            return None, AppointmentSchedulingIntakeService._failure(
+                "missing_appointment_data_source",
+                customer_name=sheet_customer,
+            )
+        try:
+            rows = load_appointment_sheet_rows(sheet_source)
+        except (OSError, GoogleSheetsError, ValueError):
+            return None, AppointmentSchedulingIntakeService._failure(
+                "appointment_sheet_unreadable",
+                customer_name=sheet_customer,
+            )
+        if skip := contact_from_rows_skip_reason(rows, sheet_customer):
+            return None, AppointmentSchedulingIntakeService._failure(
+                skip,
+                customer_name=sheet_customer,
+            )
+        return customer_contact_from_rows(rows, sheet_customer), None
+
     @staticmethod
     def _settings(tenant_settings: dict[str, Any]) -> T3raAppointmentSchedulingSettings:
         raw = tenant_settings.get("appointment_scheduling") or {}
@@ -89,42 +139,47 @@ class AppointmentSchedulingIntakeService:
         tenant_settings: dict[str, Any],
         payload: dict[str, Any],
     ) -> IntakeResult:
-        settings = self._settings(tenant_settings)
         shipment_id = str(payload.get("shipment_id") or "").strip()
         if not shipment_id:
             return self._failure("missing_shipment_id")
 
-        turvo_shipment = asyncio.run(get_shipment_async(tenant_slug, shipment_id))
+        turvo_shipment = self._turvo_shipment_from_payload(
+            payload,
+            tenant_slug=tenant_slug,
+            shipment_id=shipment_id,
+        )
         reference_number = (
             str(payload.get("reference_number") or "").strip()
             or reference_number_from_turvo_shipment(turvo_shipment)
             or ""
         )
-        sheet_customer = delivery_stop_name_from_payload(turvo_shipment) or ""
+        sheet_customer = (
+            str(payload.get("customer_name") or "").strip()
+            or delivery_stop_name_from_payload(turvo_shipment)
+            or ""
+        )
         customer_id = customer_id_from_turvo_shipment(turvo_shipment) or ""
 
-        sheet_source = str(settings.appointment_data_source or "").strip()
-        if not sheet_source:
-            return self._failure("missing_appointment_data_source", customer_name=sheet_customer)
-
-        try:
-            rows = load_appointment_sheet_rows(sheet_source)
-        except (OSError, GoogleSheetsError, ValueError):
-            return self._failure("appointment_sheet_unreadable", customer_name=sheet_customer)
-
-        if skip := contact_from_rows_skip_reason(rows, sheet_customer):
-            return self._failure(skip, customer_name=sheet_customer)
-
-        contact = customer_contact_from_rows(rows, sheet_customer)
+        contact, contact_failure = self._contact_from_payload(
+            payload,
+            tenant_settings=tenant_settings,
+            turvo_shipment=turvo_shipment,
+            sheet_customer=sheet_customer,
+        )
+        if contact_failure is not None:
+            return contact_failure
+        if contact is None:
+            return self._failure("missing_recipient_email", customer_name=sheet_customer)
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number)
-        if not settings.ascend_email or not settings.ascend_password:
+        ascend_settings = load_appointment_scheduling_settings(tenant_slug)
+        if not ascend_settings.ascend_email or not ascend_settings.ascend_password:
             return self._failure("ascend_not_configured", customer_name=sheet_customer)
 
         try:
             auth = login_ascend_api(
-                email=settings.ascend_email,
-                password=settings.ascend_password,
+                email=ascend_settings.ascend_email,
+                password=ascend_settings.ascend_password,
             )
             access_token = str(auth.get("accessToken") or "")
         except AscendApiError as exc:

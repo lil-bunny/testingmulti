@@ -112,7 +112,7 @@ async def test_apply_delivery_from_state_ignores_customer_name_column() -> None:
         "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
         new=mock_update,
     ):
-        result = await svc.apply_delivery_from_state(state)
+        result = await svc._apply_delivery_from_state_async(state)
 
     assert result.ok is True
     assert result.stop_name == "Delivery WH"

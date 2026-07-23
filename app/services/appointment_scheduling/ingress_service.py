@@ -1,4 +1,8 @@
-"""Turvo SHIPMENT_UPDATE ingress for appointment_scheduling."""
+"""Turvo SHIPMENT_UPDATE ingress for appointment_scheduling.
+
+Webhook path: cheap tenant/process gates, Turvo shipment+activity filters, enqueue.
+Sheet/recipient gate, upsert, and lifecycle creation run in prepare_scheduling_ingress.
+"""
 
 from __future__ import annotations
 
@@ -9,10 +13,7 @@ from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHE
 from app.domain.appointment_scheduling.skip_reasons import resolve_scheduling_error
 from app.integrations.turvo.activity import fetch_shipment_activity_list
 from app.integrations.turvo.public_api_client import TurvoApiError
-from app.integrations.turvo.shipments import (
-    appointment_scheduling_display_fields_from_payload,
-    get_shipment,
-)
+from app.integrations.turvo.shipments import get_shipment
 from app.services.appointment_scheduling.enqueue import enqueue_appointment_scheduling_pickup_changed
 from app.services.appointment_scheduling.ingress_gates import (
     evaluate_activity_gates,
@@ -21,12 +22,7 @@ from app.services.appointment_scheduling.ingress_gates import (
     evaluate_shipment_gates,
     evaluate_turvo_configured,
 )
-from app.services.appointment_scheduling.recipient_contact_gate import (
-    missing_recipient_email_skip_reason,
-)
 from app.services.appointment_scheduling.ingress_types import IngressHandleResult
-from app.services.shipment_location_link_service import ShipmentLocationLinkService
-from app.services.shipments_service import ShipmentsService
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.turvo_scheduling_ingress import parse_shipment_update_webhook
@@ -39,11 +35,9 @@ class AppointmentSchedulingIngressService:
         self,
         *,
         tenants_service: TenantsService | None = None,
-        shipments_service: ShipmentsService | None = None,
         lifecycle_service: WorkflowLifecycleService | None = None,
     ) -> None:
         self._tenants = tenants_service or TenantsService()
-        self._shipments = shipments_service or ShipmentsService()
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
 
     @staticmethod
@@ -180,66 +174,13 @@ class AppointmentSchedulingIngressService:
                 shipment_id=parsed.shipment_id,
             )
 
-        if reason := missing_recipient_email_skip_reason(
-            tenant_settings=tenant_settings,
-            shipment_payload=shipment_payload,
-        ):
-            return self._skip(
-                skip_reason=reason,
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        display_fields = appointment_scheduling_display_fields_from_payload(shipment_payload)
-        upsert = self._shipments.upsert_from_turvo(
-            tenant_id=tenant_uuid,
-            turvo_shipment_id=parsed.shipment_id,
-            load_id=fetched.load_id,
-            metadata={"reference_number": fetched.reference_number},
-            turvo_payload=shipment_payload,
-            display_fields=display_fields,
-        )
-        if not upsert.get("success"):
-            return self._skip(
-                skip_reason="lifecycle_create_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        shipments_row_id = str(upsert.get("shipments_row_id") or "").strip()
-        if not shipments_row_id:
-            return self._skip(
-                skip_reason="lifecycle_create_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        ShipmentLocationLinkService().try_link_from_turvo_shipment_payload(
-            shipment_payload,
-            shipments_row_id=shipments_row_id,
-        )
-
-        try:
-            lifecycle_id = self._lifecycle.create_appointment_scheduling_lifecycle(
-                tenant_id=tenant_slug,
-                shipments_row_id=shipments_row_id,
-                workflow_name=APPOINTMENT_SCHEDULING_WORKFLOW,
-            )
-        except ValueError:
-            return self._skip(
-                skip_reason="lifecycle_create_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
         payload = {
             "tenant_id": tenant_uuid,
             "tenant_slug": tenant_slug,
             "shipment_id": parsed.shipment_id,
             "load_id": fetched.load_id,
-            "shipments_row_id": shipments_row_id,
-            "workflow_lifecycle_id": lifecycle_id,
             "reference_number": fetched.reference_number,
+            "shipment": shipment_payload,
         }
 
         try:
@@ -249,10 +190,9 @@ class AppointmentSchedulingIngressService:
             )
         except Exception:
             logger.exception(
-                "appointment_scheduling enqueue failed tenant_slug=%s shipment_id=%s lifecycle_id=%s",
+                "appointment_scheduling enqueue failed tenant_slug=%s shipment_id=%s",
                 tenant_slug,
                 parsed.shipment_id,
-                lifecycle_id,
             )
             return self._skip(
                 skip_reason="enqueue_failed",
@@ -261,10 +201,9 @@ class AppointmentSchedulingIngressService:
             )
 
         logger.info(
-            "appointment_scheduling ingress enqueued tenant_slug=%s shipment_id=%s lifecycle_id=%s execution_id=%s",
+            "appointment_scheduling ingress enqueued tenant_slug=%s shipment_id=%s execution_id=%s",
             tenant_slug,
             parsed.shipment_id,
-            lifecycle_id,
             execution_id,
         )
         return IngressHandleResult(

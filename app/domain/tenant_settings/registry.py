@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -45,3 +46,42 @@ def normalize_tenant_settings_dict(slug: str, raw: Any) -> dict[str, Any]:
         dumped = parsed.model_dump(mode="python")
         return dumped if isinstance(dumped, dict) else raw
     return raw
+
+
+_SECRET_SETTING_PATHS: tuple[tuple[str, ...], ...] = (
+    ("tms", "client_secret"),
+    ("tms", "x_api_key"),
+    ("tms", "access_token"),
+    ("tms", "refresh_token"),
+    ("tms", "password_ciphertext"),
+    ("tms", "user_name"),
+    ("appointment_scheduling", "ascend_password"),
+)
+
+
+def _remove_secret_setting_paths(settings: dict[str, Any]) -> None:
+    for path in _SECRET_SETTING_PATHS:
+        node = settings
+        for key in path[:-1]:
+            child = node.get(key)
+            if not isinstance(child, dict):
+                break
+            node = child
+        else:
+            if isinstance(node, dict):
+                node.pop(path[-1], None)
+
+
+def tenant_settings_for_workflow_state(slug: str, raw: Any) -> dict[str, Any]:
+    """
+    Validated tenant settings safe for Celery payloads and LangGraph checkpoints.
+
+    Strips credentials (TMS secrets, Ascend password) while keeping prompts,
+    feature flags, sheet URLs, mikey, CC, and Teams webhook config.
+    """
+    normalized = normalize_tenant_settings_dict(slug, raw)
+    if not isinstance(normalized, dict):
+        return {}
+    projected = copy.deepcopy(normalized)
+    _remove_secret_setting_paths(projected)
+    return projected

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from app.domain.tenant_settings import parse_tenant_settings
-from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
+from app.domain.tenant_settings.registry import (
+    normalize_tenant_settings_dict,
+    tenant_settings_for_workflow_state,
+)
 from app.domain.tenant_settings.t3ra import T3raTenantSettings
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
@@ -60,3 +63,13 @@ def test_normalize_preserves_driver_assignment_settings() -> None:
     assert conf["tracking_customer_names"] == ["USCS CSC"]
     assert conf["tracking_template_html"]
     assert conf["default_template_html"]
+
+
+def test_tenant_settings_for_workflow_state_strips_secrets() -> None:
+    projected = tenant_settings_for_workflow_state("t3ra", _T3RA_SETTINGS)
+    assert projected["tms"]["client_id"] == "test-client-id"
+    assert "client_secret" not in projected["tms"]
+    assert "x_api_key" not in projected["tms"]
+    assert projected["appointment_scheduling"]["ascend_email"] == "ascend@example.com"
+    assert "ascend_password" not in projected["appointment_scheduling"]
+    assert projected["prompts"]["pod_lifecycle"]["page_extraction"] == "pod-page-extraction:staging"
