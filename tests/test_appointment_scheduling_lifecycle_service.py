@@ -327,6 +327,36 @@ def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
     )
 
 
+def test_mark_restartable_skip_delegates_to_mark_failed() -> None:
+    from app.domain.appointment_scheduling.failure import SchedulingFailure
+    from app.domain.appointment_scheduling.metadata_keys import SCHEDULING_FAILURE_REASON
+    from app.domain.error_catalog import SystemError
+
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+    )
+
+    service.mark_restartable_skip(
+        "lifecycle-1",
+        "enqueue_failed",
+        tenant_id=_TENANT_UUID,
+        workflow_run_id=_RUN_UUID,
+    )
+
+    activity.record_failed.assert_called_once()
+    failure_arg: SchedulingFailure = activity.record_failed.call_args.kwargs["failure"]
+    assert failure_arg.code == SystemError.UNEXPECTED_NODE_FAILURE.value
+    lifecycle.patch_metadata.assert_called_once_with(
+        lifecycle_id="lifecycle-1",
+        metadata_patch={
+            SCHEDULING_FAILURE_REASON: SystemError.UNEXPECTED_NODE_FAILURE.value,
+        },
+    )
+
+
 def test_mark_failed_delegates_activity_and_patches_metadata():
     from app.domain.appointment_scheduling.failure import SchedulingFailure
     from app.domain.appointment_scheduling.metadata_keys import SCHEDULING_FAILURE_REASON

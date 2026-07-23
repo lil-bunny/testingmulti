@@ -120,6 +120,8 @@ def _service(
     *,
     tenant_settings: dict | None = None,
     blocking_lifecycle_id: str | None = None,
+    prepare_ok: bool = True,
+    prepare_skip_reason: str | None = None,
 ) -> AppointmentSchedulingIngressService:
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {
@@ -132,9 +134,35 @@ def _service(
         blocking_lifecycle_id
     )
 
+    prepare = MagicMock()
+    if prepare_ok:
+        contact = MagicMock()
+        contact.model_dump.return_value = {"email": "wh@example.com", "customer": "PETCO DC 810"}
+        prepare.prepare_pickup_changed.return_value = MagicMock(
+            ok=True,
+            skip_reason=None,
+            workflow_lifecycle_id=_LIFECYCLE_ID,
+            shipments_row_id=_SHIPMENTS_ROW_ID,
+            customer_name="PETCO DC 810",
+            customer_contact=contact,
+        )
+    else:
+        prepare.prepare_pickup_changed.return_value = MagicMock(
+            ok=False,
+            skip_reason=prepare_skip_reason or "missing_recipient_email",
+            workflow_lifecycle_id=None,
+            shipments_row_id=None,
+            customer_name=None,
+            customer_contact=None,
+        )
+
+    scheduling_lifecycle = MagicMock()
+
     return AppointmentSchedulingIngressService(
         tenants_service=tenants,
         lifecycle_service=lifecycle,
+        prepare_service=prepare,
+        scheduling_lifecycle_service=scheduling_lifecycle,
     )
 
 
@@ -238,6 +266,58 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
     assert payload["load_id"] == _LOAD_ID
     assert payload["reference_number"] == "DIAMOND-RPN-999"
     assert payload["shipment"] == _turvo_shipment_payload()
-    assert "workflow_lifecycle_id" not in payload
-    assert "shipments_row_id" not in payload
-    svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
+    assert payload["workflow_lifecycle_id"] == _LIFECYCLE_ID
+    assert payload["shipments_row_id"] == _SHIPMENTS_ROW_ID
+    svc._prepare.prepare_pickup_changed.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_shipment_update_enqueue_failed_marks_lifecycle_restartable() -> None:
+    svc = _service()
+    with (
+        patch(
+            "app.services.appointment_scheduling.ingress_service.fetch_shipment_activity_list",
+            new=AsyncMock(return_value=_activity_json()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.ingress_service.get_shipment",
+            new=AsyncMock(return_value=_turvo_shipment_payload()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.ingress_service.enqueue_appointment_scheduling_pickup_changed",
+            side_effect=RuntimeError("broker down"),
+        ),
+    ):
+        result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
+
+    assert result.handled is True
+    assert result.enqueued is False
+    assert result.skip_reason == "enqueue_failed"
+    svc._scheduling_lifecycle.mark_restartable_skip.assert_called_once_with(
+        _LIFECYCLE_ID,
+        "enqueue_failed",
+        tenant_id=_TENANT_UUID,
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_shipment_update_skips_before_prepare_when_sheet_gate_fails() -> None:
+    svc = _service(prepare_ok=False, prepare_skip_reason="missing_recipient_email")
+    with (
+        patch(
+            "app.services.appointment_scheduling.ingress_service.fetch_shipment_activity_list",
+            new=AsyncMock(return_value=_activity_json()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.ingress_service.get_shipment",
+            new=AsyncMock(return_value=_turvo_shipment_payload()),
+        ),
+        patch(
+            "app.services.appointment_scheduling.ingress_service.enqueue_appointment_scheduling_pickup_changed",
+        ) as enqueue_mock,
+    ):
+        result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
+
+    assert result.skip_reason == "missing_recipient_email"
+    enqueue_mock.assert_not_called()
+    svc._scheduling_lifecycle.mark_restartable_skip.assert_not_called()

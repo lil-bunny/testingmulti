@@ -56,6 +56,29 @@ class AppointmentSchedulingIngressPrepareService:
         if not isinstance(shipment_payload, dict):
             return IngressPrepareResult(ok=False, skip_reason="turvo_shipment_fetch_failed")
 
+        existing_lifecycle_id = str(payload.get("workflow_lifecycle_id") or "").strip()
+        existing_shipments_row_id = str(payload.get("shipments_row_id") or "").strip()
+        if existing_lifecycle_id and existing_shipments_row_id:
+            customer_name = str(payload.get("customer_name") or "").strip() or None
+            if not customer_name:
+                customer_name = delivery_stop_name_from_payload(shipment_payload) or None
+            raw_contact = payload.get("customer_contact")
+            contact: CustomerContactRow | None = None
+            if isinstance(raw_contact, CustomerContactRow):
+                contact = raw_contact
+            elif isinstance(raw_contact, dict) and str(raw_contact.get("email") or "").strip():
+                contact = CustomerContactRow.model_validate(raw_contact)
+            reference_number = str(payload.get("reference_number") or "").strip() or None
+            return IngressPrepareResult(
+                ok=True,
+                workflow_lifecycle_id=existing_lifecycle_id,
+                shipments_row_id=existing_shipments_row_id,
+                reference_number=reference_number,
+                shipment=shipment_payload,
+                customer_contact=contact,
+                customer_name=customer_name,
+            )
+
         shipment_id = str(payload.get("shipment_id") or "").strip()
         load_id = str(payload.get("load_id") or "").strip()
         reference_number = str(payload.get("reference_number") or "").strip()
@@ -97,6 +120,8 @@ class AppointmentSchedulingIngressPrepareService:
             shipments_row_id=shipments_row_id,
         )
 
+        customer_name = delivery_stop_name_from_payload(shipment_payload) or None
+
         try:
             lifecycle_id = self._lifecycle.create_appointment_scheduling_lifecycle(
                 tenant_id=tenant_slug,
@@ -106,7 +131,6 @@ class AppointmentSchedulingIngressPrepareService:
         except ValueError:
             return IngressPrepareResult(ok=False, skip_reason="lifecycle_create_failed")
 
-        customer_name = delivery_stop_name_from_payload(shipment_payload) or None
         return IngressPrepareResult(
             ok=True,
             workflow_lifecycle_id=lifecycle_id,
