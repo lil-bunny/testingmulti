@@ -20,6 +20,34 @@ _ASCEND_SHIPMENT = {
 }
 
 
+def test_skip_ascend_writes_dry_run_records_activity_from_state() -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    activity = MagicMock()
+    svc = AppointmentSchedulingAscendWriteService(activity_service=activity)
+    state = SimpleNamespace(
+        tenant_id="00000000-0000-4000-8000-0000000000e1",
+        execution_id="22222222-3333-4444-5555-666666666666",
+        data={
+            "tenant_slug": "t3ra",
+            "tenant_settings": {"appointment_scheduling": {"skip_ascend_writes": True}},
+            "reference_number": _REF,
+            "customer_reply_extraction": {"appointment_start_iso": _ISO},
+            "ascend_shipment": _ASCEND_SHIPMENT,
+        },
+    )
+    with patch(
+        "app.services.appointment_scheduling.ascend_write_service.login_ascend_api"
+    ) as login_mock:
+        result = svc.apply_dropoff_from_state(state)
+
+    login_mock.assert_not_called()
+    assert result.ok is True
+    assert state.data["ascend_update_result"]["dry_run"] is True
+    activity.record_ascend_update.assert_called_once_with(state)
+
+
 def test_skip_ascend_writes_dry_run_no_http() -> None:
     svc = AppointmentSchedulingAscendWriteService()
     with patch(

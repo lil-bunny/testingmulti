@@ -461,15 +461,8 @@ class AppointmentSchedulingTurvoStopUpdateService:
         return TurvoWriteResult(ok=True, updated=True, response=raw)
 
 
-# Backward-compatible aliases for tests and gradual migration
-AppointmentSchedulingTurvoWriteService = AppointmentSchedulingTurvoStopUpdateService
-AppointmentSchedulingTurvoConfirmService = AppointmentSchedulingTurvoStopUpdateService
-
-
 __all__ = (
-    "AppointmentSchedulingTurvoConfirmService",
     "AppointmentSchedulingTurvoStopUpdateService",
-    "AppointmentSchedulingTurvoWriteService",
     "TurvoConfirmResult",
     "TurvoWriteResult",
 )

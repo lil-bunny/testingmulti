@@ -262,13 +262,11 @@ def test_apply_weekend_shifted_pickup_skip_does_not_set_error(
     assert "error" not in state.data
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
     "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingAscendWriteService"
 )
 def test_apply_ascend_dropoff_preserves_integration_category(
     mock_ascend_cls,
-    mock_activity_cls,
 ) -> None:
     failure = SchedulingFailure.from_catalog(
         IntegrationError.ASCEND_DROPOFF_UPDATE_FAILED,
@@ -286,16 +284,13 @@ def test_apply_ascend_dropoff_preserves_integration_category(
         IntegrationError.ASCEND_DROPOFF_UPDATE_FAILED,
         IntegrationError.CATEGORY.value,
     )
-    mock_activity_cls.return_value.record_ascend_update.assert_called_once()
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
     "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingAscendWriteService"
 )
 def test_apply_ascend_dropoff_skip_does_not_set_error(
     mock_ascend_cls,
-    mock_activity_cls,
 ) -> None:
     mock_ascend_cls.return_value.apply_dropoff_from_state.return_value = AscendWriteResult(
         ok=True,
@@ -308,7 +303,6 @@ def test_apply_ascend_dropoff_skip_does_not_set_error(
 
     assert result is state
     assert "error" not in state.data
-    mock_activity_cls.return_value.record_ascend_update.assert_called_once()
 
 
 def test_scheduling_failure_from_wire_known_business() -> None:
