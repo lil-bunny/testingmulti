@@ -158,8 +158,6 @@ class AppointmentSchedulingEmailService:
             send_result=send_result,
         )
 
-    send_from_state = send_draft_from_state
-
     def send_confirmation_reply_from_state(self, state) -> ConfirmationEmailResult:
         data = state.data or {}
         tenant_id = (getattr(state, "tenant_id", None) or data.get("tenant_id") or "").strip()
@@ -213,12 +211,7 @@ class AppointmentSchedulingEmailService:
         return ConfirmationEmailResult(sent=True, communication_id=comm_id)
 
 
-# Backward-compatible alias
-AppointmentSchedulingConfirmationEmailService = AppointmentSchedulingEmailService
-
-
 __all__ = (
-    "AppointmentSchedulingConfirmationEmailService",
     "AppointmentSchedulingEmailService",
     "AppointmentSchedulingSendResult",
     "ConfirmationEmailResult",

@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingTurvoWriteService."""
+"""Tests for AppointmentSchedulingTurvoStopUpdateService."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.services.appointment_scheduling.turvo_stop_update_service import (
-    AppointmentSchedulingTurvoWriteService,
+    AppointmentSchedulingTurvoStopUpdateService,
 )
 from app.services.shipments_service import ShipmentsService
 
@@ -32,7 +32,7 @@ def _shipment_payload(*, route_stop: str = "Costco Depot") -> dict:
 
 @pytest.mark.asyncio
 async def test_apply_delivery_success() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     with patch(
         "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
         new=AsyncMock(
@@ -58,7 +58,7 @@ async def test_apply_delivery_success() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_delivery_missing_fields() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     result = await svc.apply_delivery(
         tenant_slug="",
         shipment_id="1001",
@@ -71,7 +71,7 @@ async def test_apply_delivery_missing_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_delivery_resolves_stop_name_from_shipment_payload() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _shipment_payload(route_stop="Costco Depot SC")
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
 
@@ -95,7 +95,7 @@ async def test_apply_delivery_resolves_stop_name_from_shipment_payload() -> None
 
 @pytest.mark.asyncio
 async def test_apply_delivery_from_state_ignores_customer_name_column() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _shipment_payload(route_stop="Delivery WH")
     state = SimpleNamespace(
         data={
@@ -121,7 +121,7 @@ async def test_apply_delivery_from_state_ignores_customer_name_column() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_delivery_refreshes_shipment_display_when_ids_present() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
     mock_refresh = AsyncMock(return_value={"success": True})
 
@@ -154,7 +154,7 @@ async def test_apply_delivery_refreshes_shipment_display_when_ids_present() -> N
 
 @pytest.mark.asyncio
 async def test_apply_delivery_refresh_passes_customer_name_override_from_payload() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _shipment_payload(route_stop="PETCO DC 810")
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
     mock_refresh = AsyncMock(return_value={"success": True})
@@ -187,7 +187,7 @@ async def test_apply_delivery_refresh_passes_customer_name_override_from_payload
 
 @pytest.mark.asyncio
 async def test_apply_delivery_still_ok_when_display_refresh_fails() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
     mock_refresh = AsyncMock(return_value={"success": False, "message": "turvo_get_shipment_failed"})
 
@@ -225,7 +225,7 @@ def _tender_app_payload(*, status_key: str = "2118", fragment_id: str = "frag-uu
 
 @pytest.mark.asyncio
 async def test_apply_tender_success() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _tender_app_payload()
     mock_fetch = AsyncMock(return_value=payload)
     mock_put = AsyncMock(return_value={"respMsg": "SUCCESS_UPDATE"})
@@ -251,7 +251,7 @@ async def test_apply_tender_success() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_tender_refresh_passes_customer_name_override() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _tender_app_payload()
     mock_fetch = AsyncMock(return_value=payload)
     mock_put = AsyncMock(return_value={"respMsg": "SUCCESS_UPDATE"})
@@ -288,7 +288,7 @@ async def test_apply_tender_refresh_passes_customer_name_override() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_tender_skips_when_already_tendered() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _tender_app_payload(status_key="2101")
     mock_put = AsyncMock()
 
@@ -312,7 +312,7 @@ async def test_apply_tender_skips_when_already_tendered() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_tender_missing_fragment_id() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = {"details": {"status": {"code": {"key": "2118"}}, "global_route": {"fragments": []}}}
 
     with patch(
@@ -327,7 +327,7 @@ async def test_apply_tender_missing_fragment_id() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_tender_put_failure() -> None:
-    svc = AppointmentSchedulingTurvoWriteService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     from app.integrations.turvo.public_api_client import TurvoApiError
 
     with (

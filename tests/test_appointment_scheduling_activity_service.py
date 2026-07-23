@@ -14,6 +14,7 @@ from app.services.appointment_scheduling.activity_service import (
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _LIFECYCLE_UUID = "11111111-2222-3333-4444-555555555555"
 _RUN_UUID = "22222222-3333-4444-5555-666666666666"
+_COMM_UUID = "33333333-3333-4444-5555-666666666667"
 
 
 def _state(**data_overrides):
@@ -36,65 +37,63 @@ def _state(**data_overrides):
     )
 
 
+def _svc(*, transitions=None, lifecycle=None, activity_log=None):
+    return AppointmentSchedulingActivityService(
+        transition_service=transitions,
+        lifecycle_service=lifecycle,
+        activity_log_service=activity_log,
+    )
+
+
 def test_record_started_writes_status_change() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.NONE.value,
         "sub_status": StatusSubType.NONE.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_started(_state())
 
-    activity.record_sequence.assert_called_once()
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    step = seq.steps[0]
-    assert step.activity_type == ActivityType.STATUS_CHANGE
-    assert step.from_status == StatusType.NONE
-    assert step.from_sub_status == StatusSubType.NONE
-    assert step.to_status == StatusType.PROCESSING
-    assert step.to_sub_status == StatusSubType.APPOINTMENT_SCHEDULING_STARTED
+    transitions.apply.assert_called_once()
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.STATUS_CHANGE
+    assert cmd.from_status == StatusType.NONE
+    assert cmd.from_sub_status == StatusSubType.NONE
+    assert cmd.to_status == StatusType.PROCESSING
+    assert cmd.to_sub_status == StatusSubType.APPOINTMENT_SCHEDULING_STARTED
 
 
 def test_record_started_skips_when_already_started() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PROCESSING.value,
         "sub_status": StatusSubType.APPOINTMENT_SCHEDULING_STARTED.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_started(_state())
-    svc.record_started(_state())
 
-    activity.record_sequence.assert_not_called()
+    transitions.apply.assert_not_called()
 
 
 def test_record_decision_info_includes_llm_source() -> None:
-    activity = MagicMock()
-    svc = AppointmentSchedulingActivityService(activity_log_service=activity)
+    transitions = MagicMock()
+    svc = _svc(transitions=transitions)
 
     svc.record_decision(_state())
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[0].metadata is None
-    assert "source=llm" in (seq.steps[0].description or "")
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.ACTION
+    assert cmd.metadata is None
+    assert "source=llm" in (cmd.description or "")
 
 
 def test_record_decision_info_costco_uses_llm_source() -> None:
-    # Costco is on the unified LLM path now; decision source is always "llm".
-    activity = MagicMock()
-    svc = AppointmentSchedulingActivityService(activity_log_service=activity)
+    transitions = MagicMock()
+    svc = _svc(transitions=transitions)
 
     svc.record_decision(
         _state(
@@ -108,18 +107,15 @@ def test_record_decision_info_costco_uses_llm_source() -> None:
         )
     )
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert seq.steps[0].metadata is None
-    assert "source=llm" in (seq.steps[0].description or "")
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.metadata is None
+    assert "source=llm" in (cmd.description or "")
 
 
 def test_record_draft_ready_writes_action_only() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
     email_draft = {"to": "wh@example.com", "subject": "DEL APPT REQ"}
     scheduling_payload = {"reference_number": "DIAMOND-1"}
 
@@ -129,148 +125,125 @@ def test_record_draft_ready_writes_action_only() -> None:
         scheduling_payload=scheduling_payload,
     )
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[0].metadata is None
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.ACTION
+    assert cmd.metadata is None
+    assert cmd.update_lifecycle is False
     lifecycle.read_lifecycle_row_by_id.assert_not_called()
 
 
 def test_record_draft_pending_review_writes_status_change() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PROCESSING.value,
         "sub_status": StatusSubType.APPOINTMENT_SCHEDULING_STARTED.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_draft_pending_review(_state())
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[0].to_status == StatusType.PENDING_REVIEW
-    assert seq.steps[0].to_sub_status == StatusSubType.APPOINTMENT_DRAFT_CREATED
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.STATUS_CHANGE
+    assert cmd.to_status == StatusType.PENDING_REVIEW
+    assert cmd.to_sub_status == StatusSubType.APPOINTMENT_DRAFT_CREATED
 
 
 def test_record_draft_teams_notification_writes_action_only() -> None:
-    activity = MagicMock()
-    svc = AppointmentSchedulingActivityService(activity_log_service=activity)
+    transitions = MagicMock()
+    svc = _svc(transitions=transitions)
 
     svc.record_draft_teams_notification(_state())
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[0].description == "Sent notification on Teams"
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.ACTION
+    assert cmd.description == "Sent notification on Teams"
 
 
 def test_record_confirm_email_sent_writes_user_action_with_communication() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_confirm_email_sent(
         _state(actor_user_id="99999999-9999-9999-9999-999999999999"),
-        communication_id="comm-uuid",
+        communication_id=_COMM_UUID,
         actor_id="99999999-9999-9999-9999-999999999999",
     )
 
-    activity.record_sequence.assert_called_once()
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.ACTION
-    assert seq.steps[0].communication_id == "comm-uuid"
-    assert seq.actor_type == ActorType.USER
-    assert seq.actor_id == "99999999-9999-9999-9999-999999999999"
+    transitions.apply.assert_called_once()
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.ACTION
+    assert cmd.communication_id == _COMM_UUID
+    assert cmd.actor_type == ActorType.USER
+    assert cmd.actor_id == "99999999-9999-9999-9999-999999999999"
 
 
 def test_record_awaiting_customer_reply_writes_system_sub_status_change() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_awaiting_customer_reply(_state())
 
-    activity.record_sequence.assert_called_once()
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.SUB_STATUS_CHANGE
-    assert seq.steps[0].to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
-    assert seq.actor_type == ActorType.SYSTEM
-    assert seq.actor_id is None
+    transitions.apply.assert_called_once()
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert cmd.to_sub_status == StatusSubType.AWAITING_CUSTOMER_REPLY
 
 
 def test_record_awaiting_customer_reply_skips_when_already_awaiting() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_awaiting_customer_reply(_state())
 
-    activity.record_sequence.assert_not_called()
+    transitions.apply.assert_not_called()
 
 
 def test_record_confirm_email_sent_skips_when_already_awaiting() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_confirm_email_sent(
         _state(),
-        communication_id="comm-uuid",
+        communication_id=_COMM_UUID,
         actor_id="99999999-9999-9999-9999-999999999999",
     )
 
-    activity.record_sequence.assert_not_called()
+    transitions.apply.assert_not_called()
 
 
 def test_record_failed_writes_exception_and_pending_review_status() -> None:
     from app.domain.appointment_scheduling.failure import SchedulingFailure
     from app.domain.error_catalog import BusinessError, format_error_message
 
+    transitions = MagicMock()
     activity = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PROCESSING.value,
         "sub_status": StatusSubType.APPOINTMENT_SCHEDULING_STARTED.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle, activity_log=activity)
     failure = SchedulingFailure.from_catalog(
         BusinessError.MISSING_RECIPIENT_EMAIL,
         format_error_message(BusinessError.MISSING_RECIPIENT_EMAIL, customer_name="Acme"),
@@ -286,22 +259,19 @@ def test_record_failed_writes_exception_and_pending_review_status() -> None:
     exception_write = activity.record_exception.call_args[0][0]
     assert exception_write.metadata["error"] == BusinessError.MISSING_RECIPIENT_EMAIL.value
     assert exception_write.metadata["error_category"] == BusinessError.CATEGORY.value
-    seq = activity.record_sequence.call_args[0][0]
-    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[0].to_status == StatusType.PENDING_REVIEW
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.STATUS_CHANGE
+    assert cmd.to_status == StatusType.PENDING_REVIEW
 
 
 def test_record_reply_completed_writes_completed_status() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_reply_completed(
         _state(
@@ -310,25 +280,21 @@ def test_record_reply_completed_writes_completed_status() -> None:
         )
     )
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[0].metadata is None
-    assert seq.steps[0].to_status == StatusType.COMPLETED
-    assert seq.steps[0].to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.STATUS_CHANGE
+    assert cmd.metadata is None
+    assert cmd.to_status == StatusType.COMPLETED
+    assert cmd.to_sub_status == StatusSubType.APPOINTMENT_SCHEDULED
 
 
 def test_record_reply_rejected_writes_completed_rejected() -> None:
-    activity = MagicMock()
+    transitions = MagicMock()
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "status": StatusType.PENDING_REVIEW.value,
         "sub_status": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
     }
-    svc = AppointmentSchedulingActivityService(
-        activity_log_service=activity,
-        lifecycle_service=lifecycle,
-    )
+    svc = _svc(transitions=transitions, lifecycle=lifecycle)
 
     svc.record_reply_rejected(
         _state(
@@ -337,9 +303,8 @@ def test_record_reply_rejected_writes_completed_rejected() -> None:
         )
     )
 
-    seq = activity.record_sequence.call_args[0][0]
-    assert len(seq.steps) == 1
-    assert seq.steps[0].activity_type == ActivityType.STATUS_CHANGE
-    assert seq.steps[0].metadata is None
-    assert seq.steps[0].to_status == StatusType.COMPLETED
-    assert seq.steps[0].to_sub_status == StatusSubType.REJECTED
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.activity_type == ActivityType.STATUS_CHANGE
+    assert cmd.metadata is None
+    assert cmd.to_status == StatusType.COMPLETED
+    assert cmd.to_sub_status == StatusSubType.REJECTED

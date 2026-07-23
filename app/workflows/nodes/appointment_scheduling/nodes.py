@@ -194,8 +194,6 @@ def classify_appointment_customer_reply(state):
 @safe_node
 def apply_ascend_dropoff_appointment(state):
     result = AppointmentSchedulingAscendWriteService().apply_dropoff_from_state(state)
-    state.data["ascend_update_result"] = result.to_checkpoint_dict()
-    AppointmentSchedulingActivityService().record_ascend_update(state)
     if not result.ok and result.failure:
         raise result.failure.to_workflow_exception()
     return state

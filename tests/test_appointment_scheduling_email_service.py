@@ -40,7 +40,7 @@ def test_send_from_state_records_communication_and_transitions_sub_status(
         activity_service=activity,
     )
 
-    result = svc.send_from_state(_state())
+    result = svc.send_draft_from_state(_state())
 
     assert result.sent is True
     assert result.communication_id == "comm-1"
@@ -53,6 +53,6 @@ def test_send_from_state_records_communication_and_transitions_sub_status(
 
 def test_send_from_state_missing_draft() -> None:
     state = _state(email_draft={"to": "a@b.com"})
-    result = AppointmentSchedulingEmailService().send_from_state(state)
+    result = AppointmentSchedulingEmailService().send_draft_from_state(state)
     assert result.sent is False
     assert result.error == "missing_email_draft"

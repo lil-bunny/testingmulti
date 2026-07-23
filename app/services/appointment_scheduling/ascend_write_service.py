@@ -19,6 +19,9 @@ from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
 from app.integrations.ascend.shipments import fetched_shipment_details, update_shipment_stops
 from app.domain.appointment_scheduling.state_hygiene import slim_ascend_write_result
+from app.services.appointment_scheduling.activity_service import (
+    AppointmentSchedulingActivityService,
+)
 from app.tools.appointment_scheduling.customer_reply import (
     build_ascend_dropoff_update_payload,
     extract_dropoff_stop,
@@ -50,6 +53,13 @@ class AscendWriteResult:
 
 
 class AppointmentSchedulingAscendWriteService:
+    def __init__(
+        self,
+        *,
+        activity_service: AppointmentSchedulingActivityService | None = None,
+    ) -> None:
+        self._activity = activity_service or AppointmentSchedulingActivityService()
+
     @staticmethod
     def _catalog_failure(skip_reason: str, **context: str) -> SchedulingFailure:
         failure = scheduling_failure_from_skip(skip_reason, **context)
@@ -73,13 +83,16 @@ class AppointmentSchedulingAscendWriteService:
         iso_start = str(
             extraction.get("appointment_start_iso") or data.get("confirmed_delivery_at") or ""
         ).strip()
-        return self.apply_dropoff(
+        result = self.apply_dropoff(
             tenant_slug=str(data.get("tenant_slug") or "").strip(),
             tenant_settings=tenant_settings,
             reference_number=reference_number,
             appointment_start_iso=iso_start,
             ascend_shipment=ascend_shipment,
         )
+        state.data["ascend_update_result"] = result.to_checkpoint_dict()
+        self._activity.record_ascend_update(state)
+        return result
 
     def apply_dropoff(
         self,
