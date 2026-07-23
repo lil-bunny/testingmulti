@@ -10,7 +10,7 @@ from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.models import CustomerContactRow, DraftStatic, PickupDropoffData
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
 from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
-from app.domain.error_catalog import SystemError
+from app.domain.error_catalog import IntegrationError, SystemError
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots
 from app.integrations.ascend.auth import login_ascend_api
@@ -18,6 +18,7 @@ from app.integrations.ascend.errors import AscendApiError
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.shipments import fetched_shipment_details
 from app.integrations.google.sheets import GoogleSheetsError
+from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     delivery_stop_name_from_payload,
     get_shipment as get_shipment_async,
@@ -143,11 +144,20 @@ class AppointmentSchedulingIntakeService:
         if not shipment_id:
             return self._failure("missing_shipment_id")
 
-        turvo_shipment = self._turvo_shipment_from_payload(
-            payload,
-            tenant_slug=tenant_slug,
-            shipment_id=shipment_id,
-        )
+        try:
+            turvo_shipment = self._turvo_shipment_from_payload(
+                payload,
+                tenant_slug=tenant_slug,
+                shipment_id=shipment_id,
+            )
+        except TurvoApiError as exc:
+            return IntakeResult(
+                ok=False,
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.TURVO_SHIPMENT_FETCH_FAILED,
+                    str(exc),
+                ),
+            )
         reference_number = (
             str(payload.get("reference_number") or "").strip()
             or reference_number_from_turvo_shipment(turvo_shipment)

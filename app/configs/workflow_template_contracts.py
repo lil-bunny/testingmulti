@@ -207,7 +207,6 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "email_draft",
             "draft_static",
             "scheduling_payload",
-            "scheduling_intake_skip_reason",
             "thread_id",
             "body",
             "subject",

@@ -444,7 +444,6 @@ WORKFLOW_CONFIGS = {
                 "router": "scheduling_intake_router",
                 "map": {
                     "continue": "compute_scheduling_decision",
-                    "end": "end",
                 },
             },
             "classify_appointment_customer_reply": {

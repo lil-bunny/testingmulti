@@ -11,7 +11,7 @@ from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
 from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
 from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
-from app.domain.error_catalog import IntegrationError, format_error_message
+from app.domain.error_catalog import IntegrationError
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots, update_appointment
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
@@ -158,9 +158,8 @@ class AppointmentSchedulingWeekendPickupService:
             return WeekendPickupResult(
                 ok=False,
                 failure=SchedulingFailure.from_catalog(
-                    IntegrationError.VENDOR_API_ERROR,
-                    format_error_message(IntegrationError.VENDOR_API_ERROR)
-                    + f" ({turvo_msg})",
+                    IntegrationError.TURVO_STOP_UPDATE_FAILED,
+                    turvo_msg,
                 ),
                 ascend_updated=True,
                 turvo_pickup_start_time=plan.turvo_pickup_start_time,

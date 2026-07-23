@@ -161,6 +161,30 @@ class BusinessError(_CatalogError):
         "scheduling_missing_shipment_id",
         "Shipment id is missing for scheduling intake.",
     )
+    MISSING_MIKEY_ACCOUNT_ID = (
+        "missing_mikey_account_id",
+        "Unipile mailbox (mikey) is not configured for this tenant.",
+    )
+    SCHEDULING_DRAFT_NOT_READY = (
+        "scheduling_draft_not_ready",
+        "Appointment email draft is missing or incomplete.",
+    )
+    MISSING_TURVO_UPDATE_FIELDS = (
+        "missing_turvo_update_fields",
+        "Turvo stop update is missing required shipment, stop, or time fields.",
+    )
+    MISSING_DELIVERY_STOP_OR_DATE = (
+        "missing_delivery_stop_or_date",
+        "Delivery placeholder is missing stop name or delivery date.",
+    )
+    MISSING_TURVO_TENDER_FIELDS = (
+        "missing_turvo_tender_fields",
+        "Turvo tender status update is missing tenant or shipment id.",
+    )
+    MISSING_TURVO_FRAGMENT_ID = (
+        "missing_turvo_fragment_id",
+        "Turvo shipment payload is missing fragment id for tender status.",
+    )
 
 
 class IntegrationError(_CatalogError):
@@ -204,6 +228,18 @@ class IntegrationError(_CatalogError):
     ASCEND_DROPOFF_UPDATE_FAILED = (
         "ascend_dropoff_update_failed",
         "Ascend dropoff appointment update failed for {reference_number}.",
+    )
+    TURVO_SHIPMENT_FETCH_FAILED = (
+        "turvo_shipment_fetch_failed",
+        "Turvo shipment fetch failed.",
+    )
+    TURVO_STOP_UPDATE_FAILED = (
+        "turvo_stop_update_failed",
+        "Turvo stop appointment update failed.",
+    )
+    TURVO_TENDER_STATUS_FAILED = (
+        "turvo_tender_status_failed",
+        "Turvo tender status update failed.",
     )
 
 
