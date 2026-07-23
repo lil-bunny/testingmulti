@@ -1,8 +1,6 @@
 """v1 per-tenant Turvo Public API OAuth: authenticate and status (no raw tokens in responses)."""
 
-from __future__ import annotations
-
-from typing import Annotated, Optional, TYPE_CHECKING
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -14,9 +12,7 @@ from app.api.deps import (
 )
 from app.core.logger import get_logger
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError
-
-if TYPE_CHECKING:
-    from app.services.turvo_oauth_service import TurvoOAuthService
+from app.services.turvo_oauth_service import TurvoOAuthService
 
 router = APIRouter(prefix="/user/turvo", tags=["turvo"])
 logger = get_logger(__name__)

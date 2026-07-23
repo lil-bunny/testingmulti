@@ -1,8 +1,6 @@
 """v1 shipment endpoints."""
 
-from __future__ import annotations
-
-from typing import Annotated, Literal, TYPE_CHECKING
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Security, UploadFile, status
 from pydantic import BaseModel, Field
@@ -14,6 +12,7 @@ from app.api.deps import (
 )
 from app.api.security import portal_bearer
 from app.core.logger import get_logger
+from app.domain.api_user import ApiUser
 from app.services.pod_lifecycle.manual_upload_ingress_service import (
     PodLifecycleNotFoundError,
     PodManualUploadIngressService,
@@ -22,9 +21,6 @@ from app.services.pod_lifecycle.tms_upload_service import (
     PodDocumentNotFoundError,
     PodTmsUploadService,
 )
-
-if TYPE_CHECKING:
-    from app.domain.api_user import ApiUser
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 logger = get_logger(__name__)
