@@ -16,6 +16,62 @@ _COMM_UUID = "11111111-2222-3333-4444-555555555555"
 @pytest.mark.asyncio
 async def test_t3ra_pod_classification_skips_driver_details() -> None:
     from app.services.t3ra_email_ingress_service import T3raEmailIngressService
+
+    return T3raEmailIngressService
+
+
+@pytest.mark.asyncio
+async def test_t3ra_appointment_reply_enqueued_before_driver_details_and_ratecon(
+    monkeypatch,
+) -> None:
+    """Appointment customer-reply L2 runs before driver details / ratecon (§5.2)."""
+    from app.services.unipile_tenant_resolution import UnipileTenantContext
+
+    T3raEmailIngressService = _load_t3ra_service(monkeypatch)
+    tenant = UnipileTenantContext(tenant_uuid=_TENANT_UUID, tenant_slug="t3ra")
+    payload = {
+        "subject": 'Re: DEL APPT REQ "63294"',
+        "body": "Confirmed July 18 10:30 AM",
+        "thread_id": "thread-appt-1",
+        "in_reply_to": "msg-parent",
+    }
+    appointment_result = IngressResult(
+        outcome="enqueued",
+        event_type="appointment_customer_reply_received",
+        execution_ids=("exec-appt-1",),
+    )
+
+    with (
+        patch(
+            "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email"
+        ) as classify_mock,
+        patch(
+            "app.services.appointment_scheduling.customer_reply_ingress.CustomerReplyIngressService"
+        ) as reply_cls,
+        patch(
+            "app.services.t3ra_email_ingress_service.DriverDetailsEmailIngressService"
+        ) as driver_details_cls,
+    ):
+        ingress_service = T3raEmailIngressService()
+        classify_mock.return_value = MagicMock(workflow_name="ratecon")
+        reply_cls.return_value.try_customer_reply_received.return_value = appointment_result
+
+        result = await ingress_service.process(
+            payload=payload,
+            tenant=tenant,
+            communication_id=_COMM_UUID,
+        )
+
+    assert result.outcome == "enqueued"
+    assert result.execution_ids == ("exec-appt-1",)
+    reply_cls.return_value.try_customer_reply_received.assert_called_once()
+    driver_details_cls.return_value.try_driver_details_email_received.assert_not_called()
+    celery_mock = sys.modules["app.tasks.workflows"].run_workflow_async
+    celery_mock.apply_async.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_t3ra_pod_classification_skips_driver_details(monkeypatch) -> None:
     from app.services.unipile_tenant_resolution import UnipileTenantContext
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_UUID, tenant_slug="t3ra")

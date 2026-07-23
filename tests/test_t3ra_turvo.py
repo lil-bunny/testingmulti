@@ -275,12 +275,16 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
         patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
+        patch("app.api.v1.webhooks.IngressService") as scheduling_cls,
         patch("app.api.v1.webhooks.LifecycleRunSerializerService") as serializer_cls,
         patch(
             "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
         ),
     ):
+        scheduling_cls.return_value.handle_shipment_update = AsyncMock(
+            return_value=MagicMock(handled=False, enqueued=False, skip_reason=None)
+        )
         shipments_cls.return_value.get_by_shipment_number.return_value = {
             "id": _SHIPMENTS_ROW_UUID,
             "shipment_number": _TURVO_SHIPMENT,
@@ -322,6 +326,44 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
     assert ser_kw["payload"]["shipment_id"] == _TURVO_SHIPMENT
     assert ser_kw["payload"]["event_type"] == "route_completed"
     assert ser_kw["payload"]["thread_id"] == "thread-from-comm"
+
+
+def test_turvo_webhook_scheduling_handled_short_circuits_pod_path() -> None:
+    """Appointment scheduling ingress handled=True must skip POD route_completed path."""
+    with (
+        patch("app.api.v1.webhooks.IngressService") as scheduling_cls,
+        patch("app.api.v1.webhooks.PodLifecycleIngressService") as pod_cls,
+        patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
+        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+    ):
+        scheduling_cls.return_value.handle_shipment_update = AsyncMock(
+            return_value=MagicMock(
+                handled=True,
+                enqueued=True,
+                execution_id="sched-exec-1",
+                skip_reason=None,
+            )
+        )
+
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v1/webhook/turvo",
+            json={
+                "eventName": "SHIPMENT_UPDATE",
+                "eventPayload": {
+                    "id": 1000324868,
+                    "load": {"id": 47361},
+                    "status": {"code": {"value": "Tender-Accepted"}},
+                },
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"execution_id": "sched-exec-1"}
+    scheduling_cls.return_value.handle_shipment_update.assert_awaited_once()
+    pod_cls.assert_not_called()
+    shipments_cls.assert_not_called()
+    celery_task.apply_async.assert_not_called()
 
 
 def test_turvo_webhook_skips_duplicate_route_completed() -> None:

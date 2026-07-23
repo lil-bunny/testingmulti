@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - staging
+      - feat/appointment-scheduling
+
+jobs:
+  test:
+    name: Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run appointment scheduling and related feature tests
+        run: >
+          uv run pytest -q
+          tests/test_appointment_scheduling*.py
+          tests/test_notify_appointment_draft_teams_node.py
+          tests/test_t3ra_inbound_email_service.py
+          tests/test_t3ra_turvo.py
+          tests/test_appointment_scheduling_send_api.py
+          tests/test_communications_appointment_reply_thread.py
