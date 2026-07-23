@@ -171,17 +171,25 @@ class DriverDetailsEmailIngressService:
         communication_id: str | None = None,
         thread_id: str | None = None,
     ) -> str:
+        """
+        Serialize-enqueue driver_assignment and link run/comms to the lifecycle.
+
+        Lifecycle id is already known (driver-details reply path); stamps it on
+        the payload, records the workflow run, then links communication/thread.
+        """
         execution_id = str(uuid.uuid4())
         workflow_body = {**payload, "event_type": event_type, "execution_id": execution_id}
 
-        from app.tasks.workflows import run_workflow_async
+        from app.services.lifecycle_run_serializer_service import (
+            LifecycleRunSerializerService,
+        )
 
-        run_workflow_async.apply_async(
-            kwargs={
-                "tenant_slug": tenant_slug,
-                "workflow_name": DRIVER_ASSIGNMENT_WORKFLOW,
-                "payload": workflow_body,
-            }
+        workflow_body["workflow_lifecycle_id"] = workflow_lifecycle_id
+        lifecycle_run_serializer_service = LifecycleRunSerializerService()
+        lifecycle_run_serializer_service.enqueue(
+            tenant_slug=tenant_slug,
+            workflow_name=DRIVER_ASSIGNMENT_WORKFLOW,
+            payload=workflow_body,
         )
 
         self._runs_service.record_workflow_run(

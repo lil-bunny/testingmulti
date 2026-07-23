@@ -2,32 +2,21 @@
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
 
 _COMM_UUID = "11111111-2222-3333-4444-555555555555"
 _TENANT_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
-def _load_t3ra_service(monkeypatch):
-    celery_mock = MagicMock()
-    celery_mock.apply_async.return_value = MagicMock(id="celery-1")
-    workflows_mod = MagicMock()
-    workflows_mod.run_workflow_async = celery_mock
-    monkeypatch.setitem(sys.modules, "app.tasks.workflows", workflows_mod)
-    sys.modules.pop("app.services.t3ra_email_ingress_service", None)
-    from app.services.t3ra_email_ingress_service import T3raEmailIngressService
-
-    return T3raEmailIngressService, celery_mock
-
-
 @pytest.mark.asyncio
-async def test_t3ra_ratecon_payload_includes_communication_id(monkeypatch) -> None:
+async def test_t3ra_ratecon_payload_includes_communication_id() -> None:
+    from app.services.t3ra_email_ingress_service import T3raEmailIngressService
     from app.services.unipile_tenant_resolution import UnipileTenantContext
 
-    T3raEmailIngressService, celery_task = _load_t3ra_service(monkeypatch)
     tenant = UnipileTenantContext(
         tenant_uuid=_TENANT_UUID,
         tenant_slug="t3ra",
@@ -46,10 +35,33 @@ async def test_t3ra_ratecon_payload_includes_communication_id(monkeypatch) -> No
         "load_id": "30389",
     }
 
-    with patch(
-        "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email",
-        return_value=email_classification,
+    with (
+        patch(
+            "app.services.t3ra_email_ingress_service.classify_t3ra_inbound_email",
+            return_value=email_classification,
+        ),
+        patch(
+            "app.services.ratecon_ingress_service.RateconIngressService.prepare_payload",
+            new_callable=AsyncMock,
+            return_value={
+                **payload,
+                "workflow_name": "ratecon",
+                "load_id": "30389",
+                "shipment_id": "1000324895",
+                "shipments_row_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            },
+        ),
+        patch(
+            "app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService"
+        ) as ser_cls,
     ):
+        ser_cls.return_value.resolve_then_enqueue.return_value = SerializeEnqueueResult(
+            lifecycle_id="ratecon-lc",
+            inbox_key="inbox:lifecycle:ratecon-lc",
+            status="started",
+            celery_task_id="celery-1",
+            workflow_lifecycle_id="ratecon-lc",
+        )
         ingress_service = T3raEmailIngressService()
         ingress_service._driver_details_email_ingress = MagicMock()
         ingress_service._driver_details_email_ingress.try_driver_details_email_received.return_value = None
@@ -61,7 +73,8 @@ async def test_t3ra_ratecon_payload_includes_communication_id(monkeypatch) -> No
         )
 
     assert result.outcome == "enqueued"
-    celery_kw = celery_task.apply_async.call_args.kwargs["kwargs"]
-    assert celery_kw["workflow_name"] == "ratecon"
-    assert celery_kw["payload"]["communication_id"] == _COMM_UUID
-    assert celery_kw["payload"]["event_type"] == "email_received"
+    ser_cls.return_value.resolve_then_enqueue.assert_called_once()
+    kwargs = ser_cls.return_value.resolve_then_enqueue.call_args.kwargs
+    assert kwargs["workflow_name"] == "ratecon"
+    assert kwargs["payload"]["communication_id"] == _COMM_UUID
+    assert kwargs["payload"]["event_type"] == "email_received"

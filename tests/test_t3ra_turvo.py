@@ -12,7 +12,10 @@ from fastapi.testclient import TestClient
 
 from app.domain.tenant_settings.tms import TmsSettings
 from app.integrations.turvo import documents as documents_module
-from app.integrations.turvo.load_to_shipment import shipment_id_from_list_response
+from app.integrations.turvo.load_to_shipment import (
+    load_id_to_shipment_id_async,
+    shipment_id_from_list_response,
+)
 from app.integrations.turvo.public_api_client import TurvoApiClient
 from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
 from app.main import app
@@ -143,6 +146,57 @@ def test_turvo_load_id_to_shipment_id_success():
 
 
 @pytest.mark.asyncio
+async def test_load_id_to_shipment_id_async_uses_custom_id_eq_first():
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def request(self, tenant_slug: str, method: str, path: str, **kwargs: Any):
+            self.calls.append({"tenant_slug": tenant_slug, "method": method, "path": path, **kwargs})
+            return {
+                "details": {
+                    "shipments": [{"id": 1000315335, "customId": "30381"}],
+                },
+            }
+
+    fake = _FakeApi()
+    sid = await load_id_to_shipment_id_async("t3ra", "30381", client=fake)
+
+    assert sid == "1000315335"
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["params"] == {"customId[eq]": "30381"}
+
+
+@pytest.mark.asyncio
+async def test_load_id_to_shipment_id_async_falls_back_to_unfiltered_list():
+    class _FakeApi:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def request(self, tenant_slug: str, method: str, path: str, **kwargs: Any):
+            self.calls.append({"tenant_slug": tenant_slug, "method": method, "path": path, **kwargs})
+            params = kwargs.get("params") or {}
+            if "customId[eq]" in params:
+                return {"details": {"shipments": []}}
+            return {
+                "details": {
+                    "shipments": [
+                        {"id": 1, "customId": "other"},
+                        {"id": 1000315335, "customId": "30381"},
+                    ],
+                },
+            }
+
+    fake = _FakeApi()
+    sid = await load_id_to_shipment_id_async("t3ra", "30381", client=fake)
+
+    assert sid == "1000315335"
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["params"] == {"customId[eq]": "30381"}
+    assert "params" not in fake.calls[1]
+
+
+@pytest.mark.asyncio
 async def test_turvo_check_pod_by_shipment_id():
     """Documents list with POD type key is detected (pod_lifecycle gate)."""
 
@@ -214,6 +268,7 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         "found": True,
         "lifecycle_id": "11111111-2222-3333-4444-555555555555",
     }
+    from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
 
     with (
         patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
@@ -222,6 +277,7 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
         patch("app.api.v1.webhooks.IngressService") as scheduling_cls,
         patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+        patch("app.api.v1.webhooks.LifecycleRunSerializerService") as serializer_cls,
         patch(
             "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
@@ -240,7 +296,15 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
             RouteCompletedDuplicateResult(is_duplicate=False)
         )
         _wire_ingress_route_gates(ingress_cls.return_value)
-        celery_task.apply_async.return_value = MagicMock(id="celery-task-1")
+        serializer_cls.return_value.resolve_then_enqueue.return_value = (
+            SerializeEnqueueResult(
+                lifecycle_id="pod-lc-1",
+                inbox_key="inbox:lifecycle:pod-lc-1",
+                status="started",
+                celery_task_id="celery-task-1",
+                workflow_lifecycle_id="pod-lc-1",
+            )
+        )
 
         client = TestClient(app)
         resp = client.post("/api/v1/webhook/turvo", json=ROUTE_COMPLETE_WEBHOOK_PAYLOAD)
@@ -258,11 +322,11 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         workflow_lifecycle_id="11111111-2222-3333-4444-555555555555",
     )
 
-    celery_kw = celery_task.apply_async.call_args.kwargs["kwargs"]
-    assert celery_kw["workflow_name"] == "pod_lifecycle"
-    assert celery_kw["payload"]["shipment_id"] == _TURVO_SHIPMENT
-    assert celery_kw["payload"]["event_type"] == "route_completed"
-    assert celery_kw["payload"]["thread_id"] == "thread-from-comm"
+    ser_kw = serializer_cls.return_value.resolve_then_enqueue.call_args.kwargs
+    assert ser_kw["workflow_name"] == "pod_lifecycle"
+    assert ser_kw["payload"]["shipment_id"] == _TURVO_SHIPMENT
+    assert ser_kw["payload"]["event_type"] == "route_completed"
+    assert ser_kw["payload"]["thread_id"] == "thread-from-comm"
 
 
 def test_turvo_webhook_scheduling_handled_short_circuits_pod_path() -> None:
@@ -315,7 +379,7 @@ def test_turvo_webhook_skips_duplicate_route_completed() -> None:
         patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
         patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
-        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+        patch("app.api.v1.webhooks.LifecycleRunSerializerService") as serializer_cls,
         patch(
             "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
@@ -342,7 +406,7 @@ def test_turvo_webhook_skips_duplicate_route_completed() -> None:
     assert body.get("skipped") == "duplicate_route_completed"
     assert body.get("lifecycle_id") == pod_lifecycle_id
     assert "execution_id" not in body
-    celery_task.apply_async.assert_not_called()
+    serializer_cls.return_value.resolve_then_enqueue.assert_not_called()
 
 
 def test_turvo_webhook_skips_convoy_load() -> None:
@@ -356,7 +420,7 @@ def test_turvo_webhook_skips_convoy_load() -> None:
         patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
         patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
-        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+        patch("app.api.v1.webhooks.LifecycleRunSerializerService") as serializer_cls,
         patch(
             "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
@@ -381,7 +445,7 @@ def test_turvo_webhook_skips_convoy_load() -> None:
     assert body.get("skipped") == ROUTE_COMPLETED_SKIP_CONVOY_LOAD
     assert body.get("shipment_id") == _TURVO_SHIPMENT
     assert "execution_id" not in body
-    celery_task.apply_async.assert_not_called()
+    serializer_cls.return_value.resolve_then_enqueue.assert_not_called()
 
 
 def test_turvo_webhook_skips_pod_already_exists() -> None:
@@ -395,7 +459,7 @@ def test_turvo_webhook_skips_pod_already_exists() -> None:
         patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
         patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
-        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
+        patch("app.api.v1.webhooks.LifecycleRunSerializerService") as serializer_cls,
         patch(
             "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
@@ -420,5 +484,5 @@ def test_turvo_webhook_skips_pod_already_exists() -> None:
     assert body.get("skipped") == ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS
     assert body.get("shipment_id") == _TURVO_SHIPMENT
     assert "execution_id" not in body
-    celery_task.apply_async.assert_not_called()
+    serializer_cls.return_value.resolve_then_enqueue.assert_not_called()
 

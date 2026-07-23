@@ -25,6 +25,7 @@ from app.domain.reminder_schedule import ReminderStepSpec, WorkflowRemindersConf
 from app.domain.gelita.routing_guide_lifecycle import optional_routing_guide_attempt
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
+from app.services.worker_queue_routing import apply_async_on_work_queue
 from app.tasks.reminders import trigger_workflow_reminder
 
 logger = get_logger(__name__)
@@ -345,7 +346,9 @@ class WorkflowReminderService:
                 payload = enrich_step_payload(
                     base_payload, step=step, reminders=reminders, data=data
                 )
-                result = trigger_workflow_reminder.apply_async(
+                result = apply_async_on_work_queue(
+                    trigger_workflow_reminder,
+                    tenant_slug=str(payload.get("tenant_slug") or "").strip() or None,
                     kwargs={"payload": payload},
                     countdown=timedelta(hours=step.delay_hours).total_seconds(),
                     expires=expire_s,
@@ -486,7 +489,9 @@ class WorkflowReminderService:
         enqueued_steps: list[ReminderStepSpec] = []
         try:
             for fire_at, payload, step in to_enqueue:
-                result = trigger_workflow_reminder.apply_async(
+                result = apply_async_on_work_queue(
+                    trigger_workflow_reminder,
+                    tenant_slug=str(payload.get("tenant_slug") or "").strip() or None,
                     kwargs={"payload": payload},
                     eta=fire_at,
                     expires=expire_s,

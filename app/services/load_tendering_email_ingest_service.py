@@ -25,7 +25,6 @@ from app.services.email_webhook_attachment_ingestion import (
 )
 from app.services.communications.service import CommunicationsService
 from app.services.workflow_runs_service import WorkflowRunsService
-from app.tasks.workflows import run_workflow_async
 
 logger = get_logger(__name__)
 
@@ -38,20 +37,32 @@ def enqueue_load_tendering_workflow(
     payload: dict[str, Any],
     event_type: str,
 ) -> str:
+    """
+    Serialize-enqueue one ``load_tendering`` graph start.
+
+    Returns the new ``execution_id`` (caller may still treat buffered starts as
+    accepted work on the lifecycle run queue).
+    """
+    from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
+
     execution_id = str(uuid.uuid4())
     body = {**payload, "event_type": event_type, "execution_id": execution_id}
-    task = run_workflow_async.apply_async(
-        kwargs={
-            "tenant_slug": graph_slug,
-            "workflow_name": WORKFLOW_NAME,
-            "payload": body,
-        }
+    tenant_id = str(body.get("tenant_id") or graph_slug).strip()
+    lifecycle_run_serializer_service = LifecycleRunSerializerService()
+    result = lifecycle_run_serializer_service.resolve_then_enqueue(
+        tenant_id=tenant_id,
+        tenant_slug=graph_slug,
+        workflow_name=WORKFLOW_NAME,
+        payload=body,
     )
     logger.info(
-        "load_tendering ingest queued workflow task_id=%s execution_id=%s event_type=%s",
-        task.id,
+        "load_tendering serialize status=%s celery_task_id=%s execution_id=%s "
+        "event_type=%s lifecycle_id=%s",
+        result.status,
+        result.celery_task_id,
         execution_id,
         event_type,
+        result.lifecycle_id,
     )
     return execution_id
 
@@ -75,7 +86,11 @@ def enqueue_gelita_load_tendering_and_link(
     """
     execution_id = enqueue_load_tendering_workflow(
         graph_slug=graph_slug,
-        payload=payload,
+        payload={
+            **payload,
+            "tenant_id": tenant_uuid,
+            "workflow_lifecycle_id": workflow_lifecycle_id,
+        },
         event_type=event_type,
     )
 

@@ -14,9 +14,15 @@ ENV UV_COMPILE_BYTECODE=1
 WORKDIR /code
 
 # --- INSTALL SYSTEM DEPENDENCIES  ---
+# libmagic1: python-magic. libheif-dev: pillow-heif.
+# OpenCV (via rapidocr-onnxruntime): only libs that fail `import cv2` on
+# slim-bookworm with opencv-python 5.x — verified via ldd + import test.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     libheif-dev \
+    libxcb1 \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy ONLY your dependency files first. 

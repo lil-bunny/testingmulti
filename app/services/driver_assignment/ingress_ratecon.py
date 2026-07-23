@@ -1,4 +1,4 @@
-"""Ratecon tail enqueue and prepare (layers 1–2)."""
+"""Ratecon tail enqueue and prepare for driver_assignment."""
 
 from __future__ import annotations
 
@@ -20,7 +20,12 @@ logger = get_logger(__name__)
 class IngressRateconMixin:
     def try_enqueue_from_ratecon_state(self, state) -> EnqueueResult:
 
-        """Layer 1: silent skip or enqueue Celery from ratecon graph tail."""
+        """
+        From ratecon graph tail: gate then serialize-enqueue driver_assignment.
+
+        Silent skip on missing keys / eligibility / pickup; otherwise resolve
+        lifecycle and publish under the per-lifecycle run queue.
+        """
 
         data = state.data if hasattr(state, "data") else {}
 
@@ -192,44 +197,32 @@ class IngressRateconMixin:
 
         payload["execution_id"] = execution_id
 
-        from app.tasks.workflows import run_workflow_async
+        from app.services.lifecycle_run_serializer_service import (
+            LifecycleRunSerializerService,
+        )
 
-        task = run_workflow_async.apply_async(
-
-            kwargs={
-
-                "tenant_slug": tenant_slug,
-
-                "workflow_name": DRIVER_ASSIGNMENT_WORKFLOW,
-
-                "payload": payload,
-
-            }
-
+        lifecycle_run_serializer_service = LifecycleRunSerializerService()
+        result = lifecycle_run_serializer_service.resolve_then_enqueue(
+            tenant_id=str(payload.get("tenant_id") or tenant_slug).strip(),
+            tenant_slug=tenant_slug,
+            workflow_name=DRIVER_ASSIGNMENT_WORKFLOW,
+            payload=payload,
         )
 
         logger.info(
-
-            "driver_assignment queued task_id=%s execution_id=%s ratecon_lifecycle_id=%s shipment_id=%s",
-
-            task.id,
-
+            "driver_assignment serialize status=%s celery_task_id=%s execution_id=%s "
+            "ratecon_lifecycle_id=%s shipment_id=%s",
+            result.status,
+            result.celery_task_id,
             execution_id,
-
             ratecon_workflow_lifecycle_id,
-
             shipment_id,
-
         )
 
         return EnqueueResult(
-
             enqueued=True,
-
             execution_id=execution_id,
-
-            celery_task_id=task.id,
-
+            celery_task_id=result.celery_task_id,
         )
 
     async def prepare_ratecon_completed_payload(
