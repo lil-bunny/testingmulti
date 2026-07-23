@@ -185,7 +185,8 @@ async def listen_turvo_status(
     override = x_workflow_tenant_id
     workflow_tenant = _resolve_workflow_tenant_id(override)
 
-    scheduling_result = await IngressService().handle_shipment_update(
+    ingress = IngressService()
+    scheduling_result = await ingress.handle_shipment_update(
         body,
         workflow_tenant,
     )

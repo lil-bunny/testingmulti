@@ -89,6 +89,33 @@ def _wire_failure(wire: str, message: str) -> SchedulingFailure:
     return SchedulingFailure.from_wire(wire, message)
 
 
+def _wire_error(raw: dict[str, Any], wire: str) -> str:
+    return str(raw.get("error") or wire)
+
+
+@dataclass(frozen=True)
+class TurvoStateContext:
+    tenant_slug: str
+    shipment_id: str
+    tenant_id: str
+    load_id: str
+    customer_name: str | None
+    shipment_payload: dict[str, Any] | None
+
+
+def _turvo_context_from_data(data: dict[str, Any]) -> TurvoStateContext:
+    payload = data.get("shipment") if isinstance(data.get("shipment"), dict) else None
+    customer = str(data.get("customer_name") or "").strip()
+    return TurvoStateContext(
+        tenant_slug=str(data.get("tenant_slug") or "").strip(),
+        shipment_id=str(data.get("shipment_id") or "").strip(),
+        tenant_id=str(data.get("tenant_id") or "").strip(),
+        load_id=str(data.get("load_id") or "").strip(),
+        customer_name=customer or None,
+        shipment_payload=payload,
+    )
+
+
 async def _fetch_shipment_payload(
     slug: str,
     sid: str,
@@ -111,8 +138,10 @@ class TurvoStopUpdateService:
         self,
         *,
         activity_service: ActivityService | None = None,
+        shipments_service: ShipmentsService | None = None,
     ) -> None:
         self._activity = activity_service or ActivityService()
+        self._shipments = shipments_service or ShipmentsService()
 
     def apply_delivery_placeholder_from_state(self, state) -> TurvoConfirmResult:
         result = run_sync(self._apply_delivery_placeholder_from_state_async(state))
@@ -123,14 +152,11 @@ class TurvoStopUpdateService:
         return result
 
     async def _apply_delivery_placeholder_from_state_async(self, state) -> TurvoConfirmResult:
-        data = state.data or {}
-        tenant_slug = str(data.get("tenant_slug") or "").strip()
-        shipment_id = str(data.get("shipment_id") or "").strip()
-        payload = data.get("shipment") if isinstance(data.get("shipment"), dict) else None
+        ctx = _turvo_context_from_data(state.data or {})
         return await self.apply_delivery_placeholder(
-            tenant_slug=tenant_slug,
-            shipment_id=shipment_id,
-            shipment_payload=payload,
+            tenant_slug=ctx.tenant_slug,
+            shipment_id=ctx.shipment_id,
+            shipment_payload=ctx.shipment_payload,
         )
 
     async def apply_delivery_placeholder(
@@ -140,8 +166,8 @@ class TurvoStopUpdateService:
         shipment_id: str,
         shipment_payload: dict[str, Any] | None = None,
     ) -> TurvoConfirmResult:
-        slug = str(tenant_slug or "").strip()
-        sid = str(shipment_id or "").strip()
+        slug = tenant_slug
+        sid = shipment_id
         if not slug or not sid:
             wire = "missing_turvo_shipment_fields"
             return TurvoConfirmResult(
@@ -202,7 +228,7 @@ class TurvoStopUpdateService:
 
         ok = bool(raw.get("ok"))
         if not ok:
-            err = str(raw.get("error") or WIRE_TURVO_STOP_UPDATE_FAILED)
+            err = _wire_error(raw, WIRE_TURVO_STOP_UPDATE_FAILED)
             return TurvoConfirmResult(
                 ok=False,
                 updated=bool(raw.get("updated")),
@@ -231,22 +257,21 @@ class TurvoStopUpdateService:
 
     async def _apply_delivery_from_state_async(self, state) -> TurvoWriteResult:
         data = state.data or {}
+        ctx = _turvo_context_from_data(data)
         extraction = data.get("customer_reply_extraction") or {}
         if not isinstance(extraction, dict):
             extraction = {}
-        tenant_slug = str(data.get("tenant_slug") or "").strip()
-        shipment_id = str(data.get("shipment_id") or "").strip()
         start_time = str(
             extraction.get("turvo_start_time") or data.get("confirmed_delivery_at") or ""
         ).strip()
         return await self.apply_delivery(
-            tenant_slug=tenant_slug,
-            shipment_id=shipment_id,
+            tenant_slug=ctx.tenant_slug,
+            shipment_id=ctx.shipment_id,
             start_time=start_time,
-            shipment_payload=data.get("shipment") if isinstance(data.get("shipment"), dict) else None,
-            tenant_id=str(data.get("tenant_id") or "").strip(),
-            load_id=str(data.get("load_id") or "").strip(),
-            customer_name_override=str(data.get("customer_name") or "").strip() or None,
+            shipment_payload=ctx.shipment_payload,
+            tenant_id=ctx.tenant_id,
+            load_id=ctx.load_id,
+            customer_name_override=ctx.customer_name,
         )
 
     async def apply_delivery(
@@ -261,9 +286,9 @@ class TurvoStopUpdateService:
         load_id: str = "",
         customer_name_override: str | None = None,
     ) -> TurvoWriteResult:
-        slug = str(tenant_slug or "").strip()
-        sid = str(shipment_id or "").strip()
-        wall_time = str(start_time or "").strip()
+        slug = tenant_slug
+        sid = shipment_id
+        wall_time = start_time
 
         payload = shipment_payload if isinstance(shipment_payload, dict) else None
         if payload is None and slug and sid:
@@ -276,7 +301,7 @@ class TurvoStopUpdateService:
                 )
             payload = fetched
 
-        name = str(stop_name or "").strip()
+        name = stop_name
         if not name and payload is not None:
             name = str(delivery_stop_name_from_payload(payload) or "").strip()
 
@@ -317,7 +342,7 @@ class TurvoStopUpdateService:
 
         ok = bool(raw.get("ok"))
         if not ok:
-            err = str(raw.get("error") or WIRE_TURVO_STOP_UPDATE_FAILED)
+            err = _wire_error(raw, WIRE_TURVO_STOP_UPDATE_FAILED)
             return TurvoWriteResult(
                 ok=False,
                 updated=bool(raw.get("updated")),
@@ -338,13 +363,13 @@ class TurvoStopUpdateService:
             start_time=wall_time,
             response=raw,
         )
-        tid = str(tenant_id or "").strip()
-        lid = str(load_id or "").strip()
+        tid = tenant_id
+        lid = load_id
         if tid and lid:
-            override = str(customer_name_override or "").strip()
+            override = customer_name_override
             if not override and payload is not None:
-                override = str(delivery_stop_name_from_payload(payload) or "").strip()
-            refresh = await ShipmentsService().refresh_display_from_turvo(
+                override = str(delivery_stop_name_from_payload(payload) or "").strip() or None
+            refresh = await self._shipments.refresh_display_from_turvo(
                 tenant_id=tid,
                 tenant_slug=slug,
                 turvo_shipment_id=sid,
@@ -366,13 +391,13 @@ class TurvoStopUpdateService:
         return result
 
     async def _apply_turvo_tender_from_state_async(self, state) -> TurvoWriteResult:
-        data = state.data or {}
+        ctx = _turvo_context_from_data(state.data or {})
         return await self.apply_tender(
-            tenant_slug=str(data.get("tenant_slug") or "").strip(),
-            shipment_id=str(data.get("shipment_id") or "").strip(),
-            tenant_id=str(data.get("tenant_id") or "").strip(),
-            load_id=str(data.get("load_id") or "").strip(),
-            customer_name_override=str(data.get("customer_name") or "").strip() or None,
+            tenant_slug=ctx.tenant_slug,
+            shipment_id=ctx.shipment_id,
+            tenant_id=ctx.tenant_id,
+            load_id=ctx.load_id,
+            customer_name_override=ctx.customer_name,
         )
 
     async def apply_tender(
@@ -384,8 +409,8 @@ class TurvoStopUpdateService:
         load_id: str = "",
         customer_name_override: str | None = None,
     ) -> TurvoWriteResult:
-        slug = str(tenant_slug or "").strip()
-        sid = str(shipment_id or "").strip()
+        slug = tenant_slug
+        sid = shipment_id
         if not slug or not sid:
             wire = "missing_turvo_tender_fields"
             return TurvoWriteResult(
@@ -440,16 +465,15 @@ class TurvoStopUpdateService:
                 ),
             )
 
-        tid = str(tenant_id or "").strip()
-        lid = str(load_id or "").strip()
+        tid = tenant_id
+        lid = load_id
         if tid and lid:
-            override = str(customer_name_override or "").strip() or None
-            refresh = await ShipmentsService().refresh_display_from_turvo(
+            refresh = await self._shipments.refresh_display_from_turvo(
                 tenant_id=tid,
                 tenant_slug=slug,
                 turvo_shipment_id=sid,
                 load_id=lid,
-                customer_name_override=override,
+                customer_name_override=customer_name_override,
             )
             if not refresh.get("success"):
                 logger.warning(

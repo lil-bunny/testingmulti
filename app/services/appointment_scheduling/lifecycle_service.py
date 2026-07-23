@@ -281,7 +281,8 @@ class LifecycleService:
 
     def finalize_after_teams_notify(self, state):
         """Teams notify + draft pending review transition + strip intake checkpoint."""
-        result = TeamsNotificationService().notify_from_state(state)
+        teams = TeamsNotificationService()
+        result = teams.notify_from_state(state)
         state.data["appointment_scheduling_teams_notification_sent"] = result.sent
         if result.skip_reason:
             state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason

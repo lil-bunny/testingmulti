@@ -140,16 +140,13 @@ class IntakeActivity:
         workflow_run_id: str | None,
         failure: SchedulingFailure,
     ) -> None:
-        wl_id = str(workflow_lifecycle_id or "").strip()
-        tenant = str(tenant_id or "").strip()
-        run_id = str(workflow_run_id or "").strip() or None
-        if not wl_id or not tenant or not run_id:
+        if not workflow_lifecycle_id or not tenant_id or not workflow_run_id:
             logger.warning(
                 "record_appointment_failed skipped missing ids "
                 "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
-                bool(wl_id),
-                bool(tenant),
-                bool(run_id),
+                bool(workflow_lifecycle_id),
+                bool(tenant_id),
+                bool(workflow_run_id),
             )
             return
 
@@ -160,24 +157,24 @@ class IntakeActivity:
         }
         self._deps.activity_log.record_exception(
             ActivityLogWrite(
-                tenant_id=tenant,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
                 description=failure.message,
                 metadata=metadata,
                 actor_type=ActorType.SYSTEM,
             )
         )
 
-        row = self._deps.lifecycle.read_lifecycle_row_by_id(wl_id)
+        row = self._deps.lifecycle.read_lifecycle_row_by_id(workflow_lifecycle_id)
         from_status = status_type_from_db(row.get("status")) if row else StatusType.PROCESSING
         from_sub = sub_status_type_from_db(row.get("sub_status")) if row else StatusSubType.NONE
 
         self._deps.apply(
             LifecycleTransitionCommand(
-                tenant_id=tenant,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
                 activity_type=ActivityType.STATUS_CHANGE,
                 from_status=from_status or StatusType.PROCESSING,
                 from_sub_status=from_sub or StatusSubType.NONE,

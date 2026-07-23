@@ -8,6 +8,7 @@ from app.core.logger import get_logger
 from app.domain.lifecycle_transition import (
     LifecycleTransitionCommand,
     LifecycleTransitionError,
+    LifecycleTransitionResult,
 )
 from app.domain.status_parsing import status_type_from_db
 from app.models.activity_type import ActivityType, ActorType
@@ -78,9 +79,9 @@ class SchedulingActivityDeps:
         self.transitions = transition_service or LifecycleTransitionService()
         self.activity_log = activity_log_service or ActivityLogService()
 
-    def apply(self, command: LifecycleTransitionCommand) -> None:
+    def apply(self, command: LifecycleTransitionCommand) -> LifecycleTransitionResult | None:
         try:
-            self.transitions.apply(command)
+            return self.transitions.apply(command)
         except LifecycleTransitionError as exc:
             logger.warning("scheduling activity transition skipped: %s", exc)
         except Exception:
@@ -89,6 +90,7 @@ class SchedulingActivityDeps:
                 command.activity_type.value,
                 command.workflow_lifecycle_id,
             )
+        return None
 
     def apply_sequence(self, *commands: LifecycleTransitionCommand) -> None:
         if not commands:
@@ -109,6 +111,7 @@ class SchedulingActivityDeps:
         *,
         description: str,
         communication_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
         actor_type: ActorType | None = None,
         actor_id: str | None = None,
     ) -> LifecycleTransitionCommand:
@@ -118,6 +121,7 @@ class SchedulingActivityDeps:
             description=description,
             update_lifecycle=False,
             communication_id=communication_id,
+            metadata=metadata,
             actor_type=actor_type or ActorType.SYSTEM,
             actor_id=actor_id,
         )

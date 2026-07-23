@@ -10,7 +10,9 @@ def clean_optional_str(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
-    return text if text else None
+    if not text or text.lower() == "null":
+        return None
+    return text
 
 
 def iso_or_empty(value: Any) -> str:

@@ -50,6 +50,33 @@ class AscendWriteResult:
         )
 
 
+@dataclass(frozen=True)
+class AscendStateContext:
+    tenant_slug: str
+    tenant_settings: dict[str, Any]
+    reference_number: str
+    appointment_start_iso: str
+    ascend_shipment: dict[str, Any] | None
+
+
+def _ascend_context_from_data(data: dict[str, Any]) -> AscendStateContext:
+    extraction = data.get("customer_reply_extraction") or {}
+    if not isinstance(extraction, dict):
+        extraction = {}
+    ascend_shipment = data.get("ascend_shipment")
+    if not isinstance(ascend_shipment, dict):
+        ascend_shipment = None
+    return AscendStateContext(
+        tenant_slug=str(data.get("tenant_slug") or "").strip(),
+        tenant_settings=data.get("tenant_settings") or {},
+        reference_number=str(data.get("reference_number") or "").strip(),
+        appointment_start_iso=str(
+            extraction.get("appointment_start_iso") or data.get("confirmed_delivery_at") or ""
+        ).strip(),
+        ascend_shipment=ascend_shipment,
+    )
+
+
 class AscendWriteService:
     def __init__(
         self,
@@ -69,24 +96,13 @@ class AscendWriteService:
         )
 
     def apply_dropoff_from_state(self, state) -> AscendWriteResult:
-        data = state.data or {}
-        tenant_settings = data.get("tenant_settings") or {}
-        extraction = data.get("customer_reply_extraction") or {}
-        if not isinstance(extraction, dict):
-            extraction = {}
-        ascend_shipment = data.get("ascend_shipment")
-        if not isinstance(ascend_shipment, dict):
-            ascend_shipment = None
-        reference_number = str(data.get("reference_number") or "").strip()
-        iso_start = str(
-            extraction.get("appointment_start_iso") or data.get("confirmed_delivery_at") or ""
-        ).strip()
+        ctx = _ascend_context_from_data(state.data or {})
         result = self.apply_dropoff(
-            tenant_slug=str(data.get("tenant_slug") or "").strip(),
-            tenant_settings=tenant_settings,
-            reference_number=reference_number,
-            appointment_start_iso=iso_start,
-            ascend_shipment=ascend_shipment,
+            tenant_slug=ctx.tenant_slug,
+            tenant_settings=ctx.tenant_settings,
+            reference_number=ctx.reference_number,
+            appointment_start_iso=ctx.appointment_start_iso,
+            ascend_shipment=ctx.ascend_shipment,
         )
         state.data["ascend_update_result"] = result.to_checkpoint_dict()
         self._activity.record_ascend_update(state)

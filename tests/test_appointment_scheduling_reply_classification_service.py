@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from app.domain.lifecycle_transition import LifecycleTransitionResult
 from app.services.appointment_scheduling.reply_classification_service import (
     ReplyClassificationService,
 )
@@ -29,12 +30,19 @@ def _service(*, thread_text: str = "We can deliver July 18 at 10:30 AM") -> Repl
     comms.build_appointment_reply_thread_llm_user_message.return_value = (thread_text, 1)
     comms.find_outbound_draft_communication_id.return_value = None
     prompts = MagicMock()
-    activity = MagicMock()
-    activity.record_action.return_value = "activity-1"
+    activity_deps = MagicMock()
+    activity_deps.apply.return_value = LifecycleTransitionResult(
+        lifecycle_updated=False,
+        activity_log_id="activity-1",
+        from_status=None,
+        from_sub_status=None,
+        to_status=None,
+        to_sub_status=None,
+    )
     return ReplyClassificationService(
         communications_service=comms,
         prompt_service=prompts,
-        activity_log_service=activity,
+        activity_deps=activity_deps,
     )
 
 
@@ -70,9 +78,9 @@ def test_classify_accepted_records_activity() -> None:
     assert result.decision == ACCEPTED
     assert result.appointment_start_iso == "2026-07-18T10:30:00"
     assert result.llm_activity_log_id == "activity-1"
-    svc._activity.record_action.assert_called_once()
-    call_kwargs = svc._activity.record_action.call_args.args[0]
-    assert call_kwargs.metadata == {
+    svc._activity_deps.apply.assert_called_once()
+    call_cmd = svc._activity_deps.apply.call_args.args[0]
+    assert call_cmd.metadata == {
         "decision": ACCEPTED,
         "confidence": 0.95,
         "reason": "explicit date and time",
@@ -109,7 +117,7 @@ def test_classify_vague_reply_do_nothing() -> None:
         )
 
     assert result.decision == DO_NOTHING
-    svc._activity.record_action.assert_called_once()
+    svc._activity_deps.apply.assert_called_once()
     patch_data = result.to_state_patch()
     assert patch_data["customer_reply_decision"] == DO_NOTHING
     assert "customer_reply_llm" not in patch_data
@@ -162,7 +170,7 @@ def test_classify_empty_body_do_nothing() -> None:
         workflow_run_id=_RUN,
     )
     assert result.decision == DO_NOTHING
-    svc._activity.record_action.assert_not_called()
+    svc._activity_deps.apply.assert_not_called()
 
 
 def test_classify_from_state() -> None:

@@ -9,6 +9,7 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_turvo_delivery_updated_action,
     format_turvo_tendered_action,
 )
+from app.domain.appointment_scheduling.boundary import clean_optional_str
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType
@@ -32,16 +33,18 @@ class ReplyActivity:
         result = data.get("ascend_update_result") or {}
         if not isinstance(result, dict):
             result = {}
-        reference = str(data.get("reference_number") or "").strip()
+        reference = clean_optional_str(data.get("reference_number")) or ""
         dry_run = bool(result.get("dry_run"))
         skipped = bool(result.get("skipped"))
         ok = bool(result.get("ok"))
         extraction = data.get("customer_reply_extraction") or {}
-        appointment_start = str(
-            (extraction.get("appointment_start_iso") if isinstance(extraction, dict) else None)
-            or data.get("confirmed_delivery_at")
+        appointment_start = (
+            clean_optional_str(
+                extraction.get("appointment_start_iso") if isinstance(extraction, dict) else None
+            )
+            or clean_optional_str(data.get("confirmed_delivery_at"))
             or ""
-        ).strip()
+        )
 
         if dry_run or skipped:
             description = format_ascend_dropoff_skipped_action(reference_number=reference)
@@ -64,11 +67,15 @@ class ReplyActivity:
         result = data.get("turvo_update_result") or {}
         if not isinstance(result, dict):
             result = {}
-        stop_name = str(result.get("stop_name") or data.get("customer_name") or "").strip()
-        start_time = str(result.get("start_time") or "").strip()
+        stop_name = (
+            clean_optional_str(result.get("stop_name"))
+            or clean_optional_str(data.get("customer_name"))
+            or ""
+        )
+        start_time = clean_optional_str(result.get("start_time")) or ""
         extraction = data.get("customer_reply_extraction") or {}
         if not start_time and isinstance(extraction, dict):
-            start_time = str(extraction.get("turvo_start_time") or "").strip()
+            start_time = clean_optional_str(extraction.get("turvo_start_time")) or ""
 
         self._deps.apply(
             self._deps.action_from_state(
@@ -84,7 +91,7 @@ class ReplyActivity:
         if scope_ids(state) is None:
             return
         data = getattr(state, "data", None) or {}
-        comm_id = str(data.get("confirmation_communication_id") or "").strip() or None
+        comm_id = clean_optional_str(data.get("confirmation_communication_id"))
         self._deps.apply(
             self._deps.action_from_state(
                 state,
@@ -97,7 +104,7 @@ class ReplyActivity:
         if scope_ids(state) is None:
             return
         data = getattr(state, "data", None) or {}
-        reference = str(data.get("reference_number") or "").strip()
+        reference = clean_optional_str(data.get("reference_number")) or ""
         self._deps.apply(
             self._deps.action_from_state(
                 state,

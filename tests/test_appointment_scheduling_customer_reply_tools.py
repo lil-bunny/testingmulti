@@ -48,9 +48,9 @@ def test_build_customer_reply_result_accepted_missing_time_is_rejected() -> None
     assert parsed["decision"] == REJECTED
 
 
-def test_normalize_legacy_sufficient_and_insufficient() -> None:
-    assert normalize_customer_reply_decision({"decision": "sufficient"}) == ACCEPTED
-    assert normalize_customer_reply_decision({"decision": "insufficient"}) == DO_NOTHING
+def test_normalize_unknown_decision_defaults_to_do_nothing() -> None:
+    assert normalize_customer_reply_decision({"decision": "sufficient"}) == DO_NOTHING
+    assert normalize_customer_reply_decision({"decision": "garbage"}) == DO_NOTHING
 
 
 def test_build_ascend_dropoff_update_payload() -> None:
