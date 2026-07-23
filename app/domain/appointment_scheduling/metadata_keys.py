@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 EMAIL_DRAFT = "email_draft"
+DRAFT_SEND_QUEUED = "draft_send_queued"
 APPOINTMENT_PAYLOAD = "appointment_payload"
 LLM_APPOINTMENT_DECISION = "llm_appointment_decision"
 APPOINTMENT_FAILURE_REASON = "appointment_failure_reason"

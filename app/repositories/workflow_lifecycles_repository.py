@@ -598,6 +598,82 @@ class WorkflowLifecyclesRepository:
         ).rowcount
         return rowcount > 0
 
+    def claim_appointment_draft_send_queued(
+        self,
+        *,
+        lifecycle_id: str,
+        expected_tenant_id: str,
+    ) -> str:
+        """Atomically claim portal draft send via ``metadata.draft_send_queued``.
+
+        Returns one of: ``claimed``, ``not_found``, ``conflict``, ``invalid_status``,
+        ``missing_email_draft``.
+        """
+        from app.domain.appointment_scheduling.metadata_keys import (
+            DRAFT_SEND_QUEUED,
+            EMAIL_DRAFT,
+        )
+
+        row = self._session.execute(
+            text(
+                f"""
+                SELECT status::text, sub_status::text, tenant_id::text, metadata
+                FROM {self.TABLE_NAME}
+                {_WHERE_LIFECYCLE_ID}
+                FOR UPDATE
+                """
+            ),
+            {"lifecycle_id": lifecycle_id},
+        ).first()
+        if not row:
+            return "not_found"
+
+        row_tenant = str(row[2] or "").strip()
+        if row_tenant != str(expected_tenant_id or "").strip():
+            return "not_found"
+
+        status = str(row[0] or "").strip()
+        sub_status = str(row[1] or "").strip()
+        if status != StatusType.PENDING_REVIEW.value:
+            return "invalid_status"
+        if sub_status != StatusSubType.APPOINTMENT_DRAFT_CREATED.value:
+            return "conflict"
+
+        meta = parse_json(row[3]) if row[3] is not None else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if meta.get(DRAFT_SEND_QUEUED) is True:
+            return "conflict"
+
+        draft = meta.get(EMAIL_DRAFT)
+        if not isinstance(draft, dict) or not (
+            str(draft.get("to") or "").strip()
+            and str(draft.get("subject") or "").strip()
+            and str(draft.get("full_html") or "").strip()
+        ):
+            return "missing_email_draft"
+
+        updated = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb),
+                    updated_at = NOW()
+                {_WHERE_LIFECYCLE_ID}
+                  AND status = CAST(:status AS lifecycle_status)
+                  AND sub_status = CAST(:sub_status AS lifecycle_sub_status)
+                  AND COALESCE((metadata->>'draft_send_queued')::boolean, false) IS NOT TRUE
+                """
+            ),
+            {
+                "lifecycle_id": lifecycle_id,
+                "metadata_patch": jsonb_param({DRAFT_SEND_QUEUED: True}),
+                "status": StatusType.PENDING_REVIEW.value,
+                "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
+            },
+        ).rowcount
+        return "claimed" if updated > 0 else "conflict"
+
     def insert_driver_assignment_lifecycle(
         self,
         *,

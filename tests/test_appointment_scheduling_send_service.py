@@ -14,7 +14,6 @@ from app.services.appointment_scheduling.send_service import (
 from app.workflows.graph.routers import appointment_post_read_router
 
 _TENANT_UUID = "11111111-1111-1111-1111-111111111111"
-_OTHER_TENANT_UUID = "00000000-0000-0000-0000-000000000000"
 
 
 def _state(**data):
@@ -57,20 +56,9 @@ def test_post_read_router_intake_for_turvo_event() -> None:
 
 
 @patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
-def test_send_service_conflict_when_not_draft_created(mock_enqueue: MagicMock) -> None:
+def test_send_service_conflict_when_claim_conflict(mock_enqueue: MagicMock) -> None:
     lifecycle = MagicMock()
-    lifecycle.read_lifecycle_row_by_id.return_value = {
-        "tenant_id": _TENANT_UUID,
-        "status": "pending_review",
-        "sub_status": "awaiting_customer_reply",
-        "metadata": {
-            "email_draft": {
-                "to": "wh@example.com",
-                "subject": "DEL APPT",
-                "full_html": "<p>Hi</p>",
-            }
-        },
-    }
+    lifecycle.claim_appointment_draft_send_queued.return_value = "conflict"
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {"id": _TENANT_UUID}
     svc = SendService(
@@ -86,23 +74,16 @@ def test_send_service_conflict_when_not_draft_created(mock_enqueue: MagicMock) -
         )
 
     mock_enqueue.assert_not_called()
+    lifecycle.claim_appointment_draft_send_queued.assert_called_once_with(
+        lifecycle_id="wl-1",
+        expected_tenant_id=_TENANT_UUID,
+    )
 
 
 @patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
-def test_send_service_enqueues_when_draft_created(mock_enqueue: MagicMock) -> None:
+def test_send_service_enqueues_when_claim_wins(mock_enqueue: MagicMock) -> None:
     lifecycle = MagicMock()
-    lifecycle.read_lifecycle_row_by_id.return_value = {
-        "tenant_id": _TENANT_UUID,
-        "status": "pending_review",
-        "sub_status": "appointment_draft_created",
-        "metadata": {
-            "email_draft": {
-                "to": "wh@example.com",
-                "subject": "DEL APPT",
-                "full_html": "<p>Hi</p>",
-            }
-        },
-    }
+    lifecycle.claim_appointment_draft_send_queued.return_value = "claimed"
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {"id": _TENANT_UUID}
     mock_enqueue.return_value = "task-1"
@@ -122,20 +103,40 @@ def test_send_service_enqueues_when_draft_created(mock_enqueue: MagicMock) -> No
 
 
 @patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
+def test_send_service_second_claim_does_not_enqueue(mock_enqueue: MagicMock) -> None:
+    """Dual portal send: first claim wins and enqueues; second gets conflict."""
+    lifecycle = MagicMock()
+    lifecycle.claim_appointment_draft_send_queued.side_effect = ["claimed", "conflict"]
+    tenants = MagicMock()
+    tenants.get_by_slug.return_value = {"id": _TENANT_UUID}
+    mock_enqueue.return_value = "exec-1"
+    svc = SendService(
+        lifecycle_service=lifecycle,
+        tenants_service=tenants,
+    )
+
+    first = svc.validate_and_enqueue_draft_send(
+        tenant_slug="t3ra",
+        workflow_lifecycle_id="wl-1",
+        actor_user_id="user-1",
+    )
+    assert first == "exec-1"
+
+    with pytest.raises(SendConflictError):
+        svc.validate_and_enqueue_draft_send(
+            tenant_slug="t3ra",
+            workflow_lifecycle_id="wl-1",
+            actor_user_id="user-1",
+        )
+
+    assert mock_enqueue.call_count == 1
+    assert lifecycle.claim_appointment_draft_send_queued.call_count == 2
+
+
+@patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
 def test_send_service_rejects_other_tenant_lifecycle(mock_enqueue: MagicMock) -> None:
     lifecycle = MagicMock()
-    lifecycle.read_lifecycle_row_by_id.return_value = {
-        "tenant_id": _OTHER_TENANT_UUID,
-        "status": "pending_review",
-        "sub_status": "appointment_draft_created",
-        "metadata": {
-            "email_draft": {
-                "to": "wh@example.com",
-                "subject": "DEL APPT",
-                "full_html": "<p>Hi</p>",
-            }
-        },
-    }
+    lifecycle.claim_appointment_draft_send_queued.return_value = "not_found"
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {"id": _TENANT_UUID}
     svc = SendService(
@@ -144,6 +145,27 @@ def test_send_service_rejects_other_tenant_lifecycle(mock_enqueue: MagicMock) ->
     )
 
     with pytest.raises(ValueError, match="lifecycle_not_found"):
+        svc.validate_and_enqueue_draft_send(
+            tenant_slug="t3ra",
+            workflow_lifecycle_id="wl-1",
+            actor_user_id="user-1",
+        )
+
+    mock_enqueue.assert_not_called()
+
+
+@patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
+def test_send_service_missing_email_draft(mock_enqueue: MagicMock) -> None:
+    lifecycle = MagicMock()
+    lifecycle.claim_appointment_draft_send_queued.return_value = "missing_email_draft"
+    tenants = MagicMock()
+    tenants.get_by_slug.return_value = {"id": _TENANT_UUID}
+    svc = SendService(
+        lifecycle_service=lifecycle,
+        tenants_service=tenants,
+    )
+
+    with pytest.raises(ValueError, match="missing_email_draft"):
         svc.validate_and_enqueue_draft_send(
             tenant_slug="t3ra",
             workflow_lifecycle_id="wl-1",
