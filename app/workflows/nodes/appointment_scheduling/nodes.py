@@ -45,7 +45,6 @@ from app.services.appointment_scheduling.confirmation_email_service import (
 from app.services.appointment_scheduling.teams_notification_service import (
     AppointmentSchedulingTeamsNotificationService,
 )
-from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.workflows.utils.decorators import safe_node
 
 logger = get_logger(__name__)
@@ -73,7 +72,6 @@ def prepare_scheduling_ingress(state):
     state.data["workflow_lifecycle_id"] = result.workflow_lifecycle_id
     state.data["shipments_row_id"] = result.shipments_row_id
     state.data["reference_number"] = result.reference_number
-    state.data["shipment"] = result.shipment
     state.data["customer_name"] = result.customer_name
     if result.customer_contact is not None:
         state.data["customer_contact"] = result.customer_contact.model_dump(mode="json")
@@ -81,11 +79,7 @@ def prepare_scheduling_ingress(state):
 
 
 def read_appointment_scheduling_lifecycle(state):
-    lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
-    row = AppointmentSchedulingLifecycleService().load_context(lifecycle_id)
-    state.data["workflow_lifecycle_row"] = row or {}
-    if row and row.get("metadata"):
-        state.data["workflow_lifecycle_metadata"] = row.get("metadata")
+    AppointmentSchedulingLifecycleService().hydrate_read_context(state)
     return state
 
 
@@ -93,7 +87,8 @@ def read_appointment_scheduling_lifecycle(state):
 def run_scheduling_intake(state):
     tenant_slug = str(state.data.get("tenant_slug") or "").strip()
     tenant_settings = state.data.get("tenant_settings") or {}
-    result = AppointmentSchedulingIntakeService().run_intake(
+    svc = AppointmentSchedulingIntakeService()
+    result = svc.run_intake(
         tenant_slug=tenant_slug,
         tenant_settings=tenant_settings,
         payload=state.data,
@@ -106,38 +101,7 @@ def run_scheduling_intake(state):
         )
         raise_scheduling_result_failure(result.failure)
 
-    state.data["shipment"] = result.shipment
-    state.data["ascend_shipment"] = result.ascend_shipment
-    state.data["customer_contact"] = (
-        result.customer_contact.model_dump(mode="json") if result.customer_contact else None
-    )
-    state.data["pickup_dropoff_data"] = (
-        result.pickup_dropoff_data.model_dump(mode="json")
-        if result.pickup_dropoff_data
-        else None
-    )
-    state.data["draft_static"] = (
-        result.draft_static.model_dump(mode="json") if result.draft_static else None
-    )
-    state.data["customer_name"] = result.customer_name
-    state.data["customer_id"] = result.customer_id
-    state.data["reference_number"] = result.reference_number
-    state.data["ascend_context"] = {
-        "office_code": result.office_code,
-        "appointments": result.ascend_appointments,
-    }
-    shipments_row_id = str(state.data.get("shipments_row_id") or "").strip()
-    if shipments_row_id and isinstance(result.shipment, dict):
-        link_result = ShipmentLocationLinkService().try_link_from_turvo_shipment_payload(
-            result.shipment,
-            shipments_row_id=shipments_row_id,
-        )
-        if link_result is not None:
-            state.data["shipment_location_link"] = {
-                "success": True,
-                "pickup_location_id": link_result.pickup_location_id,
-                "delivery_location_id": link_result.delivery_location_id,
-            }
+    state.data.update(svc.build_intake_state_patch(result))
     return state
 
 
@@ -202,6 +166,7 @@ def notify_appointment_scheduling_draft_teams(state):
     if result.error:
         state.data["appointment_scheduling_teams_notification_error"] = result.error
     AppointmentSchedulingActivityService().record_draft_pending_review(state)
+    AppointmentSchedulingLifecycleService().strip_intake_checkpoint(state)
     return state
 
 
@@ -223,21 +188,11 @@ def hydrate_appointment_confirm_context(state):
 @safe_node
 def apply_weekend_shifted_pickup(state):
     result = AppointmentSchedulingWeekendPickupService().apply_from_state(state)
-    state.data["weekend_pickup_result"] = {
-        "ok": result.ok,
-        "skipped": result.skipped,
-        "dry_run": result.dry_run,
-        "error": result.error,
-        "ascend_updated": result.ascend_updated,
-        "turvo_updated": result.turvo_updated,
-        "turvo_pickup_start_time": result.turvo_pickup_start_time,
-        "pickup_stop_name": result.pickup_stop_name,
-        "ascend_response": result.ascend_response,
-        "turvo_response": result.turvo_response,
-    }
+    checkpoint = result.to_checkpoint_dict()
+    state.data["weekend_pickup_result"] = checkpoint
     AppointmentSchedulingActivityService().record_weekend_pickup_update(
         state,
-        result=state.data["weekend_pickup_result"],
+        result=checkpoint,
     )
     if not result.ok and not result.skipped and result.failure:
         raise result.failure.to_workflow_exception()
@@ -247,17 +202,11 @@ def apply_weekend_shifted_pickup(state):
 @safe_node
 def apply_turvo_delivery_placeholder(state):
     result = AppointmentSchedulingTurvoConfirmService().apply_delivery_placeholder_from_state(state)
-    state.data["turvo_confirm_result"] = {
-        "ok": result.ok,
-        "updated": result.updated,
-        "error": result.error,
-        "stop_name": result.stop_name,
-        "start_time": result.start_time,
-        "response": result.response,
-    }
+    checkpoint = result.to_checkpoint_dict()
+    state.data["turvo_confirm_result"] = checkpoint
     AppointmentSchedulingActivityService().record_turvo_confirm_placeholder(
         state,
-        result=state.data["turvo_confirm_result"],
+        result=checkpoint,
     )
     if not result.ok:
         raise_scheduling_result_failure(result.failure, wire=result.error)
@@ -295,14 +244,7 @@ def classify_appointment_customer_reply(state):
 @safe_node
 def apply_ascend_dropoff_appointment(state):
     result = AppointmentSchedulingAscendWriteService().apply_dropoff_from_state(state)
-    state.data["ascend_update_result"] = {
-        "ok": result.ok,
-        "skipped": result.skipped,
-        "dry_run": result.dry_run,
-        "error": result.error,
-        "payload": result.payload,
-        "response": result.response,
-    }
+    state.data["ascend_update_result"] = result.to_checkpoint_dict()
     AppointmentSchedulingActivityService().record_ascend_update(state)
     if not result.ok and result.failure:
         raise result.failure.to_workflow_exception()
@@ -312,14 +254,7 @@ def apply_ascend_dropoff_appointment(state):
 @safe_node
 def apply_turvo_delivery_appointment(state):
     result = AppointmentSchedulingTurvoWriteService().apply_delivery_from_state(state)
-    state.data["turvo_update_result"] = {
-        "ok": result.ok,
-        "updated": result.updated,
-        "error": result.error,
-        "stop_name": result.stop_name,
-        "start_time": result.start_time,
-        "response": result.response,
-    }
+    state.data["turvo_update_result"] = result.to_checkpoint_dict()
     AppointmentSchedulingActivityService().record_turvo_update(state)
     if not result.ok:
         raise_scheduling_result_failure(result.failure, wire=result.error)
@@ -344,13 +279,7 @@ def apply_turvo_tender_status(state):
         return state
 
     result = AppointmentSchedulingTurvoWriteService().tender_from_state(state)
-    state.data["turvo_tender_result"] = {
-        "ok": result.ok,
-        "updated": result.updated,
-        "skipped": result.skipped,
-        "error": result.error,
-        "response": result.response,
-    }
+    state.data["turvo_tender_result"] = result.to_checkpoint_dict()
     if result.ok and (result.updated or result.skipped):
         AppointmentSchedulingActivityService().record_turvo_tendered(state)
     if not result.ok:

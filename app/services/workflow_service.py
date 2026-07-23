@@ -201,6 +201,7 @@ class WorkflowService:
         payload["tenant_settings"] = tenant_settings_for_workflow_state(
             tenant_slug,
             tenant_row.get("settings") or {},
+            workflow_name=workflow_name,
         )
         if workflow_name == "pod_lifecycle":
             payload = self._pod_lifecycle_ingress.enrich_payload_load_id(

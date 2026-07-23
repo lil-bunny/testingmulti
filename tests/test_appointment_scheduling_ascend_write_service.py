@@ -41,14 +41,49 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
     assert result.payload["shipmentStops"][0]["id"] == "stop-2"
 
 
-def test_dry_run_fails_when_dropoff_stop_missing() -> None:
+def test_dry_run_refetches_when_ascend_shipment_missing() -> None:
     svc = AppointmentSchedulingAscendWriteService()
-    result = svc.apply_dropoff(
-        tenant_slug="t3ra",
-        tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
-        reference_number=_REF,
-        appointment_start_iso=_ISO,
-    )
+    with (
+        patch(
+            "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
+            return_value={"accessToken": "token"},
+        ) as login_mock,
+        patch(
+            "app.services.appointment_scheduling.ascend_write_service.fetched_shipment_details",
+            return_value=_ASCEND_SHIPMENT,
+        ) as fetch_mock,
+    ):
+        result = svc.apply_dropoff(
+            tenant_slug="t3ra",
+            tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
+            reference_number=_REF,
+            appointment_start_iso=_ISO,
+        )
+
+    login_mock.assert_called_once()
+    fetch_mock.assert_called_once()
+    assert result.ok is True
+    assert result.dry_run is True
+
+
+def test_dry_run_fails_when_dropoff_stop_missing_after_refetch() -> None:
+    svc = AppointmentSchedulingAscendWriteService()
+    with (
+        patch(
+            "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
+            return_value={"accessToken": "token"},
+        ),
+        patch(
+            "app.services.appointment_scheduling.ascend_write_service.fetched_shipment_details",
+            return_value={"shipmentStops": []},
+        ),
+    ):
+        result = svc.apply_dropoff(
+            tenant_slug="t3ra",
+            tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
+            reference_number=_REF,
+            appointment_start_iso=_ISO,
+        )
     assert result.ok is False
     assert result.failure is not None
     assert result.failure.code == "ascend_invalid_payload"

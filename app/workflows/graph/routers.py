@@ -270,22 +270,27 @@ def scheduling_intake_router(state):
 
 
 def _appointment_draft_from_state(state) -> dict:
-    meta = state.data.get("workflow_lifecycle_metadata") or {}
-    if not isinstance(meta, dict):
-        row = state.data.get("workflow_lifecycle_row") or {}
-        meta = row.get("metadata") if isinstance(row, dict) else {}
-    if not isinstance(meta, dict):
-        return {}
-    draft = meta.get("email_draft")
+    draft = state.data.get("email_draft")
     return draft if isinstance(draft, dict) else {}
+
+
+def _lifecycle_status_from_state(state) -> tuple[str, str]:
+    status = str(state.data.get("workflow_lifecycle_status") or "").strip()
+    sub_status = str(state.data.get("workflow_lifecycle_sub_status") or "").strip()
+    if status and sub_status:
+        return status, sub_status
+    row = state.data.get("workflow_lifecycle_row") or {}
+    if isinstance(row, dict):
+        return str(row.get("status") or "").strip(), str(row.get("sub_status") or "").strip()
+    return status, sub_status
 
 
 def appointment_scheduling_post_read_router(state):
     event_type = str(state.data.get("event_type") or "").strip()
     if event_type == "appointment_customer_reply_received":
-        row = state.data.get("workflow_lifecycle_row") or {}
-        status = status_type_from_db(row.get("status"))
-        sub_status = sub_status_type_from_db(row.get("sub_status"))
+        status_raw, sub_status_raw = _lifecycle_status_from_state(state)
+        status = status_type_from_db(status_raw)
+        sub_status = sub_status_type_from_db(sub_status_raw)
         if status in SCHEDULING_REPLY_TERMINAL_STATUSES:
             return "end"
         if sub_status in SCHEDULING_REPLY_TERMINAL_SUB_STATUSES:
@@ -294,9 +299,7 @@ def appointment_scheduling_post_read_router(state):
             return "end"
         return "reply"
     if event_type == "appointment_draft_send":
-        row = state.data.get("workflow_lifecycle_row") or {}
-        status = str(row.get("status") or "").strip()
-        sub_status = str(row.get("sub_status") or "").strip()
+        status, sub_status = _lifecycle_status_from_state(state)
         if status != "pending_review":
             return "end"
         if sub_status != "appointment_draft_created":

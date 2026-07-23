@@ -265,7 +265,7 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
     assert payload["shipment_id"] == _SHIPMENT_ID
     assert payload["load_id"] == _LOAD_ID
     assert payload["reference_number"] == "DIAMOND-RPN-999"
-    assert payload["shipment"] == _turvo_shipment_payload()
+    assert "shipment" not in payload
     assert payload["workflow_lifecycle_id"] == _LIFECYCLE_ID
     assert payload["shipments_row_id"] == _SHIPMENTS_ROW_ID
     svc._prepare.prepare_pickup_changed.assert_called_once()

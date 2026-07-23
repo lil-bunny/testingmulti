@@ -73,3 +73,23 @@ def test_tenant_settings_for_workflow_state_strips_secrets() -> None:
     assert projected["appointment_scheduling"]["ascend_email"] == "ascend@example.com"
     assert "ascend_password" not in projected["appointment_scheduling"]
     assert projected["prompts"]["pod_lifecycle"]["page_extraction"] == "pod-page-extraction:staging"
+
+
+def test_tenant_settings_for_workflow_state_projects_appointment_scheduling() -> None:
+    projected = tenant_settings_for_workflow_state(
+        "t3ra",
+        _T3RA_SETTINGS,
+        workflow_name="appointment_scheduling",
+    )
+    assert projected["mikey_account_id"]["account_id"] == "test-mikey-account-id"
+    assert projected["appointment_scheduling"]["ascend_email"] == "ascend@example.com"
+    assert (
+        projected["prompts"]["appointment_scheduling"]["scheduling_optimization"]
+        == "appt-scheduling-optimization:staging"
+    )
+    assert "pod_lifecycle" not in projected
+    assert "driver_assignment" not in projected
+    assert "tms" not in projected
+    assert "enabledProcesses" not in projected
+    assert "prompts" in projected
+    assert "pod_lifecycle" not in projected["prompts"]

@@ -29,6 +29,7 @@ from app.integrations.turvo.shipments import (
     update_stop_appointment_time,
 )
 from app.integrations.turvo.webhook_mapping import TENDERED_STATUS_CODE_KEY
+from app.domain.appointment_scheduling.state_hygiene import slim_turvo_write_result
 from app.services.shipments_service import ShipmentsService
 
 logger = get_logger(__name__)
@@ -44,6 +45,16 @@ class TurvoWriteResult:
     stop_name: str | None = None
     start_time: str | None = None
     response: dict[str, Any] | None = None
+
+    def to_checkpoint_dict(self) -> dict[str, Any]:
+        return slim_turvo_write_result(
+            ok=self.ok,
+            updated=self.updated,
+            skipped=self.skipped,
+            error=self.error,
+            stop_name=self.stop_name,
+            start_time=self.start_time,
+        )
 
 
 def _wire_failure(wire: str, message: str) -> SchedulingFailure:

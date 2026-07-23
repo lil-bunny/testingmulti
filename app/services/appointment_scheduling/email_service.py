@@ -41,15 +41,6 @@ class AppointmentSchedulingEmailService:
     @staticmethod
     def _draft_from_state(state) -> dict[str, Any]:
         draft = state.data.get("email_draft")
-        if isinstance(draft, dict) and draft:
-            return draft
-        meta = state.data.get("workflow_lifecycle_metadata") or {}
-        if not isinstance(meta, dict):
-            row = state.data.get("workflow_lifecycle_row") or {}
-            meta = row.get("metadata") if isinstance(row, dict) else {}
-        if not isinstance(meta, dict):
-            return {}
-        draft = meta.get("email_draft")
         return draft if isinstance(draft, dict) else {}
 
     @staticmethod

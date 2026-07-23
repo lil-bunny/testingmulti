@@ -21,6 +21,7 @@ from app.domain.appointment_scheduling.metadata_keys import (
     LLM_SCHEDULING_DECISION,
     SCHEDULING_FAILURE_REASON,
 )
+from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpoint_data
 from app.services.appointment_scheduling.activity_service import (
     AppointmentSchedulingActivityService,
 )
@@ -45,6 +46,21 @@ class AppointmentSchedulingLifecycleService:
 
     def load_context(self, lifecycle_id: str) -> dict[str, Any] | None:
         return self._lifecycle.read_lifecycle_row_by_id(lifecycle_id)
+
+    def hydrate_read_context(self, state) -> None:
+        """Load slim lifecycle fields for send/reply routing (no full row on state)."""
+        lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
+        if not lifecycle_id:
+            return
+        row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
+        state.data["workflow_lifecycle_status"] = str(row.get("status") or "").strip()
+        state.data["workflow_lifecycle_sub_status"] = str(row.get("sub_status") or "").strip()
+        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        if isinstance(meta, dict):
+            apply_lifecycle_email_draft_to_state(state, meta)
+
+    def strip_intake_checkpoint(self, state) -> None:
+        strip_intake_checkpoint_data(state.data)
 
     def persist_draft_ready(
         self,

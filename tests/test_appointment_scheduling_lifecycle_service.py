@@ -518,3 +518,53 @@ def test_hydrate_confirm_context_weekend_router_skips_without_decision():
 
     assert "llm_scheduling_decision" not in state.data
     assert scheduling_weekend_shifted_router(state) == "skip"
+
+
+def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "pending_review",
+        "sub_status": "appointment_draft_created",
+        "metadata": {
+            EMAIL_DRAFT: {
+                "to": "a@example.com",
+                "subject": "DEL APPT",
+                "full_html": "<html/>",
+            },
+            LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
+        },
+    }
+    service = AppointmentSchedulingLifecycleService(lifecycle_service=lifecycle)
+    state = _state(event_type="appointment_draft_send")
+
+    service.hydrate_read_context(state)
+
+    assert state.data["workflow_lifecycle_status"] == "pending_review"
+    assert state.data["workflow_lifecycle_sub_status"] == "appointment_draft_created"
+    assert state.data["email_draft"]["to"] == "a@example.com"
+    assert "workflow_lifecycle_row" not in state.data
+    assert "workflow_lifecycle_metadata" not in state.data
+    assert "llm_scheduling_decision" not in state.data
+
+
+def test_hydrate_confirm_context_does_not_set_workflow_lifecycle_metadata():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "tenant_id": _TENANT_UUID,
+        "metadata": {
+            EMAIL_DRAFT: {"to": "a@example.com", "subject": "s", "full_html": "<p/>"},
+            LLM_SCHEDULING_DECISION: {"weekend_shifted": False},
+        },
+    }
+    shipments = MagicMock()
+    shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
+    service = AppointmentSchedulingLifecycleService(
+        lifecycle_service=lifecycle,
+        shipments_service=shipments,
+    )
+    state = _state(shipments_row_id=_SHIPMENT_ROW_ID)
+
+    service.hydrate_confirm_context(state)
+
+    assert "workflow_lifecycle_metadata" not in state.data
+    assert state.data["llm_scheduling_decision"] == {"weekend_shifted": False}

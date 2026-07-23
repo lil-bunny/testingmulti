@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -257,3 +257,66 @@ def test_intake_success_from_google_sheets_url():
     assert result.ok is True
     assert result.customer_contact is not None
     assert result.customer_contact.email == "mitej@theagentic.ai"
+
+
+def test_intake_links_shipment_locations_when_shipments_row_id_present(appointment_sheet):
+    link_svc = MagicMock()
+    link_svc.try_link_from_turvo_shipment_payload.return_value = MagicMock(
+        pickup_location_id="p-id",
+        delivery_location_id="d-id",
+    )
+    service = AppointmentSchedulingIntakeService(location_link_service=link_svc)
+    tenant_settings = {
+        "appointment_scheduling": {
+            "appointment_data_source": appointment_sheet,
+            "ascend_email": "ascend@example.com",
+            "ascend_password": "secret",
+        }
+    }
+    turvo_shipment = {
+        "details": {
+            "customerOrder": [
+                {
+                    "customer": {"name": "Acme Foods"},
+                    "externalIds": [{"idValue": "DIAMOND-RPN-99"}],
+                    "items": [{"deliveryLocation": [{"name": "Acme Foods"}]}],
+                }
+            ]
+        }
+    }
+    ascend_shipment = {
+        "totalCharge": "$100.00",
+        "totalMiles": 10,
+        "proNumber": "PRO",
+        "shipmentStops": [
+            {"appointmentStart": "2026-07-01T10:00:00Z", "stopName": "P"},
+            {"stopName": "D"},
+        ],
+    }
+    with patch(
+        "app.services.appointment_scheduling.intake_service.get_shipment_async",
+        new=AsyncMock(return_value=turvo_shipment),
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
+        return_value=_ascend_settings(appointment_data_source=appointment_sheet),
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.login_ascend_api",
+        return_value={"accessToken": "token"},
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.fetched_shipment_details",
+        return_value=ascend_shipment,
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.get_loc_ref_for_ascend_slots",
+        return_value=[{"warehouse": "WH-1"}],
+    ):
+        result = service.run_intake(
+            tenant_slug="t3ra",
+            tenant_settings=tenant_settings,
+            payload={"shipment_id": "12345", "shipments_row_id": "ship-row-1"},
+        )
+
+    assert result.ok is True
+    link_svc.try_link_from_turvo_shipment_payload.assert_called_once()
+    state_patch = service.build_intake_state_patch(result)
+    assert "customer_id" not in state_patch
+    assert "shipment_location_link" not in state_patch

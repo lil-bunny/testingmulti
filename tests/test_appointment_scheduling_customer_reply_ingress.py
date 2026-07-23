@@ -82,6 +82,8 @@ def test_try_customer_reply_enqueues_when_lifecycle_active() -> None:
     assert result.event_type == WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value
     celery_payload = apply_async.call_args.kwargs["kwargs"]["payload"]
     assert "tenant_settings" not in celery_payload
+    assert "body" not in celery_payload
+    assert "subject" not in celery_payload
 
 
 def test_try_customer_reply_skips_when_not_reply() -> None:
@@ -261,3 +263,5 @@ def test_build_reply_workflow_payload_uses_shipment_customer_name_column() -> No
 
     assert payload is not None
     assert payload["customer_name"] == "Costco Wholesale"
+    assert "body" not in payload
+    assert "subject" not in payload

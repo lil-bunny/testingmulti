@@ -56,9 +56,6 @@ class AppointmentReplyClassificationResult:
                 "appointment_start_iso": self.appointment_start_iso,
                 "turvo_start_time": self.turvo_start_time,
             },
-            "customer_reply_llm": self.llm_raw,
-            "customer_reply_thread_llm_input": self.thread_llm_input,
-            "customer_reply_thread_message_count": self.thread_message_count,
         }
         if self.appointment_start_iso:
             patch["confirmed_delivery_at"] = self.appointment_start_iso
@@ -205,6 +202,12 @@ class AppointmentReplyClassificationService:
                         confidence=result.confidence,
                     ),
                     communication_id=communication_id,
+                    metadata={
+                        "decision": result.decision,
+                        "confidence": result.confidence,
+                        "reason": result.reason,
+                        "thread_message_count": result.thread_message_count,
+                    },
                 )
             )
             if activity_log_id:
