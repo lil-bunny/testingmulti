@@ -32,3 +32,13 @@ class SchedulingFailure:
             message=message,
             category=ErrorCategory.SYSTEM,
         )
+
+    def to_workflow_exception(self) -> "WorkflowException":
+        from app.domain.error_catalog import SystemError, resolve_error_code
+        from app.exceptions import WorkflowException
+
+        catalog = resolve_error_code(self.code)
+        return WorkflowException(
+            catalog or SystemError.UNEXPECTED_NODE_FAILURE,
+            self.message,
+        )

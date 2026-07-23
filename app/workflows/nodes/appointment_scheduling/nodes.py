@@ -246,7 +246,7 @@ def apply_weekend_shifted_pickup(state):
         result=state.data["weekend_pickup_result"],
     )
     if not result.ok and not result.skipped and result.failure:
-        raise WorkflowException(result.failure.code, result.failure.message)
+        raise result.failure.to_workflow_exception()
     return state
 
 
@@ -317,7 +317,7 @@ def apply_ascend_dropoff_appointment(state):
     }
     AppointmentSchedulingActivityService().record_ascend_update(state)
     if not result.ok and result.failure:
-        raise WorkflowException(result.failure.code, result.failure.message)
+        raise result.failure.to_workflow_exception()
     return state
 
 
@@ -353,6 +353,7 @@ def send_appointment_confirmation_reply(state):
     return state
 
 
+@safe_node
 def apply_turvo_tender_status(state):
     if not state.data.get("confirmation_sent"):
         return state
@@ -368,7 +369,10 @@ def apply_turvo_tender_status(state):
     if result.ok and (result.updated or result.skipped):
         AppointmentSchedulingActivityService().record_turvo_tendered(state)
     if not result.ok:
-        raise RuntimeError(result.error or "turvo_tender_failed")
+        raise WorkflowException(
+            IntegrationError.VENDOR_API_ERROR,
+            result.error or IntegrationError.VENDOR_API_ERROR.description,
+        )
     return state
 
 
