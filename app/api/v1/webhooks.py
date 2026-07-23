@@ -25,7 +25,11 @@ from app.services.pod_lifecycle.ingress_service import (
     ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
     PodLifecycleIngressService,
 )
+from app.domain.email_ingress_heavy_work import payload_requires_heavy_ingress_work
 from app.domain.unipile_email import extract_email_id_or_none
+from app.services.email_ingress_work_queue_serializer_service import (
+    EmailIngressWorkQueueSerializerService,
+)
 from app.services.inbound_webhook_enqueue import accept_inbound_unipile_email
 from app.services.shipments_service import ShipmentsService
 from app.services.unipile_tenant_resolution import resolve_unipile_tenant
@@ -75,8 +79,13 @@ async def webhook_email(
     """
     Unipile email webhook: auth, tenant resolve, then Ingress accept on-request.
 
-    Outcomes: ``202`` when work is accepted or buffered on a lifecycle run queue;
-    ``200`` when the delivery was already claimed, skipped, or unmatched.
+    Heavy deliveries (Edge Heavy-Work Gate match, e.g. sheet attachments) admit to
+    the Pre-Lifecycle Work Queue instead of running Ingress inline; the worker
+    classifies and runs Heavy Ingress Work off the request path. Everything else
+    keeps today's cheap inline Ingress path.
+
+    Outcomes: ``202`` when work is accepted, buffered, or queued for background
+    processing; ``200`` when the delivery was already claimed, skipped, or unmatched.
     """
     try:
         # Guard: reject before parsing body on bad credentials.
@@ -99,6 +108,21 @@ async def webhook_email(
         email_id = extract_email_id_or_none(payload)
         if not email_id:
             return {"message": "invalid webhook"}
+
+        if payload_requires_heavy_ingress_work(payload):
+            email_ingress_work_queue_serializer_service = EmailIngressWorkQueueSerializerService()
+            email_ingress_work_queue_serializer_service.admit(
+                email_id=email_id,
+                tenant_uuid=tenant.tenant_uuid,
+                tenant_slug=tenant.tenant_slug,
+                payload=payload,
+            )
+            content = {
+                "accepted": True,
+                "email_id": email_id,
+                "status": "queued_for_processing",
+            }
+            return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=content)
 
         email_id, queue_status = await accept_inbound_unipile_email(
             tenant_uuid=tenant.tenant_uuid,

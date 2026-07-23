@@ -1,14 +1,17 @@
-"""Gelita xlsx webhook accepts fast via sync Ingress path (no Celery hop)."""
+"""Gelita xlsx webhook admits to the Pre-Lifecycle Work Queue (Heavy Ingress Work)."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import create_app
+from app.services.email_ingress_work_queue_serializer_service import (
+    EmailIngressAdmitResult,
+)
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 
@@ -61,22 +64,54 @@ def gelita_tenant_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture
+def heavy_ingress_admit_capture(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    captured: list[dict] = []
+
+    class _StubSerializer:
+        def admit(self, **kwargs: object) -> EmailIngressAdmitResult:
+            captured.append(dict(kwargs))
+            return EmailIngressAdmitResult(
+                email_id=str(kwargs["email_id"]),
+                inbox_key=f"inbox:email_ingress:{kwargs['email_id']}",
+                status="started",
+                length=1,
+                celery_task_id="task-1",
+            )
+
+    monkeypatch.setattr(
+        "app.api.v1.webhooks.EmailIngressWorkQueueSerializerService",
+        MagicMock(return_value=_StubSerializer()),
+    )
+    return captured
+
+
 @pytest.mark.usefixtures("gelita_tenant_stub", "ingress_capture")
-def test_gelita_xlsx_webhook_returns_accepted_and_queues_ingress(
+def test_gelita_xlsx_webhook_queues_heavy_ingress_work_not_inline_ingress(
     webhook_headers: dict[str, str],
     ingress_capture: list[dict],
+    heavy_ingress_admit_capture: list[dict],
 ) -> None:
+    """
+    Sheet attachments are heavy (Edge Heavy-Work Gate match): admit to the
+    Pre-Lifecycle Work Queue, never call the inline Ingress accept path.
+    """
     client = TestClient(create_app())
     r = client.post(
         "/api/v1/webhook/email",
         json=_load_tender_payload(),
         headers=webhook_headers,
     )
+
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["accepted"] is True
     assert body["email_id"] == "mail-1"
-    assert body["status"] == "accepted"
-    assert len(ingress_capture) == 1
-    assert ingress_capture[0]["tenant_slug"] == "gelita"
-    assert ingress_capture[0]["payload"]["email_id"] == "mail-1"
+    assert body["status"] == "queued_for_processing"
+    assert len(ingress_capture) == 0
+
+    assert len(heavy_ingress_admit_capture) == 1
+    admitted = heavy_ingress_admit_capture[0]
+    assert admitted["email_id"] == "mail-1"
+    assert admitted["tenant_slug"] == "gelita"
+    assert admitted["payload"]["email_id"] == "mail-1"
