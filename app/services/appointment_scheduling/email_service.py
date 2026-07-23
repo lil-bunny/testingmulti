@@ -144,13 +144,6 @@ class EmailService:
         if comm_id:
             send_result["communication_id"] = comm_id
             state.data["communication_id"] = comm_id
-            actor_id = str(data.get("actor_user_id") or "").strip() or None
-            self._activity.record_confirm_email_sent(
-                state,
-                communication_id=comm_id,
-                actor_id=actor_id,
-            )
-            self._activity.record_awaiting_customer_reply(state)
 
         return SendResult(
             sent=True,

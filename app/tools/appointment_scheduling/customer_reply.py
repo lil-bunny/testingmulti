@@ -5,32 +5,19 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.domain.appointment_scheduling.boundary import clean_optional_str
+
 ACCEPTED = "accepted"
 REJECTED = "rejected"
 DO_NOTHING = "do_nothing"
 
 _CUSTOMER_REPLY_DECISIONS = frozenset({ACCEPTED, REJECTED, DO_NOTHING})
-_LEGACY_DECISION_ALIASES = {
-    "sufficient": ACCEPTED,
-    "insufficient": DO_NOTHING,
-}
-
-
-def _clean_field(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text or text.lower() == "null":
-        return None
-    return text
 
 
 def normalize_customer_reply_decision(raw: dict[str, Any]) -> str:
     decision = str(raw.get("decision") or "").strip().lower()
     if decision in _CUSTOMER_REPLY_DECISIONS:
         return decision
-    if decision in _LEGACY_DECISION_ALIASES:
-        return _LEGACY_DECISION_ALIASES[decision]
     success = raw.get("success")
     if success is True:
         return ACCEPTED
@@ -146,8 +133,8 @@ def build_ascend_dropoff_update_payload(
 
 def build_customer_reply_result(raw: dict[str, Any]) -> dict[str, Any]:
     """Map LLM JSON to normalized decision and extracted date/time fields."""
-    extracted_date = _clean_field(raw.get("extracted_date"))
-    extracted_time = _clean_field(raw.get("extracted_time"))
+    extracted_date = clean_optional_str(raw.get("extracted_date"))
+    extracted_time = clean_optional_str(raw.get("extracted_time"))
     decision = normalize_customer_reply_decision(raw)
     if decision == ACCEPTED and not (
         extracted_date and extracted_time and format_appointment_start_iso(extracted_date, extracted_time)

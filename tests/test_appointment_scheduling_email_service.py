@@ -25,7 +25,7 @@ def _state(**overrides):
 
 
 @patch("app.services.appointment_scheduling.email_service.Unipile")
-def test_send_from_state_records_communication_and_transitions_sub_status(
+def test_send_from_state_records_communication_without_lifecycle_transitions(
     mock_unipile_cls: MagicMock,
 ) -> None:
     mock_unipile_cls.return_value.send_email.return_value = {
@@ -45,8 +45,8 @@ def test_send_from_state_records_communication_and_transitions_sub_status(
     assert result.sent is True
     assert result.communication_id == "comm-1"
     communications.record_outbound_from_send.assert_called_once()
-    activity.record_confirm_email_sent.assert_called_once()
-    activity.record_awaiting_customer_reply.assert_called_once()
+    activity.record_confirm_email_sent.assert_not_called()
+    activity.record_awaiting_customer_reply.assert_not_called()
     extra = communications.record_outbound_from_send.call_args.kwargs["extra_metadata"]
     assert extra["source"] == "appointment_draft_send"
 

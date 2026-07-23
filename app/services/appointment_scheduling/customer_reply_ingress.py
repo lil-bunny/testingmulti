@@ -240,7 +240,8 @@ class CustomerReplyIngressService:
         if not thread_id:
             return None
 
-        tenant_row = TenantsService().get_by_slug(tenant.tenant_slug)
+        tenants = TenantsService()
+        tenant_row = tenants.get_by_slug(tenant.tenant_slug)
         tenant_settings = (tenant_row or {}).get("settings") or {}
 
         if not self._process_enabled_check(tenant_settings):

@@ -6,13 +6,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.activity_log_write import ActivityLogWrite
 from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_customer_reply_llm_action,
 )
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.prompt_step_keys import APPOINTMENT_SCHEDULING_CUSTOMER_REPLY
 from app.integrations.langsmith import PromptTraceMetadata, PromptUnavailableError
-from app.services.activity_log_service import ActivityLogService
+from app.models.activity_type import ActivityType
+from app.services.appointment_scheduling.activity_common import SchedulingActivityDeps
 from app.services.communications.service import CommunicationsService
 from app.services.prompt_service import (
     PromptService,
@@ -70,11 +71,11 @@ class ReplyClassificationService:
         *,
         communications_service: CommunicationsService | None = None,
         prompt_service: PromptService | None = None,
-        activity_log_service: ActivityLogService | None = None,
+        activity_deps: SchedulingActivityDeps | None = None,
     ) -> None:
         self._communications = communications_service or CommunicationsService()
         self._prompts = prompt_service or PromptService()
-        self._activity = activity_log_service or ActivityLogService()
+        self._activity_deps = activity_deps or SchedulingActivityDeps()
 
     def classify_from_state(self, state) -> ReplyClassificationResult:
         tenant_id = (getattr(state, "tenant_id", None) or state.data.get("tenant_id") or "").strip()
@@ -90,6 +91,7 @@ class ReplyClassificationService:
                 getattr(state, "execution_id", None) or state.data.get("execution_id") or ""
             ).strip(),
             communication_id=str(state.data.get("communication_id") or "").strip() or None,
+            state=state,
         )
 
     def classify_from_payload(
@@ -102,6 +104,7 @@ class ReplyClassificationService:
         workflow_lifecycle_id: str,
         workflow_run_id: str,
         communication_id: str | None = None,
+        state=None,
     ) -> ReplyClassificationResult:
         reply_text = ""
         thread_message_count = 0
@@ -191,29 +194,60 @@ class ReplyClassificationService:
         )
 
         if workflow_lifecycle_id and tenant_id and workflow_run_id:
-            activity_log_id = self._activity.record_action(
-                ActivityLogWrite(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=workflow_lifecycle_id,
-                    workflow_run_id=workflow_run_id,
-                    description=format_customer_reply_llm_action(
-                        decision=result.decision,
-                        reason=result.reason,
-                        confidence=result.confidence,
-                    ),
-                    communication_id=communication_id,
-                    metadata={
-                        "decision": result.decision,
-                        "confidence": result.confidence,
-                        "reason": result.reason,
-                        "thread_message_count": result.thread_message_count,
-                    },
-                )
+            log_id = self._record_llm_activity(
+                state=state,
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
+                communication_id=communication_id,
+                result=result,
             )
-            if activity_log_id:
-                result.llm_activity_log_id = activity_log_id
+            if log_id:
+                result.llm_activity_log_id = log_id
 
         return result
+
+    def _record_llm_activity(
+        self,
+        *,
+        state,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+        communication_id: str | None,
+        result: ReplyClassificationResult,
+    ) -> str | None:
+        description = format_customer_reply_llm_action(
+            decision=result.decision,
+            reason=result.reason,
+            confidence=result.confidence,
+        )
+        metadata = {
+            "decision": result.decision,
+            "confidence": result.confidence,
+            "reason": result.reason,
+            "thread_message_count": result.thread_message_count,
+        }
+        if state is not None:
+            command = self._activity_deps.action_from_state(
+                state,
+                description=description,
+                communication_id=communication_id,
+                metadata=metadata,
+            )
+        else:
+            command = LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
+                activity_type=ActivityType.ACTION,
+                description=description,
+                communication_id=communication_id,
+                metadata=metadata,
+                update_lifecycle=False,
+            )
+        transition_result = self._activity_deps.apply(command)
+        return transition_result.activity_log_id if transition_result else None
 
     @staticmethod
     def _fail_closed(

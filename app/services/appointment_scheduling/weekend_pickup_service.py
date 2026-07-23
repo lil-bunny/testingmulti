@@ -69,8 +69,10 @@ class WeekendPickupService:
         self,
         *,
         activity_service: ActivityService | None = None,
+        shipments_service: ShipmentsService | None = None,
     ) -> None:
         self._activity = activity_service or ActivityService()
+        self._shipments = shipments_service or ShipmentsService()
 
     def apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
         result = self._apply_weekend_shifted_pickup_from_state(state)
@@ -201,7 +203,7 @@ class WeekendPickupService:
         load_id = str(data.get("load_id") or "").strip()
         customer_name_override = str(data.get("customer_name") or "").strip() or None
         if tenant_id and load_id:
-            refresh = ShipmentsService().refresh_display_from_turvo_sync(
+            refresh = self._shipments.refresh_display_from_turvo_sync(
                 tenant_id=tenant_id,
                 tenant_slug=tenant_slug,
                 turvo_shipment_id=shipment_id,
