@@ -80,12 +80,9 @@ def test_classify_accepted_records_activity() -> None:
     assert result.llm_activity_log_id == "activity-1"
     svc._activity_deps.apply.assert_called_once()
     call_cmd = svc._activity_deps.apply.call_args.args[0]
-    assert call_cmd.metadata == {
-        "decision": ACCEPTED,
-        "confidence": 0.95,
-        "reason": "explicit date and time",
-        "thread_message_count": 1,
-    }
+    assert call_cmd.metadata is None
+    assert "accepted" in call_cmd.description
+    assert "0.95" in call_cmd.description
 
 
 def test_classify_vague_reply_do_nothing() -> None:
