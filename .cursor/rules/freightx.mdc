@@ -95,6 +95,16 @@ Readable composed SQL in repositories — borrow freightx-api’s **join-as-frag
 - **Prefer typed models** over passing raw `dict` across **service and repository boundaries**; narrow types at the edges of a use case.
 - **LangGraph `state.data`** may stay dict-shaped for the graph; when a node hands off to a service for non-trivial work, **parse or validate** into a model at that boundary rather than threading opaque dicts through multiple service layers.
 
+### Runtime annotations (FastAPI / Pydantic vs Ruff TC001)
+
+FastAPI and Pydantic **re-evaluate** annotations at runtime (OpenAPI, `Depends`, `model_rebuild`, JSON schema). Ruff’s flake8-type-checking (`TC001` / `TCH`) plus `from __future__ import annotations` will treat annotation-only imports as typing-only and push them under `if TYPE_CHECKING:` — that **breaks** those consumers (`NameError` / unresolved `ForwardRef`).
+
+**Rules**
+- **`app/api/` route modules:** do **not** use `from __future__ import annotations`. Import types used in route signatures (`ApiUser`, service classes in `Depends(...)`, request/response models’ supporting types) at **module runtime**, not under `TYPE_CHECKING`.
+- **Pydantic / settings models:** field types must be importable when the class is built. Prefer runtime imports for nested models. `pyproject.toml` `[tool.ruff.lint.flake8-type-checking] runtime-evaluated-base-classes` (e.g. `pydantic.BaseModel`) only protects **fields on subclasses of those bases** — it does **not** cover FastAPI function parameters.
+- **Services / repos / plain helpers:** `TYPE_CHECKING` imports for parameter/return hints are fine when nothing inspects those annotations at runtime.
+- **Never** “fix” a FastAPI TC001 by only extending the pydantic `runtime-evaluated-*` lists; that escape hatch is the wrong AST context. Fix the route module (runtime import, no deferred annotations) instead.
+
 ## Observability
 
 - **Logging:** structured fields where possible (tenant, workflow name, lifecycle id, event type, shipment/load/tender ids). No tokens, passwords, or full PII payloads in logs.
