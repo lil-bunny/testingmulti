@@ -11,6 +11,7 @@ env:
   ECS_CLUSTER: freightx-prod-cluster
   UVICORN_SERVICE: prod-freightx-agents-uvicorn-service-qkd892e1
   CELERY_SERVICE: prod-freightx-agents-celery-service-he3euvxv
+  CELERY_SERVICE_T3RA: prod-freightx-agents-celery-t3ra-service-kuhikdcr
 
 jobs:
   deploy:
@@ -71,4 +72,15 @@ jobs:
         aws ecs update-service \
           --cluster ${{ env.ECS_CLUSTER }} \
           --service ${{ env.CELERY_SERVICE }} \
+          --force-new-deployment
+
+    # --------------------------------------------------------- 
+    # DEPLOY CELERY T3RA ENVIRONMENT 
+    # --------------------------------------------------------- 
+
+    - name: Force ECS to deploy new image to CELERY T3RA Service
+      run: |
+        aws ecs update-service \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --service ${{ env.CELERY_SERVICE_T3RA }} \
           --force-new-deployment
