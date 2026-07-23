@@ -514,6 +514,69 @@ def test_hydrate_appointment_send_context_restores_llm_scheduling_decision_for_s
     assert appointment_weekend_pickup_router(state) == "apply"
 
 
+def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
+    """Intake persist → send hydrate → weekend router apply (§1.3 / §5.1)."""
+    email_draft = {
+        "to": "a@example.com",
+        "subject": "DEL APPT",
+        "full_html": "<html/>",
+    }
+    decision = {
+        "weekend_shifted": True,
+        "selected_pickup_date": "2026-07-01",
+        "selected_pickup_time": "08:00",
+    }
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    shipments = MagicMock()
+    shipments.update_proposed_appointments.return_value = True
+    shipments.get_by_id.return_value = {
+        "shipment_number": "1000324895",
+        "pickup_timezone": "America/Chicago",
+        "delivery_timezone": "America/Los_Angeles",
+        "metadata": {"reference_number": "DIAMOND-RPN1"},
+    }
+    service = LifecycleService(
+        lifecycle_service=lifecycle,
+        activity_service=activity,
+        shipments_service=shipments,
+    )
+    intake_state = _state()
+    service.persist_draft_ready(
+        intake_state,
+        lifecycle_id="lifecycle-1",
+        email_draft=email_draft,
+        appointment_payload={
+            "proposed_pickup_at": "2026-07-01",
+            "proposed_delivery_at": "07/04/2026",
+        },
+        llm_appointment_decision=decision,
+    )
+    metadata_patch = lifecycle.patch_metadata.call_args.kwargs["metadata_patch"]
+    assert metadata_patch[LLM_APPOINTMENT_DECISION]["weekend_shifted"] is True
+
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "tenant_id": _TENANT_UUID,
+        "metadata": {
+            EMAIL_DRAFT: email_draft,
+            LLM_APPOINTMENT_DECISION: metadata_patch[LLM_APPOINTMENT_DECISION],
+        },
+    }
+    send_state = _state(
+        event_type="appointment_draft_send",
+        shipments_row_id=_SHIPMENT_ROW_ID,
+    )
+    # Fresh send graph: decision not yet on state until hydrate.
+    assert "llm_appointment_decision" not in send_state.data or not send_state.data.get(
+        "llm_appointment_decision"
+    )
+
+    service.hydrate_appointment_send_context(send_state)
+
+    assert send_state.data["llm_appointment_decision"]["weekend_shifted"] is True
+    assert appointment_weekend_pickup_router(send_state) == "apply"
+
+
 def test_hydrate_appointment_send_context_weekend_router_skips_without_decision():
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
