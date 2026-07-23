@@ -222,18 +222,11 @@ class ReplyClassificationService:
             reason=result.reason,
             confidence=result.confidence,
         )
-        metadata = {
-            "decision": result.decision,
-            "confidence": result.confidence,
-            "reason": result.reason,
-            "thread_message_count": result.thread_message_count,
-        }
         if state is not None:
             command = self._activity_deps.action_from_state(
                 state,
                 description=description,
                 communication_id=communication_id,
-                metadata=metadata,
             )
         else:
             command = LifecycleTransitionCommand(
@@ -243,7 +236,6 @@ class ReplyClassificationService:
                 activity_type=ActivityType.ACTION,
                 description=description,
                 communication_id=communication_id,
-                metadata=metadata,
                 update_lifecycle=False,
             )
         transition_result = self._activity_deps.apply(command)
