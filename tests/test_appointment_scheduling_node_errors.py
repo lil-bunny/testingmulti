@@ -8,11 +8,11 @@ from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
 from app.domain.state import WorkflowState
 from app.services.appointment_scheduling.ascend_write_service import AscendWriteResult
-from app.services.appointment_scheduling.confirmation_email_service import ConfirmationEmailResult
+from app.services.appointment_scheduling.email_service import ConfirmationEmailResult
 from app.services.appointment_scheduling.email_service import AppointmentSchedulingSendResult
 from app.services.appointment_scheduling.intake_service import IntakeResult
-from app.services.appointment_scheduling.turvo_confirm_service import TurvoConfirmResult
-from app.services.appointment_scheduling.turvo_write_service import TurvoWriteResult
+from app.services.appointment_scheduling.turvo_stop_update_service import TurvoConfirmResult
+from app.services.appointment_scheduling.turvo_stop_update_service import TurvoWriteResult
 from app.services.appointment_scheduling.weekend_pickup_service import WeekendPickupResult
 from app.workflows.nodes.appointment_scheduling.nodes import (
     apply_ascend_dropoff_appointment,
@@ -91,7 +91,7 @@ def test_run_scheduling_intake_integration_failure(mock_intake_cls) -> None:
 
 @patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingEmailService")
 def test_send_appointment_scheduling_email_missing_mikey_is_business(mock_email_cls) -> None:
-    mock_email_cls.return_value.send_from_state.return_value = AppointmentSchedulingSendResult(
+    mock_email_cls.return_value.send_draft_from_state.return_value = AppointmentSchedulingSendResult(
         sent=False,
         error="missing_mikey_account_id",
     )
@@ -103,7 +103,7 @@ def test_send_appointment_scheduling_email_missing_mikey_is_business(mock_email_
 
 @patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingEmailService")
 def test_send_appointment_scheduling_email_unipile_is_integration(mock_email_cls) -> None:
-    mock_email_cls.return_value.send_from_state.return_value = AppointmentSchedulingSendResult(
+    mock_email_cls.return_value.send_draft_from_state.return_value = AppointmentSchedulingSendResult(
         sent=False,
         error="Unipile timeout",
     )
@@ -113,13 +113,11 @@ def test_send_appointment_scheduling_email_unipile_is_integration(mock_email_cls
     _assert_error(result, IntegrationError.EMAIL_SEND_FAILED, IntegrationError.CATEGORY.value)
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
-    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoConfirmService"
+    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoStopUpdateService"
 )
 def test_apply_turvo_delivery_placeholder_missing_stop_is_business(
     mock_confirm_cls,
-    mock_activity_cls,
 ) -> None:
     failure = SchedulingFailure.from_wire(
         "missing_delivery_stop_or_date",
@@ -132,16 +130,13 @@ def test_apply_turvo_delivery_placeholder_missing_stop_is_business(
     result = apply_turvo_delivery_placeholder(_state())
 
     _assert_error(result, BusinessError.MISSING_DELIVERY_STOP_OR_DATE, BusinessError.CATEGORY.value)
-    mock_activity_cls.return_value.record_turvo_confirm_placeholder.assert_called_once()
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
-    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoWriteService"
+    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoStopUpdateService"
 )
 def test_apply_turvo_delivery_missing_fields_is_business(
     mock_turvo_cls,
-    mock_activity_cls,
 ) -> None:
     failure = SchedulingFailure.from_wire(
         "missing_turvo_update_fields",
@@ -156,16 +151,13 @@ def test_apply_turvo_delivery_missing_fields_is_business(
     result = apply_turvo_delivery_appointment(_state())
 
     _assert_error(result, BusinessError.MISSING_TURVO_UPDATE_FIELDS, BusinessError.CATEGORY.value)
-    mock_activity_cls.return_value.record_turvo_update.assert_called_once()
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
-    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoWriteService"
+    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoStopUpdateService"
 )
 def test_apply_turvo_delivery_api_error_is_integration(
     mock_turvo_cls,
-    mock_activity_cls,
 ) -> None:
     failure = SchedulingFailure.from_catalog(
         IntegrationError.TURVO_STOP_UPDATE_FAILED,
@@ -182,15 +174,11 @@ def test_apply_turvo_delivery_api_error_is_integration(
     _assert_error(result, IntegrationError.TURVO_STOP_UPDATE_FAILED, IntegrationError.CATEGORY.value)
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
-@patch(
-    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingConfirmationEmailService"
-)
+@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingEmailService")
 def test_send_confirmation_reply_failure_hard_fails(
     mock_confirm_cls,
-    mock_activity_cls,
 ) -> None:
-    mock_confirm_cls.return_value.send_from_state.return_value = ConfirmationEmailResult(
+    mock_confirm_cls.return_value.send_confirmation_reply_from_state.return_value = ConfirmationEmailResult(
         sent=False,
         error="missing_mikey_account_id",
     )
@@ -198,16 +186,13 @@ def test_send_confirmation_reply_failure_hard_fails(
     result = send_appointment_confirmation_reply(_state())
 
     _assert_error(result, BusinessError.MISSING_MIKEY_ACCOUNT_ID, BusinessError.CATEGORY.value)
-    mock_activity_cls.return_value.record_confirmation_sent.assert_not_called()
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
-    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoWriteService"
+    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoStopUpdateService"
 )
 def test_apply_turvo_tender_status_failure_sets_tender_integration_error(
     mock_turvo_cls,
-    mock_activity_cls,
 ) -> None:
     failure = SchedulingFailure.from_catalog(
         IntegrationError.TURVO_TENDER_STATUS_FAILED,
@@ -222,11 +207,10 @@ def test_apply_turvo_tender_status_failure_sets_tender_integration_error(
     result = apply_turvo_tender_status(_state(confirmation_sent=True))
 
     _assert_error(result, IntegrationError.TURVO_TENDER_STATUS_FAILED, IntegrationError.CATEGORY.value)
-    mock_activity_cls.return_value.record_turvo_tendered.assert_not_called()
 
 
 @patch(
-    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoWriteService"
+    "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingTurvoStopUpdateService"
 )
 def test_apply_turvo_tender_status_skips_when_confirmation_not_sent(
     mock_turvo_cls,
@@ -240,13 +224,11 @@ def test_apply_turvo_tender_status_skips_when_confirmation_not_sent(
     mock_turvo_cls.return_value.tender_from_state.assert_not_called()
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
     "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingWeekendPickupService"
 )
 def test_apply_weekend_shifted_pickup_preserves_business_category(
     mock_weekend_cls,
-    mock_activity_cls,
 ) -> None:
     failure = SchedulingFailure.from_catalog(
         BusinessError.ASCEND_NOT_CONFIGURED,
@@ -260,16 +242,13 @@ def test_apply_weekend_shifted_pickup_preserves_business_category(
     result = apply_weekend_shifted_pickup(_state())
 
     _assert_error(result, BusinessError.ASCEND_NOT_CONFIGURED, BusinessError.CATEGORY.value)
-    mock_activity_cls.return_value.record_weekend_pickup_update.assert_called_once()
 
 
-@patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")
 @patch(
     "app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingWeekendPickupService"
 )
 def test_apply_weekend_shifted_pickup_skip_does_not_set_error(
     mock_weekend_cls,
-    mock_activity_cls,
 ) -> None:
     mock_weekend_cls.return_value.apply_from_state.return_value = WeekendPickupResult(
         ok=True,
@@ -281,7 +260,6 @@ def test_apply_weekend_shifted_pickup_skip_does_not_set_error(
 
     assert result is state
     assert "error" not in state.data
-    mock_activity_cls.return_value.record_weekend_pickup_update.assert_called_once()
 
 
 @patch("app.workflows.nodes.appointment_scheduling.nodes.AppointmentSchedulingActivityService")

@@ -13,6 +13,9 @@ from app.services.appointment_scheduling.weekend_pickup_service import (
 def _state(**overrides):
     data = {
         "tenant_slug": "t3ra",
+        "tenant_id": "tenant-uuid-1",
+        "workflow_lifecycle_id": "wl-1",
+        "execution_id": "run-1",
         "shipment_id": "1000324895",
         "reference_number": "DIAMOND-RPN1",
         "tenant_settings": {"appointment_scheduling": {}},
@@ -45,7 +48,11 @@ def _state(**overrides):
         },
     }
     data.update(overrides)
-    return SimpleNamespace(data=data)
+    return SimpleNamespace(
+        data=data,
+        tenant_id=data.get("tenant_id"),
+        execution_id=data.get("execution_id", "run-1"),
+    )
 
 
 def test_skipped_when_not_weekend_shifted() -> None:

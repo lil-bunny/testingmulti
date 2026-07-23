@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from app.domain.appointment_scheduling.scheduling_reference import is_diamond_scheduling_reference
-from app.services.appointment_scheduling.ingress_gates import (
+from app.services.appointment_scheduling.ingress_service import (
     evaluate_activity_gates,
     evaluate_parsed_webhook,
     evaluate_process_enabled,
     evaluate_shipment_gates,
 )
-from app.tools.turvo_scheduling_ingress import (
+from app.tools.appointment_scheduling.ingress import (
     is_multi_stop,
     is_multi_stop_shipment,
     parse_shipment_update_webhook,

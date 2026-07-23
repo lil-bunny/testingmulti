@@ -249,7 +249,7 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
             new=AsyncMock(return_value=_turvo_shipment_payload()),
         ),
         patch(
-            "app.services.appointment_scheduling.enqueue.run_workflow_async.apply_async",
+            "app.services.appointment_scheduling.ingress_service.run_workflow_async.apply_async",
             return_value=celery_task,
         ) as apply_async,
     ):

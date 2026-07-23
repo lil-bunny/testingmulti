@@ -476,7 +476,7 @@ class ShipmentsService:
         delivery_timezone: str | None = None,
     ) -> bool:
         """Persist scheduling dates on ``shipments.proposed_*`` as UTC; no-op when unparseable."""
-        from app.tools.appointment_scheduling.proposed_appointments import (
+        from app.tools.appointment_scheduling.dates import (
             proposed_wall_clock_to_utc,
         )
 

@@ -8,7 +8,7 @@ from typing import Any
 from app.domain.appointment_scheduling.models import LlmSchedulingDecision
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.tools.appointment_scheduling.scheduling_fallback import fallback_scheduling_decision
-from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
+from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
 from app.tools.llm_client import LLMClientError, chat_json
 
 

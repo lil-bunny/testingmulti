@@ -12,7 +12,7 @@ from app.integrations.turvo.shipments import (
     appointment_scheduling_display_fields_from_payload,
     delivery_stop_name_from_payload,
 )
-from app.services.appointment_scheduling.recipient_contact_gate import resolve_recipient_contact
+from app.services.appointment_scheduling.intake_service import resolve_recipient_contact
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.services.shipments_service import ShipmentsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService

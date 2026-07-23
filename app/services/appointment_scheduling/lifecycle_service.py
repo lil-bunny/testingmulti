@@ -25,6 +25,9 @@ from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpo
 from app.services.appointment_scheduling.activity_service import (
     AppointmentSchedulingActivityService,
 )
+from app.services.appointment_scheduling.teams_notification_service import (
+    AppointmentSchedulingTeamsNotificationService,
+)
 from app.services.shipments_service import ShipmentsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.appointment_scheduling.po_number import resolve_scheduling_po_number
@@ -275,3 +278,25 @@ class AppointmentSchedulingLifecycleService:
             lifecycle_id=lifecycle_id,
             metadata_patch={SCHEDULING_FAILURE_REASON: failure.code},
         )
+
+    def finalize_after_teams_notify(self, state):
+        """Teams notify + draft pending review transition + strip intake checkpoint."""
+        result = AppointmentSchedulingTeamsNotificationService().notify_from_state(state)
+        state.data["appointment_scheduling_teams_notification_sent"] = result.sent
+        if result.skip_reason:
+            state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason
+        if result.error:
+            state.data["appointment_scheduling_teams_notification_error"] = result.error
+        self._activity.record_draft_pending_review(state)
+        self.strip_intake_checkpoint(state)
+        return result
+
+    def finalize_confirm_awaiting_reply(self, state) -> None:
+        actor_id = str(state.data.get("actor_user_id") or "").strip() or None
+        communication_id = str(state.data.get("communication_id") or "").strip() or None
+        self._activity.record_confirm_email_sent(
+            state,
+            communication_id=communication_id,
+            actor_id=actor_id,
+        )
+        self._activity.record_awaiting_customer_reply(state)

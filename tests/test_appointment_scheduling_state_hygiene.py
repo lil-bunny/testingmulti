@@ -15,7 +15,7 @@ from app.services.appointment_scheduling.ascend_write_service import AscendWrite
 from app.services.appointment_scheduling.lifecycle_service import (
     AppointmentSchedulingLifecycleService,
 )
-from app.services.appointment_scheduling.turvo_write_service import TurvoWriteResult
+from app.services.appointment_scheduling.turvo_stop_update_service import TurvoWriteResult
 from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT
 
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.appointment_scheduling.turvo_write_service import (
+from app.services.appointment_scheduling.turvo_stop_update_service import (
     AppointmentSchedulingTurvoWriteService,
 )
 from app.services.shipments_service import ShipmentsService
@@ -34,7 +34,7 @@ def _shipment_payload(*, route_stop: str = "Costco Depot") -> dict:
 async def test_apply_delivery_success() -> None:
     svc = AppointmentSchedulingTurvoWriteService()
     with patch(
-        "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
+        "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
         new=AsyncMock(
             return_value={
                 "ok": True,
@@ -76,7 +76,7 @@ async def test_apply_delivery_resolves_stop_name_from_shipment_payload() -> None
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
 
     with patch(
-        "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
+        "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
         new=mock_update,
     ):
         result = await svc.apply_delivery(
@@ -109,7 +109,7 @@ async def test_apply_delivery_from_state_ignores_customer_name_column() -> None:
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
 
     with patch(
-        "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
+        "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
         new=mock_update,
     ):
         result = await svc._apply_delivery_from_state_async(state)
@@ -127,7 +127,7 @@ async def test_apply_delivery_refreshes_shipment_display_when_ids_present() -> N
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
             new=mock_update,
         ),
         patch.object(ShipmentsService, "refresh_display_from_turvo", new=mock_refresh),
@@ -161,7 +161,7 @@ async def test_apply_delivery_refresh_passes_customer_name_override_from_payload
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
             new=mock_update,
         ),
         patch.object(ShipmentsService, "refresh_display_from_turvo", new=mock_refresh),
@@ -193,7 +193,7 @@ async def test_apply_delivery_still_ok_when_display_refresh_fails() -> None:
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_stop_appointment_time",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
             new=mock_update,
         ),
         patch.object(ShipmentsService, "refresh_display_from_turvo", new=mock_refresh),
@@ -232,11 +232,11 @@ async def test_apply_tender_success() -> None:
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.fetch_app_shipment_details",
+            "app.services.appointment_scheduling.turvo_stop_update_service.fetch_app_shipment_details",
             new=mock_fetch,
         ),
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_shipment_tender_status",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_shipment_tender_status",
             new=mock_put,
         ),
     ):
@@ -259,11 +259,11 @@ async def test_apply_tender_refresh_passes_customer_name_override() -> None:
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.fetch_app_shipment_details",
+            "app.services.appointment_scheduling.turvo_stop_update_service.fetch_app_shipment_details",
             new=mock_fetch,
         ),
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_shipment_tender_status",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_shipment_tender_status",
             new=mock_put,
         ),
         patch.object(ShipmentsService, "refresh_display_from_turvo", new=mock_refresh),
@@ -294,11 +294,11 @@ async def test_apply_tender_skips_when_already_tendered() -> None:
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.fetch_app_shipment_details",
+            "app.services.appointment_scheduling.turvo_stop_update_service.fetch_app_shipment_details",
             new=AsyncMock(return_value=payload),
         ),
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_shipment_tender_status",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_shipment_tender_status",
             new=mock_put,
         ),
     ):
@@ -316,7 +316,7 @@ async def test_apply_tender_missing_fragment_id() -> None:
     payload = {"details": {"status": {"code": {"key": "2118"}}, "global_route": {"fragments": []}}}
 
     with patch(
-        "app.services.appointment_scheduling.turvo_write_service.fetch_app_shipment_details",
+        "app.services.appointment_scheduling.turvo_stop_update_service.fetch_app_shipment_details",
         new=AsyncMock(return_value=payload),
     ):
         result = await svc.apply_tender(tenant_slug="t3ra", shipment_id="1000324213")
@@ -332,11 +332,11 @@ async def test_apply_tender_put_failure() -> None:
 
     with (
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.fetch_app_shipment_details",
+            "app.services.appointment_scheduling.turvo_stop_update_service.fetch_app_shipment_details",
             new=AsyncMock(return_value=_tender_app_payload()),
         ),
         patch(
-            "app.services.appointment_scheduling.turvo_write_service.update_shipment_tender_status",
+            "app.services.appointment_scheduling.turvo_stop_update_service.update_shipment_tender_status",
             new=AsyncMock(side_effect=TurvoApiError("fail", status_code=500)),
         ),
     ):
