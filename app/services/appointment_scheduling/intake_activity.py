@@ -69,7 +69,7 @@ class IntakeActivity:
             return
 
         data = getattr(state, "data", None) or {}
-        decision = data.get("llm_scheduling_decision") or {}
+        decision = data.get("llm_appointment_decision") or {}
         if not isinstance(decision, dict):
             decision = {}
 
@@ -88,7 +88,7 @@ class IntakeActivity:
         state,
         *,
         email_draft: dict[str, Any],
-        scheduling_payload: dict[str, Any],
+        appointment_payload: dict[str, Any],
     ) -> None:
         if scope_ids(state) is None:
             return

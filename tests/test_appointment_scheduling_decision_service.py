@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from app.domain.appointment_scheduling.models import LlmSchedulingDecision, PickupDropoffData
+from app.domain.appointment_scheduling.models import LlmAppointmentDecision, PickupDropoffData
 from app.domain.prompt_step_keys import APPOINTMENT_SCHEDULING_OPTIMIZATION
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.appointment_scheduling.decision_service import (
@@ -31,8 +31,8 @@ def test_compute_decision_uses_langsmith_prompt_and_trace():
         "app.services.appointment_scheduling.decision_service.resolve_appointment_scheduling_optimization_prompts",
         return_value=(rendered, metadata),
     ) as mock_resolve, patch(
-        "app.services.appointment_scheduling.decision_service.run_scheduling_optimization",
-        return_value=LlmSchedulingDecision(
+        "app.services.appointment_scheduling.decision_service.run_appointment_decision_optimization",
+        return_value=LlmAppointmentDecision(
             calculated_delivery_date="07/04/2026",
             calculated_delivery_weekday="SATURDAY",
         ),
@@ -71,8 +71,8 @@ def test_compute_decision_uses_llm_for_costco():
         "app.services.appointment_scheduling.decision_service.resolve_appointment_scheduling_optimization_prompts",
         return_value=(rendered, metadata),
     ), patch(
-        "app.services.appointment_scheduling.decision_service.run_scheduling_optimization",
-        return_value=LlmSchedulingDecision(
+        "app.services.appointment_scheduling.decision_service.run_appointment_decision_optimization",
+        return_value=LlmAppointmentDecision(
             calculated_delivery_date="07/03/2026",
             calculated_delivery_weekday="FRIDAY",
         ),

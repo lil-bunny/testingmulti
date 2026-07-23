@@ -177,7 +177,10 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
         workflow_name="appointment_scheduling",
         operation="appointment_scheduling",
         version="1.0.0",
-        description="Appointment scheduling workflow; Turvo pickup change, portal draft send, or customer reply.",
+        description=(
+            "Appointment scheduling workflow; Turvo pickup change, portal draft send, or customer reply. "
+            "Legacy scheduling_* checkpoint keys are promoted at runtime via normalize_appointment_state_data."
+        ),
         event_types=[
             "turvo_pickup_changed",
             "appointment_draft_send",
@@ -201,9 +204,9 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "workflow_lifecycle_sub_status",
             "customer_contact",
             "pickup_dropoff_data",
-            "llm_scheduling_decision",
+            "llm_appointment_decision",
             "email_draft",
-            "scheduling_payload",
+            "appointment_payload",
             "thread_id",
             "customer_reply_decision",
             "customer_reply_reason",
@@ -217,8 +220,8 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "turvo_confirm_result",
             "confirmation_communication_id",
             "confirmation_sent",
-            "scheduling_intake_skip_reason",
-            "scheduling_prepare_skip_reason",
+            "appointment_intake_skip_reason",
+            "appointment_ingress_skip_reason",
         ],
     ),
 }

@@ -23,7 +23,7 @@ def _state(**data_overrides):
         "tenant_id": _TENANT_UUID,
         "reference_number": "DIAMOND-RPN00008809",
         "customer_name": "BUCHANAN CELLERS WAREHOUSE",
-        "llm_scheduling_decision": {
+        "llm_appointment_decision": {
             "selected_pickup_date": "07/01/2026",
             "calculated_delivery_date": "07/04/2026",
             "calculated_delivery_weekday": "FRIDAY",
@@ -98,7 +98,7 @@ def test_record_decision_info_costco_uses_llm_source() -> None:
     svc.record_decision(
         _state(
             customer_name="COSTCO WHOLESALE",
-            llm_scheduling_decision={
+            llm_appointment_decision={
                 "selected_pickup_date": "07/01/2026",
                 "calculated_delivery_date": "07/03/2026",
                 "calculated_delivery_weekday": "FRIDAY",
@@ -122,7 +122,7 @@ def test_record_draft_ready_writes_action_only() -> None:
     svc.record_draft_ready(
         _state(),
         email_draft=email_draft,
-        scheduling_payload=scheduling_payload,
+        appointment_payload=scheduling_payload,
     )
 
     cmd = transitions.apply.call_args[0][0]

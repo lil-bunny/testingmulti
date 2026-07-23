@@ -19,7 +19,7 @@ def _state(**overrides):
         "shipment_id": "1000324895",
         "reference_number": "DIAMOND-RPN1",
         "tenant_settings": {"appointment_scheduling": {}},
-        "llm_scheduling_decision": {
+        "llm_appointment_decision": {
             "weekend_shifted": True,
             "selected_pickup_date": "2026-07-01",
             "selected_pickup_time": "08:00",
@@ -57,7 +57,7 @@ def _state(**overrides):
 
 def test_skipped_when_not_weekend_shifted() -> None:
     state = _state(
-        llm_scheduling_decision={
+        llm_appointment_decision={
             "weekend_shifted": False,
             "selected_pickup_date": "2026-07-01",
             "selected_pickup_time": "08:00",

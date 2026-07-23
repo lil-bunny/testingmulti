@@ -65,7 +65,7 @@ def display_fields_from_data(data: dict[str, Any]) -> AppointmentSchedulingDraft
     if not load_id:
         return None
 
-    decision = data.get("llm_scheduling_decision")
+    decision = data.get("llm_appointment_decision")
     if not isinstance(decision, dict):
         decision = {}
 

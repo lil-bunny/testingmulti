@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.boundary import clean_optional_str
 from app.domain.appointment_scheduling.ingress_constants import (
     APPOINTMENT_SCHEDULING_WORKFLOW,
     SCHEDULING_REPLY_TERMINAL_STATUSES,
@@ -53,13 +54,6 @@ class CustomerReplyIngressService:
         )
 
     @staticmethod
-    def _clean(value: Any) -> str | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        return text if text else None
-
-    @staticmethod
     def _is_appointment_scheduling_enabled(tenant_settings: dict[str, Any] | None) -> bool:
         return APPOINTMENT_SCHEDULING_WORKFLOW in enabled_processes_from_settings(
             tenant_settings
@@ -100,7 +94,7 @@ class CustomerReplyIngressService:
             thread_id=thread_id,
         )
         if thread_context_rows:
-            shipments_row_id = self._clean(thread_context_rows[0].get("shipments_row_id"))
+            shipments_row_id = clean_optional_str(thread_context_rows[0].get("shipments_row_id"))
             if shipments_row_id:
                 lifecycle_id = self._lifecycle_service.find_awaiting_customer_reply_lifecycle_id(
                     tenant_id=tenant_id,
@@ -138,7 +132,7 @@ class CustomerReplyIngressService:
         communication_id: str | None,
     ) -> dict[str, Any] | None:
         correlation = self._lifecycle_service.read_correlation_by_id(lifecycle_id)
-        shipments_row_id = self._clean((correlation or {}).get("shipment_id"))
+        shipments_row_id = clean_optional_str((correlation or {}).get("shipment_id"))
         if not shipments_row_id:
             return None
 
@@ -150,16 +144,16 @@ class CustomerReplyIngressService:
         if not isinstance(metadata, dict):
             metadata = {}
 
-        reference_number = self._clean(
+        reference_number = clean_optional_str(
             metadata.get("reference_number")
             or (shipment_row or {}).get("shipment_number")
         )
-        customer_name = self._clean(
+        customer_name = clean_optional_str(
             (shipment_row or {}).get("customer_name")
             or metadata.get("customer_name")
         )
-        turvo_shipment_id = self._clean((shipment_row or {}).get("shipment_number"))
-        load_id = self._clean(metadata.get("load_id"))
+        turvo_shipment_id = clean_optional_str((shipment_row or {}).get("shipment_number"))
+        load_id = clean_optional_str(metadata.get("load_id"))
 
         if not turvo_shipment_id:
             return None
@@ -242,7 +236,7 @@ class CustomerReplyIngressService:
         if not is_unipile_email_reply(payload):
             return None
 
-        thread_id = self._clean(payload.get("thread_id"))
+        thread_id = clean_optional_str(payload.get("thread_id"))
         if not thread_id:
             return None
 
@@ -255,7 +249,7 @@ class CustomerReplyIngressService:
         lifecycle_id = self.resolve_active_reply_lifecycle_id(
             tenant_id=tenant.tenant_uuid,
             thread_id=thread_id,
-            subject=self._clean(payload.get("subject")),
+            subject=clean_optional_str(payload.get("subject")),
         )
         if not lifecycle_id:
             logger.info(

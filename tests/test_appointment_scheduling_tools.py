@@ -23,7 +23,7 @@ from app.tools.appointment_scheduling.dates import (
     parse_proposed_appointment_date,
     proposed_wall_clock_to_utc,
 )
-from app.domain.appointment_scheduling.models import DraftStatic, LlmSchedulingDecision, PickupDropoffData
+from app.domain.appointment_scheduling.models import DraftStatic, LlmAppointmentDecision, PickupDropoffData
 
 
 def test_pickup_dropoff_from_ascend_shipment():
@@ -122,7 +122,7 @@ def test_costco_vs_standard_email_html():
         pickup_data={"date": "07/01/2026"},
         dropoff_data={},
     )
-    llm = LlmSchedulingDecision(
+    llm = LlmAppointmentDecision(
         calculated_delivery_date="07/04/2026",
         calculated_delivery_weekday="SATURDAY",
     )

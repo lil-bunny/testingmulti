@@ -42,12 +42,12 @@ class ActivityService:
         state,
         *,
         email_draft: dict[str, Any],
-        scheduling_payload: dict[str, Any],
+        appointment_payload: dict[str, Any],
     ) -> None:
         self._intake.record_draft_ready(
             state,
             email_draft=email_draft,
-            scheduling_payload=scheduling_payload,
+            appointment_payload=appointment_payload,
         )
 
     def record_draft_pending_review(self, state) -> None:

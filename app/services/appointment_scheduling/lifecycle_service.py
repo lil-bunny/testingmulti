@@ -13,13 +13,13 @@ from app.domain.appointment_scheduling.costco import (
 )
 from app.domain.appointment_scheduling.metadata_hydration import (
     apply_lifecycle_email_draft_to_state,
-    apply_lifecycle_scheduling_decision_to_state,
+    apply_lifecycle_appointment_decision_to_state,
     hydrate_shipment_facts_into_state,
 )
 from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
-    LLM_SCHEDULING_DECISION,
-    SCHEDULING_FAILURE_REASON,
+    LLM_APPOINTMENT_DECISION,
+    APPOINTMENT_FAILURE_REASON,
 )
 from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpoint_data
 from app.services.appointment_scheduling.activity_service import (
@@ -71,18 +71,18 @@ class LifecycleService:
         *,
         lifecycle_id: str,
         email_draft: dict[str, Any],
-        scheduling_payload: dict[str, Any],
-        llm_scheduling_decision: dict[str, Any] | None = None,
+        appointment_payload: dict[str, Any],
+        llm_appointment_decision: dict[str, Any] | None = None,
     ) -> None:
         self._activity.record_draft_ready(
             state,
             email_draft=email_draft,
-            scheduling_payload=scheduling_payload,
+            appointment_payload=appointment_payload,
         )
-        decision = llm_scheduling_decision if isinstance(llm_scheduling_decision, dict) else {}
+        decision = llm_appointment_decision if isinstance(llm_appointment_decision, dict) else {}
         metadata_patch: dict[str, Any] = {EMAIL_DRAFT: email_draft}
         if decision:
-            metadata_patch[LLM_SCHEDULING_DECISION] = decision
+            metadata_patch[LLM_APPOINTMENT_DECISION] = decision
         self._lifecycle.patch_metadata(
             lifecycle_id=lifecycle_id,
             metadata_patch=metadata_patch,
@@ -115,8 +115,8 @@ class LifecycleService:
             self._shipments.update_proposed_appointments(
                 tenant_id=tenant_id,
                 shipment_row_id=shipments_row_id,
-                proposed_pickup_at=scheduling_payload.get("proposed_pickup_at"),
-                proposed_delivery_at=scheduling_payload.get("proposed_delivery_at"),
+                proposed_pickup_at=appointment_payload.get("proposed_pickup_at"),
+                proposed_delivery_at=appointment_payload.get("proposed_delivery_at"),
                 proposed_pickup_time=pickup_time,
                 proposed_delivery_time=delivery_time,
                 pickup_timezone=pickup_tz,
@@ -124,7 +124,7 @@ class LifecycleService:
             )
             shipment_meta_patch = self._shipment_metadata_patch(
                 state,
-                scheduling_payload=scheduling_payload,
+                appointment_payload=appointment_payload,
             )
             if shipment_meta_patch:
                 self._shipments.merge_metadata(
@@ -137,10 +137,10 @@ class LifecycleService:
     def _shipment_metadata_patch(
         state,
         *,
-        scheduling_payload: dict[str, Any],
+        appointment_payload: dict[str, Any],
     ) -> dict[str, Any]:
         patch: dict[str, Any] = {}
-        reference = str(scheduling_payload.get("reference_number") or "").strip()
+        reference = str(appointment_payload.get("reference_number") or "").strip()
         if reference:
             patch["reference_number"] = reference
         load_id = str(state.data.get("load_id") or "").strip()
@@ -183,7 +183,7 @@ class LifecycleService:
         if not isinstance(meta, dict):
             meta = {}
         apply_lifecycle_email_draft_to_state(state, meta)
-        apply_lifecycle_scheduling_decision_to_state(state, meta)
+        apply_lifecycle_appointment_decision_to_state(state, meta)
         self._hydrate_turvo_shipment_id(state, lifecycle_id=lifecycle_id, lifecycle_row=row)
 
         tenant_id = str(
@@ -276,7 +276,7 @@ class LifecycleService:
             )
         self._lifecycle.patch_metadata(
             lifecycle_id=lifecycle_id,
-            metadata_patch={SCHEDULING_FAILURE_REASON: failure.code},
+            metadata_patch={APPOINTMENT_FAILURE_REASON: failure.code},
         )
 
     def finalize_after_teams_notify(self, state):

@@ -10,7 +10,7 @@ from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.models import (
     CustomerContactRow,
     DraftStatic,
-    LlmSchedulingDecision,
+    LlmAppointmentDecision,
     PickupDropoffData,
 )
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
@@ -56,7 +56,7 @@ from app.tools.appointment_scheduling.ingress import reference_number_from_turvo
 @dataclass(frozen=True)
 class EmailDraftResult:
     email_draft: dict[str, Any]
-    scheduling_payload: dict[str, Any]
+    appointment_payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -325,12 +325,12 @@ class IntakeService:
         data = state.data or {}
         contact = data.get("customer_contact") or {}
         settings = self._settings(data.get("tenant_settings") or {})
-        email_draft, scheduling_payload = build_email_draft(
+        email_draft, appointment_payload = build_email_draft(
             pickup_dropoff=PickupDropoffData.model_validate(
                 data.get("pickup_dropoff_data") or {}
             ),
-            llm_decision=LlmSchedulingDecision.model_validate(
-                data.get("llm_scheduling_decision") or {}
+            llm_decision=LlmAppointmentDecision.model_validate(
+                data.get("llm_appointment_decision") or {}
             ),
             draft_static=DraftStatic.model_validate(data.get("draft_static") or {}),
             to_email=str(contact.get("email") or ""),
@@ -340,7 +340,7 @@ class IntakeService:
         )
         return EmailDraftResult(
             email_draft=email_draft.model_dump(mode="json"),
-            scheduling_payload=scheduling_payload.model_dump(mode="json"),
+            appointment_payload=appointment_payload.model_dump(mode="json"),
         )
 
 

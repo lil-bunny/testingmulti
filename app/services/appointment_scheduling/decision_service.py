@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.appointment_scheduling.models import LlmSchedulingDecision, PickupDropoffData
+from app.domain.appointment_scheduling.models import LlmAppointmentDecision, PickupDropoffData
 from app.domain.appointment_scheduling.scheduling_prompt_templates import (
     scheduling_optimization_prompt_variables,
 )
@@ -17,7 +17,7 @@ from app.tools.appointment_scheduling.ascend_transforms import (
     llm_location_input_from_pickup_dropoff,
     normalize_availability_slots,
 )
-from app.tools.appointment_scheduling.scheduling_optimization import run_scheduling_optimization
+from app.tools.appointment_scheduling.appointment_decision_optimization import run_appointment_decision_optimization
 
 
 class DecisionService:
@@ -35,7 +35,7 @@ class DecisionService:
         ascend_context: dict[str, Any],
         tenant_settings: dict[str, Any],
         customer_name: str,
-    ) -> LlmSchedulingDecision:
+    ) -> LlmAppointmentDecision:
         pickup_date = str((pickup_dropoff.pickup_data or {}).get("date") or "")
 
         office_code = str(ascend_context.get("office_code") or "")
@@ -70,7 +70,7 @@ class DecisionService:
             APPOINTMENT_SCHEDULING_OPTIMIZATION,
             prompt_metadata,
         )
-        return run_scheduling_optimization(
+        return run_appointment_decision_optimization(
             system_prompt=rendered.system,
             user_prompt=rendered.user,
             location_input=location_input,

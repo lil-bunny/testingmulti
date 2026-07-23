@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from app.domain.appointment_scheduling.models import LlmSchedulingDecision
+from app.domain.appointment_scheduling.models import LlmAppointmentDecision
 
 _MAX_WEEKEND_SHIFTS = 10  # ponytail: matches AgenticAI mock guard against infinite loop
 
@@ -88,13 +88,13 @@ def compute_delivery_calendar(
 
 def fallback_scheduling_decision(
     *, pickup_mm_dd_yyyy: str, miles: float, dropoff_state: str
-) -> LlmSchedulingDecision:
+) -> LlmAppointmentDecision:
     """Deterministic decision used when the scheduling LLM is unavailable."""
     transit_days = transit_days_for(miles, dropoff_state)
     delivery_date, weekday, weekend_shifted = compute_delivery_calendar(
         pickup_mm_dd_yyyy, transit_days
     )
-    return LlmSchedulingDecision(
+    return LlmAppointmentDecision(
         calculated_delivery_date=delivery_date,
         calculated_delivery_weekday=weekday,
         selected_pickup_date=pickup_mm_dd_yyyy,

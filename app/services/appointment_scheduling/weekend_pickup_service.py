@@ -82,7 +82,7 @@ class WeekendPickupService:
 
     def _apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
         data = state.data or {}
-        decision = data.get("llm_scheduling_decision") or {}
+        decision = data.get("llm_appointment_decision") or {}
         if not isinstance(decision, dict):
             decision = {}
         if not is_weekend_shifted_truthy(decision.get("weekend_shifted")):

@@ -19,7 +19,7 @@ def _state(**data_overrides) -> WorkflowState:
         "load_id": "62396",
         "reference_number": "DIAMOND-1",
         "customer_name": "BUCHANAN",
-        "llm_scheduling_decision": {
+        "llm_appointment_decision": {
             "selected_pickup_date": "07/01/2026",
             "calculated_delivery_date": "07/04/2026",
         },

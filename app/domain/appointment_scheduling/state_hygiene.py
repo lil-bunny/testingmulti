@@ -12,8 +12,8 @@ INTAKE_CHECKPOINT_STRIP_KEYS: tuple[str, ...] = (
     "draft_static",
     "ascend_context",
     "email_draft",
-    "llm_scheduling_decision",
-    "scheduling_payload",
+    "llm_appointment_decision",
+    "appointment_payload",
     # Set early on intake before lifecycle transitions; send/reply runs hydrate fresh.
     "workflow_lifecycle_status",
     "workflow_lifecycle_sub_status",
