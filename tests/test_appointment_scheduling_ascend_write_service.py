@@ -12,6 +12,13 @@ from app.services.appointment_scheduling.ascend_write_service import (
 _REF = "DIAMOND-RPN00008809"
 _ISO = "2026-07-18T10:30:00"
 
+_ASCEND_SHIPMENT = {
+    "shipmentStops": [
+        {"id": "stop-1", "stopNumber": "1"},
+        {"id": "stop-2", "stopNumber": "2"},
+    ]
+}
+
 
 def test_skip_ascend_writes_dry_run_no_http() -> None:
     svc = AppointmentSchedulingAscendWriteService()
@@ -23,6 +30,7 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
             tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
             reference_number=_REF,
             appointment_start_iso=_ISO,
+            ascend_shipment=_ASCEND_SHIPMENT,
         )
 
     login_mock.assert_not_called()
@@ -30,6 +38,21 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
     assert result.skipped is True
     assert result.dry_run is True
     assert result.payload is not None
+    assert result.payload["shipmentStops"][0]["id"] == "stop-2"
+
+
+def test_dry_run_fails_when_dropoff_stop_missing() -> None:
+    svc = AppointmentSchedulingAscendWriteService()
+    result = svc.apply_dropoff(
+        tenant_slug="t3ra",
+        tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
+        reference_number=_REF,
+        appointment_start_iso=_ISO,
+    )
+    assert result.ok is False
+    assert result.failure is not None
+    assert result.failure.code == "ascend_invalid_payload"
+    assert result.dry_run is False
 
 
 def test_live_ascend_put_when_writes_enabled() -> None:
