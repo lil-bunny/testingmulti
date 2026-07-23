@@ -97,3 +97,23 @@ async def post_message_card(
         status_code=resp.status_code,
         body=body_snippet,
     )
+
+
+def post_message_card_sync(
+    webhook_url: str,
+    *,
+    title: str,
+    text: str,
+    facts: list[tuple[str, str]],
+    timeout_s: float = _DEFAULT_TIMEOUT_S,
+) -> None:
+    """Sync facade for graph nodes and sync services."""
+    run_sync(
+        post_message_card(
+            webhook_url,
+            title=title,
+            text=text,
+            facts=facts,
+            timeout_s=timeout_s,
+        )
+    )
