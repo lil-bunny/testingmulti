@@ -7,6 +7,12 @@ from typing import Any
 
 from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.failure import SchedulingFailure
+from app.domain.appointment_scheduling.skip_reasons import (
+    WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+    WIRE_TURVO_STOP_UPDATE_FAILED,
+)
+from app.domain.error_catalog import IntegrationError
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     delivery_date_only_from_payload,
@@ -24,6 +30,7 @@ class TurvoConfirmResult:
     ok: bool
     updated: bool = False
     error: str | None = None
+    failure: SchedulingFailure | None = None
     stop_name: str | None = None
     start_time: str | None = None
     response: dict[str, Any] | None = None
@@ -54,7 +61,12 @@ class AppointmentSchedulingTurvoConfirmService:
         slug = str(tenant_slug or "").strip()
         sid = str(shipment_id or "").strip()
         if not slug or not sid:
-            return TurvoConfirmResult(ok=False, error="missing_turvo_shipment_fields")
+            wire = "missing_turvo_shipment_fields"
+            return TurvoConfirmResult(
+                ok=False,
+                error=wire,
+                failure=SchedulingFailure.from_wire(wire, wire.replace("_", " ")),
+            )
 
         payload = shipment_payload
         try:
@@ -66,7 +78,15 @@ class AppointmentSchedulingTurvoConfirmService:
                 sid,
                 exc,
             )
-            return TurvoConfirmResult(ok=False, error=str(exc))
+            detail = str(exc)
+            return TurvoConfirmResult(
+                ok=False,
+                error=WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.TURVO_SHIPMENT_FETCH_FAILED,
+                    detail,
+                ),
+            )
 
         stop_name = str(delivery_stop_name_from_payload(payload or {}) or "").strip()
         delivery_date = delivery_date_only_from_payload(payload or {})
@@ -75,9 +95,11 @@ class AppointmentSchedulingTurvoConfirmService:
             delivery_date=str(delivery_date or ""),
         )
         if placeholder is None:
+            wire = "missing_delivery_stop_or_date"
             return TurvoConfirmResult(
                 ok=False,
-                error="missing_delivery_stop_or_date",
+                error=wire,
+                failure=SchedulingFailure.from_wire(wire, wire.replace("_", " ")),
                 stop_name=stop_name or None,
             )
 
@@ -96,18 +118,37 @@ class AppointmentSchedulingTurvoConfirmService:
                 placeholder.stop_name,
                 exc,
             )
+            detail = str(exc)
             return TurvoConfirmResult(
                 ok=False,
-                error=str(exc),
+                error=WIRE_TURVO_STOP_UPDATE_FAILED,
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.TURVO_STOP_UPDATE_FAILED,
+                    detail,
+                ),
                 stop_name=placeholder.stop_name,
                 start_time=placeholder.start_time,
             )
 
         ok = bool(raw.get("ok"))
+        if not ok:
+            err = str(raw.get("error") or WIRE_TURVO_STOP_UPDATE_FAILED)
+            return TurvoConfirmResult(
+                ok=False,
+                updated=bool(raw.get("updated")),
+                error=WIRE_TURVO_STOP_UPDATE_FAILED,
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.TURVO_STOP_UPDATE_FAILED,
+                    err,
+                ),
+                stop_name=placeholder.stop_name,
+                start_time=placeholder.start_time,
+                response=raw,
+            )
+
         return TurvoConfirmResult(
-            ok=ok,
+            ok=True,
             updated=bool(raw.get("updated")),
-            error=str(raw.get("error") or "") or None,
             stop_name=placeholder.stop_name,
             start_time=placeholder.start_time,
             response=raw,

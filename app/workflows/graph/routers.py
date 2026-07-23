@@ -269,8 +269,6 @@ def scheduling_prepare_router(state):
 
 
 def scheduling_intake_router(state):
-    if state.data.get("scheduling_intake_skip_reason"):
-        return "end"
     return "continue"
 
 

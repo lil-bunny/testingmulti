@@ -7,6 +7,13 @@ from typing import Any
 
 from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.failure import SchedulingFailure
+from app.domain.appointment_scheduling.skip_reasons import (
+    WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+    WIRE_TURVO_STOP_UPDATE_FAILED,
+    WIRE_TURVO_TENDER_STATUS_FAILED,
+)
+from app.domain.error_catalog import IntegrationError
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipment_status import (
     build_tender_status_body,
@@ -33,9 +40,40 @@ class TurvoWriteResult:
     updated: bool = False
     skipped: bool = False
     error: str | None = None
+    failure: SchedulingFailure | None = None
     stop_name: str | None = None
     start_time: str | None = None
     response: dict[str, Any] | None = None
+
+
+def _wire_failure(wire: str, message: str) -> SchedulingFailure:
+    return SchedulingFailure.from_wire(wire, message)
+
+
+def _turvo_fetch_failure(exc: Exception) -> TurvoWriteResult:
+    detail = str(exc)
+    return TurvoWriteResult(
+        ok=False,
+        error=WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+        failure=SchedulingFailure.from_catalog(
+            IntegrationError.TURVO_SHIPMENT_FETCH_FAILED,
+            detail,
+        ),
+    )
+
+
+def _turvo_stop_failure(exc: Exception, *, stop_name: str | None = None, start_time: str | None = None) -> TurvoWriteResult:
+    detail = str(exc)
+    return TurvoWriteResult(
+        ok=False,
+        error=WIRE_TURVO_STOP_UPDATE_FAILED,
+        failure=SchedulingFailure.from_catalog(
+            IntegrationError.TURVO_STOP_UPDATE_FAILED,
+            detail,
+        ),
+        stop_name=stop_name,
+        start_time=start_time,
+    )
 
 
 class AppointmentSchedulingTurvoWriteService:
@@ -88,14 +126,19 @@ class AppointmentSchedulingTurvoWriteService:
                     sid,
                     exc,
                 )
-                return TurvoWriteResult(ok=False, error=str(exc))
+                return _turvo_fetch_failure(exc)
 
         name = str(stop_name or "").strip()
         if not name and payload is not None:
             name = str(delivery_stop_name_from_payload(payload) or "").strip()
 
         if not slug or not sid or not name or not wall_time:
-            return TurvoWriteResult(ok=False, error="missing_turvo_update_fields")
+            wire = "missing_turvo_update_fields"
+            return TurvoWriteResult(
+                ok=False,
+                error=wire,
+                failure=_wire_failure(wire, wire.replace("_", " ")),
+            )
 
         try:
             raw = await update_stop_appointment_time(
@@ -112,20 +155,34 @@ class AppointmentSchedulingTurvoWriteService:
                 name,
                 exc,
             )
-            return TurvoWriteResult(ok=False, error=str(exc), stop_name=name, start_time=wall_time)
+            return _turvo_stop_failure(exc, stop_name=name, start_time=wall_time)
 
         ok = bool(raw.get("ok"))
+        if not ok:
+            err = str(raw.get("error") or WIRE_TURVO_STOP_UPDATE_FAILED)
+            return TurvoWriteResult(
+                ok=False,
+                updated=bool(raw.get("updated")),
+                error=WIRE_TURVO_STOP_UPDATE_FAILED,
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.TURVO_STOP_UPDATE_FAILED,
+                    err,
+                ),
+                stop_name=name,
+                start_time=wall_time,
+                response=raw,
+            )
+
         result = TurvoWriteResult(
-            ok=ok,
+            ok=True,
             updated=bool(raw.get("updated")),
-            error=str(raw.get("error") or "") or None,
             stop_name=name,
             start_time=wall_time,
             response=raw,
         )
         tid = str(tenant_id or "").strip()
         lid = str(load_id or "").strip()
-        if ok and tid and lid:
+        if tid and lid:
             override = str(customer_name_override or "").strip()
             if not override and payload is not None:
                 override = str(delivery_stop_name_from_payload(payload) or "").strip()
@@ -169,7 +226,12 @@ class AppointmentSchedulingTurvoWriteService:
         slug = str(tenant_slug or "").strip()
         sid = str(shipment_id or "").strip()
         if not slug or not sid:
-            return TurvoWriteResult(ok=False, error="missing_turvo_tender_fields")
+            wire = "missing_turvo_tender_fields"
+            return TurvoWriteResult(
+                ok=False,
+                error=wire,
+                failure=_wire_failure(wire, wire.replace("_", " ")),
+            )
 
         try:
             payload = await fetch_app_shipment_details(slug, sid)
@@ -179,14 +241,19 @@ class AppointmentSchedulingTurvoWriteService:
                 sid,
                 exc,
             )
-            return TurvoWriteResult(ok=False, error=str(exc))
+            return _turvo_fetch_failure(exc)
 
         if status_code_key_from_shipment_payload(payload) == TENDERED_STATUS_CODE_KEY:
             return TurvoWriteResult(ok=True, updated=False, skipped=True, response={"already_tendered": True})
 
         fragment_id = fragment_id_from_shipment_payload(payload)
         if not fragment_id:
-            return TurvoWriteResult(ok=False, error="missing_fragment_id")
+            wire = "missing_fragment_id"
+            return TurvoWriteResult(
+                ok=False,
+                error=wire,
+                failure=_wire_failure(wire, wire.replace("_", " ")),
+            )
 
         tz = timezone_from_shipment_payload(payload)
         body = build_tender_status_body(fragment_id=fragment_id, timezone=tz)
@@ -195,7 +262,15 @@ class AppointmentSchedulingTurvoWriteService:
             raw = await update_shipment_tender_status(slug, sid, body)
         except (TurvoApiError, ValueError) as exc:
             logger.warning("turvo tender status PUT failed shipment_id=%s: %s", sid, exc)
-            return TurvoWriteResult(ok=False, error=str(exc))
+            detail = str(exc)
+            return TurvoWriteResult(
+                ok=False,
+                error=WIRE_TURVO_TENDER_STATUS_FAILED,
+                failure=SchedulingFailure.from_catalog(
+                    IntegrationError.TURVO_TENDER_STATUS_FAILED,
+                    detail,
+                ),
+            )
 
         tid = str(tenant_id or "").strip()
         lid = str(load_id or "").strip()

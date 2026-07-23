@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
-from app.domain.error_catalog import IntegrationError
-from app.exceptions import WorkflowException
+from app.domain.appointment_scheduling.failure import (
+    raise_email_send_error,
+    raise_scheduling_result_failure,
+)
 from app.services.appointment_scheduling.decision_service import (
     AppointmentSchedulingDecisionService,
 )
@@ -87,6 +89,7 @@ def read_appointment_scheduling_lifecycle(state):
     return state
 
 
+@safe_node
 def run_scheduling_intake(state):
     tenant_slug = str(state.data.get("tenant_slug") or "").strip()
     tenant_settings = state.data.get("tenant_settings") or {}
@@ -96,22 +99,12 @@ def run_scheduling_intake(state):
         payload=state.data,
     )
     if not result.ok:
-        failure = result.failure
-        lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
-        if failure and lifecycle_id:
-            state.data["scheduling_intake_skip_reason"] = failure.code
-            AppointmentSchedulingLifecycleService().mark_failed(
-                lifecycle_id,
-                failure,
-                tenant_id=(state.tenant_id or state.data.get("tenant_id") or "").strip() or None,
-                workflow_run_id=str(state.execution_id or "").strip() or None,
-            )
         logger.info(
-            "run_scheduling_intake skip code=%s lifecycle_id=%s",
-            failure.code if failure else None,
-            lifecycle_id,
+            "run_scheduling_intake failed code=%s lifecycle_id=%s",
+            result.failure.code if result.failure else None,
+            state.data.get("workflow_lifecycle_id"),
         )
-        return state
+        raise_scheduling_result_failure(result.failure)
 
     state.data["shipment"] = result.shipment
     state.data["ascend_shipment"] = result.ascend_shipment
@@ -188,6 +181,7 @@ def build_email_scheduling_draft(state):
     return state
 
 
+@safe_node
 def persist_scheduling_draft_ready(state):
     lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
     AppointmentSchedulingLifecycleService().persist_draft_ready(
@@ -266,10 +260,7 @@ def apply_turvo_delivery_placeholder(state):
         result=state.data["turvo_confirm_result"],
     )
     if not result.ok:
-        raise WorkflowException(
-            IntegrationError.VENDOR_API_ERROR,
-            result.error or IntegrationError.VENDOR_API_ERROR.description,
-        )
+        raise_scheduling_result_failure(result.failure, wire=result.error)
     return state
 
 
@@ -290,10 +281,7 @@ def finalize_confirm_awaiting_reply(state):
 def send_appointment_scheduling_email(state):
     result = AppointmentSchedulingEmailService().send_from_state(state)
     if not result.sent or not result.communication_id:
-        raise WorkflowException(
-            IntegrationError.EMAIL_SEND_FAILED,
-            result.error or IntegrationError.EMAIL_SEND_FAILED.description,
-        )
+        raise_email_send_error(result.error)
     state.data["communication_id"] = result.communication_id
     return state
 
@@ -334,22 +322,19 @@ def apply_turvo_delivery_appointment(state):
     }
     AppointmentSchedulingActivityService().record_turvo_update(state)
     if not result.ok:
-        raise WorkflowException(
-            IntegrationError.VENDOR_API_ERROR,
-            result.error or IntegrationError.VENDOR_API_ERROR.description,
-        )
+        raise_scheduling_result_failure(result.failure, wire=result.error)
     return state
 
 
+@safe_node
 def send_appointment_confirmation_reply(state):
     result = AppointmentSchedulingConfirmationEmailService().send_from_state(state)
     state.data["confirmation_sent"] = result.sent
     if result.communication_id:
         state.data["confirmation_communication_id"] = result.communication_id
-    if result.error:
-        state.data["confirmation_error"] = result.error
-    if result.sent:
-        AppointmentSchedulingActivityService().record_confirmation_sent(state)
+    if not result.sent:
+        raise_email_send_error(result.error)
+    AppointmentSchedulingActivityService().record_confirmation_sent(state)
     return state
 
 
@@ -369,10 +354,7 @@ def apply_turvo_tender_status(state):
     if result.ok and (result.updated or result.skipped):
         AppointmentSchedulingActivityService().record_turvo_tendered(state)
     if not result.ok:
-        raise WorkflowException(
-            IntegrationError.VENDOR_API_ERROR,
-            result.error or IntegrationError.VENDOR_API_ERROR.description,
-        )
+        raise_scheduling_result_failure(result.failure, wire=result.error)
     return state
 
 
