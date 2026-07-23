@@ -92,12 +92,17 @@ class AppointmentSchedulingAscendWriteService:
                 ),
             )
 
-        dropoff = extract_dropoff_stop(ascend_shipment or {})
-        if not dropoff.get("stop_id"):
-            dropoff = {"stop_id": "dry-run", "stop_number": ""}
-        payload = build_ascend_dropoff_update_payload(dropoff, iso_start)
-
         if skip_ascend_writes_enabled(tenant_settings):
+            dropoff = extract_dropoff_stop(ascend_shipment or {})
+            payload = build_ascend_dropoff_update_payload(dropoff, iso_start)
+            if not payload:
+                return AscendWriteResult(
+                    ok=False,
+                    failure=self._catalog_failure(
+                        "invalid_ascend_payload",
+                        reference_number=ref,
+                    ),
+                )
             logger.info(
                 "skip_ascend_writes dry-run reference=%s payload=%s",
                 ref,
@@ -115,7 +120,6 @@ class AppointmentSchedulingAscendWriteService:
             return AscendWriteResult(
                 ok=False,
                 failure=self._catalog_failure("ascend_not_configured"),
-                payload=payload,
             )
 
         office_code = ascend_office_code_from_reference(reference_number=ref) or ""
@@ -157,7 +161,6 @@ class AppointmentSchedulingAscendWriteService:
             return AscendWriteResult(
                 ok=False,
                 failure=SchedulingFailure.from_catalog(catalog, message),
-                payload=payload,
             )
 
 
