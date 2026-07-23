@@ -11,10 +11,12 @@ from app.domain.appointment_scheduling.costco import (
 )
 from app.domain.appointment_scheduling.metadata_hydration import (
     apply_lifecycle_email_draft_to_state,
+    apply_lifecycle_scheduling_decision_to_state,
     hydrate_shipment_facts_into_state,
 )
 from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
+    LLM_SCHEDULING_DECISION,
     SCHEDULING_FAILURE_REASON,
 )
 from app.services.appointment_scheduling.activity_service import (
@@ -56,15 +58,18 @@ class AppointmentSchedulingLifecycleService:
             email_draft=email_draft,
             scheduling_payload=scheduling_payload,
         )
+        decision = llm_scheduling_decision if isinstance(llm_scheduling_decision, dict) else {}
+        metadata_patch: dict[str, Any] = {EMAIL_DRAFT: email_draft}
+        if decision:
+            metadata_patch[LLM_SCHEDULING_DECISION] = decision
         self._lifecycle.patch_metadata(
             lifecycle_id=lifecycle_id,
-            metadata_patch={EMAIL_DRAFT: email_draft},
+            metadata_patch=metadata_patch,
         )
 
         shipments_row_id = str(state.data.get("shipments_row_id") or "").strip()
         tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
         if shipments_row_id and tenant_id:
-            decision = llm_scheduling_decision if isinstance(llm_scheduling_decision, dict) else {}
             customer_name = str(state.data.get("customer_name") or "").strip()
             pickup_time = str(decision.get("selected_pickup_time") or "").strip() or None
             delivery_time = (
@@ -157,6 +162,7 @@ class AppointmentSchedulingLifecycleService:
         if not isinstance(meta, dict):
             meta = {}
         apply_lifecycle_email_draft_to_state(state, meta)
+        apply_lifecycle_scheduling_decision_to_state(state, meta)
         self._hydrate_turvo_shipment_id(state, lifecycle_id=lifecycle_id, lifecycle_row=row)
 
         tenant_id = str(

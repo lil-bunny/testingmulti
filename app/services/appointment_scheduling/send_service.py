@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from app.core.logger import get_logger
@@ -26,6 +27,16 @@ class AppointmentSchedulingSendService:
     ) -> None:
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
         self._tenants = tenants_service or TenantsService()
+
+    @staticmethod
+    def _normalize_uuid(value: Any) -> str | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            return str(uuid.UUID(raw))
+        except (ValueError, AttributeError):
+            return None
 
     @staticmethod
     def _email_draft_ready(metadata: Any) -> bool:
@@ -55,8 +66,19 @@ class AppointmentSchedulingSendService:
         if not actor:
             raise ValueError("actor_user_id is required")
 
+        tenant_row = self._tenants.get_by_slug(tenant_slug)
+        if tenant_row is None:
+            raise ValueError("tenant_not_found")
+        caller_tenant_uuid = self._normalize_uuid(tenant_row.get("id"))
+        if not caller_tenant_uuid:
+            raise ValueError("tenant_not_found")
+
         row = self._lifecycle.read_lifecycle_row_by_id(wl_id)
         if not row:
+            raise ValueError("lifecycle_not_found")
+
+        row_tenant_uuid = self._normalize_uuid(row.get("tenant_id"))
+        if row_tenant_uuid != caller_tenant_uuid:
             raise ValueError("lifecycle_not_found")
 
         status = str(row.get("status") or "").strip()
@@ -72,15 +94,8 @@ class AppointmentSchedulingSendService:
         if not self._email_draft_ready(metadata):
             raise ValueError("missing_email_draft")
 
-        tenant_row = self._tenants.get_by_slug(tenant_slug)
-        if tenant_row is None:
-            raise ValueError("tenant_not_found")
-        tenant_uuid = str(tenant_row.get("id") or "").strip()
-        if not tenant_uuid:
-            raise ValueError("tenant_not_found")
-
         payload: dict[str, Any] = {
-            "tenant_id": tenant_uuid,
+            "tenant_id": caller_tenant_uuid,
             "tenant_slug": tenant_slug,
             "workflow_lifecycle_id": wl_id,
             "actor_user_id": actor,

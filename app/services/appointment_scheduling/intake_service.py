@@ -51,7 +51,6 @@ class IntakeResult:
     customer_id: str | None = None
     reference_number: str | None = None
     office_code: str | None = None
-    ascend_access_token: str | None = None
     ascend_appointments: list[dict[str, Any]] | None = None
 
 
@@ -191,6 +190,5 @@ class AppointmentSchedulingIntakeService:
             customer_id=customer_id,
             reference_number=reference_number,
             office_code=office_code,
-            ascend_access_token=access_token,
             ascend_appointments=appointments,
         )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT
+from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT, LLM_SCHEDULING_DECISION
 
 
 def apply_lifecycle_email_draft_to_state(
@@ -14,6 +14,16 @@ def apply_lifecycle_email_draft_to_state(
 ) -> None:
     if isinstance(lifecycle_metadata.get(EMAIL_DRAFT), dict):
         state.data["email_draft"] = lifecycle_metadata[EMAIL_DRAFT]
+        state.data.setdefault("workflow_lifecycle_metadata", lifecycle_metadata)
+
+
+def apply_lifecycle_scheduling_decision_to_state(
+    state,
+    lifecycle_metadata: dict[str, Any],
+) -> None:
+    decision = lifecycle_metadata.get(LLM_SCHEDULING_DECISION)
+    if isinstance(decision, dict) and decision:
+        state.data["llm_scheduling_decision"] = decision
         state.data.setdefault("workflow_lifecycle_metadata", lifecycle_metadata)
 
 
