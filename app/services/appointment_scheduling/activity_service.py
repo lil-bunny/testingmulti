@@ -23,7 +23,6 @@ from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.domain.appointment_scheduling.costco import is_costco_customer
 
 logger = get_logger(__name__)
 
@@ -121,11 +120,6 @@ class AppointmentSchedulingActivityService:
         if not isinstance(decision, dict):
             decision = {}
 
-        customer_name = str(state.data.get("customer_name") or "")
-        decision_source = (
-            "transit_days" if is_costco_customer(customer_name) else "llm"
-        )
-
         reference_number = str(state.data.get("reference_number") or "")
         selected_pickup_date = str(decision.get("selected_pickup_date") or "")
         calculated_delivery_date = str(decision.get("calculated_delivery_date") or "")
@@ -138,7 +132,7 @@ class AppointmentSchedulingActivityService:
             pickup_date=selected_pickup_date,
             delivery_date=calculated_delivery_date,
             delivery_weekday=calculated_delivery_weekday,
-            decision_source=decision_source,
+            decision_source="llm",
         )
 
         self._activity.record_sequence(

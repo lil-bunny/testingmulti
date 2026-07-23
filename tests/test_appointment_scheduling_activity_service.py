@@ -91,7 +91,8 @@ def test_record_decision_info_includes_llm_source() -> None:
     assert "source=llm" in (seq.steps[0].description or "")
 
 
-def test_record_decision_info_uses_transit_days_for_costco() -> None:
+def test_record_decision_info_costco_uses_llm_source() -> None:
+    # Costco is on the unified LLM path now; decision source is always "llm".
     activity = MagicMock()
     svc = AppointmentSchedulingActivityService(activity_log_service=activity)
 
@@ -100,16 +101,16 @@ def test_record_decision_info_uses_transit_days_for_costco() -> None:
             customer_name="COSTCO WHOLESALE",
             llm_scheduling_decision={
                 "selected_pickup_date": "07/01/2026",
-                "calculated_delivery_date": "07/04/2026",
+                "calculated_delivery_date": "07/03/2026",
                 "calculated_delivery_weekday": "FRIDAY",
-                "transit_days": 3,
+                "transit_days": 2,
             },
         )
     )
 
     seq = activity.record_sequence.call_args[0][0]
     assert seq.steps[0].metadata is None
-    assert "source=transit_days" in (seq.steps[0].description or "")
+    assert "source=llm" in (seq.steps[0].description or "")
 
 
 def test_record_draft_ready_writes_action_only() -> None:

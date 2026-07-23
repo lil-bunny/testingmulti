@@ -7,6 +7,7 @@ from typing import Any
 
 from app.domain.appointment_scheduling.models import LlmSchedulingDecision
 from app.integrations.langsmith.types import PromptTraceMetadata
+from app.tools.appointment_scheduling.scheduling_fallback import fallback_scheduling_decision
 from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
 from app.tools.llm_client import LLMClientError, chat_json
 
@@ -21,12 +22,10 @@ def _weekday_from_date(date_mm_dd_yyyy: str) -> str:
 
 
 def _fallback_decision(location_input: dict[str, Any]) -> LlmSchedulingDecision:
-    pickup_date = str(location_input.get("startDateInput") or "")
-    return LlmSchedulingDecision(
-        calculated_delivery_date=pickup_date,
-        calculated_delivery_weekday=_weekday_from_date(pickup_date),
-        selected_pickup_date=pickup_date,
-        pcs_pickup_date=pickup_date,
+    return fallback_scheduling_decision(
+        pickup_mm_dd_yyyy=str(location_input.get("startDateInput") or ""),
+        miles=location_input.get("miles") or 0,
+        dropoff_state=str(location_input.get("dropoff_state") or ""),
     )
 
 
