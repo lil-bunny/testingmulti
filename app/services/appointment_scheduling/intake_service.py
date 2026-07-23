@@ -7,9 +7,20 @@ from typing import Any
 
 from app.core.asyncio_util import run_sync
 from app.domain.appointment_scheduling.failure import SchedulingFailure
-from app.domain.appointment_scheduling.models import CustomerContactRow, DraftStatic, PickupDropoffData
+from app.domain.appointment_scheduling.models import (
+    CustomerContactRow,
+    DraftStatic,
+    LlmSchedulingDecision,
+    PickupDropoffData,
+)
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
-from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
+from app.domain.appointment_scheduling.skip_reasons import (
+    SKIP_APPOINTMENT_MODE_NOT_EMAIL,
+    SKIP_APPOINTMENT_SHEET_UNREADABLE,
+    SKIP_MISSING_APPOINTMENT_DATA_SOURCE,
+    SKIP_MISSING_RECIPIENT_EMAIL,
+    scheduling_failure_from_skip,
+)
 from app.domain.error_catalog import IntegrationError, SystemError
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots
@@ -23,14 +34,18 @@ from app.integrations.turvo.shipments import (
     delivery_stop_name_from_payload,
     get_shipment as get_shipment_async,
 )
-from app.services.appointment_scheduling.recipient_contact_gate import (
-    contact_from_rows_skip_reason,
-)
 from app.services.appointment_scheduling.sheet_loader import load_appointment_sheet_rows
 from app.tools.appointment_scheduling.ascend_transforms import pickup_dropoff_from_ascend_shipment
-from app.tools.appointment_scheduling.customer_contact import customer_contact_from_rows
+from app.tools.appointment_scheduling.customer_contact import (
+    appointment_mode_from_row,
+    customer_contact_from_row,
+    customer_contact_from_rows,
+    find_customer_sheet_row,
+    is_email_appointment_mode,
+)
 from app.tools.appointment_scheduling.draft_email import (
     build_draft_static_from_turvo,
+    build_email_draft,
     build_shipment_details_summary,
 )
 from app.services.appointment_scheduling.ascend_settings import (
@@ -38,6 +53,12 @@ from app.services.appointment_scheduling.ascend_settings import (
 )
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.tools.appointment_scheduling.ingress import reference_number_from_turvo_shipment
+
+
+@dataclass(frozen=True)
+class EmailDraftResult:
+    email_draft: dict[str, Any]
+    scheduling_payload: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -292,3 +313,93 @@ class AppointmentSchedulingIntakeService:
                 "appointments": result.ascend_appointments,
             }
         return patch
+
+    @staticmethod
+    def _parse_cc(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        text = str(value or "").strip()
+        if not text:
+            return []
+        return [part.strip() for part in text.split(",") if part.strip()]
+
+    def build_email_draft_from_state(self, state) -> EmailDraftResult:
+        data = state.data or {}
+        contact = data.get("customer_contact") or {}
+        settings = self._settings(data.get("tenant_settings") or {})
+        email_draft, scheduling_payload = build_email_draft(
+            pickup_dropoff=PickupDropoffData.model_validate(
+                data.get("pickup_dropoff_data") or {}
+            ),
+            llm_decision=LlmSchedulingDecision.model_validate(
+                data.get("llm_scheduling_decision") or {}
+            ),
+            draft_static=DraftStatic.model_validate(data.get("draft_static") or {}),
+            to_email=str(contact.get("email") or ""),
+            cc=self._parse_cc(settings.email_cc),
+            load_id=str(data.get("load_id") or ""),
+            customer_name=str(data.get("customer_name") or ""),
+        )
+        return EmailDraftResult(
+            email_draft=email_draft.model_dump(mode="json"),
+            scheduling_payload=scheduling_payload.model_dump(mode="json"),
+        )
+
+
+MISSING_RECIPIENT_EMAIL = SKIP_MISSING_RECIPIENT_EMAIL
+MISSING_APPOINTMENT_DATA_SOURCE = SKIP_MISSING_APPOINTMENT_DATA_SOURCE
+APPOINTMENT_SHEET_UNREADABLE = SKIP_APPOINTMENT_SHEET_UNREADABLE
+APPOINTMENT_MODE_NOT_EMAIL = SKIP_APPOINTMENT_MODE_NOT_EMAIL
+
+
+def contact_from_rows_skip_reason(
+    rows: list[dict[str, Any]],
+    customer_name: str,
+) -> str | None:
+    row = find_customer_sheet_row(rows, customer_name)
+    if row is None:
+        return MISSING_RECIPIENT_EMAIL
+    if not is_email_appointment_mode(appointment_mode_from_row(row)):
+        return APPOINTMENT_MODE_NOT_EMAIL
+    contact = customer_contact_from_row(row)
+    if contact is None or not contact.email:
+        return MISSING_RECIPIENT_EMAIL
+    return None
+
+
+def missing_recipient_email_skip_reason(
+    *,
+    tenant_settings: dict[str, Any],
+    shipment_payload: dict[str, Any],
+) -> str | None:
+    """Return a skip reason when sheet/recipient pre-check fails; else None."""
+    skip_reason, _contact = resolve_recipient_contact(
+        tenant_settings=tenant_settings,
+        shipment_payload=shipment_payload,
+    )
+    return skip_reason
+
+
+def resolve_recipient_contact(
+    *,
+    tenant_settings: dict[str, Any],
+    shipment_payload: dict[str, Any],
+) -> tuple[str | None, CustomerContactRow | None]:
+    """Load appointment sheet once; return skip reason or resolved contact."""
+    settings = AppointmentSchedulingIntakeService._settings(tenant_settings)
+    sheet_source = str(settings.appointment_data_source or "").strip()
+    if not sheet_source:
+        return MISSING_APPOINTMENT_DATA_SOURCE, None
+    try:
+        rows = load_appointment_sheet_rows(sheet_source)
+    except (OSError, GoogleSheetsError, ValueError):
+        return APPOINTMENT_SHEET_UNREADABLE, None
+
+    sheet_customer = delivery_stop_name_from_payload(shipment_payload) or ""
+    if skip := contact_from_rows_skip_reason(rows, sheet_customer):
+        return skip, None
+    row = find_customer_sheet_row(rows, sheet_customer)
+    contact = customer_contact_from_row(row) if row is not None else None
+    if contact is None or not contact.email:
+        return MISSING_RECIPIENT_EMAIL, None
+    return None, contact

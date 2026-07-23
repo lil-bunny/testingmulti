@@ -19,7 +19,7 @@ from app.tools.appointment_scheduling.draft_email import (
     is_del_appt_req_subject,
     parse_del_appt_req_subject_token,
 )
-from app.tools.appointment_scheduling.proposed_appointments import (
+from app.tools.appointment_scheduling.dates import (
     parse_proposed_appointment_date,
     proposed_wall_clock_to_utc,
 )

@@ -6,10 +6,12 @@ import uuid
 from typing import Any
 
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.models.status import StatusSubType, StatusType
-from app.services.appointment_scheduling.enqueue import enqueue_appointment_draft_send
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.tasks.workflows import run_workflow_async
 
 logger = get_logger(__name__)
 
@@ -106,7 +108,36 @@ class AppointmentSchedulingSendService:
         return enqueue_appointment_draft_send(tenant_slug=tenant_slug, payload=payload)
 
 
+def enqueue_appointment_draft_send(
+    *,
+    tenant_slug: str,
+    payload: dict[str, Any],
+) -> str:
+    execution_id = str(uuid.uuid4())
+    body = {
+        **payload,
+        "event_type": WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value,
+        "execution_id": execution_id,
+        "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
+    }
+    task = run_workflow_async.apply_async(
+        kwargs={
+            "tenant_slug": tenant_slug,
+            "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
+            "payload": body,
+        }
+    )
+    logger.info(
+        "appointment_draft_send queued task_id=%s execution_id=%s lifecycle_id=%s",
+        task.id,
+        execution_id,
+        payload.get("workflow_lifecycle_id"),
+    )
+    return execution_id
+
+
 __all__ = (
     "AppointmentSchedulingSendConflictError",
     "AppointmentSchedulingSendService",
+    "enqueue_appointment_draft_send",
 )

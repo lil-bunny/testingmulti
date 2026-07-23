@@ -272,7 +272,7 @@ def pickup_stop_name_from_payload(payload: dict[str, Any]) -> str | None:
 
 def delivery_date_only_from_payload(payload: dict[str, Any]) -> str | None:
     """Normalized ``YYYY-MM-DD`` delivery date for confirm-phase 0001 rule."""
-    from app.tools.appointment_scheduling.turvo_confirm import normalize_date_only
+    from app.tools.appointment_scheduling.dates import normalize_date_only
 
     if not isinstance(payload, dict):
         return None

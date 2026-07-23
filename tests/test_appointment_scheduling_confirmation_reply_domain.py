@@ -14,8 +14,9 @@ from app.domain.appointment_scheduling.confirmation_reply import (
     render_confirmation_reply,
     resolve_confirmation_reply_body,
 )
-from app.services.appointment_scheduling.confirmation_email_service import (
+from app.services.appointment_scheduling.email_service import (
     AppointmentSchedulingConfirmationEmailService,
+    AppointmentSchedulingEmailService,
 )
 
 _STATE_DATA: dict[str, Any] = {
@@ -145,7 +146,7 @@ def test_confirmation_email_service_uses_default_body() -> None:
             "mikey_account_id": {"account_id": "acc-1", "email_alias": "ops@example.com"},
         },
     )
-    result = svc.send_from_state(state)
+    result = svc.send_confirmation_reply_from_state(state)
     assert result.sent is True
     comms.send_thread_reply.assert_called_once()
     assert comms.send_thread_reply.call_args.kwargs["body"] == DEFAULT_CONFIRMATION_REPLY_BODY
@@ -171,7 +172,7 @@ def test_confirmation_email_service_uses_tenant_html() -> None:
             "mikey_account_id": {"account_id": "acc-1", "email_alias": "ops@example.com"},
         },
     )
-    result = svc.send_from_state(state)
+    result = svc.send_confirmation_reply_from_state(state)
     assert result.sent is True
     assert comms.send_thread_reply.call_args.kwargs["body"] == (
         "<p>Thanks for load 62396</p>"

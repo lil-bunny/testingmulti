@@ -7,43 +7,35 @@ from app.domain.appointment_scheduling.failure import (
     raise_email_send_error,
     raise_scheduling_result_failure,
 )
+from app.services.appointment_scheduling.activity_service import (
+    AppointmentSchedulingActivityService,
+)
+from app.services.appointment_scheduling.ascend_write_service import (
+    AppointmentSchedulingAscendWriteService,
+)
 from app.services.appointment_scheduling.decision_service import (
     AppointmentSchedulingDecisionService,
 )
-from app.services.appointment_scheduling.draft_service import AppointmentSchedulingDraftService
-from app.services.appointment_scheduling.intake_service import AppointmentSchedulingIntakeService
+from app.services.appointment_scheduling.email_service import (
+    AppointmentSchedulingEmailService,
+)
+from app.services.appointment_scheduling.intake_service import (
+    AppointmentSchedulingIntakeService,
+)
 from app.services.appointment_scheduling.ingress_prepare_service import (
     AppointmentSchedulingIngressPrepareService,
 )
 from app.services.appointment_scheduling.lifecycle_service import (
     AppointmentSchedulingLifecycleService,
 )
-from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
-)
-from app.services.appointment_scheduling.email_service import (
-    AppointmentSchedulingEmailService,
-)
 from app.services.appointment_scheduling.reply_classification_service import (
     AppointmentReplyClassificationService,
 )
-from app.services.appointment_scheduling.ascend_write_service import (
-    AppointmentSchedulingAscendWriteService,
-)
-from app.services.appointment_scheduling.turvo_write_service import (
-    AppointmentSchedulingTurvoWriteService,
+from app.services.appointment_scheduling.turvo_stop_update_service import (
+    AppointmentSchedulingTurvoStopUpdateService,
 )
 from app.services.appointment_scheduling.weekend_pickup_service import (
     AppointmentSchedulingWeekendPickupService,
-)
-from app.services.appointment_scheduling.turvo_confirm_service import (
-    AppointmentSchedulingTurvoConfirmService,
-)
-from app.services.appointment_scheduling.confirmation_email_service import (
-    AppointmentSchedulingConfirmationEmailService,
-)
-from app.services.appointment_scheduling.teams_notification_service import (
-    AppointmentSchedulingTeamsNotificationService,
 )
 from app.workflows.utils.decorators import safe_node
 
@@ -120,26 +112,7 @@ def compute_scheduling_decision(state):
 
 
 def build_email_scheduling_draft(state):
-    from app.domain.appointment_scheduling.models import (
-        DraftStatic,
-        LlmSchedulingDecision,
-        PickupDropoffData,
-    )
-
-    contact = state.data.get("customer_contact") or {}
-    draft_result = AppointmentSchedulingDraftService().build_email_draft(
-        pickup_dropoff=PickupDropoffData.model_validate(
-            state.data.get("pickup_dropoff_data") or {}
-        ),
-        llm_decision=LlmSchedulingDecision.model_validate(
-            state.data.get("llm_scheduling_decision") or {}
-        ),
-        draft_static=DraftStatic.model_validate(state.data.get("draft_static") or {}),
-        to_email=str(contact.get("email") or ""),
-        tenant_settings=state.data.get("tenant_settings") or {},
-        load_id=str(state.data.get("load_id") or ""),
-        customer_name=str(state.data.get("customer_name") or ""),
-    )
+    draft_result = AppointmentSchedulingIntakeService().build_email_draft_from_state(state)
     state.data["email_draft"] = draft_result.email_draft
     state.data["scheduling_payload"] = draft_result.scheduling_payload
     return state
@@ -159,14 +132,7 @@ def persist_scheduling_draft_ready(state):
 
 
 def notify_appointment_scheduling_draft_teams(state):
-    result = AppointmentSchedulingTeamsNotificationService().notify_from_state(state)
-    state.data["appointment_scheduling_teams_notification_sent"] = result.sent
-    if result.skip_reason:
-        state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason
-    if result.error:
-        state.data["appointment_scheduling_teams_notification_error"] = result.error
-    AppointmentSchedulingActivityService().record_draft_pending_review(state)
-    AppointmentSchedulingLifecycleService().strip_intake_checkpoint(state)
+    AppointmentSchedulingLifecycleService().finalize_after_teams_notify(state)
     return state
 
 
@@ -188,12 +154,7 @@ def hydrate_appointment_confirm_context(state):
 @safe_node
 def apply_weekend_shifted_pickup(state):
     result = AppointmentSchedulingWeekendPickupService().apply_from_state(state)
-    checkpoint = result.to_checkpoint_dict()
-    state.data["weekend_pickup_result"] = checkpoint
-    AppointmentSchedulingActivityService().record_weekend_pickup_update(
-        state,
-        result=checkpoint,
-    )
+    state.data["weekend_pickup_result"] = result.to_checkpoint_dict()
     if not result.ok and not result.skipped and result.failure:
         raise result.failure.to_workflow_exception()
     return state
@@ -201,34 +162,23 @@ def apply_weekend_shifted_pickup(state):
 
 @safe_node
 def apply_turvo_delivery_placeholder(state):
-    result = AppointmentSchedulingTurvoConfirmService().apply_delivery_placeholder_from_state(state)
-    checkpoint = result.to_checkpoint_dict()
-    state.data["turvo_confirm_result"] = checkpoint
-    AppointmentSchedulingActivityService().record_turvo_confirm_placeholder(
-        state,
-        result=checkpoint,
+    result = AppointmentSchedulingTurvoStopUpdateService().apply_delivery_placeholder_from_state(
+        state
     )
+    state.data["turvo_confirm_result"] = result.to_checkpoint_dict()
     if not result.ok:
         raise_scheduling_result_failure(result.failure, wire=result.error)
     return state
 
 
 def finalize_confirm_awaiting_reply(state):
-    actor_id = str(state.data.get("actor_user_id") or "").strip() or None
-    communication_id = str(state.data.get("communication_id") or "").strip() or None
-    svc = AppointmentSchedulingActivityService()
-    svc.record_confirm_email_sent(
-        state,
-        communication_id=communication_id,
-        actor_id=actor_id,
-    )
-    svc.record_awaiting_customer_reply(state)
+    AppointmentSchedulingLifecycleService().finalize_confirm_awaiting_reply(state)
     return state
 
 
 @safe_node
 def send_appointment_scheduling_email(state):
-    result = AppointmentSchedulingEmailService().send_from_state(state)
+    result = AppointmentSchedulingEmailService().send_draft_from_state(state)
     if not result.sent or not result.communication_id:
         raise_email_send_error(result.error)
     state.data["communication_id"] = result.communication_id
@@ -253,9 +203,8 @@ def apply_ascend_dropoff_appointment(state):
 
 @safe_node
 def apply_turvo_delivery_appointment(state):
-    result = AppointmentSchedulingTurvoWriteService().apply_delivery_from_state(state)
+    result = AppointmentSchedulingTurvoStopUpdateService().apply_delivery_from_state(state)
     state.data["turvo_update_result"] = result.to_checkpoint_dict()
-    AppointmentSchedulingActivityService().record_turvo_update(state)
     if not result.ok:
         raise_scheduling_result_failure(result.failure, wire=result.error)
     return state
@@ -263,13 +212,12 @@ def apply_turvo_delivery_appointment(state):
 
 @safe_node
 def send_appointment_confirmation_reply(state):
-    result = AppointmentSchedulingConfirmationEmailService().send_from_state(state)
+    result = AppointmentSchedulingEmailService().send_confirmation_reply_from_state(state)
     state.data["confirmation_sent"] = result.sent
     if result.communication_id:
         state.data["confirmation_communication_id"] = result.communication_id
     if not result.sent:
         raise_email_send_error(result.error)
-    AppointmentSchedulingActivityService().record_confirmation_sent(state)
     return state
 
 
@@ -278,10 +226,8 @@ def apply_turvo_tender_status(state):
     if not state.data.get("confirmation_sent"):
         return state
 
-    result = AppointmentSchedulingTurvoWriteService().tender_from_state(state)
+    result = AppointmentSchedulingTurvoStopUpdateService().tender_from_state(state)
     state.data["turvo_tender_result"] = result.to_checkpoint_dict()
-    if result.ok and (result.updated or result.skipped):
-        AppointmentSchedulingActivityService().record_turvo_tendered(state)
     if not result.ok:
         raise_scheduling_result_failure(result.failure, wire=result.error)
     return state

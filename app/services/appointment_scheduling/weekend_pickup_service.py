@@ -27,7 +27,10 @@ from app.integrations.turvo.shipments import (
 )
 from app.domain.appointment_scheduling.state_hygiene import slim_weekend_pickup_result
 from app.tools.appointment_scheduling.ascend_pickup_update import plan_ascend_pickup_update
-from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
+from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
+from app.services.appointment_scheduling.activity_service import (
+    AppointmentSchedulingActivityService,
+)
 from app.services.shipments_service import ShipmentsService
 
 logger = get_logger(__name__)
@@ -64,7 +67,22 @@ class WeekendPickupResult:
 
 
 class AppointmentSchedulingWeekendPickupService:
+    def __init__(
+        self,
+        *,
+        activity_service: AppointmentSchedulingActivityService | None = None,
+    ) -> None:
+        self._activity = activity_service or AppointmentSchedulingActivityService()
+
     def apply_from_state(self, state) -> WeekendPickupResult:
+        result = self._apply_from_state(state)
+        self._activity.record_weekend_pickup_update(
+            state,
+            result=result.to_checkpoint_dict(),
+        )
+        return result
+
+    def _apply_from_state(self, state) -> WeekendPickupResult:
         data = state.data or {}
         decision = data.get("llm_scheduling_decision") or {}
         if not isinstance(decision, dict):

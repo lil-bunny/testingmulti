@@ -316,7 +316,7 @@ def appointment_scheduling_post_read_router(state):
 
 
 def scheduling_weekend_shifted_router(state):
-    from app.tools.appointment_scheduling.weekend_shifted import is_weekend_shifted_truthy
+    from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
 
     decision = state.data.get("llm_scheduling_decision") or {}
     if not isinstance(decision, dict):

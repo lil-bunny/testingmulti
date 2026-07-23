@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingTurvoConfirmService."""
+"""Tests for AppointmentSchedulingTurvoStopUpdateService."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.appointment_scheduling.turvo_confirm_service import (
-    AppointmentSchedulingTurvoConfirmService,
+from app.services.appointment_scheduling.turvo_stop_update_service import (
+    AppointmentSchedulingTurvoStopUpdateService,
 )
 
 
@@ -36,12 +36,12 @@ def _shipment_payload(*, route_stop: str = "Delivery WH", delivery_date: str = "
 
 @pytest.mark.asyncio
 async def test_apply_delivery_placeholder_sets_0001() -> None:
-    svc = AppointmentSchedulingTurvoConfirmService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     payload = _shipment_payload()
     mock_update = AsyncMock(return_value={"ok": True, "updated": True})
 
     with patch(
-        "app.services.appointment_scheduling.turvo_confirm_service.update_stop_appointment_time",
+        "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
         new=mock_update,
     ):
         result = await svc.apply_delivery_placeholder(
@@ -59,7 +59,7 @@ async def test_apply_delivery_placeholder_sets_0001() -> None:
 
 @pytest.mark.asyncio
 async def test_apply_delivery_placeholder_missing_shipment_fields() -> None:
-    svc = AppointmentSchedulingTurvoConfirmService()
+    svc = AppointmentSchedulingTurvoStopUpdateService()
     result = await svc.apply_delivery_placeholder(
         tenant_slug="",
         shipment_id="",
