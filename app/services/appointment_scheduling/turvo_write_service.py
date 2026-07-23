@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipment_status import (
@@ -38,7 +39,10 @@ class TurvoWriteResult:
 
 
 class AppointmentSchedulingTurvoWriteService:
-    async def apply_delivery_from_state(self, state) -> TurvoWriteResult:
+    def apply_delivery_from_state(self, state) -> TurvoWriteResult:
+        return run_sync(self._apply_delivery_from_state_async(state))
+
+    async def _apply_delivery_from_state_async(self, state) -> TurvoWriteResult:
         data = state.data or {}
         extraction = data.get("customer_reply_extraction") or {}
         if not isinstance(extraction, dict):
@@ -140,7 +144,10 @@ class AppointmentSchedulingTurvoWriteService:
                 )
         return result
 
-    async def tender_from_state(self, state) -> TurvoWriteResult:
+    def tender_from_state(self, state) -> TurvoWriteResult:
+        return run_sync(self._tender_from_state_async(state))
+
+    async def _tender_from_state_async(self, state) -> TurvoWriteResult:
         data = state.data or {}
         return await self.apply_tender(
             tenant_slug=str(data.get("tenant_slug") or "").strip(),

@@ -11,7 +11,9 @@ from app.domain.appointment_scheduling.scheduling_reference import ascend_office
 from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
 from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
 from app.domain.error_catalog import SystemError
-from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
+from app.services.appointment_scheduling.ascend_settings import (
+    load_appointment_scheduling_settings,
+)
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
 from app.integrations.ascend.errors import AscendApiError
@@ -63,6 +65,7 @@ class AppointmentSchedulingAscendWriteService:
             extraction.get("appointment_start_iso") or data.get("confirmed_delivery_at") or ""
         ).strip()
         return self.apply_dropoff(
+            tenant_slug=str(data.get("tenant_slug") or "").strip(),
             tenant_settings=tenant_settings,
             reference_number=reference_number,
             appointment_start_iso=iso_start,
@@ -72,6 +75,7 @@ class AppointmentSchedulingAscendWriteService:
     def apply_dropoff(
         self,
         *,
+        tenant_slug: str,
         tenant_settings: dict[str, Any],
         reference_number: str,
         appointment_start_iso: str,
@@ -106,9 +110,7 @@ class AppointmentSchedulingAscendWriteService:
                 payload=payload,
             )
 
-        settings = T3raAppointmentSchedulingSettings.model_validate(
-            tenant_settings.get("appointment_scheduling") or {}
-        )
+        settings = load_appointment_scheduling_settings(tenant_slug)
         if not settings.ascend_email or not settings.ascend_password:
             return AscendWriteResult(
                 ok=False,

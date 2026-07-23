@@ -78,16 +78,16 @@ def test_skipped_when_not_weekend_shifted() -> None:
     return_value={"accessToken": "token"},
 )
 @patch(
-    "app.services.appointment_scheduling.weekend_pickup_service.T3raAppointmentSchedulingSettings.model_validate",
+    "app.services.appointment_scheduling.weekend_pickup_service.load_appointment_scheduling_settings",
 )
 def test_applies_ascend_and_turvo_when_changed(
-    mock_settings_cls: MagicMock,
+    mock_load_settings: MagicMock,
     _login: MagicMock,
     _update_appt: MagicMock,
     mock_turvo_update: AsyncMock,
     _skip_writes: MagicMock,
 ) -> None:
-    mock_settings_cls.return_value = MagicMock(
+    mock_load_settings.return_value = MagicMock(
         ascend_email="a@b.com",
         ascend_password="secret",
     )

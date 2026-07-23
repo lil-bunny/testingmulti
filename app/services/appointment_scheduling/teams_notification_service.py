@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 
 from app.core.logger import get_logger
@@ -14,7 +13,7 @@ from app.domain.appointment_scheduling.teams_notification import (
     parse_appointment_scheduling_teams_notification_settings,
 )
 from app.domain.state import WorkflowState
-from app.integrations.teams.webhook import TeamsWebhookError, post_message_card
+from app.integrations.teams.webhook import TeamsWebhookError, post_message_card_sync
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.activity_service import (
     AppointmentSchedulingActivityService,
@@ -72,13 +71,11 @@ class AppointmentSchedulingTeamsNotificationService:
 
         wl_id = fields.workflow_lifecycle_id
         try:
-            asyncio.run(
-                post_message_card(
-                    settings.teams_webhook_url,
-                    title=title,
-                    text=body,
-                    facts=facts,
-                )
+            post_message_card_sync(
+                settings.teams_webhook_url,
+                title=title,
+                text=body,
+                facts=facts,
             )
         except TeamsWebhookError as exc:
             logger.warning(

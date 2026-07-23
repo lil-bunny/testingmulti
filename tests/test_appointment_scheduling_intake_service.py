@@ -7,7 +7,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.services.appointment_scheduling.intake_service import AppointmentSchedulingIntakeService
+
+
+def _ascend_settings(**overrides) -> T3raAppointmentSchedulingSettings:
+    data = {
+        "appointment_data_source": "/tmp/x",
+        "ascend_email": "ascend@example.com",
+        "ascend_password": "secret",
+    }
+    data.update(overrides)
+    return T3raAppointmentSchedulingSettings.model_validate(data)
 
 
 @pytest.fixture
@@ -61,6 +72,9 @@ def test_intake_success(appointment_sheet):
         "app.services.appointment_scheduling.intake_service.get_shipment_async",
         new=AsyncMock(return_value=turvo_shipment),
     ), patch(
+        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
+        return_value=_ascend_settings(appointment_data_source=appointment_sheet),
+    ), patch(
         "app.services.appointment_scheduling.intake_service.login_ascend_api",
         return_value={"accessToken": "token"},
     ), patch(
@@ -81,6 +95,61 @@ def test_intake_success(appointment_sheet):
     assert result.customer_contact.email == "acme@example.com"
     assert result.reference_number == "DIAMOND-RPN-99"
     assert result.customer_name == "Acme Foods"
+
+
+def test_intake_reuses_shipment_from_payload_without_turvo_fetch(appointment_sheet):
+    service = AppointmentSchedulingIntakeService()
+    tenant_settings = {
+        "appointment_scheduling": {
+            "appointment_data_source": appointment_sheet,
+            "ascend_email": "ascend@example.com",
+            "ascend_password": "secret",
+        }
+    }
+    turvo_shipment = {
+        "details": {
+            "customerOrder": [
+                {
+                    "customer": {"name": "Acme Foods", "id": "CUST-42"},
+                    "externalIds": [{"idValue": "DIAMOND-RPN-99"}],
+                    "items": [{"deliveryLocation": [{"name": "Acme Foods"}]}],
+                }
+            ]
+        }
+    }
+    turvo_mock = AsyncMock(return_value=turvo_shipment)
+    with patch(
+        "app.services.appointment_scheduling.intake_service.get_shipment_async",
+        new=turvo_mock,
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
+        return_value=_ascend_settings(appointment_data_source=appointment_sheet),
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.login_ascend_api",
+        return_value={"accessToken": "token"},
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.fetched_shipment_details",
+        return_value={
+            "totalCharge": "$100.00",
+            "totalMiles": 10,
+            "proNumber": "PRO",
+            "shipmentStops": [
+                {"appointmentStart": "2026-07-01T10:00:00Z", "stopName": "P"},
+                {"stopName": "D"},
+            ],
+        },
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.get_loc_ref_for_ascend_slots",
+        return_value=[{"warehouse": "WH-1"}],
+    ):
+        result = service.run_intake(
+            tenant_slug="t3ra",
+            tenant_settings=tenant_settings,
+            payload={"shipment_id": "12345", "shipment": turvo_shipment},
+        )
+
+    assert result.ok is True
+    turvo_mock.assert_not_called()
 
 
 def test_intake_missing_recipient_email(appointment_sheet):
@@ -166,6 +235,9 @@ def test_intake_success_from_google_sheets_url():
     ), patch(
         "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
         return_value=sheet_rows,
+    ), patch(
+        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
+        return_value=_ascend_settings(appointment_data_source=google_url),
     ), patch(
         "app.services.appointment_scheduling.intake_service.login_ascend_api",
         return_value={"accessToken": "token"},

@@ -65,7 +65,8 @@ def test_try_customer_reply_enqueues_when_lifecycle_active() -> None:
     with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
         import sys
 
-        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = MagicMock()
+        apply_async = MagicMock()
+        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = apply_async
         with patch(
             "app.services.tenants_service.TenantsService.get_by_slug",
             return_value={"settings": _enabled_settings()},
@@ -79,6 +80,8 @@ def test_try_customer_reply_enqueues_when_lifecycle_active() -> None:
     assert isinstance(result, IngressResult)
     assert result.outcome == "enqueued"
     assert result.event_type == WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value
+    celery_payload = apply_async.call_args.kwargs["kwargs"]["payload"]
+    assert "tenant_settings" not in celery_payload
 
 
 def test_try_customer_reply_skips_when_not_reply() -> None:

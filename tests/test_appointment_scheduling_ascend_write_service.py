@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.services.appointment_scheduling.ascend_write_service import (
     AppointmentSchedulingAscendWriteService,
 )
@@ -18,6 +19,7 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
         "app.services.appointment_scheduling.ascend_write_service.login_ascend_api"
     ) as login_mock:
         result = svc.apply_dropoff(
+            tenant_slug="t3ra",
             tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
             reference_number=_REF,
             appointment_start_iso=_ISO,
@@ -44,6 +46,16 @@ def test_live_ascend_put_when_writes_enabled() -> None:
             return_value=False,
         ),
         patch(
+            "app.services.appointment_scheduling.ascend_write_service.load_appointment_scheduling_settings",
+            return_value=T3raAppointmentSchedulingSettings.model_validate(
+                {
+                    "skip_ascend_writes": False,
+                    "ascend_email": "user@example.com",
+                    "ascend_password": "secret",
+                }
+            ),
+        ),
+        patch(
             "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
             return_value={"accessToken": "token"},
         ),
@@ -57,11 +69,10 @@ def test_live_ascend_put_when_writes_enabled() -> None:
         ) as put_mock,
     ):
         result = svc.apply_dropoff(
+            tenant_slug="t3ra",
             tenant_settings={
                 "appointment_scheduling": {
                     "skip_ascend_writes": False,
-                    "ascend_email": "user@example.com",
-                    "ascend_password": "secret",
                 }
             },
             reference_number=_REF,
@@ -76,11 +87,18 @@ def test_live_ascend_put_when_writes_enabled() -> None:
 
 def test_missing_credentials_when_writes_enabled() -> None:
     svc = AppointmentSchedulingAscendWriteService()
-    with patch(
-        "app.services.appointment_scheduling.ascend_write_service.skip_ascend_writes_enabled",
-        return_value=False,
+    with (
+        patch(
+            "app.services.appointment_scheduling.ascend_write_service.skip_ascend_writes_enabled",
+            return_value=False,
+        ),
+        patch(
+            "app.services.appointment_scheduling.ascend_write_service.load_appointment_scheduling_settings",
+            return_value=T3raAppointmentSchedulingSettings.model_validate({}),
+        ),
     ):
         result = svc.apply_dropoff(
+            tenant_slug="t3ra",
             tenant_settings={"appointment_scheduling": {"skip_ascend_writes": False}},
             reference_number=_REF,
             appointment_start_iso=_ISO,

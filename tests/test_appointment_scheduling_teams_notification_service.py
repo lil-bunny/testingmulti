@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from app.domain.state import WorkflowState
 from app.integrations.teams.webhook import TeamsWebhookError
@@ -70,10 +70,9 @@ def test_notify_skips_when_not_intake_event() -> None:
 
 
 @patch(
-    "app.services.appointment_scheduling.teams_notification_service.post_message_card",
-    new_callable=AsyncMock,
+    "app.services.appointment_scheduling.teams_notification_service.post_message_card_sync",
 )
-def test_notify_success_posts_and_records_activity(mock_post: AsyncMock) -> None:
+def test_notify_success_posts_and_records_activity(mock_post: MagicMock) -> None:
     activity = MagicMock()
     svc = AppointmentSchedulingTeamsNotificationService(activity_service=activity)
     state = _state()
@@ -81,15 +80,14 @@ def test_notify_success_posts_and_records_activity(mock_post: AsyncMock) -> None
     result = svc.notify_from_state(state)
 
     assert result.sent is True
-    mock_post.assert_awaited_once()
+    mock_post.assert_called_once()
     activity.record_draft_teams_notification.assert_called_once_with(state)
 
 
 @patch(
-    "app.services.appointment_scheduling.teams_notification_service.post_message_card",
-    new_callable=AsyncMock,
+    "app.services.appointment_scheduling.teams_notification_service.post_message_card_sync",
 )
-def test_notify_webhook_error_is_non_fatal(mock_post: AsyncMock) -> None:
+def test_notify_webhook_error_is_non_fatal(mock_post: MagicMock) -> None:
     mock_post.side_effect = TeamsWebhookError("failed", status_code=500)
     activity = MagicMock()
     svc = AppointmentSchedulingTeamsNotificationService(activity_service=activity)

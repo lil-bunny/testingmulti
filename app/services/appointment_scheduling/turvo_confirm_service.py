@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
@@ -30,7 +30,10 @@ class TurvoConfirmResult:
 
 
 class AppointmentSchedulingTurvoConfirmService:
-    async def apply_delivery_placeholder_from_state(self, state) -> TurvoConfirmResult:
+    def apply_delivery_placeholder_from_state(self, state) -> TurvoConfirmResult:
+        return run_sync(self._apply_delivery_placeholder_from_state_async(state))
+
+    async def _apply_delivery_placeholder_from_state_async(self, state) -> TurvoConfirmResult:
         data = state.data or {}
         tenant_slug = str(data.get("tenant_slug") or "").strip()
         shipment_id = str(data.get("shipment_id") or "").strip()

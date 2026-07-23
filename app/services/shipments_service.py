@@ -6,6 +6,7 @@ import uuid
 from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
@@ -209,6 +210,26 @@ class ShipmentsService:
             load_id=load,
             turvo_payload=turvo_payload,
             display_fields=fields,
+        )
+
+    def refresh_display_from_turvo_sync(
+        self,
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        turvo_shipment_id: str,
+        load_id: str,
+        customer_name_override: str | None = None,
+    ) -> dict[str, Any]:
+        """Sync facade for graph nodes and sync services."""
+        return run_sync(
+            self.refresh_display_from_turvo(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                turvo_shipment_id=turvo_shipment_id,
+                load_id=load_id,
+                customer_name_override=customer_name_override,
+            )
         )
 
     async def upsert_from_load_id(

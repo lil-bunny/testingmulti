@@ -131,17 +131,9 @@ def _service(
     lifecycle.find_blocking_appointment_scheduling_lifecycle_id.return_value = (
         blocking_lifecycle_id
     )
-    lifecycle.create_appointment_scheduling_lifecycle.return_value = _LIFECYCLE_ID
-
-    shipments = MagicMock()
-    shipments.upsert_from_turvo.return_value = {
-        "success": True,
-        "shipments_row_id": _SHIPMENTS_ROW_ID,
-    }
 
     return AppointmentSchedulingIngressService(
         tenants_service=tenants,
-        shipments_service=shipments,
         lifecycle_service=lifecycle,
     )
 
@@ -186,68 +178,6 @@ async def test_handle_shipment_update_skips_non_diamond_reference() -> None:
         result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
 
     assert result.skip_reason == "non_diamond_customer"
-    svc._shipments.upsert_from_turvo.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_handle_shipment_update_skips_missing_recipient_email() -> None:
-    svc = _service()
-    with (
-        patch(
-            "app.services.appointment_scheduling.ingress_service.fetch_shipment_activity_list",
-            new=AsyncMock(return_value=_activity_json()),
-        ),
-        patch(
-            "app.services.appointment_scheduling.ingress_service.get_shipment",
-            new=AsyncMock(return_value=_turvo_shipment_payload()),
-        ),
-        patch(
-            "app.services.appointment_scheduling.ingress_service.missing_recipient_email_skip_reason",
-            return_value="missing_recipient_email",
-        ),
-    ):
-        result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
-
-    assert result.handled is True
-    assert result.enqueued is False
-    assert result.skip_reason == "missing_recipient_email"
-    svc._shipments.upsert_from_turvo.assert_not_called()
-    svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("skip_reason",),
-    [
-        ("missing_appointment_data_source",),
-        ("appointment_sheet_unreadable",),
-    ],
-)
-async def test_handle_shipment_update_skips_sheet_gate_before_db_writes(
-    skip_reason: str,
-) -> None:
-    svc = _service()
-    with (
-        patch(
-            "app.services.appointment_scheduling.ingress_service.fetch_shipment_activity_list",
-            new=AsyncMock(return_value=_activity_json()),
-        ),
-        patch(
-            "app.services.appointment_scheduling.ingress_service.get_shipment",
-            new=AsyncMock(return_value=_turvo_shipment_payload()),
-        ),
-        patch(
-            "app.services.appointment_scheduling.ingress_service.missing_recipient_email_skip_reason",
-            return_value=skip_reason,
-        ),
-    ):
-        result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
-
-    assert result.handled is True
-    assert result.enqueued is False
-    assert result.skip_reason == skip_reason
-    svc._shipments.upsert_from_turvo.assert_not_called()
-    svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -274,14 +204,12 @@ async def test_handle_shipment_update_skips_multi_stop_from_shipment_not_activit
     assert result.enqueued is False
     assert result.skip_reason == "multi_stop"
     activity_mock.assert_not_called()
-    svc._shipments.upsert_from_turvo.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_handle_shipment_update_happy_path_enqueues() -> None:
     svc = _service()
     celery_task = MagicMock(id="celery-task-1")
-    location_link = MagicMock()
 
     with (
         patch(
@@ -293,14 +221,6 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
             new=AsyncMock(return_value=_turvo_shipment_payload()),
         ),
         patch(
-            "app.services.appointment_scheduling.ingress_service.missing_recipient_email_skip_reason",
-            return_value=None,
-        ),
-        patch(
-            "app.services.appointment_scheduling.ingress_service.ShipmentLocationLinkService",
-            return_value=location_link,
-        ),
-        patch(
             "app.services.appointment_scheduling.enqueue.run_workflow_async.apply_async",
             return_value=celery_task,
         ) as apply_async,
@@ -309,12 +229,6 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
 
     assert result.enqueued is True
     assert result.execution_id
-    upsert_kwargs = svc._shipments.upsert_from_turvo.call_args.kwargs
-    assert upsert_kwargs["display_fields"].customer_name == "PETCO DC 810"
-    location_link.try_link_from_turvo_shipment_payload.assert_called_once_with(
-        _turvo_shipment_payload(),
-        shipments_row_id=_SHIPMENTS_ROW_ID,
-    )
     apply_async.assert_called_once()
     kwargs = apply_async.call_args.kwargs["kwargs"]
     assert kwargs["workflow_name"] == "appointment_scheduling"
@@ -322,6 +236,8 @@ async def test_handle_shipment_update_happy_path_enqueues() -> None:
     assert payload["event_type"] == WorkflowRunEventType.TURVO_PICKUP_CHANGED.value
     assert payload["shipment_id"] == _SHIPMENT_ID
     assert payload["load_id"] == _LOAD_ID
-    assert payload["shipments_row_id"] == _SHIPMENTS_ROW_ID
-    assert payload["workflow_lifecycle_id"] == _LIFECYCLE_ID
     assert payload["reference_number"] == "DIAMOND-RPN-999"
+    assert payload["shipment"] == _turvo_shipment_payload()
+    assert "workflow_lifecycle_id" not in payload
+    assert "shipments_row_id" not in payload
+    svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()

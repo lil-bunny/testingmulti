@@ -1,4 +1,4 @@
-from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
+from app.domain.tenant_settings.registry import tenant_settings_for_workflow_state
 from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_active
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
@@ -42,6 +42,7 @@ from app.workflows.graph.routers import (
     tms_searchable_router,
     tms_driver_router,
     scheduling_intake_router,
+    scheduling_prepare_router,
     appointment_scheduling_post_read_router,
     scheduling_weekend_shifted_router,
     customer_reply_router,
@@ -77,6 +78,7 @@ ROUTER_REGISTRY = {
     "tms_searchable_router": tms_searchable_router,
     "tms_driver_router": tms_driver_router,
     "scheduling_intake_router": scheduling_intake_router,
+    "scheduling_prepare_router": scheduling_prepare_router,
     "appointment_scheduling_post_read_router": appointment_scheduling_post_read_router,
     "scheduling_weekend_shifted_router": scheduling_weekend_shifted_router,
     "customer_reply_router": customer_reply_router,
@@ -196,7 +198,7 @@ class WorkflowService:
 
         payload["tenant_id"] = tenant_id
         payload["tenant_slug"] = tenant_slug
-        payload["tenant_settings"] = normalize_tenant_settings_dict(
+        payload["tenant_settings"] = tenant_settings_for_workflow_state(
             tenant_slug,
             tenant_row.get("settings") or {},
         )
@@ -357,6 +359,17 @@ class WorkflowService:
                     reason=pod_gate.reason or ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
                 )
 
+        deferred_scheduling_lifecycle = (
+            workflow_name == "appointment_scheduling"
+            and payload.get("event_type")
+            == WorkflowRunEventType.TURVO_PICKUP_CHANGED.value
+            and not str(payload.get("workflow_lifecycle_id") or "").strip()
+        )
+        if deferred_scheduling_lifecycle:
+            payload["execution_id"] = (
+                str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+            )
+
         lifecycle = (
             self.lifecycle_service.resolve_driver_assignment_cycle(
                 tenant_id=tenant_id,
@@ -376,16 +389,22 @@ class WorkflowService:
                     workflow_name == "appointment_scheduling"
                     and payload.get("event_type")
                     in (
-                        WorkflowRunEventType.TURVO_PICKUP_CHANGED.value,
                         WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value,
                         WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value,
                     )
                     and str(payload.get("workflow_lifecycle_id") or "").strip()
                 )
-                else self.lifecycle_service.resolve_or_create_lifecycle(
-                    tenant_id=tenant_id,
-                    workflow_name=workflow_name,
-                    payload=payload,
+                else (
+                    LifecycleResolution(
+                        workflow_lifecycle_id=str(payload["execution_id"]).strip(),
+                        existed=False,
+                    )
+                    if deferred_scheduling_lifecycle
+                    else self.lifecycle_service.resolve_or_create_lifecycle(
+                        tenant_id=tenant_id,
+                        workflow_name=workflow_name,
+                        payload=payload,
+                    )
                 )
             )
         )
@@ -393,13 +412,14 @@ class WorkflowService:
         payload["workflow_lifecycle_id"] = workflow_lifecycle_id
         payload["workflow_name"] = workflow_name
 
-        shipments_row_id = self.lifecycle_service.ensure_lifecycle_shipment_linked(
-            lifecycle_id=workflow_lifecycle_id,
-            tenant_id=tenant_id,
-            payload=payload,
-        )
-        if shipments_row_id:
-            payload["shipments_row_id"] = shipments_row_id
+        if not deferred_scheduling_lifecycle:
+            shipments_row_id = self.lifecycle_service.ensure_lifecycle_shipment_linked(
+                lifecycle_id=workflow_lifecycle_id,
+                tenant_id=tenant_id,
+                payload=payload,
+            )
+            if shipments_row_id:
+                payload["shipments_row_id"] = shipments_row_id
 
         event_type = payload.get("event_type")
         traced = traceable(
@@ -440,7 +460,14 @@ class WorkflowService:
         payload = payload or {}
         workflow_lifecycle_id = str(payload.get("workflow_lifecycle_id") or "").strip()
         if not workflow_lifecycle_id:
-            raise Exception("Missing workflow_lifecycle_id")
+            if (
+                workflow_name == "appointment_scheduling"
+                and payload.get("event_type")
+                == WorkflowRunEventType.TURVO_PICKUP_CHANGED.value
+            ):
+                workflow_lifecycle_id = str(payload.get("execution_id") or "").strip()
+            if not workflow_lifecycle_id:
+                raise Exception("Missing workflow_lifecycle_id")
         missing_keys = [k for k in contract.required_state_keys if k not in payload]
         if missing_keys:
             raise Exception(
