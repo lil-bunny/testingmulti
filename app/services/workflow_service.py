@@ -165,7 +165,16 @@ class WorkflowService:
         tenant_id: str,
         payload: dict,
     ) -> None:
-        """Resolve lifecycle before pre-graph classify so LangSmith thread_id matches the graph."""
+        """
+        Bind pod_lifecycle id before pre-graph classify.
+
+        Skips resolve_or_create when Ingress already stamped ``workflow_lifecycle_id``
+        so LangSmith thread_id stays aligned with the graph.
+        """
+        existing = str(payload.get("workflow_lifecycle_id") or "").strip()
+        if existing:
+            payload["workflow_name"] = "pod_lifecycle"
+            return
         lifecycle = self.lifecycle_service.resolve_or_create_lifecycle(
             tenant_id=tenant_id,
             workflow_name="pod_lifecycle",
@@ -173,6 +182,36 @@ class WorkflowService:
         )
         payload["workflow_lifecycle_id"] = lifecycle.workflow_lifecycle_id
         payload["workflow_name"] = "pod_lifecycle"
+
+    async def _email_graph_task_prep(
+        self,
+        *,
+        tenant_id: str,
+        payload: dict,
+    ) -> dict:
+        """
+        Record inbound email communication before the graph runs.
+
+        No-op when the payload has no Unipile ``email_id`` or already carries
+        ``communication_id``. Gelita xlsx attachment import stays on Ingress
+        (fan-out needs it before enqueue).
+        """
+        from app.domain.unipile_email import extract_email_id_or_none
+        from app.services.communications.service import CommunicationsService
+
+        if not extract_email_id_or_none(payload):
+            return payload
+        if str(payload.get("communication_id") or "").strip():
+            return payload
+
+        communications_service = CommunicationsService()
+        communication_id = communications_service.record_or_resolve_inbound(
+            tenant_id,
+            payload,
+        )
+        if communication_id:
+            payload["communication_id"] = communication_id
+        return payload
 
     async def run(
         self,
@@ -192,6 +231,10 @@ class WorkflowService:
             tenant_slug,
             tenant_row.get("settings") or {},
         )
+        payload = await self._email_graph_task_prep(
+            tenant_id=tenant_id,
+            payload=payload,
+        )
         if workflow_name == "pod_lifecycle":
             payload = self._pod_lifecycle_ingress.enrich_payload_load_id(
                 tenant_id=tenant_id,
@@ -205,11 +248,13 @@ class WorkflowService:
             payload["workflow_shadow_mode"] = True
 
         if workflow_name == "ratecon":
-            payload = await self._ratecon_ingress.prepare_payload(
-                tenant_id=tenant_id,
-                tenant_slug=tenant_slug,
-                payload=payload,
-            )
+            # Guard: Ingress may already have upserted the shipment.
+            if not str(payload.get("shipments_row_id") or "").strip():
+                payload = await self._ratecon_ingress.prepare_payload(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                )
 
         if (
             workflow_name == "driver_assignment"

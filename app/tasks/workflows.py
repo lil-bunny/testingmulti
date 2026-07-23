@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any
 
 from app.celery_app import celery_app
@@ -6,12 +7,27 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
+_FAILED_WORKFLOWS_KEY = "failed:workflows"
+
 
 @celery_app.task(name="app.tasks.workflows.run_workflow_async", ignore_result=True)
 def run_workflow_async(tenant_slug: str, workflow_name: str, payload: dict[str, Any]):
-    """Async workflow launcher used by webhook ingress handlers."""
+    """
+    Run one graph attempt for a Work item, then start-next when serialized.
+
+    Flow: ``WorkflowService.run``; if ``SERIALIZED_FLAG`` is set, ``finally``
+    calls complete_and_start_next so the next buffered item can publish.
+
+    On failure: RPUSH to ``failed:workflows`` then re-raise (task FAILURE in
+    Grafana; no Celery autoretry on this task).
+    """
+    from app.integrations.redis.client import get_redis_client
     from app.repositories.tenant_repo import TenantRepository
     from app.repositories.workflow_repo import WorkflowRepository
+    from app.services.lifecycle_run_serializer_service import (
+        SERIALIZED_FLAG,
+        LifecycleRunSerializerService,
+    )
     from app.services.workflow_service import WorkflowService
 
     logger.info(
@@ -22,14 +38,39 @@ def run_workflow_async(tenant_slug: str, workflow_name: str, payload: dict[str, 
         payload.get("event_type"),
     )
 
+    serialized = bool(payload.get(SERIALIZED_FLAG))
+    lifecycle_id = str(payload.get("workflow_lifecycle_id") or "").strip()
+
     service = WorkflowService(
         workflow_repo=WorkflowRepository(),
         tenant_repo=TenantRepository(),
     )
-    asyncio.run(
-        service.run(
-            tenant_slug=tenant_slug,
-            workflow_name=workflow_name,
-            payload=payload,
+    try:
+        asyncio.run(
+            service.run(
+                tenant_slug=tenant_slug,
+                workflow_name=workflow_name,
+                payload=payload,
+            )
         )
-    )
+    except Exception as exc:
+        redis = get_redis_client()
+        redis.rpush(
+            _FAILED_WORKFLOWS_KEY,
+            json.dumps(
+                {
+                    "tenant_slug": tenant_slug,
+                    "workflow_name": workflow_name,
+                    "payload": payload,
+                    "error": str(exc),
+                },
+                default=str,
+            ),
+        )
+        raise
+    finally:
+        if serialized and lifecycle_id:
+            lifecycle_run_serializer_service = LifecycleRunSerializerService()
+            lifecycle_run_serializer_service.complete_and_start_next(
+                lifecycle_id=lifecycle_id,
+            )

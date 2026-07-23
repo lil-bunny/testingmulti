@@ -1,4 +1,4 @@
-"""Unified Celery ingress handler for Unipile email webhooks."""
+"""Dispatch Unipile email to tenant ingress services (request path)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from app.core.logger import get_logger
 from app.domain.ingress_result import IngressResult
 from app.domain.unipile_email import extract_email_id_or_none
 from app.models.tenants import TenantSlug
-from app.services.communications.service import CommunicationsService
 from app.services.gelita_email_ingress_service import GelitaEmailIngressService
 from app.services.t3ra_email_ingress_service import T3raEmailIngressService
 from app.services.unipile_tenant_resolution import UnipileTenantContext
@@ -21,25 +20,20 @@ async def process_inbound_unipile_email(
     tenant_uuid: str,
     tenant_slug: str,
     payload: dict[str, Any],
+    communication_id: str | None = None,
 ) -> IngressResult:
     """
-    Celery handler ``inbound.unipile_email``: record comm, delegate L2 to tenant ingress services.
+    Route one inbound email to Gelita or T3RA ingress.
 
-    HTTP edge only enqueues this task; all guards and ``run_workflow_async`` calls happen here.
+    Comms persist later in graph task prep. ``communication_id`` is optional when
+    already known; otherwise left unset until the graph Celery task runs.
     """
-    # Persist inbound comm first — tenant L2 services receive communication_id for workflow payloads.
-    communications_service = CommunicationsService()
-    communication_id = communications_service.record_or_resolve_inbound(
-        tenant_uuid,
-        payload,
-    )
     tenant = UnipileTenantContext(
         tenant_uuid=tenant_uuid,
         tenant_slug=tenant_slug,
     )
     email_id = extract_email_id_or_none(payload)
 
-    # Tenant-specific L2: Gelita load_tendering branches vs T3RA classifier paths.
     if tenant_slug == TenantSlug.GELITA:
         gelita_email_ingress_service = GelitaEmailIngressService()
         result = await gelita_email_ingress_service.process(
@@ -55,7 +49,6 @@ async def process_inbound_unipile_email(
             communication_id=communication_id,
         )
     else:
-        # Phase 1: only Gelita + T3RA; other slugs should not reach L1 routing in production.
         logger.warning(
             "inbound unipile email unsupported tenant_slug=%r email_id=%s",
             tenant_slug,

@@ -36,13 +36,29 @@ uv run uvicorn app.main:app --reload --port 8000
 
 Open `http://127.0.0.1:8000/docs`.
 
-- run the Celery worker (needed for anything that goes through the reminder scheduler or the async webhook ingest path, which is most of what you'll be testing):
+- run a Celery worker for the queue you're testing (needed for the reminder scheduler and async webhook ingest). T3RA jobs go to `T3RA` (`settings.T3RA_WORK_QUEUE`); others default to `celery` (`settings.DEFAULT_WORK_QUEUE`). You can run the worker for the lane you're working on unless you need both. Use a unique `-n` if you also run Flower.
+
+  - default queue (`celery`)
 
 ```bash
-uv run celery -A app.celery_app:celery_app worker --loglevel=info
+uv run celery -A app.celery_app:celery_app worker -n default@%h -Q celery -c 1 --loglevel=info
 ```
 
-On Windows, add `--pool=solo`.
+  - T3RA queue (`T3RA`):
+
+```bash
+uv run celery -A app.celery_app:celery_app worker -n t3ra@%h -Q T3RA -c 2 --loglevel=info
+```
+
+On Windows, add `--pool=solo` (concurrency is then sequential; use `--pool=threads` on the T3RA worker if you need overlapping tasks locally). Do not start one worker with `-Q celery,T3RA` if you are checking queue isolation. Queues are created automatically on first publish or worker bind - nothing to create in Redis by hand.
+
+- optional: run [Flower](https://flower.readthedocs.io/) to watch workers and active tasks (same Redis broker as `.env`):
+
+```bash
+uv run celery -A app.celery_app:celery_app flower --port=5555
+```
+
+Open `http://127.0.0.1:5555`
 
 ## Secrets
 

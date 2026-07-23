@@ -1,4 +1,3 @@
-import asyncio
 from typing import Any
 
 from app.celery_app import celery_app
@@ -9,15 +8,14 @@ logger = get_logger(__name__)
 
 @celery_app.task(name="app.tasks.reminders.trigger_workflow_reminder", ignore_result=True)
 def trigger_workflow_reminder(payload: dict[str, Any]):
-    """Delayed re-run of any workflow with ``reminder_due`` / ``escalation_due`` (or similar)."""
-    from app.repositories.tenant_repo import TenantRepository
-    from app.repositories.workflow_repo import WorkflowRepository
-    from app.services.workflow_service import WorkflowService
+    """
+    Reminder fire: serialize-enqueue the graph Work item (no in-process LangGraph).
 
-    workflow_service = WorkflowService(
-        workflow_repo=WorkflowRepository(),
-        tenant_repo=TenantRepository(),
-    )
+    Countdown scheduling stays on Celery; this task only wakes the lifecycle
+    run queue so the reminder graph starts under the same serialize rules.
+    """
+    from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
+
     tenant_slug = str(payload.get("tenant_slug") or "").strip()
     workflow_name = str(payload.get("workflow_name") or "").strip()
     if not tenant_slug or not workflow_name:
@@ -37,10 +35,18 @@ def trigger_workflow_reminder(payload: dict[str, Any]):
         payload.get("workflow_lifecycle_id"),
     )
 
-    asyncio.run(
-        workflow_service.run(
-            tenant_slug=tenant_slug,
-            workflow_name=workflow_name,
-            payload=payload,
-        )
+    body = dict(payload)
+    tenant_id = str(body.get("tenant_id") or tenant_slug).strip()
+    lifecycle_run_serializer_service = LifecycleRunSerializerService()
+    result = lifecycle_run_serializer_service.resolve_then_enqueue(
+        tenant_id=tenant_id,
+        tenant_slug=tenant_slug,
+        workflow_name=workflow_name,
+        payload=body,
+    )
+    logger.info(
+        "trigger_workflow_reminder serialize status=%s lifecycle_id=%s celery_task_id=%s",
+        result.status,
+        result.lifecycle_id,
+        result.celery_task_id,
     )

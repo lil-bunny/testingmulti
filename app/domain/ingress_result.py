@@ -5,17 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-IngressOutcome = Literal["skipped", "enqueued", "processed", "no_match"]
+IngressOutcome = Literal["skipped", "enqueued", "buffered", "processed", "no_match"]
 
 
 @dataclass(frozen=True)
 class IngressResult:
     """
-    Worker-side outcome of one Unipile email L2 ingress pass.
+    Outcome of one Unipile email ingress pass.
 
-    ``skipped`` — recognized event but guards blocked enqueue (out-of-order, duplicate comm).
-    ``enqueued`` — workflow task(s) queued; see ``execution_ids``.
-    ``processed`` — inline ingest completed in the ingress worker (no workflow enqueue).
+    ``skipped`` — recognized event but guards blocked enqueue.
+    ``enqueued`` — graph Celery started (run-queue length became 1).
+    ``buffered`` — Work item queued; start-next will publish later.
+    ``processed`` — inline ingest completed (no graph enqueue).
     ``no_match`` — payload did not match any tenant ingress rule.
     """
 

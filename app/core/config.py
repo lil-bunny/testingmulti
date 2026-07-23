@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+    DEFAULT_WORK_QUEUE: str = "celery"
+    T3RA_WORK_QUEUE: str = "t3ra"
 
     # Unipile (required for POD reminder replies in thread)
     UNIPILE_API_KEY: str
