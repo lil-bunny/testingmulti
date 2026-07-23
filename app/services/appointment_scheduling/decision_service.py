@@ -20,7 +20,7 @@ from app.tools.appointment_scheduling.ascend_transforms import (
 from app.tools.appointment_scheduling.scheduling_optimization import run_scheduling_optimization
 
 
-class AppointmentSchedulingDecisionService:
+class DecisionService:
     @staticmethod
     def _settings(tenant_settings: dict[str, Any]) -> T3raAppointmentSchedulingSettings:
         raw = tenant_settings.get("appointment_scheduling") or {}

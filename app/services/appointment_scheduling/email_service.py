@@ -13,7 +13,7 @@ from app.domain.tenant_settings.email_recipients import (
     unipile_recipients_from_addresses,
 )
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 from app.services.communications.service import CommunicationsService
 from app.services.unipile_service import Unipile, UnipileException
@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class AppointmentSchedulingSendResult:
+class SendResult:
     sent: bool
     error: str | None = None
     communication_id: str | None = None
@@ -36,15 +36,15 @@ class ConfirmationEmailResult:
     communication_id: str | None = None
 
 
-class AppointmentSchedulingEmailService:
+class EmailService:
     def __init__(
         self,
         *,
         communications_service: CommunicationsService | None = None,
-        activity_service: AppointmentSchedulingActivityService | None = None,
+        activity_service: ActivityService | None = None,
     ) -> None:
         self._communications = communications_service or CommunicationsService()
-        self._activity = activity_service or AppointmentSchedulingActivityService()
+        self._activity = activity_service or ActivityService()
 
     @staticmethod
     def _draft_from_state(state) -> dict[str, Any]:
@@ -62,7 +62,7 @@ class AppointmentSchedulingEmailService:
         cc = coerce_email_list(cc_raw, required=False) if cc_raw is not None else []
         return to, subject, body, cc
 
-    def send_draft_from_state(self, state) -> AppointmentSchedulingSendResult:
+    def send_draft_from_state(self, state) -> SendResult:
         data = state.data or {}
         draft = self._draft_from_state(state)
         validated = self._validate_draft(draft)
@@ -71,7 +71,7 @@ class AppointmentSchedulingEmailService:
                 "appointment_draft_send missing draft fields lifecycle_id=%s",
                 data.get("workflow_lifecycle_id"),
             )
-            return AppointmentSchedulingSendResult(sent=False, error="missing_email_draft")
+            return SendResult(sent=False, error="missing_email_draft")
 
         to, subject, body, cc = validated
         tenant_raw = getattr(state, "tenant_id", None) or data.get("tenant_id")
@@ -84,7 +84,7 @@ class AppointmentSchedulingEmailService:
                 data.get("workflow_lifecycle_id"),
                 data.get("shipment_id"),
             )
-            return AppointmentSchedulingSendResult(sent=False, error="missing_mikey_account_id")
+            return SendResult(sent=False, error="missing_mikey_account_id")
 
         to_list = unipile_recipients_from_addresses([to])
         cc_list = unipile_recipients_from_addresses(cc) if cc else None
@@ -105,13 +105,13 @@ class AppointmentSchedulingEmailService:
                 data.get("workflow_lifecycle_id"),
                 exc,
             )
-            return AppointmentSchedulingSendResult(sent=False, error=str(exc))
+            return SendResult(sent=False, error=str(exc))
         except Exception:
             logger.exception(
                 "appointment_draft_send unexpected error lifecycle_id=%s",
                 data.get("workflow_lifecycle_id"),
             )
-            return AppointmentSchedulingSendResult(sent=False, error="unexpected_error")
+            return SendResult(sent=False, error="unexpected_error")
 
         if not isinstance(send_result, dict) or not send_result.get("success", True):
             err = (
@@ -119,7 +119,7 @@ class AppointmentSchedulingEmailService:
                 if isinstance(send_result, dict)
                 else None
             ) or "unipile_send_failed"
-            return AppointmentSchedulingSendResult(
+            return SendResult(
                 sent=False,
                 error=str(err),
                 send_result=send_result if isinstance(send_result, dict) else None,
@@ -152,7 +152,7 @@ class AppointmentSchedulingEmailService:
             )
             self._activity.record_awaiting_customer_reply(state)
 
-        return AppointmentSchedulingSendResult(
+        return SendResult(
             sent=True,
             communication_id=comm_id,
             send_result=send_result,
@@ -212,7 +212,7 @@ class AppointmentSchedulingEmailService:
 
 
 __all__ = (
-    "AppointmentSchedulingEmailService",
-    "AppointmentSchedulingSendResult",
+    "EmailService",
+    "SendResult",
     "ConfirmationEmailResult",
 )

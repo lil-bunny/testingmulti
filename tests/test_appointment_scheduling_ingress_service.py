@@ -1,4 +1,4 @@
-"""AppointmentSchedulingIngressService unit tests."""
+"""IngressService unit tests."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.services.appointment_scheduling.ingress_service import AppointmentSchedulingIngressService
+from app.services.appointment_scheduling.ingress_service import IngressService
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 _TENANT_SLUG = "t3ra"
@@ -122,7 +122,7 @@ def _service(
     blocking_lifecycle_id: str | None = None,
     prepare_ok: bool = True,
     prepare_skip_reason: str | None = None,
-) -> AppointmentSchedulingIngressService:
+) -> IngressService:
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {
         "id": _TENANT_UUID,
@@ -158,7 +158,7 @@ def _service(
 
     scheduling_lifecycle = MagicMock()
 
-    return AppointmentSchedulingIngressService(
+    return IngressService(
         tenants_service=tenants,
         lifecycle_service=lifecycle,
         prepare_service=prepare,

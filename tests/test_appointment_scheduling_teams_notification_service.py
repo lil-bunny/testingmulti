@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingTeamsNotificationService."""
+"""Tests for TeamsNotificationService."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from app.domain.state import WorkflowState
 from app.integrations.teams.webhook import TeamsWebhookError
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.teams_notification_service import (
-    AppointmentSchedulingTeamsNotificationService,
+    TeamsNotificationService,
 )
 
 
@@ -47,7 +47,7 @@ def _state(**data_overrides) -> WorkflowState:
 
 def test_notify_skips_when_no_settings() -> None:
     activity = MagicMock()
-    svc = AppointmentSchedulingTeamsNotificationService(activity_service=activity)
+    svc = TeamsNotificationService(activity_service=activity)
 
     result = svc.notify_from_state(_state(tenant_settings={}))
 
@@ -58,7 +58,7 @@ def test_notify_skips_when_no_settings() -> None:
 
 def test_notify_skips_when_not_intake_event() -> None:
     activity = MagicMock()
-    svc = AppointmentSchedulingTeamsNotificationService(activity_service=activity)
+    svc = TeamsNotificationService(activity_service=activity)
 
     result = svc.notify_from_state(
         _state(event_type=WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value)
@@ -74,7 +74,7 @@ def test_notify_skips_when_not_intake_event() -> None:
 )
 def test_notify_success_posts_and_records_activity(mock_post: MagicMock) -> None:
     activity = MagicMock()
-    svc = AppointmentSchedulingTeamsNotificationService(activity_service=activity)
+    svc = TeamsNotificationService(activity_service=activity)
     state = _state()
 
     result = svc.notify_from_state(state)
@@ -90,7 +90,7 @@ def test_notify_success_posts_and_records_activity(mock_post: MagicMock) -> None
 def test_notify_webhook_error_is_non_fatal(mock_post: MagicMock) -> None:
     mock_post.side_effect = TeamsWebhookError("failed", status_code=500)
     activity = MagicMock()
-    svc = AppointmentSchedulingTeamsNotificationService(activity_service=activity)
+    svc = TeamsNotificationService(activity_service=activity)
 
     result = svc.notify_from_state(_state())
 

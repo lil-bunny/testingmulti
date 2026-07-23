@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingAscendWriteService."""
+"""Tests for AscendWriteService."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.services.appointment_scheduling.ascend_write_service import (
-    AppointmentSchedulingAscendWriteService,
+    AscendWriteService,
 )
 
 _REF = "DIAMOND-RPN00008809"
@@ -25,7 +25,7 @@ def test_skip_ascend_writes_dry_run_records_activity_from_state() -> None:
     from unittest.mock import MagicMock
 
     activity = MagicMock()
-    svc = AppointmentSchedulingAscendWriteService(activity_service=activity)
+    svc = AscendWriteService(activity_service=activity)
     state = SimpleNamespace(
         tenant_id="00000000-0000-4000-8000-0000000000e1",
         execution_id="22222222-3333-4444-5555-666666666666",
@@ -49,7 +49,7 @@ def test_skip_ascend_writes_dry_run_records_activity_from_state() -> None:
 
 
 def test_skip_ascend_writes_dry_run_no_http() -> None:
-    svc = AppointmentSchedulingAscendWriteService()
+    svc = AscendWriteService()
     with patch(
         "app.services.appointment_scheduling.ascend_write_service.login_ascend_api"
     ) as login_mock:
@@ -70,7 +70,7 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
 
 
 def test_dry_run_refetches_when_ascend_shipment_missing() -> None:
-    svc = AppointmentSchedulingAscendWriteService()
+    svc = AscendWriteService()
     with (
         patch(
             "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
@@ -95,7 +95,7 @@ def test_dry_run_refetches_when_ascend_shipment_missing() -> None:
 
 
 def test_dry_run_fails_when_dropoff_stop_missing_after_refetch() -> None:
-    svc = AppointmentSchedulingAscendWriteService()
+    svc = AscendWriteService()
     with (
         patch(
             "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
@@ -119,7 +119,7 @@ def test_dry_run_fails_when_dropoff_stop_missing_after_refetch() -> None:
 
 
 def test_live_ascend_put_when_writes_enabled() -> None:
-    svc = AppointmentSchedulingAscendWriteService()
+    svc = AscendWriteService()
     shipment = {
         "shipmentStops": [
             {"id": "stop-1", "stopNumber": "1"},
@@ -172,7 +172,7 @@ def test_live_ascend_put_when_writes_enabled() -> None:
 
 
 def test_missing_credentials_when_writes_enabled() -> None:
-    svc = AppointmentSchedulingAscendWriteService()
+    svc = AscendWriteService()
     with (
         patch(
             "app.services.appointment_scheduling.ascend_write_service.skip_ascend_writes_enabled",

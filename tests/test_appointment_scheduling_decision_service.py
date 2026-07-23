@@ -8,13 +8,13 @@ from app.domain.appointment_scheduling.models import LlmSchedulingDecision, Pick
 from app.domain.prompt_step_keys import APPOINTMENT_SCHEDULING_OPTIMIZATION
 from app.integrations.langsmith.types import PromptLoadMetadata, RenderedPrompt
 from app.services.appointment_scheduling.decision_service import (
-    AppointmentSchedulingDecisionService,
+    DecisionService,
 )
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 
 def test_compute_decision_uses_langsmith_prompt_and_trace():
-    service = AppointmentSchedulingDecisionService()
+    service = DecisionService()
     tenant_settings = minimal_t3ra_tenant_settings()
     pickup = PickupDropoffData(
         pickup_data={"date": "07/01/2026", "time": "10:00", "location": "Ripon", "state_name": "CA"},
@@ -55,7 +55,7 @@ def test_compute_decision_uses_langsmith_prompt_and_trace():
 
 def test_compute_decision_uses_llm_for_costco():
     """Costco takes the same LLM + availability path as every other email customer."""
-    service = AppointmentSchedulingDecisionService()
+    service = DecisionService()
     pickup = PickupDropoffData(
         pickup_data={"date": "07/01/2026", "time": "10:00", "location": "Ripon", "state_name": "CA"},
         dropoff_data={"location": "Aurora", "state_name": "OR"},

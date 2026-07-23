@@ -23,26 +23,26 @@ from app.domain.appointment_scheduling.metadata_keys import (
 )
 from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpoint_data
 from app.services.appointment_scheduling.activity_service import (
-    AppointmentSchedulingActivityService,
+    ActivityService,
 )
 from app.services.appointment_scheduling.teams_notification_service import (
-    AppointmentSchedulingTeamsNotificationService,
+    TeamsNotificationService,
 )
 from app.services.shipments_service import ShipmentsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.appointment_scheduling.po_number import resolve_scheduling_po_number
 
 
-class AppointmentSchedulingLifecycleService:
+class LifecycleService:
     def __init__(
         self,
         *,
         lifecycle_service: WorkflowLifecycleService | None = None,
-        activity_service: AppointmentSchedulingActivityService | None = None,
+        activity_service: ActivityService | None = None,
         shipments_service: ShipmentsService | None = None,
     ) -> None:
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
-        self._activity = activity_service or AppointmentSchedulingActivityService(
+        self._activity = activity_service or ActivityService(
             lifecycle_service=self._lifecycle,
         )
         self._shipments = shipments_service or ShipmentsService()
@@ -173,7 +173,7 @@ class AppointmentSchedulingLifecycleService:
                 patch["commodity"] = commodity
         return patch
 
-    def hydrate_confirm_context(self, state) -> None:
+    def hydrate_appointment_send_context(self, state) -> None:
         """Load persisted draft and shipment facts into state for confirm branch."""
         lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
         if not lifecycle_id:
@@ -281,7 +281,7 @@ class AppointmentSchedulingLifecycleService:
 
     def finalize_after_teams_notify(self, state):
         """Teams notify + draft pending review transition + strip intake checkpoint."""
-        result = AppointmentSchedulingTeamsNotificationService().notify_from_state(state)
+        result = TeamsNotificationService().notify_from_state(state)
         state.data["appointment_scheduling_teams_notification_sent"] = result.sent
         if result.skip_reason:
             state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason
@@ -291,7 +291,7 @@ class AppointmentSchedulingLifecycleService:
         self.strip_intake_checkpoint(state)
         return result
 
-    def finalize_confirm_awaiting_reply(self, state) -> None:
+    def finalize_appointment_awaiting_reply(self, state) -> None:
         actor_id = str(state.data.get("actor_user_id") or "").strip() or None
         communication_id = str(state.data.get("communication_id") or "").strip() or None
         self._activity.record_confirm_email_sent(

@@ -20,7 +20,7 @@ from app.integrations.turvo.webhook_mapping import (
 )
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
-from app.services.appointment_scheduling.ingress_service import AppointmentSchedulingIngressService
+from app.services.appointment_scheduling.ingress_service import IngressService
 from app.services.pod_lifecycle.ingress_service import (
     ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
     ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
@@ -174,7 +174,7 @@ async def listen_turvo_status(
     override = x_workflow_tenant_id
     workflow_tenant = _resolve_workflow_tenant_id(override)
 
-    scheduling_result = await AppointmentSchedulingIngressService().handle_shipment_update(
+    scheduling_result = await IngressService().handle_shipment_update(
         body,
         workflow_tenant,
     )

@@ -8,7 +8,7 @@ from app.domain.ingress_result import IngressResult
 from app.models.status import StatusSubType
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.customer_reply_ingress import (
-    AppointmentCustomerReplyIngressService,
+    CustomerReplyIngressService,
 )
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 
@@ -29,7 +29,7 @@ def _reply_payload() -> dict:
     }
 
 
-def _service(**overrides) -> AppointmentCustomerReplyIngressService:
+def _service(**overrides) -> CustomerReplyIngressService:
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "id": _LC,
@@ -48,7 +48,7 @@ def _service(**overrides) -> AppointmentCustomerReplyIngressService:
         "metadata": {"load_id": "load-1"},
     }
     runs = MagicMock()
-    svc = AppointmentCustomerReplyIngressService(
+    svc = CustomerReplyIngressService(
         lifecycle_service=lifecycle,
         communications_service=comms,
         shipments_service=shipments,
@@ -115,7 +115,7 @@ def test_try_customer_reply_enqueues_via_subject_fallback_when_thread_miss() -> 
         "shipment_number": "1001",
         "metadata": {"load_id": "63294"},
     }
-    svc = AppointmentCustomerReplyIngressService(
+    svc = CustomerReplyIngressService(
         lifecycle_service=lifecycle,
         communications_service=comms,
         shipments_service=shipments,
@@ -172,7 +172,7 @@ def test_try_customer_reply_enqueues_via_costco_rpn_subject_fallback() -> None:
             "reference_number": "DIAMOND-RPN00006732",
         },
     }
-    svc = AppointmentCustomerReplyIngressService(
+    svc = CustomerReplyIngressService(
         lifecycle_service=lifecycle,
         communications_service=comms,
         shipments_service=shipments,
@@ -212,7 +212,7 @@ def test_try_customer_reply_skips_when_thread_and_subject_miss() -> None:
     comms = MagicMock()
     comms.find_active_lifecycle_id_for_thread.return_value = None
     comms.find_shipment_context_for_thread.return_value = []
-    svc = AppointmentCustomerReplyIngressService(
+    svc = CustomerReplyIngressService(
         lifecycle_service=lifecycle,
         communications_service=comms,
         shipments_service=MagicMock(),
@@ -247,7 +247,7 @@ def test_build_reply_workflow_payload_uses_shipment_customer_name_column() -> No
         "customer_name": "Costco Wholesale",
         "metadata": {"load_id": "63294", "reference_number": "DIAMOND-RPN-1"},
     }
-    svc = AppointmentCustomerReplyIngressService(
+    svc = CustomerReplyIngressService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
     )

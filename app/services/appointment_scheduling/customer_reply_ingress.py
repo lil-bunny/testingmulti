@@ -32,7 +32,7 @@ from app.tools.appointment_scheduling.draft_email import (
 logger = get_logger(__name__)
 
 
-class AppointmentCustomerReplyIngressService:
+class CustomerReplyIngressService:
     """Resolve customer replies on active appointment_scheduling lifecycles and enqueue."""
 
     def __init__(
@@ -304,4 +304,4 @@ class AppointmentCustomerReplyIngressService:
         )
 
 
-__all__ = ("AppointmentCustomerReplyIngressService",)
+__all__ = ("CustomerReplyIngressService",)

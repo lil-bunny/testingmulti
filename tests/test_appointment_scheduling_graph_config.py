@@ -8,11 +8,11 @@ from app.configs.workflow_configs import WORKFLOW_CONFIGS
 def test_appointment_scheduling_pickup_routes_through_prepare() -> None:
     cfg = WORKFLOW_CONFIGS["appointment_scheduling"]
     route_map = cfg["routers"]["route_event"]["map"]
-    prepare_router = cfg["routers"]["prepare_scheduling_ingress"]
+    prepare_router = cfg["routers"]["prepare_appointment_ingress"]
 
-    assert route_map["turvo_pickup_changed"] == "prepare_scheduling_ingress"
-    assert "prepare_scheduling_ingress" in cfg["nodes"]
-    assert prepare_router["map"]["continue"] == "read_appointment_scheduling_lifecycle"
+    assert route_map["turvo_pickup_changed"] == "prepare_appointment_ingress"
+    assert "prepare_appointment_ingress" in cfg["nodes"]
+    assert prepare_router["map"]["continue"] == "read_appointment_lifecycle"
     assert prepare_router["map"]["end"] == "end"
 
 
@@ -21,9 +21,9 @@ def test_appointment_scheduling_intake_tail_includes_teams_notify() -> None:
     nodes = cfg["nodes"]
     edges = [tuple(edge) for edge in cfg["edges"]]
 
-    assert "notify_appointment_scheduling_draft_teams" in nodes
-    assert ("persist_scheduling_draft_ready", "notify_appointment_scheduling_draft_teams") in edges
-    assert ("notify_appointment_scheduling_draft_teams", "end") in edges
+    assert "notify_appointment_draft_teams" in nodes
+    assert ("persist_appointment_draft_ready", "notify_appointment_draft_teams") in edges
+    assert ("notify_appointment_draft_teams", "end") in edges
 
 
 def test_appointment_scheduling_confirm_tail_includes_turvo_tender() -> None:

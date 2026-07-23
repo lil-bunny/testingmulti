@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
-from app.services.appointment_scheduling.intake_service import AppointmentSchedulingIntakeService
+from app.services.appointment_scheduling.intake_service import IntakeService
 
 
 def _ascend_settings(**overrides) -> T3raAppointmentSchedulingSettings:
@@ -40,7 +40,7 @@ def appointment_sheet(tmp_path: Path):
 
 
 def test_intake_success(appointment_sheet):
-    service = AppointmentSchedulingIntakeService()
+    service = IntakeService()
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
@@ -98,7 +98,7 @@ def test_intake_success(appointment_sheet):
 
 
 def test_intake_reuses_shipment_from_payload_without_turvo_fetch(appointment_sheet):
-    service = AppointmentSchedulingIntakeService()
+    service = IntakeService()
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
@@ -153,7 +153,7 @@ def test_intake_reuses_shipment_from_payload_without_turvo_fetch(appointment_she
 
 
 def test_intake_missing_recipient_email(appointment_sheet):
-    service = AppointmentSchedulingIntakeService()
+    service = IntakeService()
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
@@ -187,7 +187,7 @@ def test_intake_missing_recipient_email(appointment_sheet):
 
 
 def test_intake_success_from_google_sheets_url():
-    service = AppointmentSchedulingIntakeService()
+    service = IntakeService()
     google_url = (
         "https://docs.google.com/spreadsheets/d/"
         "1PqAPAFxGYNSiHUYzLtCNh-ezvpGPpq4W1C8D0PjComk/edit?usp=sharing"
@@ -265,7 +265,7 @@ def test_intake_links_shipment_locations_when_shipments_row_id_present(appointme
         pickup_location_id="p-id",
         delivery_location_id="d-id",
     )
-    service = AppointmentSchedulingIntakeService(location_link_service=link_svc)
+    service = IntakeService(location_link_service=link_svc)
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,

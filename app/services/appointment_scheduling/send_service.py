@@ -16,11 +16,11 @@ from app.tasks.workflows import run_workflow_async
 logger = get_logger(__name__)
 
 
-class AppointmentSchedulingSendConflictError(Exception):
+class SendConflictError(Exception):
     """Lifecycle is not in appointment_draft_created (already sent or wrong phase)."""
 
 
-class AppointmentSchedulingSendService:
+class SendService:
     def __init__(
         self,
         *,
@@ -53,7 +53,7 @@ class AppointmentSchedulingSendService:
             and str(draft.get("full_html") or "").strip()
         )
 
-    def validate_and_enqueue(
+    def validate_and_enqueue_draft_send(
         self,
         *,
         tenant_slug: str,
@@ -88,7 +88,7 @@ class AppointmentSchedulingSendService:
         if status != StatusType.PENDING_REVIEW.value:
             raise ValueError("invalid_lifecycle_status")
         if sub_status != StatusSubType.APPOINTMENT_DRAFT_CREATED.value:
-            raise AppointmentSchedulingSendConflictError(
+            raise SendConflictError(
                 "Draft email was already sent or lifecycle is not ready to send"
             )
 
@@ -137,7 +137,7 @@ def enqueue_appointment_draft_send(
 
 
 __all__ = (
-    "AppointmentSchedulingSendConflictError",
-    "AppointmentSchedulingSendService",
+    "SendConflictError",
+    "SendService",
     "enqueue_appointment_draft_send",
 )

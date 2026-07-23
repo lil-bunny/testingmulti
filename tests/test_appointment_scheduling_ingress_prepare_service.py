@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingIngressPrepareService."""
+"""Tests for IngressPrepareService."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from app.domain.appointment_scheduling.models import CustomerContactRow
 from app.services.appointment_scheduling.ingress_prepare_service import (
-    AppointmentSchedulingIngressPrepareService,
+    IngressPrepareService,
 )
 
 _TENANT_SLUG = "t3ra"
@@ -56,7 +56,7 @@ def _service(
     *,
     upsert_success: bool = True,
     lifecycle_id: str | None = _LIFECYCLE_ID,
-) -> AppointmentSchedulingIngressPrepareService:
+) -> IngressPrepareService:
     shipments = MagicMock()
     shipments.upsert_from_turvo.return_value = {
         "success": upsert_success,
@@ -68,7 +68,7 @@ def _service(
     else:
         lifecycle.create_appointment_scheduling_lifecycle.side_effect = ValueError("bad")
     location = MagicMock()
-    return AppointmentSchedulingIngressPrepareService(
+    return IngressPrepareService(
         shipments_service=shipments,
         lifecycle_service=lifecycle,
         location_link_service=location,

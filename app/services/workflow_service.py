@@ -41,10 +41,10 @@ from app.workflows.graph.routers import (
     driver_details_router,
     tms_searchable_router,
     tms_driver_router,
-    scheduling_intake_router,
-    scheduling_prepare_router,
-    appointment_scheduling_post_read_router,
-    scheduling_weekend_shifted_router,
+    appointment_intake_router,
+    appointment_ingress_router,
+    appointment_post_read_router,
+    appointment_weekend_pickup_router,
     customer_reply_router,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
@@ -77,10 +77,10 @@ ROUTER_REGISTRY = {
     "driver_details_router": driver_details_router,
     "tms_searchable_router": tms_searchable_router,
     "tms_driver_router": tms_driver_router,
-    "scheduling_intake_router": scheduling_intake_router,
-    "scheduling_prepare_router": scheduling_prepare_router,
-    "appointment_scheduling_post_read_router": appointment_scheduling_post_read_router,
-    "scheduling_weekend_shifted_router": scheduling_weekend_shifted_router,
+    "appointment_intake_router": appointment_intake_router,
+    "appointment_ingress_router": appointment_ingress_router,
+    "appointment_post_read_router": appointment_post_read_router,
+    "appointment_weekend_pickup_router": appointment_weekend_pickup_router,
     "customer_reply_router": customer_reply_router,
 }
 

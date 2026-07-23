@@ -11,8 +11,8 @@ from app.api.deps import get_current_user, get_tenant_slug_for_user
 from app.api.security import portal_bearer
 from app.domain.api_user import ApiUser
 from app.services.appointment_scheduling.send_service import (
-    AppointmentSchedulingSendConflictError,
-    AppointmentSchedulingSendService,
+    SendConflictError,
+    SendService,
 )
 
 router = APIRouter(prefix="/appointment-scheduling", tags=["appointment-scheduling"])
@@ -49,15 +49,15 @@ async def send_appointment_draft(
     user: Annotated[ApiUser, Depends(get_current_user)],
     tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
 ) -> SendAppointmentDraftResponse:
-    service = AppointmentSchedulingSendService()
+    service = SendService()
     try:
-        execution_id = service.validate_and_enqueue(
+        execution_id = service.validate_and_enqueue_draft_send(
             tenant_slug=tenant_slug,
             workflow_lifecycle_id=workflow_lifecycle_id.strip(),
             actor_user_id=user.id,
             shipment_id=body.shipment_id,
         )
-    except AppointmentSchedulingSendConflictError as exc:
+    except SendConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         detail = str(exc)

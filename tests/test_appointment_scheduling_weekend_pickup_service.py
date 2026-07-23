@@ -1,4 +1,4 @@
-"""Tests for AppointmentSchedulingWeekendPickupService."""
+"""Tests for WeekendPickupService."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.appointment_scheduling.weekend_pickup_service import (
-    AppointmentSchedulingWeekendPickupService,
+    WeekendPickupService,
 )
 
 
@@ -63,7 +63,7 @@ def test_skipped_when_not_weekend_shifted() -> None:
             "selected_pickup_time": "08:00",
         }
     )
-    result = AppointmentSchedulingWeekendPickupService().apply_from_state(state)
+    result = WeekendPickupService().apply_weekend_shifted_pickup_from_state(state)
     assert result.ok is True
     assert result.skipped is True
 
@@ -104,7 +104,7 @@ def test_applies_ascend_and_turvo_when_changed(
         "stop_name": "Pickup WH",
     }
 
-    result = AppointmentSchedulingWeekendPickupService().apply_from_state(_state())
+    result = WeekendPickupService().apply_weekend_shifted_pickup_from_state(_state())
 
     assert result.ok is True
     assert result.skipped is False
@@ -118,7 +118,7 @@ def test_applies_ascend_and_turvo_when_changed(
     return_value=True,
 )
 def test_dry_run_when_skip_ascend_writes(_skip: MagicMock) -> None:
-    result = AppointmentSchedulingWeekendPickupService().apply_from_state(_state())
+    result = WeekendPickupService().apply_weekend_shifted_pickup_from_state(_state())
     assert result.ok is True
     assert result.skipped is True
     assert result.dry_run is True

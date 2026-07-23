@@ -22,10 +22,10 @@ from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import get_shipment
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.ingress_prepare_service import (
-    AppointmentSchedulingIngressPrepareService,
+    IngressPrepareService,
 )
 from app.services.appointment_scheduling.lifecycle_service import (
-    AppointmentSchedulingLifecycleService,
+    LifecycleService,
 )
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -60,20 +60,20 @@ class FetchedSchedulingIngressData:
     load_id: str
 
 
-class AppointmentSchedulingIngressService:
+class IngressService:
     def __init__(
         self,
         *,
         tenants_service: TenantsService | None = None,
         lifecycle_service: WorkflowLifecycleService | None = None,
-        prepare_service: AppointmentSchedulingIngressPrepareService | None = None,
-        scheduling_lifecycle_service: AppointmentSchedulingLifecycleService | None = None,
+        prepare_service: IngressPrepareService | None = None,
+        scheduling_lifecycle_service: LifecycleService | None = None,
     ) -> None:
         self._tenants = tenants_service or TenantsService()
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
-        self._prepare = prepare_service or AppointmentSchedulingIngressPrepareService()
+        self._prepare = prepare_service or IngressPrepareService()
         self._scheduling_lifecycle = (
-            scheduling_lifecycle_service or AppointmentSchedulingLifecycleService()
+            scheduling_lifecycle_service or LifecycleService()
         )
 
     @staticmethod
@@ -370,7 +370,7 @@ def enqueue_appointment_scheduling_pickup_changed(
 
 __all__ = [
     "APPOINTMENT_SCHEDULING_WORKFLOW",
-    "AppointmentSchedulingIngressService",
+    "IngressService",
     "FetchedSchedulingIngressData",
     "IngressHandleResult",
     "enqueue_appointment_scheduling_pickup_changed",

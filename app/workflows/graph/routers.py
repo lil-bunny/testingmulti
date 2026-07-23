@@ -259,13 +259,13 @@ def tms_driver_router(state):
     return "error"
 
 
-def scheduling_prepare_router(state):
+def appointment_ingress_router(state):
     if state.data.get("scheduling_prepare_skip_reason"):
         return "end"
     return "continue"
 
 
-def scheduling_intake_router(state):
+def appointment_intake_router(state):
     return "continue"
 
 
@@ -285,7 +285,7 @@ def _lifecycle_status_from_state(state) -> tuple[str, str]:
     return status, sub_status
 
 
-def appointment_scheduling_post_read_router(state):
+def appointment_post_read_router(state):
     event_type = str(state.data.get("event_type") or "").strip()
     if event_type == "appointment_customer_reply_received":
         status_raw, sub_status_raw = _lifecycle_status_from_state(state)
@@ -315,7 +315,7 @@ def appointment_scheduling_post_read_router(state):
     return "intake"
 
 
-def scheduling_weekend_shifted_router(state):
+def appointment_weekend_pickup_router(state):
     from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
 
     decision = state.data.get("llm_scheduling_decision") or {}
