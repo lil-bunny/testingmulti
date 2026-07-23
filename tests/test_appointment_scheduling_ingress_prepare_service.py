@@ -115,3 +115,27 @@ def test_prepare_creates_lifecycle_when_recipient_resolves() -> None:
     svc._shipments.upsert_from_turvo.assert_called_once()
     svc._lifecycle.create_appointment_scheduling_lifecycle.assert_called_once()
     svc._location_link.try_link_from_turvo_shipment_payload.assert_called_once()
+
+
+def test_prepare_reuses_existing_lifecycle_from_payload() -> None:
+    contact = CustomerContactRow(email="wh@example.com", customer="PETCO DC 810")
+    svc = _service()
+    payload = _payload()
+    payload["workflow_lifecycle_id"] = _LIFECYCLE_ID
+    payload["shipments_row_id"] = _SHIPMENTS_ROW_ID
+    payload["customer_contact"] = contact.model_dump(mode="json")
+    payload["customer_name"] = "PETCO DC 810"
+
+    result = svc.prepare_pickup_changed(
+        tenant_slug=_TENANT_SLUG,
+        tenant_id=_TENANT_UUID,
+        tenant_settings={},
+        payload=payload,
+    )
+
+    assert result.ok is True
+    assert result.workflow_lifecycle_id == _LIFECYCLE_ID
+    assert result.shipments_row_id == _SHIPMENTS_ROW_ID
+    assert result.customer_contact == contact
+    svc._shipments.upsert_from_turvo.assert_not_called()
+    svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()

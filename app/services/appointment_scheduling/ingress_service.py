@@ -1,7 +1,8 @@
 """Turvo SHIPMENT_UPDATE ingress for appointment_scheduling.
 
-Webhook path: cheap tenant/process gates, Turvo shipment+activity filters, enqueue.
-Sheet/recipient gate, upsert, and lifecycle creation run in prepare_scheduling_ingress.
+Webhook path: tenant/process gates, Turvo shipment+activity filters, sheet/recipient
+gate, shipment upsert, lifecycle create, then Celery enqueue. Worker prepare is a
+no-op when lifecycle ids are already on the payload.
 """
 
 from __future__ import annotations
@@ -22,7 +23,13 @@ from app.services.appointment_scheduling.ingress_gates import (
     evaluate_shipment_gates,
     evaluate_turvo_configured,
 )
+from app.services.appointment_scheduling.ingress_prepare_service import (
+    AppointmentSchedulingIngressPrepareService,
+)
 from app.services.appointment_scheduling.ingress_types import IngressHandleResult
+from app.services.appointment_scheduling.lifecycle_service import (
+    AppointmentSchedulingLifecycleService,
+)
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.turvo_scheduling_ingress import parse_shipment_update_webhook
@@ -36,9 +43,15 @@ class AppointmentSchedulingIngressService:
         *,
         tenants_service: TenantsService | None = None,
         lifecycle_service: WorkflowLifecycleService | None = None,
+        prepare_service: AppointmentSchedulingIngressPrepareService | None = None,
+        scheduling_lifecycle_service: AppointmentSchedulingLifecycleService | None = None,
     ) -> None:
         self._tenants = tenants_service or TenantsService()
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
+        self._prepare = prepare_service or AppointmentSchedulingIngressPrepareService()
+        self._scheduling_lifecycle = (
+            scheduling_lifecycle_service or AppointmentSchedulingLifecycleService()
+        )
 
     @staticmethod
     def _skip(
@@ -183,6 +196,36 @@ class AppointmentSchedulingIngressService:
             "shipment": shipment_payload,
         }
 
+        prepare_result = self._prepare.prepare_pickup_changed(
+            tenant_slug=tenant_slug,
+            tenant_id=tenant_uuid,
+            tenant_settings=tenant_settings,
+            payload=payload,
+        )
+        if not prepare_result.ok:
+            return self._skip(
+                skip_reason=prepare_result.skip_reason or "lifecycle_create_failed",
+                tenant_slug=tenant_slug,
+                shipment_id=parsed.shipment_id,
+            )
+
+        lifecycle_id = str(prepare_result.workflow_lifecycle_id or "").strip()
+        if not lifecycle_id:
+            return self._skip(
+                skip_reason="lifecycle_create_failed",
+                tenant_slug=tenant_slug,
+                shipment_id=parsed.shipment_id,
+            )
+
+        payload["workflow_lifecycle_id"] = lifecycle_id
+        payload["shipments_row_id"] = prepare_result.shipments_row_id
+        if prepare_result.customer_name:
+            payload["customer_name"] = prepare_result.customer_name
+        if prepare_result.customer_contact is not None:
+            payload["customer_contact"] = prepare_result.customer_contact.model_dump(
+                mode="json"
+            )
+
         try:
             execution_id = enqueue_appointment_scheduling_pickup_changed(
                 tenant_slug=tenant_slug,
@@ -193,6 +236,11 @@ class AppointmentSchedulingIngressService:
                 "appointment_scheduling enqueue failed tenant_slug=%s shipment_id=%s",
                 tenant_slug,
                 parsed.shipment_id,
+            )
+            self._scheduling_lifecycle.mark_restartable_skip(
+                lifecycle_id,
+                "enqueue_failed",
+                tenant_id=tenant_uuid,
             )
             return self._skip(
                 skip_reason="enqueue_failed",

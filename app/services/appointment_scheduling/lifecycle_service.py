@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.domain.appointment_scheduling.failure import SchedulingFailure
+from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
+from app.domain.error_catalog import SystemError
 from app.domain.appointment_scheduling.costco import (
     COSTCO_PROPOSED_DELIVERY_WALL_TIME,
     is_costco_customer,
@@ -213,6 +215,30 @@ class AppointmentSchedulingLifecycleService:
         turvo_shipment_id = str(shipment_row.get("shipment_number") or "").strip()
         if turvo_shipment_id:
             state.data["shipment_id"] = turvo_shipment_id
+
+    def mark_restartable_skip(
+        self,
+        lifecycle_id: str,
+        skip_reason: str,
+        *,
+        tenant_id: str | None = None,
+        workflow_run_id: str | None = None,
+    ) -> None:
+        """Mark lifecycle restartable after a pre-workflow skip (e.g. enqueue_failed)."""
+        reason = str(skip_reason or "").strip()
+        failure = scheduling_failure_from_skip(reason)
+        if failure is None:
+            failure = SchedulingFailure(
+                code=reason or SystemError.UNEXPECTED_NODE_FAILURE.value,
+                message=reason.replace("_", " ") if reason else "unexpected failure",
+                category=SystemError.UNEXPECTED_NODE_FAILURE.category,
+            )
+        self.mark_failed(
+            lifecycle_id,
+            failure,
+            tenant_id=tenant_id,
+            workflow_run_id=workflow_run_id,
+        )
 
     def mark_failed(
         self,
