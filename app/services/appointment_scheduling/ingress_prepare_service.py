@@ -1,16 +1,29 @@
-"""Worker-side prepare for appointment scheduling Turvo pickup ingress."""
+"""Worker-side prepare for appointment scheduling Turvo pickup ingress.
+
+Owns Turvo shipment/activity fetch, diamond/multi-stop/pickup gates, sheet recipient
+resolution, shipment upsert, and lifecycle create. HTTP webhook only enqueues a slim
+payload (tenant + shipment_id + optional load_id).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.appointment_scheduling.models import CustomerContactRow
+from app.integrations.turvo.activity import fetch_shipment_activity_list
+from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     appointment_scheduling_display_fields_from_payload,
     delivery_stop_name_from_payload,
+    get_shipment,
+)
+from app.services.appointment_scheduling.ingress_service import (
+    evaluate_activity_gates,
+    evaluate_shipment_gates,
 )
 from app.services.appointment_scheduling.intake_service import resolve_recipient_contact
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
@@ -27,6 +40,7 @@ class IngressPrepareResult:
     workflow_lifecycle_id: str | None = None
     shipments_row_id: str | None = None
     reference_number: str | None = None
+    load_id: str | None = None
     shipment: dict[str, Any] | None = None
     customer_contact: CustomerContactRow | None = None
     customer_name: str | None = None
@@ -69,25 +83,75 @@ class IngressPrepareService:
             elif isinstance(raw_contact, dict) and str(raw_contact.get("email") or "").strip():
                 contact = CustomerContactRow.model_validate(raw_contact)
             reference_number = str(payload.get("reference_number") or "").strip() or None
+            load_id = str(payload.get("load_id") or "").strip() or None
             return IngressPrepareResult(
                 ok=True,
                 workflow_lifecycle_id=existing_lifecycle_id,
                 shipments_row_id=existing_shipments_row_id,
                 reference_number=reference_number,
+                load_id=load_id,
                 shipment=None,
                 customer_contact=contact,
                 customer_name=customer_name,
             )
 
+        shipment_id = str(payload.get("shipment_id") or "").strip()
+        tenant_uuid = str(tenant_id or "").strip()
+        if not shipment_id or not tenant_uuid:
+            return IngressPrepareResult(ok=False, skip_reason="lifecycle_create_failed")
+
+        if shipment_payload is None:
+            try:
+                shipment_payload = run_sync(get_shipment(tenant_slug, shipment_id))
+            except (TurvoApiError, ValueError) as exc:
+                logger.warning(
+                    "appointment_scheduling prepare shipment fetch failed "
+                    "tenant_slug=%s shipment_id=%s error=%s",
+                    tenant_slug,
+                    shipment_id,
+                    exc,
+                )
+                return IngressPrepareResult(
+                    ok=False,
+                    skip_reason="turvo_shipment_fetch_failed",
+                )
+
         if not isinstance(shipment_payload, dict):
             return IngressPrepareResult(ok=False, skip_reason="turvo_shipment_fetch_failed")
 
-        shipment_id = str(payload.get("shipment_id") or "").strip()
-        load_id = str(payload.get("load_id") or "").strip()
-        reference_number = str(payload.get("reference_number") or "").strip()
-        tenant_uuid = str(tenant_id or "").strip()
-        if not shipment_id or not load_id or not reference_number or not tenant_uuid:
-            return IngressPrepareResult(ok=False, skip_reason="lifecycle_create_failed")
+        webhook_load_id = str(payload.get("load_id") or "").strip() or None
+        reason, fetched = evaluate_shipment_gates(
+            shipment_payload,
+            webhook_load_id=webhook_load_id,
+        )
+        if reason or fetched is None:
+            return IngressPrepareResult(
+                ok=False,
+                skip_reason=reason or "missing_reference_number",
+            )
+
+        try:
+            activity_json = run_sync(
+                fetch_shipment_activity_list(tenant_slug, shipment_id)
+            )
+        except (TurvoApiError, ValueError) as exc:
+            logger.warning(
+                "appointment_scheduling prepare activity fetch failed "
+                "tenant_slug=%s shipment_id=%s error=%s",
+                tenant_slug,
+                shipment_id,
+                exc,
+            )
+            return IngressPrepareResult(
+                ok=False,
+                skip_reason="turvo_activity_fetch_failed",
+            )
+
+        if activity_reason := evaluate_activity_gates(activity_json):
+            return IngressPrepareResult(ok=False, skip_reason=activity_reason)
+
+        load_id = fetched.load_id
+        reference_number = fetched.reference_number
 
         skip_reason, contact = resolve_recipient_contact(
             tenant_settings=tenant_settings,
@@ -139,7 +203,8 @@ class IngressPrepareService:
             workflow_lifecycle_id=lifecycle_id,
             shipments_row_id=shipments_row_id,
             reference_number=reference_number,
-            shipment=shipment_payload,
+            load_id=load_id,
+            shipment=None,
             customer_contact=contact,
             customer_name=customer_name,
         )

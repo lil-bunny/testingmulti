@@ -1,8 +1,8 @@
 """Turvo SHIPMENT_UPDATE ingress for appointment_scheduling.
 
-Webhook path: tenant/process gates, Turvo shipment+activity filters, sheet/recipient
-gate, shipment upsert, lifecycle create, then Celery enqueue. Worker prepare is a
-no-op when lifecycle ids are already on the payload.
+Webhook path: cheap tenant/process/parse/duplicate gates, then Celery enqueue with a
+slim payload. Worker ``prepare_appointment_ingress`` owns Turvo fetch, activity and
+sheet gates, shipment upsert, and lifecycle create.
 """
 
 from __future__ import annotations
@@ -17,16 +17,7 @@ from app.domain.appointment_scheduling.scheduling_reference import is_diamond_sc
 from app.domain.appointment_scheduling.skip_reasons import resolve_scheduling_error
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
 from app.domain.tenant_settings.tms import has_tms_partner_config
-from app.integrations.turvo.activity import fetch_shipment_activity_list
-from app.integrations.turvo.public_api_client import TurvoApiError
-from app.integrations.turvo.shipments import get_shipment
 from app.models.workflow_run_event_type import WorkflowRunEventType
-from app.services.appointment_scheduling.ingress_prepare_service import (
-    IngressPrepareService,
-)
-from app.services.appointment_scheduling.lifecycle_service import (
-    LifecycleService,
-)
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tasks.workflows import run_workflow_async
@@ -66,15 +57,9 @@ class IngressService:
         *,
         tenants_service: TenantsService | None = None,
         lifecycle_service: WorkflowLifecycleService | None = None,
-        prepare_service: IngressPrepareService | None = None,
-        scheduling_lifecycle_service: LifecycleService | None = None,
     ) -> None:
         self._tenants = tenants_service or TenantsService()
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
-        self._prepare = prepare_service or IngressPrepareService()
-        self._scheduling_lifecycle = (
-            scheduling_lifecycle_service or LifecycleService()
-        )
 
     @staticmethod
     def _skip(
@@ -159,113 +144,25 @@ class IngressService:
                 shipment_id=parsed.shipment_id,
             )
 
-        try:
-            shipment_payload = await get_shipment(tenant_slug, parsed.shipment_id)
-        except (TurvoApiError, ValueError) as exc:
-            logger.warning(
-                "appointment_scheduling shipment fetch failed tenant_slug=%s shipment_id=%s error=%s",
-                tenant_slug,
-                parsed.shipment_id,
-                exc,
-            )
-            return self._skip(
-                skip_reason="turvo_shipment_fetch_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        reason, fetched = evaluate_shipment_gates(
-            shipment_payload,
-            webhook_load_id=parsed.load_id,
-        )
-        if reason or fetched is None:
-            return self._skip(
-                skip_reason=reason or "missing_reference_number",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        try:
-            activity_json = await fetch_shipment_activity_list(
-                tenant_slug,
-                parsed.shipment_id,
-            )
-        except (TurvoApiError, ValueError) as exc:
-            logger.warning(
-                "appointment_scheduling activity fetch failed tenant_slug=%s shipment_id=%s error=%s",
-                tenant_slug,
-                parsed.shipment_id,
-                exc,
-            )
-            return self._skip(
-                skip_reason="turvo_activity_fetch_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        if reason := evaluate_activity_gates(activity_json):
-            return self._skip(
-                skip_reason=reason,
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        payload = {
+        payload: dict[str, Any] = {
             "tenant_id": tenant_uuid,
             "tenant_slug": tenant_slug,
             "shipment_id": parsed.shipment_id,
-            "load_id": fetched.load_id,
-            "reference_number": fetched.reference_number,
-            "shipment": shipment_payload,
         }
-
-        prepare_result = self._prepare.prepare_pickup_changed(
-            tenant_slug=tenant_slug,
-            tenant_id=tenant_uuid,
-            tenant_settings=tenant_settings,
-            payload=payload,
-        )
-        if not prepare_result.ok:
-            return self._skip(
-                skip_reason=prepare_result.skip_reason or "lifecycle_create_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        lifecycle_id = str(prepare_result.workflow_lifecycle_id or "").strip()
-        if not lifecycle_id:
-            return self._skip(
-                skip_reason="lifecycle_create_failed",
-                tenant_slug=tenant_slug,
-                shipment_id=parsed.shipment_id,
-            )
-
-        payload["workflow_lifecycle_id"] = lifecycle_id
-        payload["shipments_row_id"] = prepare_result.shipments_row_id
-        if prepare_result.customer_name:
-            payload["customer_name"] = prepare_result.customer_name
-        if prepare_result.customer_contact is not None:
-            payload["customer_contact"] = prepare_result.customer_contact.model_dump(
-                mode="json"
-            )
-
-        enqueue_payload = {k: v for k, v in payload.items() if k != "shipment"}
+        load_id = str(parsed.load_id or "").strip()
+        if load_id:
+            payload["load_id"] = load_id
 
         try:
             execution_id = enqueue_appointment_scheduling_pickup_changed(
                 tenant_slug=tenant_slug,
-                payload=enqueue_payload,
+                payload=payload,
             )
         except Exception:
             logger.exception(
                 "appointment_scheduling enqueue failed tenant_slug=%s shipment_id=%s",
                 tenant_slug,
                 parsed.shipment_id,
-            )
-            self._scheduling_lifecycle.mark_restartable_skip(
-                lifecycle_id,
-                "enqueue_failed",
-                tenant_id=tenant_uuid,
             )
             return self._skip(
                 skip_reason="enqueue_failed",
