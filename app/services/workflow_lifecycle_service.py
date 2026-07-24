@@ -705,6 +705,7 @@ class WorkflowLifecycleService:
         tenant_id: str,
         shipments_row_id: str,
         workflow_name: str,
+        lifecycle_id: str | None = None,
     ) -> str:
         from app.domain.appointment_scheduling.constants import (
             APPOINTMENT_SCHEDULING_WORKFLOW,
@@ -713,6 +714,7 @@ class WorkflowLifecycleService:
         tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
         sid = self._uuid_or_none(shipments_row_id)
         wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        lid = self._clean(lifecycle_id)
         if not tid or not sid:
             raise ValueError("tenant_id and shipments_row_id are required")
 
@@ -721,11 +723,41 @@ class WorkflowLifecycleService:
                 tenant_id=tid,
                 workflow_name=wn,
                 shipment_id=sid,
+                lifecycle_id=lid,
             )
 
         if self._lifecycles_repo is not None:
             return _insert(self._lifecycles_repo)
         return run_with_repos(lambda repos: _insert(self._repo(repos)))
+
+    def ensure_appointment_lifecycle_stub(
+        self,
+        *,
+        tenant_id: str,
+        lifecycle_id: str,
+        workflow_name: str | None = None,
+    ) -> bool:
+        """Create a deferred Turvo-ingress lifecycle row (no shipment yet) if missing."""
+        from app.domain.appointment_scheduling.constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        lid = self._clean(lifecycle_id)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not lid:
+            return False
+
+        def _ensure(repo: WorkflowLifecyclesRepository) -> bool:
+            return repo.ensure_lifecycle_stub(
+                lifecycle_id=lid,
+                tenant_id=tid,
+                workflow_name=wn,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _ensure(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _ensure(self._repo(repos)))
 
     def find_awaiting_customer_reply_lifecycle_id(
         self,

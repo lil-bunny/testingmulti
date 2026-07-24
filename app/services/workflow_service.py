@@ -458,6 +458,13 @@ class WorkflowService:
         payload["workflow_lifecycle_id"] = workflow_lifecycle_id
         payload["workflow_name"] = workflow_name
 
+        if deferred_scheduling_lifecycle:
+            self.lifecycle_service.ensure_appointment_lifecycle_stub(
+                tenant_id=tenant_id,
+                lifecycle_id=workflow_lifecycle_id,
+                workflow_name=workflow_name,
+            )
+
         if not deferred_scheduling_lifecycle:
             shipments_row_id = self.lifecycle_service.ensure_lifecycle_shipment_linked(
                 lifecycle_id=workflow_lifecycle_id,

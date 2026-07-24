@@ -194,6 +194,7 @@ class IngressPrepareService:
                 tenant_id=tenant_slug,
                 shipments_row_id=shipments_row_id,
                 workflow_name=APPOINTMENT_SCHEDULING_WORKFLOW,
+                lifecycle_id=existing_lifecycle_id or None,
             )
         except ValueError:
             return IngressPrepareResult(ok=False, skip_reason="lifecycle_create_failed")
