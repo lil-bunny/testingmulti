@@ -3,7 +3,7 @@ import types
 import uuid
 import tempfile
 import boto3
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from PIL import Image
 
@@ -101,6 +101,7 @@ def mock_attachment_upload(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pod_lifecycle_route_completed_runs_to_completion(monkeypatch):
+    _mock_t3ra_tenant(monkeypatch)
     sid = f"S1-{uuid.uuid4().hex[:10]}"
     load_id = f"L1-{uuid.uuid4().hex[:8]}"
 
@@ -116,6 +117,12 @@ async def test_pod_lifecycle_route_completed_runs_to_completion(monkeypatch):
         turvo_nodes,
         "check_pod_tool",
         lambda *a, **k: {"success": True, "pod_exists": False},
+    )
+    # check_route_completed_pod_gate calls this directly (not via turvo_nodes.check_pod_tool
+    # above), and does its own real Turvo tms-credentials lookup from the DB.
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.ingress_service.check_pod_by_shipment_id",
+        AsyncMock(return_value={"success": True, "pod_exists": False}),
     )
 
     service = WorkflowService(WorkflowRepository(), TenantRepository())
@@ -138,6 +145,7 @@ async def test_pod_lifecycle_route_completed_runs_to_completion(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pod_lifecycle_route_completed_duplicate_returns_early(monkeypatch):
+    _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
     lifecycle_id = "11111111-2222-3333-4444-555555555555"
 
     with patch(
@@ -178,6 +186,7 @@ async def test_pod_lifecycle_route_completed_duplicate_returns_early(monkeypatch
 
 @pytest.mark.asyncio
 async def test_pod_lifecycle_route_completed_convoy_skip_returns_early(monkeypatch):
+    _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
     with patch(
         "app.services.workflow_service.PodLifecycleIngressService"
     ) as ingress_cls:
@@ -221,6 +230,7 @@ async def test_pod_lifecycle_route_completed_convoy_skip_returns_early(monkeypat
 
 @pytest.mark.asyncio
 async def test_pod_lifecycle_route_completed_pod_exists_skip_returns_early(monkeypatch):
+    _mock_t3ra_tenant(monkeypatch, use_db_tenant=False)
     with patch(
         "app.services.workflow_service.PodLifecycleIngressService"
     ) as ingress_cls:
@@ -268,9 +278,18 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
 ):
     _mock_t3ra_tenant(monkeypatch)
     ship = f"S2-{uuid.uuid4().hex[:10]}"
+    def _fake_pymupdf_convert(pdf_path, temp_dir, **kwargs):
+        path = f"{temp_dir}/page_001.jpg"
+        Image.new("RGB", (8, 8), color="white").save(path, "JPEG")
+        return [path]
+
     monkeypatch.setattr(
-        "app.tools.pdf_raster.convert_from_path",
-        lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
+        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        _fake_pymupdf_convert,
+    )
+    monkeypatch.setattr(
+        "app.tools.pdf_to_images._convert_one_page",
+        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):
@@ -357,6 +376,26 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         fake_merge_and_upload,
     )
 
+    def fake_pod_analysis(state):
+        state.data["pod_analysis_results"] = {"success": True, "skipped": False}
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "pod_analysis",
+        fake_pod_analysis,
+    )
+
+    def fake_pod_vs_ratecon_analysis(state):
+        state.data["pod_vs_ratecon_analysis_results"] = {"success": True, "skipped": False}
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "pod_vs_ratecon_analysis",
+        fake_pod_vs_ratecon_analysis,
+    )
+
     with patch(
         "app.services.workflow_service.PodLifecycleIngressService.prepare_email_received_payload",
         new=AsyncMock(side_effect=lambda **kwargs: dict(kwargs["payload"])),
@@ -401,9 +440,18 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         base["workflow_lifecycle_id"] = lifecycle_id
         return base
 
+    def _fake_pymupdf_convert(pdf_path, temp_dir, **kwargs):
+        path = f"{temp_dir}/page_001.jpg"
+        Image.new("RGB", (8, 8), color="white").save(path, "JPEG")
+        return [path]
+
     monkeypatch.setattr(
-        "app.tools.pdf_raster.convert_from_path",
-        lambda *args, **kwargs: [Image.new("RGB", (8, 8), color="white")],
+        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        _fake_pymupdf_convert,
+    )
+    monkeypatch.setattr(
+        "app.tools.pdf_to_images._convert_one_page",
+        lambda *args, **kwargs: Image.new("RGB", (8, 8), color="white"),
     )
 
     def fake_get_shipment(sid, *, tenant_slug=None):
@@ -643,7 +691,8 @@ async def test_pod_lifecycle_email_received_carries_pipeline_artifact_state(
 
 
 @pytest.mark.asyncio
-async def test_pod_lifecycle_reminder_due_missing_attachment_routes_to_email():
+async def test_pod_lifecycle_reminder_due_missing_attachment_routes_to_email(monkeypatch):
+    _mock_t3ra_tenant(monkeypatch)
     service = WorkflowService(WorkflowRepository(), TenantRepository())
 
     result = await service.run(

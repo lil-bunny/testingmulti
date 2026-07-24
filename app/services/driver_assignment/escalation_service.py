@@ -21,7 +21,6 @@ from app.domain.driver_assignment.guards import (
 )
 from app.integrations.teams.webhook import TeamsWebhookError, post_message_card
 from app.integrations.turvo.shipments import (
-    driver_assigned_from_payload,
     pickup_appointment_from_payload,
     shipment_display_fields_from_payload,
 )

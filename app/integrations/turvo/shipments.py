@@ -24,7 +24,6 @@ from app.integrations.pgeocode.state_lookup import (
     lookup_state,
     lookup_state_display_name,
 )
-from app.integrations.turvo.documents import check_pod_by_shipment_id
 from app.integrations.turvo.public_api_client import TurvoApiClient
 
 # Turvo lookup keys (Public API docs + sandbox verification).

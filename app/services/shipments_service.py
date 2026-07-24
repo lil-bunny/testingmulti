@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
-from app.domain.shipment_display import ShipmentDisplayFields
 from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
 from app.integrations.turvo.shipments import (
     get_shipment as get_turvo_shipment_async,
     shipment_display_fields_from_payload,
 )
-from app.repositories.shipments_repository import (
-    ShipmentsRepository,
-    ShipmentUpsertResult,
-)
 from app.tools.driver_details import merge_driver_details_fields
+
+if TYPE_CHECKING:
+    from app.repositories.shipments_repository import (
+        ShipmentsRepository,
+        ShipmentUpsertResult,
+    )
+    from app.domain.shipment_display import ShipmentDisplayFields
 
 logger = get_logger(__name__)
 
@@ -313,6 +315,36 @@ class ShipmentsService:
                 self.get_by_shipment_number(tenant_id=tenant_id, shipment_number=number)
             )
         return None
+
+    def merge_metadata(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        """
+        Merge keys into ``shipments.metadata`` for one tenant-scoped row.
+
+        Returns False when ids are invalid or no row matches.
+        """
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid or not metadata_patch:
+            return False
+        if self._shipments is not None:
+            return self._shipments.merge_metadata_by_id_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                metadata_patch=metadata_patch,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).merge_metadata_by_id_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                metadata_patch=metadata_patch,
+            )
+        )
 
     def merge_driver_details(
         self,

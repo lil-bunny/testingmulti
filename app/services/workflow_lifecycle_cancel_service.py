@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
-from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 from app.domain.workflow_cancellation_guards import (
     is_workflow_cancelled,
     is_workflow_cancellable,
@@ -18,6 +17,9 @@ from app.models.activity_type import ActivityType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+
+if TYPE_CHECKING:
+    from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 
 logger = get_logger(__name__)
 

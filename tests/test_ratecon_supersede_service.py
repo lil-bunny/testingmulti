@@ -139,3 +139,36 @@ def test_ratecon_ingress_prepare_payload_calls_supersede() -> None:
         shipment_id="1000324895",
         communication_id="comm-new",
     )
+
+
+def test_ratecon_ingress_prepare_payload_raises_shipment_not_found_in_tms() -> None:
+    import asyncio
+
+    import pytest
+
+    from app.domain.error_catalog import BusinessError
+    from app.exceptions import WorkflowException
+    from app.services.ratecon_ingress_service import RateconIngressService
+
+    shipments = MagicMock()
+    shipments.upsert_from_load_id = AsyncMock(
+        return_value={"success": False, "message": "turvo_shipment_not_found"}
+    )
+    ingress = RateconIngressService(
+        shipments_service=shipments,
+        supersede_service=MagicMock(),
+    )
+
+    with pytest.raises(WorkflowException) as exc_info:
+        asyncio.run(
+            ingress.prepare_payload(
+                tenant_id=_TENANT_ID,
+                tenant_slug="t3ra",
+                payload={"load_id": "30389"},
+            )
+        )
+
+    err = exc_info.value
+    assert err.error_code == BusinessError.SHIPMENT_NOT_FOUND_IN_TMS.value
+    assert err.error_category == BusinessError.CATEGORY
+    assert err.message == BusinessError.SHIPMENT_NOT_FOUND_IN_TMS.description

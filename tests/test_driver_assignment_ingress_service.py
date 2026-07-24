@@ -8,8 +8,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.domain.ingress_result import IngressResult
+from app.core.config import settings
 from app.models.status import StatusSubType, StatusType
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
 from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
 from app.services.workflow_shadow_mail_service import WorkflowShadowMailService
@@ -21,12 +23,23 @@ _DRIVER_LC_ID = "driver-lc-1"
 _PICKUP_AT = "2026-03-30T15:30:00+00:00"
 
 
-def _patch_run_workflow_async(**apply_async_kwargs):
-    """Patch lazy import target without loading Celery task module."""
-    apply_async = MagicMock(**apply_async_kwargs)
-    mock_module = MagicMock()
-    mock_module.run_workflow_async.apply_async = apply_async
-    return patch.dict("sys.modules", {"app.tasks.workflows": mock_module}), apply_async
+def _patch_run_workflow_async(**_apply_async_kwargs):
+    """Patch serialize-enqueue used by driver_assignment publishers."""
+    ser = MagicMock()
+    result = SerializeEnqueueResult(
+        lifecycle_id=_DRIVER_LC_ID,
+        inbox_key=f"inbox:lifecycle:{_DRIVER_LC_ID}",
+        status="started",
+        celery_task_id="celery-1",
+        workflow_lifecycle_id=_DRIVER_LC_ID,
+    )
+    ser.resolve_then_enqueue.return_value = result
+    ser.enqueue.return_value = result
+    ctx = patch(
+        "app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService",
+        return_value=ser,
+    )
+    return ctx, ser
 
 
 def _turvo_shipment_fixture() -> dict:
@@ -131,16 +144,22 @@ def _service(**gate_overrides) -> DriverAssignmentIngressService:
     )
 
 
-def test_try_enqueue_skips_when_ratecon_analysis_not_stored():
+def test_try_enqueue_proceeds_when_ratecon_analysis_not_stored():
+    """Soft-complete: DA still enqueues when ratecon analysis failed to store."""
+    svc = _service(duplicate=False)
+    svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
     state = SimpleNamespace(
         tenant_id=_TENANT_ID,
         data=_ratecon_success_state_data(document_analysis_ratecon={"stored": False}),
     )
-    with _patch_run_workflow_async()[0]:
-        result = DriverAssignmentIngressService().try_enqueue_from_ratecon_state(state)
+    celery_task = MagicMock(id="celery-1")
+    patch_ctx, ser = _patch_run_workflow_async(return_value=celery_task)
+    with patch_ctx:
+        result = svc.try_enqueue_from_ratecon_state(state)
 
-    assert result.enqueued is False
-    assert result.skip_reason == "ratecon_analysis_not_stored"
+    assert result.enqueued is True
+    assert result.celery_task_id == "celery-1"
+    ser.resolve_then_enqueue.assert_called_once()
 
 
 def test_try_enqueue_happy_path_queues_once():
@@ -149,15 +168,15 @@ def test_try_enqueue_happy_path_queues_once():
     state = SimpleNamespace(tenant_id=_TENANT_ID, data=_ratecon_success_state_data())
     celery_task = MagicMock(id="celery-1")
 
-    patch_ctx, apply_async = _patch_run_workflow_async(return_value=celery_task)
+    patch_ctx, ser = _patch_run_workflow_async(return_value=celery_task)
     with patch_ctx:
         result = svc.try_enqueue_from_ratecon_state(state)
 
     assert result.enqueued is True
     assert result.execution_id
     assert result.celery_task_id == "celery-1"
-    apply_async.assert_called_once()
-    kwargs = apply_async.call_args.kwargs["kwargs"]
+    ser.resolve_then_enqueue.assert_called_once()
+    kwargs = ser.resolve_then_enqueue.call_args.kwargs
     assert kwargs["workflow_name"] == "driver_assignment"
     assert kwargs["payload"]["event_type"] == WorkflowRunEventType.RATECON_COMPLETED.value
     assert kwargs["payload"]["ratecon_workflow_lifecycle_id"] == _RATECON_LC_ID
@@ -182,13 +201,14 @@ def test_try_enqueue_skips_missing_pickup_and_logs_ratecon_activity():
         ),
     )
 
-    patch_ctx, apply_async = _patch_run_workflow_async()
+    patch_ctx, ser = _patch_run_workflow_async()
     with patch_ctx:
         result = svc.try_enqueue_from_ratecon_state(state)
 
     assert result.enqueued is False
     assert result.skip_reason == "pickup_appointment_not_found"
-    apply_async.assert_not_called()
+    ser.resolve_then_enqueue.assert_not_called()
+    ser.enqueue.assert_not_called()
     svc._activity.record_not_started_on_ratecon.assert_called_once()
 
 
@@ -202,13 +222,14 @@ def test_try_enqueue_skips_wrong_mode_and_logs_ratecon_activity():
         data=_ratecon_success_state_data(shipment=shipment),
     )
 
-    patch_ctx, apply_async = _patch_run_workflow_async()
+    patch_ctx, ser = _patch_run_workflow_async()
     with patch_ctx:
         result = svc.try_enqueue_from_ratecon_state(state)
 
     assert result.enqueued is False
     assert result.skip_reason == "transportation_mode_not_tl"
-    apply_async.assert_not_called()
+    ser.resolve_then_enqueue.assert_not_called()
+    ser.enqueue.assert_not_called()
     svc._activity.record_not_started_on_ratecon.assert_called_once()
 
 
@@ -233,12 +254,12 @@ def test_try_enqueue_enqueues_when_turvo_driver_assigned() -> None:
     )
     celery_task = MagicMock(id="celery-2")
 
-    patch_ctx, apply_async = _patch_run_workflow_async(return_value=celery_task)
+    patch_ctx, ser = _patch_run_workflow_async(return_value=celery_task)
     with patch_ctx:
         result = svc.try_enqueue_from_ratecon_state(state)
 
     assert result.enqueued is True
-    apply_async.assert_called_once()
+    ser.resolve_then_enqueue.assert_called_once()
 
 
 def test_try_enqueue_skips_not_covered_and_logs_ratecon_activity():
@@ -251,13 +272,14 @@ def test_try_enqueue_skips_not_covered_and_logs_ratecon_activity():
         data=_ratecon_success_state_data(shipment=shipment),
     )
 
-    patch_ctx, apply_async = _patch_run_workflow_async()
+    patch_ctx, ser = _patch_run_workflow_async()
     with patch_ctx:
         result = svc.try_enqueue_from_ratecon_state(state)
 
     assert result.enqueued is False
     assert result.skip_reason == "shipment_not_covered"
-    apply_async.assert_not_called()
+    ser.resolve_then_enqueue.assert_not_called()
+    ser.enqueue.assert_not_called()
     svc._activity.record_not_started_on_ratecon.assert_called_once()
 
 
@@ -273,13 +295,14 @@ def test_try_enqueue_skips_excluded_carrier_and_logs_ratecon_activity():
         data=_ratecon_success_state_data(shipment=shipment),
     )
 
-    patch_ctx, apply_async = _patch_run_workflow_async()
+    patch_ctx, ser = _patch_run_workflow_async()
     with patch_ctx:
         result = svc.try_enqueue_from_ratecon_state(state)
 
     assert result.enqueued is False
     assert result.skip_reason == "excluded_carrier"
-    apply_async.assert_not_called()
+    ser.resolve_then_enqueue.assert_not_called()
+    ser.enqueue.assert_not_called()
     svc._activity.record_not_started_on_ratecon.assert_called_once()
 
 
@@ -926,7 +949,7 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
     }
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
-    patch_ctx, apply_async = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
+    patch_ctx, ser = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
     with (
         patch_ctx,
         patch(
@@ -950,7 +973,7 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
         )
 
     assert resp is not None
-    apply_async.assert_called_once()
+    ser.enqueue.assert_called_once()
 
 
 def test_try_driver_details_email_received_re_subject_fallback_enqueues():
@@ -976,7 +999,7 @@ def test_try_driver_details_email_received_re_subject_fallback_enqueues():
     }
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
-    patch_ctx, apply_async = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
+    patch_ctx, ser = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
     with (
         patch_ctx,
         patch(
@@ -997,7 +1020,7 @@ def test_try_driver_details_email_received_re_subject_fallback_enqueues():
         )
 
     assert resp is not None
-    apply_async.assert_called_once()
+    ser.enqueue.assert_called_once()
 
 
 def test_try_driver_details_email_received_resolves_lifecycle_via_shipment_on_thread():
@@ -1028,7 +1051,7 @@ def test_try_driver_details_email_received_resolves_lifecycle_via_shipment_on_th
     }
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
-    patch_ctx, apply_async = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
+    patch_ctx, ser = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
     with (
         patch_ctx,
         patch(
@@ -1057,7 +1080,7 @@ def test_try_driver_details_email_received_resolves_lifecycle_via_shipment_on_th
         tenant_id=_TENANT_ID,
         shipment_id=_SHIPMENTS_ROW_ID,
     )
-    apply_async.assert_called_once()
+    ser.enqueue.assert_called_once()
 
 
 def test_try_driver_details_email_received_shipment_fallback_no_driver_lifecycle():
@@ -1116,7 +1139,7 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
     }
 
     tenant = UnipileTenantContext(tenant_uuid=_TENANT_ID, tenant_slug="t3ra")
-    patch_ctx, apply_async = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
+    patch_ctx, ser = _patch_run_workflow_async(return_value=MagicMock(id="celery-2"))
     with (
         patch_ctx,
         patch(
@@ -1139,8 +1162,8 @@ def test_try_driver_details_email_received_enqueues_when_active_lifecycle():
     assert resp is not None
     assert isinstance(resp, IngressResult)
     assert resp.outcome == "enqueued"
-    apply_async.assert_called_once()
-    kwargs = apply_async.call_args.kwargs["kwargs"]
+    ser.enqueue.assert_called_once()
+    kwargs = ser.enqueue.call_args.kwargs
     assert kwargs["workflow_name"] == "driver_assignment"
     assert (
         kwargs["payload"]["event_type"]
@@ -1197,7 +1220,7 @@ async def test_prepare_allows_restart_after_cancelled_cycle() -> None:
     svc._runs_service.is_ratecon_completed_blocked_for_shipment.assert_called_once()
 
 
-def test_check_reminder_eligibility_skips_when_driver_assigned():
+def test_send_driver_details_confirmation_email_skipped_already_assigned():
     svc = DriverAssignmentIngressService()
     result = svc.send_driver_details_confirmation_email(
         tenant_id=_TENANT_ID,

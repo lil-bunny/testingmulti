@@ -3,37 +3,52 @@ POD attachment normalizer — port of old.services.attachment_normalizer.
 
 Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME.
 Assess-only mode stages accepted PDFs/images once under ``sources/`` in a
-worker-local directory. Image paths are reused for vision extraction via
-``pod_vision_image_paths`` (same file, no second copy). Merge/upload of staged
-files (or full normalize with upload_merged=True) produces
-``pod_merged_pdf_object_key`` on S3.
+worker-local directory (rate confirmation pages are stripped here). Image paths
+are reused for vision extraction via ``pod_vision_image_paths`` (same file, no
+second copy). Merge/upload of staged files (or full normalize with
+upload_merged=True) produces ``pod_merged_pdf_object_key`` on S3.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
 import re
 import time
 import uuid
+from collections.abc import Coroutine
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 from urllib.parse import urlparse
 
 import httpx
 import img2pdf
+from openai import AsyncOpenAI
 from PIL import Image
 
 from app.core.config import settings
+from app.domain.pod_lifecycle.guards import ATTACHMENT_CLASSIFIER_FAILED
 from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_attachment_classifier_prompts
 from app.services.s3bucket_service import bucket, normalize_object_key
-from app.tools.llm_client import chat_vision_json
+from app.tools.llm_client import (
+    LLMClientError,
+    achat_vision_json,
+    build_async_llm_client,
+)
+from app.tools.pdf_to_images import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+
+class AttachmentClassifierFailed(Exception):
+    """LLM/infra failure during attachment vision classify (not a model reject)."""
 
 try:
     import pillow_heif
@@ -96,6 +111,18 @@ def in_memory_attachment_ref(
 class AttachmentNormalizerService:
     """Download, classify by type, merge POD attachments into a single PDF."""
 
+    @staticmethod
+    def _run_coro(coro: Coroutine[Any, Any, _T]) -> _T:
+        """Run ``coro`` when no loop is running; refuse nested ``asyncio.run``."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        raise RuntimeError(
+            "AttachmentNormalizerService sync helpers cannot run under a running "
+            "event loop; use normalize_async / normalize_from_bytes_async"
+        )
+
     def normalize(
         self,
         pod_object_keys: List[str],
@@ -105,6 +132,31 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
+    ) -> Dict[str, Any]:
+        """Sync facade over ``normalize_async`` (one-shot ``asyncio.run``)."""
+        return self._run_coro(
+            self.normalize_async(
+                pod_object_keys,
+                shipment_number=shipment_number,
+                upload_merged=upload_merged,
+                local_merged_path=local_merged_path,
+                stage_dir=stage_dir,
+                trace_metadata=trace_metadata,
+                ratecon_page_count=ratecon_page_count,
+            )
+        )
+
+    async def normalize_async(
+        self,
+        pod_object_keys: List[str],
+        shipment_number: Optional[str] = None,
+        *,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
+        stage_dir: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         if trace_metadata:
             self._trace_metadata = dict(trace_metadata)
@@ -122,12 +174,13 @@ class AttachmentNormalizerService:
         non_empty = [(u or "").strip() for u in pod_object_keys if (u or "").strip()]
         if len(non_empty) == 1:
             return self._with_classification_index(
-                self._normalize_single_attachment(
+                await self._normalize_single_attachment_async(
                     non_empty[0],
                     shipment_number=shipment_number,
                     upload_merged=upload_merged,
                     local_merged_path=local_merged_path,
                     stage_dir=stage_dir,
+                    ratecon_page_count=ratecon_page_count,
                 ),
                 shipment_number,
             )
@@ -137,6 +190,8 @@ class AttachmentNormalizerService:
         rejected: List[Dict[str, Any]] = []
         classification_results: List[Dict[str, Any]] = []
         source_attachment_ids: List[str] = []
+        pending_classify: List[Tuple[str, bytes, str | None]] = []
+        pending_bytes_by_ref: Dict[str, bytes] = {}
 
         for raw in pod_object_keys:
             attachment_ref = (raw or "").strip()
@@ -197,23 +252,10 @@ class AttachmentNormalizerService:
                     )
                     continue
 
-                cls_result = self._classify_image(
-                    image_bytes,
-                    attachment_id=attachment_id,
+                pending_classify.append(
+                    (attachment_ref, image_bytes, attachment_id)
                 )
-                cls_result["attachment_ref"] = attachment_ref
-                classification_results.append(cls_result)
-
-                if self._accept_image(cls_result):
-                    valid_images.append((attachment_ref, image_bytes))
-                else:
-                    rejected.append(
-                        self._rejection_entry(
-                            attachment_ref,
-                            cls_result.get("reasoning", "rejected_by_classifier"),
-                            float(cls_result.get("confidence", 0.0)),
-                        )
-                    )
+                pending_bytes_by_ref[attachment_ref] = image_bytes
                 continue
 
             logger.warning(
@@ -225,6 +267,76 @@ class AttachmentNormalizerService:
                 self._rejection_entry(
                     attachment_ref, f"unsupported_type: {mime_type}", 1.0
                 )
+            )
+
+        if pending_classify:
+            try:
+                classified = await self.classify_images_batch(pending_classify)
+            except AttachmentClassifierFailed as exc:
+                logger.exception(
+                    "attachment_normalizer.classifier_failed count=%s err=%s",
+                    len(pending_classify),
+                    exc,
+                )
+                return self._with_classification_index(
+                    {
+                        "success": False,
+                        "pod_merged_pdf_object_key": None,
+                        "source_attachment_ids": source_attachment_ids,
+                        "classification_results": classification_results,
+                        "rejected": rejected,
+                        "source_attachments_cleanup": {
+                            "rejected": rejected,
+                            "valid_source": [],
+                        },
+                        "error": ATTACHMENT_CLASSIFIER_FAILED,
+                    },
+                    shipment_number,
+                )
+            for cls_result in classified:
+                classification_results.append(cls_result)
+                attachment_ref = str(cls_result.get("attachment_ref") or "")
+                image_bytes = pending_bytes_by_ref.get(attachment_ref)
+                if image_bytes is None:
+                    continue
+                if self._accept_image(cls_result):
+                    valid_images.append((attachment_ref, image_bytes))
+                else:
+                    rejected.append(
+                        self._rejection_entry(
+                            attachment_ref,
+                            cls_result.get("reasoning", "rejected_by_classifier"),
+                            float(cls_result.get("confidence", 0.0)),
+                        )
+                    )
+
+        try:
+            valid_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
+                valid_pdfs,
+                shipment_number=shipment_number,
+                ratecon_page_count=ratecon_page_count,
+            )
+            rejected.extend(ratecon_rejected)
+        except PdfTooLargeError:
+            logger.warning(
+                "attachment_normalizer: PDF too large during ratecon page filter "
+                "shipment=%s",
+                shipment_number,
+            )
+            return self._with_classification_index(
+                {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": PdfTooLargeError.error_key,
+                },
+                shipment_number,
             )
 
         if not valid_pdfs and not valid_images:
@@ -346,6 +458,31 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Sync facade over ``normalize_from_bytes_async`` (one-shot ``asyncio.run``)."""
+        return self._run_coro(
+            self.normalize_from_bytes_async(
+                attachment_bytes_by_id,
+                shipment_number=shipment_number,
+                upload_merged=upload_merged,
+                local_merged_path=local_merged_path,
+                stage_dir=stage_dir,
+                trace_metadata=trace_metadata,
+                ratecon_page_count=ratecon_page_count,
+            )
+        )
+
+    async def normalize_from_bytes_async(
+        self,
+        attachment_bytes_by_id: dict[str, bytes],
+        *,
+        shipment_number: str | None = None,
+        upload_merged: bool = True,
+        local_merged_path: str | None = None,
+        stage_dir: str | None = None,
+        trace_metadata: dict[str, Any] | None = None,
+        ratecon_page_count: int | None = None,
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
@@ -382,12 +519,13 @@ class AttachmentNormalizerService:
 
         processor = _InMemoryAttachmentNormalizer(bytes_by_ref)
         processor._trace_metadata = dict(trace_metadata or {})
-        return processor.normalize(
+        return await processor.normalize_async(
             refs,
             shipment_number=shipment_number,
             upload_merged=upload_merged,
             local_merged_path=local_merged_path,
             stage_dir=stage_dir,
+            ratecon_page_count=ratecon_page_count,
         )
 
     def merge_and_upload_staged(
@@ -447,6 +585,14 @@ class AttachmentNormalizerService:
                     "pod_merged_pdf_object_key": None,
                     "error": f"unsupported_type: {mime_type}",
                 }
+
+        # Ratecon pages are stripped during pre-graph assess; staged PDFs are already clean.
+        if not pdf_bytes_list and not image_bytes_list:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "no_mergeable_staged_sources",
+            }
 
         merged_bytes = self._merge_attachments(pdf_bytes_list, image_bytes_list)
         if merged_bytes is None:
@@ -596,7 +742,7 @@ class AttachmentNormalizerService:
             )
             return None
 
-    def _normalize_single_attachment(
+    async def _normalize_single_attachment_async(
         self,
         attachment_ref: str,
         shipment_number: Optional[str] = None,
@@ -604,6 +750,7 @@ class AttachmentNormalizerService:
         upload_merged: bool = True,
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
+        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         """
         Business rules for exactly one attachment:
@@ -699,10 +846,30 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                 }
 
-            cls_result = self._classify_image(
-                image_bytes,
-                attachment_id=attachment_id,
-            )
+            try:
+                cls_result = await self._aclassify_image(
+                    image_bytes,
+                    attachment_id=attachment_id,
+                )
+            except AttachmentClassifierFailed as exc:
+                logger.exception(
+                    "attachment_normalizer.single.classifier_failed attachment_id=%s err=%s",
+                    attachment_id or "-",
+                    exc,
+                )
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": ATTACHMENT_CLASSIFIER_FAILED,
+                    "single_attachment_short_circuit": True,
+                }
             cls_result["attachment_ref"] = attachment_ref
             classification_results.append(cls_result)
 
@@ -759,11 +926,49 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
+        if mime_type == "application/pdf":
+            try:
+                kept_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
+                    [(attachment_ref, pdf_bytes)],
+                    shipment_number=shipment_number,
+                    ratecon_page_count=ratecon_page_count,
+                )
+                rejected.extend(ratecon_rejected)
+            except PdfTooLargeError:
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": PdfTooLargeError.error_key,
+                    "single_attachment_short_circuit": True,
+                }
+            if not kept_pdfs:
+                return {
+                    "success": False,
+                    "pod_merged_pdf_object_key": None,
+                    "source_attachment_ids": source_attachment_ids,
+                    "classification_results": classification_results,
+                    "rejected": rejected,
+                    "source_attachments_cleanup": {
+                        "rejected": rejected,
+                        "valid_source": [],
+                    },
+                    "error": "all_pages_rate_confirmation",
+                    "single_attachment_short_circuit": True,
+                }
+            pdf_bytes = kept_pdfs[0][1]
+
         if not upload_merged:
             valid_pdfs: List[Tuple[str, bytes]] = []
             valid_images: List[Tuple[str, bytes]] = []
             if mime_type == "application/pdf":
-                valid_pdfs = [(attachment_ref, file_bytes)]
+                valid_pdfs = [(attachment_ref, pdf_bytes)]
             elif accepted_image_bytes is not None:
                 valid_images = [(attachment_ref, accepted_image_bytes)]
             merge_paths, vision_paths = self._stage_accepted_files(
@@ -831,13 +1036,69 @@ class AttachmentNormalizerService:
             out["pod_merged_local_path"] = local_path
         return out
 
-    def _classify_image(
+    async def classify_images_batch(
+        self,
+        items: List[Tuple[str, bytes, str | None]],
+    ) -> List[Dict[str, Any]]:
+        """Parallel vision classify under ``ATTACHMENT_CLASSIFIER_CONCURRENCY``.
+
+        Each item is ``(attachment_ref, image_bytes, attachment_id)``.
+        Raises ``AttachmentClassifierFailed`` on LLM/infra errors.
+        """
+        if not items:
+            return []
+
+        if not settings.LLM_API_KEY:
+            results: List[Dict[str, Any]] = []
+            for attachment_ref, image_bytes, attachment_id in items:
+                result = await self._aclassify_image(
+                    image_bytes,
+                    attachment_id=attachment_id,
+                )
+                result["attachment_ref"] = attachment_ref
+                results.append(result)
+            return results
+
+        concurrency = max(
+            1, min(settings.ATTACHMENT_CLASSIFIER_CONCURRENCY, len(items))
+        )
+        logger.info(
+            "attachment.classify_batch start count=%s concurrency=%s",
+            len(items),
+            concurrency,
+        )
+
+        async with build_async_llm_client(max_connections=concurrency) as client:
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _one(
+                attachment_ref: str,
+                image_bytes: bytes,
+                attachment_id: str | None,
+            ) -> Dict[str, Any]:
+                async with sem:
+                    result = await self._aclassify_image(
+                        image_bytes,
+                        attachment_id=attachment_id,
+                        client=client,
+                    )
+                result["attachment_ref"] = attachment_ref
+                return result
+
+            return list(
+                await asyncio.gather(
+                    *(_one(ref, data, att_id) for ref, data, att_id in items)
+                )
+            )
+
+    async def _aclassify_image(
         self,
         image_bytes: bytes,
         *,
         attachment_id: str | None = None,
+        client: AsyncOpenAI | None = None,
     ) -> Dict[str, Any]:
-        """Classify image via shared traced ``chat_vision_json`` (LangSmith LLM span)."""
+        """Classify image via traced ``achat_vision_json`` on the current event loop."""
         api_key = settings.LLM_API_KEY
         if not api_key:
             logger.warning(
@@ -892,7 +1153,7 @@ class AttachmentNormalizerService:
         )
 
         try:
-            result = chat_vision_json(
+            result = await achat_vision_json(
                 rendered.system,
                 rendered.user,
                 image_bytes,
@@ -903,6 +1164,7 @@ class AttachmentNormalizerService:
                 prompt_trace=prompt_trace,
                 metadata=base_meta,
                 tags=["pod_attachment_classifier"],
+                client=client,
             )
             elapsed_ms = (time.monotonic() - started) * 1000
 
@@ -924,7 +1186,7 @@ class AttachmentNormalizerService:
                 "prefiltered": False,
             }
 
-        except Exception as e:
+        except LLMClientError as e:
             elapsed_ms = (time.monotonic() - started) * 1000
             logger.exception(
                 "attachment.classify_llm_error attachment_id=%s ms=%.0f err=%s",
@@ -932,13 +1194,63 @@ class AttachmentNormalizerService:
                 elapsed_ms,
                 e,
             )
-            return {
-                "is_valid_document": False,
-                "confidence": 0.0,
-                "reasoning": f"classification_error: {e}",
-                "detected_document_type": None,
-                "prefiltered": False,
-            }
+            raise AttachmentClassifierFailed(str(e)) from e
+
+    def _strip_ratecon_pages_from_pdfs(
+        self,
+        valid_pdfs: List[Tuple[str, bytes]],
+        *,
+        shipment_number: Optional[str] = None,
+        ratecon_page_count: int | None = None,
+    ) -> Tuple[List[Tuple[str, bytes]], List[Dict[str, Any]]]:
+        """
+        Drop rate confirmation pages from each PDF during pre-graph assess.
+
+        Empty-after-strip attachments are rejected as ``all_pages_rate_confirmation``.
+        """
+        from app.services.pod_lifecycle.strip_ratecon_pages import (
+            StripRateconPagesService,
+        )
+
+        strip_ratecon_pages_service = StripRateconPagesService()
+        kept: List[Tuple[str, bytes]] = []
+        rejected: List[Dict[str, Any]] = []
+        ship = (shipment_number or "unknown").strip() or "unknown"
+
+        for attachment_ref, pdf_data in valid_pdfs:
+            result = strip_ratecon_pages_service.strip_pdf_bytes(
+                pdf_data,
+                doc_label=f"pod_{ship}",
+                ratecon_page_count=ratecon_page_count,
+            )
+            if result.skip_reason == "all_pages_rate_confirmation":
+                rejected.append(
+                    self._rejection_entry(
+                        attachment_ref,
+                        "all_pages_rate_confirmation",
+                        1.0,
+                    )
+                )
+                continue
+            if result.kept_pdf_bytes is None:
+                rejected.append(
+                    self._rejection_entry(
+                        attachment_ref,
+                        result.skip_reason or "strip_ratecon_pages_failed",
+                        1.0,
+                    )
+                )
+                continue
+            if result.excluded_page_numbers:
+                logger.info(
+                    "attachment_normalizer.ratecon_pages_stripped ref=%s "
+                    "excluded=%s kept=%s",
+                    (attachment_ref or "")[:80],
+                    result.excluded_page_numbers,
+                    result.kept_page_count,
+                )
+            kept.append((attachment_ref, result.kept_pdf_bytes))
+        return kept, rejected
 
     def _merge_attachments(
         self,

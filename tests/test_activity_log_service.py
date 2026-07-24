@@ -12,7 +12,7 @@ from app.domain.activity_log_write import (
     ActivityLogWrite,
 )
 from app.domain.state import WorkflowState
-from app.models.activity_type import ActivityType, ActorType
+from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 

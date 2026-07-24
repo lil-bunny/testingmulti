@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.error_catalog import ErrorCategory
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
-from app.domain.state import WorkflowState
 from app.workflows.shipment_resolver import resolve_shipment_id
 from app.models.activity_type import ActivityType, ActorType
 from app.models.pause_type import PauseType
@@ -18,6 +17,9 @@ from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_error_alert_enqueue_service import (
     enqueue_workflow_error_alert_from_state,
 )
+
+if TYPE_CHECKING:
+    from app.domain.state import WorkflowState
 
 logger = get_logger(__name__)
 

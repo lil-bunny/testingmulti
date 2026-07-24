@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.at_rest_secret import decrypt_password, encrypt_password
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
-from app.domain.tenant_settings.tms import TmsSettings
 from app.integrations.turvo.oauth_http import TurvoOAuthHttpError, post_token
 from app.integrations.turvo.public_api_urls import (
     build_oauth_token_url,
     normalize_turvo_publicapi_url,
 )
-from app.repositories.turvo_oauth_repository import TurvoOAuthRepository
+
+if TYPE_CHECKING:
+    from app.domain.tenant_settings.tms import TmsSettings
+    from app.repositories.turvo_oauth_repository import TurvoOAuthRepository
 
 logger = get_logger(__name__)
 

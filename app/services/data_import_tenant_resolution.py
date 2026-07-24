@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.domain.unipile_email import extract_recipient_emails
 from app.exceptions import TenantResolutionError
-from app.repositories.tenants_db_repository import InboundRoutingTenantMatch
+
+if TYPE_CHECKING:
+    from app.repositories.tenants_db_repository import InboundRoutingTenantMatch
 
 logger = get_logger(__name__)
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from app.core.service_db import run_with_repos
 from app.domain.column_projection import drop_all_empty_projected_rows, project_row
 from app.domain.data_import_tabular import iter_spreadsheet_rows
-from app.repositories.data_imports_repository import DataImportsRepository
+
+if TYPE_CHECKING:
+    from app.repositories.data_imports_repository import DataImportsRepository
 
 
 class DataImportsReadService:

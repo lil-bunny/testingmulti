@@ -8,7 +8,7 @@ are not blocked.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
@@ -19,7 +19,6 @@ from app.services.communications._mapper import (
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.domain.gelita.routing_guide_lifecycle import routing_guide_thread_is_retired
-from app.repositories.communications_repository import CommunicationsRepository
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.domain.email_thread_reply import (
     build_recipients,
@@ -30,6 +29,9 @@ from app.domain.email_thread_reply import (
 )
 from app.domain.tenant_settings.email_recipients import unipile_recipients_from_addresses
 from app.services.unipile_service import Unipile, UnipileException
+
+if TYPE_CHECKING:
+    from app.repositories.communications_repository import CommunicationsRepository
 
 logger = get_logger(__name__)
 

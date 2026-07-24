@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from app.core.db_repos import DbRepos
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.domain.ingest_source_fields import source_liefmatch
@@ -14,6 +13,9 @@ from app.domain.routing_guide import (
     RoutingGuideRow,
     routing_guide_policy_for,
 )
+
+if TYPE_CHECKING:
+    from app.core.db_repos import DbRepos
 
 logger = get_logger(__name__)
 

@@ -1,7 +1,5 @@
 """v1 per-tenant Turvo Public API OAuth: authenticate and status (no raw tokens in responses)."""
 
-from __future__ import annotations
-
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException

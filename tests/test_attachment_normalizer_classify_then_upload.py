@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+import pytest
 from PIL import Image
 
 from app.core.config import settings
@@ -39,7 +40,8 @@ def test_stage_accepted_files_writes_image_once_shared_path(tmp_path):
     assert staged.read_bytes() == png
 
 
-def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):
+@pytest.mark.asyncio
+async def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):
     png = _large_png_bytes()
     upload_calls: list[dict] = []
 
@@ -50,19 +52,22 @@ def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):
             "object_key": f"{settings.BUCKET_POD_ATTACHMENTS_FOLDER}/pod_SHIP.pdf",
         }
 
+    async def fake_aclassify(self, image_bytes, **kwargs):
+        return {
+            "is_valid_document": True,
+            "confidence": 0.9,
+            "reasoning": "pod photo",
+            "detected_document_type": "POD",
+        }
+
     monkeypatch.setattr(
         "app.services.attachment_normalizer.bucket.upload_file",
         fake_upload,
     )
     monkeypatch.setattr(
         AttachmentNormalizerService,
-        "_classify_image",
-        lambda self, image_bytes, **kwargs: {
-            "is_valid_document": True,
-            "confidence": 0.9,
-            "reasoning": "pod photo",
-            "detected_document_type": "POD",
-        },
+        "_aclassify_image",
+        fake_aclassify,
     )
     monkeypatch.setattr(
         AttachmentNormalizerService,
@@ -71,7 +76,7 @@ def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):
     )
 
     svc = AttachmentNormalizerService()
-    result = svc.normalize_from_bytes(
+    result = await svc.normalize_from_bytes_async(
         {"att-valid": png},
         shipment_number="SHIP",
         upload_merged=True,
@@ -83,22 +88,27 @@ def test_normalize_from_bytes_uploads_merged_pdf_for_valid_image(monkeypatch):
     assert upload_calls[0]["content_type"] == "application/pdf"
 
 
-def test_normalize_from_bytes_rejected_image_skips_s3_upload(monkeypatch):
+@pytest.mark.asyncio
+async def test_normalize_from_bytes_rejected_image_skips_s3_upload(monkeypatch):
     png = _large_png_bytes()
     upload = MagicMock()
-    monkeypatch.setattr("app.services.attachment_normalizer.bucket.upload_file", upload)
-    monkeypatch.setattr(
-        AttachmentNormalizerService,
-        "_classify_image",
-        lambda self, image_bytes, **kwargs: {
+
+    async def fake_aclassify(self, image_bytes, **kwargs):
+        return {
             "is_valid_document": False,
             "confidence": 0.95,
             "reasoning": "truck photo",
-        },
+        }
+
+    monkeypatch.setattr("app.services.attachment_normalizer.bucket.upload_file", upload)
+    monkeypatch.setattr(
+        AttachmentNormalizerService,
+        "_aclassify_image",
+        fake_aclassify,
     )
 
     svc = AttachmentNormalizerService()
-    result = svc.normalize_from_bytes(
+    result = await svc.normalize_from_bytes_async(
         {"att-bad": png},
         shipment_number="SHIP",
         upload_merged=True,

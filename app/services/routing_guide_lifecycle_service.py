@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
@@ -22,9 +22,11 @@ from app.domain.load_tendering_settings import (
     routing_guide_max_attempts,
 )
 from app.models.activity_type import ActivityType, ActorType, is_snapshot_activity_type
-from app.models.status import StatusSubType
 from app.services.lifecycle_transition_service import LifecycleTransitionService
 from app.services.workflow_reminder_cancel_service import WorkflowReminderCancelService
+
+if TYPE_CHECKING:
+    from app.models.status import StatusSubType
 
 logger = get_logger(__name__)
 

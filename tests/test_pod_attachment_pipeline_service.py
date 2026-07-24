@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.domain.pod_lifecycle.guards import ATTACHMENT_CLASSIFIER_FAILED
 from app.services.pod_lifecycle.attachment_pipeline_service import (
     PodAttachmentPipelineService,
 )
@@ -30,18 +31,20 @@ async def test_run_for_email_assess_stages_without_s3_merge(monkeypatch, tmp_pat
     staged.parent.mkdir(parents=True)
     staged.write_bytes(b"%PDF-1.4 x")
     normalizer = MagicMock()
-    normalizer.normalize_from_bytes.return_value = {
-        "success": True,
-        "assess_only": True,
-        "pod_merged_pdf_object_key": None,
-        "pod_merge_source_paths": [str(staged)],
-        "pod_vision_image_paths": [],
-        "source_attachments_cleanup": {
-            "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
+    normalizer.normalize_from_bytes_async = AsyncMock(
+        return_value={
+            "success": True,
+            "assess_only": True,
+            "pod_merged_pdf_object_key": None,
+            "pod_merge_source_paths": [str(staged)],
+            "pod_vision_image_paths": [],
+            "source_attachments_cleanup": {
+                "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
+                "rejected": [],
+            },
             "rejected": [],
-        },
-        "rejected": [],
-    }
+        }
+    )
     monkeypatch.setattr(
         "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
         lambda **kwargs: b"%PDF-1.4 x",
@@ -68,10 +71,69 @@ async def test_run_for_email_assess_stages_without_s3_merge(monkeypatch, tmp_pat
     assert "documents_pod" not in result.state_patch
     assert result.state_patch["pod_merge_source_paths"] == [str(staged)]
     assert result.state_patch["has_attachments"] is True
-    _, kwargs = normalizer.normalize_from_bytes.call_args
+    _, kwargs = normalizer.normalize_from_bytes_async.call_args
     assert kwargs["upload_merged"] is False
     assert kwargs["trace_metadata"]["execution_id"] == "exec-1"
     assert kwargs["trace_metadata"]["classify_context"] == "attachment_pipeline"
+    assert kwargs["ratecon_page_count"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_for_email_passes_ratecon_page_count_from_document_analysis(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_ATTACHMENT_STAGE_ROOT",
+        str(tmp_path),
+    )
+    staged = tmp_path / "sources" / "001_att1.pdf"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(b"%PDF-1.4 x")
+    normalizer = MagicMock()
+    normalizer.normalize_from_bytes_async = AsyncMock(
+        return_value={
+            "success": True,
+            "assess_only": True,
+            "pod_merged_pdf_object_key": None,
+            "pod_merge_source_paths": [str(staged)],
+            "pod_vision_image_paths": [],
+            "source_attachments_cleanup": {
+                "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
+                "rejected": [],
+            },
+            "rejected": [],
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
+        lambda **kwargs: b"%PDF-1.4 x",
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.resolve_pod_sender_account_id",
+        lambda payload: "acct-1",
+    )
+    resolve = MagicMock(return_value=5)
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.resolve_ratecon_page_count",
+        resolve,
+    )
+
+    svc = PodAttachmentPipelineService(normalizer=normalizer)
+    result = await svc.run_for_email_payload(
+        payload={
+            "tenant_id": "00000000-0000-4000-8000-0000000000e1",
+            "shipment_id": "S1",
+            "shipments_row_id": "11111111-1111-4111-8111-111111111111",
+            "email_id": "email-1",
+            "attachments": [{"id": "att-1"}],
+            "execution_id": "exec-1",
+        }
+    )
+
+    assert result.success is True
+    resolve.assert_called_once_with("11111111-1111-4111-8111-111111111111")
+    _, kwargs = normalizer.normalize_from_bytes_async.call_args
+    assert kwargs["ratecon_page_count"] == 5
 
 
 def test_merge_and_upload_from_state_persists(monkeypatch, tmp_path):
@@ -147,11 +209,13 @@ async def test_run_for_email_invalid_document_skips(monkeypatch, tmp_path):
         str(tmp_path),
     )
     normalizer = MagicMock()
-    normalizer.normalize_from_bytes.return_value = {
-        "success": False,
-        "error": "No valid document",
-        "rejected": [{"reason": "truck photo"}],
-    }
+    normalizer.normalize_from_bytes_async = AsyncMock(
+        return_value={
+            "success": False,
+            "error": "No valid document",
+            "rejected": [{"reason": "truck photo"}],
+        }
+    )
     monkeypatch.setattr(
         "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
         lambda **kwargs: b"not-pdf",
@@ -174,7 +238,46 @@ async def test_run_for_email_invalid_document_skips(monkeypatch, tmp_path):
     assert result.skip_reason == POD_EMAIL_SKIP_INVALID_ATTACHMENT
 
 
-def test_run_for_object_keys_assesses(monkeypatch, tmp_path):
+@pytest.mark.asyncio
+async def test_run_for_email_classifier_failed_skips_with_typed_reason(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_ATTACHMENT_STAGE_ROOT",
+        str(tmp_path),
+    )
+    normalizer = MagicMock()
+    normalizer.normalize_from_bytes_async = AsyncMock(
+        return_value={
+            "success": False,
+            "error": ATTACHMENT_CLASSIFIER_FAILED,
+            "rejected": [],
+        }
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
+        lambda **kwargs: b"\x89PNG\r\n\x1a\n" + b"x" * 20,
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.resolve_pod_sender_account_id",
+        lambda payload: "acct-1",
+    )
+
+    svc = PodAttachmentPipelineService(normalizer=normalizer)
+    result = await svc.run_for_email_payload(
+        payload={
+            "shipment_id": "S1",
+            "email_id": "email-1",
+            "attachments": [{"id": "att-llm"}],
+        }
+    )
+
+    assert result.success is False
+    assert result.skip_reason == ATTACHMENT_CLASSIFIER_FAILED
+
+
+@pytest.mark.asyncio
+async def test_run_for_object_keys_assesses(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_ATTACHMENT_STAGE_ROOT",
         str(tmp_path),
@@ -183,20 +286,22 @@ def test_run_for_object_keys_assesses(monkeypatch, tmp_path):
     staged.parent.mkdir(parents=True)
     staged.write_bytes(b"%PDF-1.4 x")
     normalizer = MagicMock()
-    normalizer.normalize.return_value = {
-        "success": True,
-        "assess_only": True,
-        "pod_merged_pdf_object_key": None,
-        "pod_merge_source_paths": [str(staged)],
-        "pod_vision_image_paths": [],
-        "source_attachments_cleanup": {
-            "valid_source": [{"attachment_ref": "pod_attachments/pod_manual_S1.pdf"}],
-            "rejected": [],
-        },
-    }
+    normalizer.normalize_async = AsyncMock(
+        return_value={
+            "success": True,
+            "assess_only": True,
+            "pod_merged_pdf_object_key": None,
+            "pod_merge_source_paths": [str(staged)],
+            "pod_vision_image_paths": [],
+            "source_attachments_cleanup": {
+                "valid_source": [{"attachment_ref": "pod_attachments/pod_manual_S1.pdf"}],
+                "rejected": [],
+            },
+        }
+    )
 
     svc = PodAttachmentPipelineService(normalizer=normalizer)
-    result = svc.run_for_object_keys(
+    result = await svc.run_for_object_keys(
         pod_object_keys=["pod_attachments/pod_manual_S1.pdf"],
         shipment_id="S1",
         shipments_row_id="row-1",
@@ -205,7 +310,7 @@ def test_run_for_object_keys_assesses(monkeypatch, tmp_path):
 
     assert result.success is True
     assert "documents_pod" not in (result.state_patch or {})
-    _, kwargs = normalizer.normalize.call_args
+    _, kwargs = normalizer.normalize_async.call_args
     assert kwargs["upload_merged"] is False
     assert kwargs["trace_metadata"]["execution_id"] == "exec-manual"
     assert kwargs["trace_metadata"]["classify_context"] == "attachment_pipeline"

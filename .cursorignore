@@ -1,6 +1,6 @@
 .env
 .env.*
 
-docs
+# docs
 
 test_llm_client_curl.sh

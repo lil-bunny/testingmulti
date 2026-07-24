@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ast
 import json
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-import httpx
+
+if TYPE_CHECKING:
+    import httpx
 
 
 def format_unipile_webhook_failure(resp: httpx.Response) -> str:

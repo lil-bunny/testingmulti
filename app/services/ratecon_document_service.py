@@ -12,15 +12,20 @@ from app.core.config import settings
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.models.document import DocumentType
-from app.models.document_analysis import DocumentAnalysisType
+from app.models.document_analysis import (
+    DOCUMENT_ANALYSIS_PAGE_COUNT_KEY,
+    DocumentAnalysisType,
+)
 from app.services.attachment_normalizer import (
     _sanitize_path_segment,
     ratecon_shipment_object_basename,
 )
 from app.services.ratecon_extraction import extract_from_pdf_path
 from app.services.s3bucket_service import bucket, normalize_object_key
+from app.tools.document_analysis import metadata_with_page_count, normalize_page_count
 from app.tools.email import detect_attachment_bytes_type, get_email_attachments
-from app.tools.pdf_raster import PdfTooLargeError, freightx_stage_dir, make_temp_pdf
+from app.tools.pdf_page_text_extractor import pdf_page_count
+from app.tools.pdf_to_images import PdfTooLargeError, freightx_stage_dir, make_temp_pdf
 from app.workflows.shipment_resolver import (
     resolve_shipment_id,
     resolve_shipments_row_id_for_db,
@@ -165,6 +170,7 @@ class RateconDocumentService:
             findings=analysis_out["findings"],
             confidence_score=analysis_out.get("confidence_score"),
             document_id=analysis_out.get("document_id"),
+            page_count=analysis_out.get(DOCUMENT_ANALYSIS_PAGE_COUNT_KEY),
         )
         patch["document_analysis_ratecon"] = persist
         return patch
@@ -414,6 +420,7 @@ class RateconDocumentService:
                     "ratecon_object_key": object_key,
                 }
 
+            ratecon_pages = pdf_page_count(body)
             fd, tmp_path = make_temp_pdf(
                 prefix=f"ratecon_{shipment_id}",
                 directory=stage_dir,
@@ -469,6 +476,7 @@ class RateconDocumentService:
                 "findings": findings,
                 "document_id": document_id,
                 "confidence_score": confidence,
+                DOCUMENT_ANALYSIS_PAGE_COUNT_KEY: ratecon_pages,
             }
         except PdfTooLargeError as exc:
             logger.warning(
@@ -501,7 +509,9 @@ class RateconDocumentService:
         findings: dict[str, Any],
         confidence_score: float | None,
         document_id: str | None,
+        page_count: Any = None,
     ) -> dict[str, Any]:
+        """Upsert ratecon ``document_analysis`` with ``metadata.page_count`` when known."""
         row_shipment_id = _uuid_or_none(shipments_row_id)
         if not row_shipment_id:
             return {"stored": False, "id": None, "error": "invalid_shipments_row_id"}
@@ -510,8 +520,10 @@ class RateconDocumentService:
         if document_id and not row_document_id:
             return {"stored": False, "id": None, "error": "invalid_document_id"}
 
+        pages = normalize_page_count(page_count)
         row_id = str(uuid.uuid4())
         llm_model = {"model": settings.LLM_MODEL} if settings.LLM_MODEL else None
+        meta = metadata_with_page_count(pages)
 
         def _write(repos: Any) -> dict[str, Any]:
             row = repos.document_analysis.upsert_by_shipment_and_type(
@@ -522,10 +534,25 @@ class RateconDocumentService:
                 confidence_score=confidence_score,
                 llm_model=llm_model,
                 document_id=row_document_id,
+                metadata=meta,
             )
             if not row:
                 return {"stored": False, "id": None, "error": "upsert_returned_no_row"}
-            return {"stored": True, "id": row["id"], "updated_at": row["updated_at"]}
+
+            logger.info(
+                "ratecon analysis: stored document_analysis id=%s shipment_row=%s "
+                "%s=%s",
+                row["id"],
+                row_shipment_id,
+                DOCUMENT_ANALYSIS_PAGE_COUNT_KEY,
+                pages,
+            )
+            return {
+                "stored": True,
+                "id": row["id"],
+                "updated_at": row["updated_at"],
+                "page_count_stored": pages is not None,
+            }
 
         try:
             return run_with_repos(_write)

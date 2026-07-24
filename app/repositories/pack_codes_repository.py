@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from sqlalchemy.orm import Session
 
 from app.core.db import fetchall_dicts, fetchone_dict
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _WHERE_TENANT = """
     WHERE tenant_id = CAST(:tenant_id AS uuid)

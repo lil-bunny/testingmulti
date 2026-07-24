@@ -21,7 +21,7 @@ def _raw_settings() -> dict:
 
 def test_fixture_validates_as_gelita_tenant_settings() -> None:
     model = GelitaTenantSettings.model_validate(_raw_settings())
-    assert "ana.gelita.test@freightx.ai" in model.inbound_routing_emails
+    assert "ayush@freightx.ai" in model.inbound_routing_emails
     assert model.prompts.load_tendering.carrier_ack.startswith(
         "carrier-ack-classify"
     )

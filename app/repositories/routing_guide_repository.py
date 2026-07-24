@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import jsonb_param, parse_json
 from app.domain.routing_guide import (
@@ -15,6 +14,9 @@ from app.domain.routing_guide import (
     normalize_plan_carriers,
     plan_carriers_to_json,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 
 class RoutingGuideRepository:

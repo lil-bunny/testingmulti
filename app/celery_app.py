@@ -2,9 +2,9 @@ from dotenv import load_dotenv
 
 load_dotenv(override=False)
 
-from celery import Celery
+from celery import Celery  # noqa: E402
 
-from app.core.config import settings
+from app.core.config import settings  # noqa: E402
 
 
 celery_app = Celery(
@@ -16,8 +16,8 @@ celery_app = Celery(
 celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
-    task_acks_late=True,
-    task_reject_on_worker_lost=True,
+    task_acks_late=False,
+    task_reject_on_worker_lost=False,
     worker_prefetch_multiplier=1,
 )
 
@@ -36,12 +36,5 @@ if settings.CELERY_BROKER_URL.startswith("redis"):
             "visibility_timeout": _redis_visibility_timeout,
         }
 
-# Import after ``celery_app`` exists: ``include=`` during Celery() runs too early (circular import)
-# and autodiscover alone loads only ``app.tasks.tasks``, which is a separate import from ``reminders``.
-import app.tasks.email  # noqa: E402
-import app.tasks.reminders  # noqa: E402
-import app.tasks.workflow_error_alerts  # noqa: E402
-import app.tasks.workflows  # noqa: E402
-
-# Resolves ``app.tasks.tasks`` (shim re-export) for deployments that rely on autodiscover Related name.
+# Task modules register via ``app.tasks.tasks`` side-effect imports (autodiscover).
 celery_app.autodiscover_tasks(["app.tasks"])

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from app.domain.error_catalog import has_workflow_error
+from app.workflows.graph.builder import ERROR_ROUTE, OK_ROUTE, check_workflow_error
 from app.workflows.graph.routers import (
     event_type_router,
     manual_tms_upload_router,
@@ -158,9 +160,6 @@ def test_manual_tms_upload_router_stop_when_outcome_missing():
 # ---------------------------------------------------------------------------
 # Builder _wrap_router short-circuits when state.data["error"] is already set
 # ---------------------------------------------------------------------------
-
-from app.domain.error_catalog import has_workflow_error
-from app.workflows.graph.builder import ERROR_ROUTE, OK_ROUTE, check_workflow_error
 
 
 def test_ratecon_cache_router_bypassed_when_error_present():

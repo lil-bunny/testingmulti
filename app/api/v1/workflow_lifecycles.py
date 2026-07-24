@@ -1,7 +1,5 @@
 """v1 workflow-lifecycle review endpoints (acknowledge / resolve)."""
 
-from __future__ import annotations
-
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Security, status

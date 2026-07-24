@@ -10,7 +10,7 @@ from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
 from app.services.pod_lifecycle.extraction import pod_confidence_score
-from app.tools.pdf_raster import (
+from app.tools.pdf_to_images import (
     PdfTooLargeError,
     PodPdfTooLargeError,
     freightx_stage_dir,
@@ -23,7 +23,7 @@ from app.services.pod_lifecycle.vs_ratecon_validation import (
 from app.services.ratecon_extraction import extract_from_pdf_path as extract_ratecon_from_pdf_path
 from app.models.document import DocumentType
 from app.tools.document_analysis import read_ratecon_extraction
-from app.tools.documents import read_document, resolve_merged_pod_object_key, resolve_pod_object_key
+from app.tools.documents import read_document, resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import (
     resolve_shipment_id,
     resolve_shipments_row_id_for_db,

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.db import execute_scalar, fetchone_dict, jsonb_param, parse_json
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _WHERE_TENANT_IMPORT_PK = """
     WHERE id = CAST(:data_import_id AS uuid)

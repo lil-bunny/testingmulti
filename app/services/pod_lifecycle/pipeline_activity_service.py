@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
@@ -25,13 +25,15 @@ from app.domain.pod_lifecycle.guards import (
     pod_upload_success_from_state,
     should_skip_idempotent_pod_activity_log,
 )
-from app.domain.state import WorkflowState
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
 from app.tools.load_tendering_lifecycle_guards import delayed_workflow_step_skip_reason
+
+if TYPE_CHECKING:
+    from app.domain.state import WorkflowState
 
 logger = get_logger(__name__)
 

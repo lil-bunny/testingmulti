@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
-from app.integrations.langsmith.types import PromptTraceMetadata
 from app.models.status import StatusSubType
 from app.services.communications._mapper import normalize_email_body_for_llm
 from app.tools.llm_client import LLMClientError, chat_json
+
+if TYPE_CHECKING:
+    from app.integrations.langsmith.types import PromptTraceMetadata
 
 logger = get_logger(__name__)
 

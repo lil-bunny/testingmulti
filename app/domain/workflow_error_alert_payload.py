@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.ingest_source_fields import (
-    delivery_gap_context,
     pack_code_for_product_gap,
     source_delivery_address_code,
 )
@@ -23,6 +22,7 @@ class WorkflowErrorAlertPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     tenant_id: str
+    tenant_slug: str | None = None
     workflow_name: str
     workflow_lifecycle_id: str
     workflow_run_id: str
@@ -43,6 +43,7 @@ class WorkflowErrorAlertPayload(BaseModel):
         workflow_run_id: str,
         data: dict[str, Any],
         exception_activity_log_id: str | None = None,
+        tenant_slug: str | None = None,
     ) -> WorkflowErrorAlertPayload | None:
         """Build a Celery payload from graph state; returns ``None`` without a catalog error."""
         error = data.get("error")
@@ -67,8 +68,10 @@ class WorkflowErrorAlertPayload(BaseModel):
                 if code:
                     pack_code = code
                     break
+        slug = (tenant_slug or str(data.get("tenant_slug") or "")).strip() or None
         return cls(
             tenant_id=tenant_id,
+            tenant_slug=slug,
             workflow_name=wf_name,
             workflow_lifecycle_id=wl_id,
             workflow_run_id=workflow_run_id,

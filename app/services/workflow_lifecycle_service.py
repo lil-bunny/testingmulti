@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.service_db import run_with_repos
 from app.core.logger import get_logger
@@ -10,11 +10,13 @@ from app.domain.driver_assignment.reminder_ladder import (
     append_sent_schedule_step,
     sent_schedule_steps_from_metadata,
 )
-from app.domain.workflow_cancellation import WorkflowCancellationPolicy
-from app.models.status import StatusSubType, StatusType
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
-from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
 from app.services.shipments_service import ShipmentsService
+
+if TYPE_CHECKING:
+    from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
+    from app.models.status import StatusSubType, StatusType
+    from app.domain.workflow_cancellation import WorkflowCancellationPolicy
 
 logger = get_logger(__name__)
 

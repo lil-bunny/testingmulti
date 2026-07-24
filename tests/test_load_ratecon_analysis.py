@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from app.models.document_analysis import DOCUMENT_ANALYSIS_PAGE_COUNT_KEY
 from app.tools import pod as pod_tools
+from app.tools.document_analysis import (
+    metadata_with_page_count,
+    normalize_page_count,
+    page_count_from_analysis_row,
+)
 from app.workflows.graph.routers import ratecon_cache_router
 from app.workflows.nodes import pod as pod_nodes
 
@@ -14,6 +20,32 @@ _TEST_PAYLOAD = {
     "shipment_id": "1000324895",
     "shipments_row_id": _SHIPMENTS_ROW_ID,
 }
+
+
+def test_page_count_from_analysis_row():
+    assert page_count_from_analysis_row(None) is None
+    assert page_count_from_analysis_row({}) is None
+    assert page_count_from_analysis_row({"metadata": {}}) is None
+    assert (
+        page_count_from_analysis_row(
+            {"metadata": {DOCUMENT_ANALYSIS_PAGE_COUNT_KEY: 5}}
+        )
+        == 5
+    )
+    assert (
+        page_count_from_analysis_row(
+            {"metadata": {DOCUMENT_ANALYSIS_PAGE_COUNT_KEY: 0}}
+        )
+        is None
+    )
+
+
+def test_normalize_and_metadata_with_page_count():
+    assert normalize_page_count(None) is None
+    assert normalize_page_count("3") == 3
+    assert normalize_page_count("x") is None
+    assert metadata_with_page_count(4) == {DOCUMENT_ANALYSIS_PAGE_COUNT_KEY: 4}
+    assert metadata_with_page_count(None) is None
 
 
 def test_load_ratecon_analysis_cache_hit(monkeypatch):

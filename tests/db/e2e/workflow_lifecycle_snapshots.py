@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from sqlalchemy.orm import Session
 
 from app.core.db import fetchall_dicts, fetchone_dict
 
 from tests.db.e2e._tenant import resolve_tenant_uuid
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 _TABLE = "workflow_lifecycles"
 

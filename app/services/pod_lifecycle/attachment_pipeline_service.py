@@ -28,6 +28,7 @@ from app.services.email_webhook_attachment_ingestion import (
     fetch_email_attachment_bytes_with_retry,
 )
 from app.services.pod_lifecycle.ingress_service import POD_EMAIL_SKIP_INVALID_ATTACHMENT
+from app.tools.document_analysis import resolve_ratecon_page_count
 from app.tools.documents import insert_document
 
 logger = get_logger(__name__)
@@ -72,6 +73,13 @@ class PodAttachmentPipelineService:
     def _build_stage_dir(self, payload: dict[str, Any]) -> Path:
         return Path(settings.POD_ATTACHMENT_STAGE_ROOT) / (
             f"pod_{self._stage_root_token(payload)}"
+        )
+
+    @staticmethod
+    def _resolve_ratecon_page_count(payload: dict[str, Any]) -> int | None:
+        """Read ratecon PDF page count from document_analysis.metadata.page_count."""
+        return resolve_ratecon_page_count(
+            str(payload.get("shipments_row_id") or "").strip() or None,
         )
 
     @staticmethod
@@ -336,12 +344,14 @@ class PodAttachmentPipelineService:
             shipment_number,
             len(bytes_by_id),
         )
-        normalization = self._normalizer.normalize_from_bytes(
+        ratecon_page_count = self._resolve_ratecon_page_count(payload)
+        normalization = await self._normalizer.normalize_from_bytes_async(
             bytes_by_id,
             shipment_number=shipment_number,
             upload_merged=False,
             stage_dir=str(stage_dir),
             trace_metadata=self._classifier_trace_metadata(payload),
+            ratecon_page_count=ratecon_page_count,
         )
 
         if not pod_attachment_gate_eligible(normalization):
@@ -361,7 +371,7 @@ class PodAttachmentPipelineService:
 
         return self._assess_patch(normalization=normalization, stage_dir=stage_dir)
 
-    def run_for_object_keys(
+    async def run_for_object_keys(
         self,
         *,
         pod_object_keys: list[str],
@@ -371,7 +381,6 @@ class PodAttachmentPipelineService:
         trace_payload: dict[str, Any] | None = None,
     ) -> PodAttachmentPipelineResult:
         """Classify + stage from S3 object keys (manual fresh upload); no merge yet."""
-        del shipments_row_id  # used only at in-graph merge/persist time
         keys = [str(k).strip() for k in pod_object_keys if str(k).strip()]
         if not keys:
             normalization = {"success": False, "error": "No pod_object_keys provided"}
@@ -384,6 +393,8 @@ class PodAttachmentPipelineService:
         payload_for_stage = {
             "shipment_id": shipment_id,
             "execution_id": stage_token,
+            "shipments_row_id": shipments_row_id,
+            "tenant_id": (trace_payload or {}).get("tenant_id"),
         }
         stage_dir = self._build_stage_dir(payload_for_stage)
         if stage_dir.exists():
@@ -400,12 +411,14 @@ class PodAttachmentPipelineService:
             correlation["shipment_id"] = shipment_id
         if stage_token and not correlation.get("execution_id"):
             correlation["execution_id"] = stage_token
-        normalization = self._normalizer.normalize(
+        ratecon_page_count = self._resolve_ratecon_page_count(payload_for_stage)
+        normalization = await self._normalizer.normalize_async(
             keys,
             shipment_number=shipment_id,
             upload_merged=False,
             stage_dir=str(stage_dir),
             trace_metadata=self._classifier_trace_metadata(correlation),
+            ratecon_page_count=ratecon_page_count,
         )
         if not pod_attachment_gate_eligible(normalization):
             shutil.rmtree(stage_dir, ignore_errors=True)

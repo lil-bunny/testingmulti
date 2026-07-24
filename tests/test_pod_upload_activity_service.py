@@ -79,7 +79,7 @@ def test_manual_success_info_user_then_system_pipeline() -> None:
 
 def test_email_success_two_steps_with_comms_on_action() -> None:
     from app.models.activity_type import ActivityType, ActorType
-    from app.models.status import StatusSubType, StatusType
+    from app.models.status import StatusType
 
     mock_activity = MagicMock()
     mock_lifecycle = MagicMock()

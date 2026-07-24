@@ -32,9 +32,13 @@ build/
 *.zip
 
 .agents
-docs
+docs/**
+docs/adr/
+docs/adr/**
 CONTEXT-MAP.md
 CONTEXT.md
 docker-compose.dev.yml
 scripts
 AGENTS.md
+
+.firecrawl

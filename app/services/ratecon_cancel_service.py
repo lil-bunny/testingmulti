@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.configs.workflow_cancellation_policies import RATECON_SUPERSEDE_POLICY
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import format_ratecon_superseded_action
-from app.domain.workflow_cancel_trigger import WorkflowCancelTrigger
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.driver_assignment.cancel_service import WorkflowCancelAdapterResult
 from app.services.workflow_lifecycle_cancel_service import (
-    WorkflowCancelResult,
     WorkflowLifecycleCancelService,
 )
+
+if TYPE_CHECKING:
+    from app.domain.workflow_cancel_trigger import WorkflowCancelTrigger
 
 logger = get_logger(__name__)
 

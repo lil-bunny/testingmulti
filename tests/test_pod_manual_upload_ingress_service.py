@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
 from app.services.pod_lifecycle.manual_upload_ingress_service import PodManualUploadIngressService
 from app.services.pod_lifecycle.tms_upload_service import (
     PodAttachmentStageResult,
@@ -34,11 +35,16 @@ def test_enqueue_stages_and_queues_workflow():
         attachment_id="manual-abc",
     )
 
-    celery_task = MagicMock(id="celery-task-1")
     with patch(
-        "app.tasks.workflows.run_workflow_async.apply_async",
-        return_value=celery_task,
-    ) as apply_async:
+        "app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService"
+    ) as ser_cls:
+        ser_cls.return_value.enqueue.return_value = SerializeEnqueueResult(
+            lifecycle_id="wl-1",
+            inbox_key="inbox:lifecycle:wl-1",
+            status="started",
+            celery_task_id="celery-task-1",
+            workflow_lifecycle_id="wl-1",
+        )
         result = PodManualUploadIngressService(staging_service=staging).enqueue(
             tenant_slug="t3ra",
             shipment_id=_SHIPMENTS_ROW_UUID,
@@ -54,17 +60,16 @@ def test_enqueue_stages_and_queues_workflow():
     assert result.celery_task_id == "celery-task-1"
     assert result.source == "upload"
 
-    apply_async.assert_called_once()
-    kwargs = apply_async.call_args.kwargs["kwargs"]
-    payload = kwargs["payload"]
+    ser_cls.return_value.enqueue.assert_called_once()
+    call_kw = ser_cls.return_value.enqueue.call_args.kwargs
+    payload = call_kw["payload"]
     assert payload["event_type"] == WorkflowRunEventType.MANUAL_POD_UPLOAD.value
     assert payload["shipment_id"] == "1000324895"
     assert payload["shipments_row_id"] == _SHIPMENTS_ROW_UUID
     assert payload["pod_object_keys"] == ["pod_attachments/manual.pdf"]
     assert payload["uploaded_by"] == "ana.gelita.test@freightx.ai"
     assert payload["manual_pod_upload_source"] == "upload"
-    assert kwargs["workflow_name"] == "pod_lifecycle"
-
+    assert call_kw["workflow_name"] == "pod_lifecycle"
 
     staging.stage_pod_attachment.assert_called_once()
 
@@ -82,11 +87,16 @@ def test_enqueue_uses_stored_document_without_pdf_bytes():
         document_id="doc-stored-1",
     )
 
-    celery_task = MagicMock(id="celery-task-2")
     with patch(
-        "app.tasks.workflows.run_workflow_async.apply_async",
-        return_value=celery_task,
-    ) as apply_async:
+        "app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService"
+    ) as ser_cls:
+        ser_cls.return_value.enqueue.return_value = SerializeEnqueueResult(
+            lifecycle_id="wl-1",
+            inbox_key="inbox:lifecycle:wl-1",
+            status="started",
+            celery_task_id="celery-task-2",
+            workflow_lifecycle_id="wl-1",
+        )
         result = PodManualUploadIngressService(staging_service=staging).enqueue(
             tenant_slug="t3ra",
             shipment_id=_SHIPMENTS_ROW_UUID,
@@ -101,7 +111,7 @@ def test_enqueue_uses_stored_document_without_pdf_bytes():
     assert result.document_id == "doc-stored-1"
     assert result.source == "stored"
 
-    payload = apply_async.call_args.kwargs["kwargs"]["payload"]
+    payload = ser_cls.return_value.enqueue.call_args.kwargs["payload"]
     assert payload["pod_object_keys"] == ["pod_attachments/existing.pdf"]
     assert payload["manual_pod_document_id"] == "doc-stored-1"
     assert payload["manual_pod_upload_source"] == "stored"

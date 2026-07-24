@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from app.core.service_db import run_with_repos
 from app.core.logger import get_logger
@@ -18,10 +18,12 @@ from app.domain.load_tendering_tender_rows import (
     tender_product_line_key,
 )
 from app.integrations.pgeocode import lookup_state
-from app.repositories.pack_codes_repository import PackCodesRepository
-from app.repositories.tender_products_repository import TenderProductsRepository
-from app.repositories.tenders_repository import TendersRepository
 from app.services.delivery_locations_service import DeliveryLocationsService
+
+if TYPE_CHECKING:
+    from app.repositories.tenders_repository import TendersRepository
+    from app.repositories.pack_codes_repository import PackCodesRepository
+    from app.repositories.tender_products_repository import TenderProductsRepository
 
 logger = get_logger(__name__)
 

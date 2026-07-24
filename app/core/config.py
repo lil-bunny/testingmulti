@@ -3,7 +3,6 @@ from typing import Optional
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote_plus
-import os
 
 from app.models.tenants import TenantSlug
 
@@ -26,6 +25,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
     LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
+    LLM_JSON_RESPONSE_MODE: bool = True
 
     ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
     # DB
@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+    DEFAULT_WORK_QUEUE: str = "celery"
+    T3RA_WORK_QUEUE: str = "t3ra"
 
     # Unipile (required for POD reminder replies in thread)
     UNIPILE_API_KEY: str
@@ -74,13 +76,13 @@ class Settings(BaseSettings):
     TURVO_HTTP_RETRY_DELAY_S: float = 15.0
     TURVO_POD_OPTIMIZE_DPI: int = 150
     TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
-    TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 2000
+    TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 1200
 
     # POD vision extraction (pdf → JPEG for pod_analysis)
     POD_MAX_IMAGE_PIXELS: int = 89_478_485
-    POD_IMAGE_DPI: int = 200
-    POD_JPEG_QUALITY: int = 85
-    POD_IMAGE_MAX_SIDE_PX: int = 2000
+    POD_IMAGE_DPI: int = 150
+    POD_JPEG_QUALITY: int = 80
+    POD_IMAGE_MAX_SIDE_PX: int = 1200
     POD_PDF_THREAD_COUNT: int = 1
     POD_CONVERT_MAX_PAGE_BYTES: int = 80_000_000
     POD_CONVERT_MAX_TOTAL_BYTES: int = 400_000_000
@@ -89,6 +91,22 @@ class Settings(BaseSettings):
     POD_FAST_IMAGE_MAX_SIDE_PX: int = 1600
     POD_FAST_PDF_THREAD_COUNT: int = 1
     POD_FAST_MAX_TOKENS: int = 700
+    POD_PAGE_CONCURRENCY: int = 5
+    ATTACHMENT_CLASSIFIER_CONCURRENCY: int = 5
+
+    # OCR / native-text acquisition (shared by ratecon text path + POD strip)
+    OCR_DPI: int = 120
+    OCR_JPEG_QUALITY: int = 70
+    OCR_IMAGE_MAX_SIDE_PX: int = 1600
+    OCR_HEADER_FRACTION: float = 0.25
+    OCR_NATIVE_TEXT_MIN_CHARS: int = 40
+    # Parallel page OCR: each worker renders + OCRs (bound peak RSS).
+    OCR_MAX_WORKERS: int = 2
+    # Strip / header-only path (cheaper than full-page ratecon OCR).
+    OCR_STRIP_DPI: int = 90
+    OCR_STRIP_IMAGE_MAX_SIDE_PX: int = 1000
+    # ONNX Runtime: app owns concurrency; keep per-inference ORT threads at 1.
+    OCR_INTRA_OP_THREADS: int = 1
 
     # Unipile
     UNIPILE_API_KEY: str

@@ -14,12 +14,15 @@ from app.domain.activity_log_write import (
     ActivityLogStep,
     ActivityLogWrite,
 )
-from app.domain.api_user import ApiUser
 from app.models.activity_type import ActivityType, ActorType
 from app.models.status import StatusSubType, StatusType
 from app.repositories.tenants_db_repository import get_slug_for_tenant_uuid
 from app.services.activity_log_service import ActivityLogService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.domain.api_user import ApiUser
 
 
 class WorkflowLifecycleNotFoundError(Exception):

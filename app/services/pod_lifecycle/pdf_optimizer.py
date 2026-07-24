@@ -9,7 +9,7 @@ from typing import Any
 import img2pdf
 
 from app.core.logger import get_logger
-from app.tools.pdf_raster import (
+from app.tools.pdf_to_images import (
     PdfRasterOptions,
     PdfTooLargeError,
     make_temp_pdf,
@@ -31,7 +31,7 @@ def _rasterize_to_pdf(
     max_side_px: int,
     doc_label: str,
 ) -> tuple[bytes, int]:
-    """Rasterize via shared pdf_raster, then rebuild a PDF with img2pdf."""
+    """Rasterize via shared pdf_to_images, then rebuild a PDF with img2pdf."""
     tmp_path: str | None = None
     work_dir: str | None = None
     try:
@@ -86,7 +86,7 @@ def optimize_for_tms_upload(
     Return PDF bytes suitable for Turvo upload; rasterize when over ``max_bytes``.
 
     Uses the shared OOM-safe rasterizer. Memory-budget trips raise
-    ``PdfTooLargeError`` (fail closed — no unsafe all-pages Poppler).
+    ``PdfTooLargeError`` (fail closed — no unsafe all-pages rasterization).
     """
     original_bytes = len(pdf_bytes)
     if original_bytes <= max_bytes:

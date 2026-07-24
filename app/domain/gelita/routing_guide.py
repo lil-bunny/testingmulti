@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from thefuzz import fuzz
 
-from app.domain.routing_guide.types import PlanCarriers, RoutingGuideRow
+
+if TYPE_CHECKING:
+    from app.domain.routing_guide.types import PlanCarriers, RoutingGuideRow
 
 GELITA_PLAN_SLOTS: tuple[str, ...] = ("a", "b", "c")
 GELITA_MAX_CARRIER_ATTEMPTS = 3

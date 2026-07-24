@@ -153,6 +153,7 @@ def test_schedule_load_tendering_enqueues(mock_task: MagicMock) -> None:
 
     assert data["reminders_scheduled"] is True
     assert mock_task.apply_async.call_count == expected_count
+    assert mock_task.apply_async.call_args.kwargs["queue"] == settings.DEFAULT_WORK_QUEUE
 
 
 def test_schedule_skips_wrong_event_type() -> None:

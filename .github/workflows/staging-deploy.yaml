@@ -11,7 +11,7 @@ env:
   ECR_REPOSITORY: freightx-agents-backend
   ECS_CLUSTER: freightx-staging-cluster
   BLUE_SERVICE: staging-freightx-agents-service-gq43l3i5
-  GREEN_SERVICE: staging-freightx-agents-green-service-usd9ma0a
+  CELERY_SERVICE_T3RA: staging-freightx-celery-t3ra-service-swh3vdl2
 
 jobs:
   deploy:
@@ -53,25 +53,19 @@ jobs:
           --service ${{ env.BLUE_SERVICE }} \
           --force-new-deployment
 
-    - name: Wait for Blue Service to become stable
-      run: |
-        aws ecs wait services-stable \
-          --cluster ${{ env.ECS_CLUSTER }} \
-          --services ${{ env.BLUE_SERVICE }}
+    # - name: Wait for Blue Service to become stable
+    #   run: |
+    #     aws ecs wait services-stable \
+    #       --cluster ${{ env.ECS_CLUSTER }} \
+    #       --services ${{ env.BLUE_SERVICE }}
     
     # --------------------------------------------------------- 
-    # DEPLOY GREEN ENVIRONMENT 
+    # DEPLOY CELERY T3RA SERVICE 
     # --------------------------------------------------------- 
 
     - name: Force ECS to deploy new image to Green Service
       run: |
         aws ecs update-service \
           --cluster ${{ env.ECS_CLUSTER }} \
-          --service ${{ env.GREEN_SERVICE }} \
+          --service ${{ env.CELERY_SERVICE_T3RA }} \
           --force-new-deployment
-
-    - name: Wait for Green Service to become stable
-      run: |
-        aws ecs wait services-stable \
-          --cluster ${{ env.ECS_CLUSTER }} \
-          --services ${{ env.GREEN_SERVICE }}

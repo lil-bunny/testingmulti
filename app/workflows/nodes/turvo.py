@@ -5,7 +5,7 @@ from typing import Any
 from app.domain.error_catalog import IntegrationError, SystemError
 from app.domain.state import tenant_slug_from_payload, workflow_state_data
 from app.exceptions import WorkflowException
-from app.tools.pdf_raster import PdfTooLargeError
+from app.tools.pdf_to_images import PdfTooLargeError
 from app.integrations.turvo.shipments import (
     delivery_address_from_global_route_stop,
     global_route_stops_from_payload,
@@ -17,7 +17,7 @@ from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool
 from app.tools.turvo import update_shipment as update_shipment_tool
-from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipment_id_for_fetch
+from app.workflows.shipment_resolver import resolve_shipment_id
 from app.workflows.utils.decorators import safe_node
 
 
