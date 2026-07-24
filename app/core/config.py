@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
     TURVO_POD_OPTIMIZE_MAX_SIDE_PX: int = 1200
 
-    # POD vision extraction (pdf → JPEG for pod_analysis)
+    # POD rasterization (pdf → JPEG; shared by ratecon text extraction + pod_optimizer)
     POD_MAX_IMAGE_PIXELS: int = 89_478_485
     POD_IMAGE_DPI: int = 150
     POD_JPEG_QUALITY: int = 80
@@ -87,13 +87,11 @@ class Settings(BaseSettings):
     POD_PDF_THREAD_COUNT: int = 1
     POD_CONVERT_MAX_PAGE_BYTES: int = 80_000_000
     POD_CONVERT_MAX_TOTAL_BYTES: int = 400_000_000
-    POD_FAST_IMAGE_DPI: int = 130
-    POD_FAST_JPEG_QUALITY: int = 70
-    POD_FAST_IMAGE_MAX_SIDE_PX: int = 1600
-    POD_FAST_PDF_THREAD_COUNT: int = 1
-    POD_FAST_MAX_TOKENS: int = 700
-    POD_PAGE_CONCURRENCY: int = 5
     ATTACHMENT_CLASSIFIER_CONCURRENCY: int = 5
+
+    # POD analysis (direct-PDF LLM call); fail closed above these before sending.
+    POD_PDF_MAX_BYTES: int = 52_428_800  # 50 MiB
+    POD_PDF_MAX_PAGES: int = 1000
 
     # OCR / native-text acquisition (shared by ratecon text path + POD strip)
     OCR_DPI: int = 120

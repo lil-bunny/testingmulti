@@ -257,11 +257,10 @@ def _broker_name_from_ratecon_results(data: dict) -> str | None:
 
 def pod_analysis(data: dict) -> dict:
     """
-    Run vision extraction on the merged POD PDF.
+    Run direct-PDF extraction on the merged POD PDF (one whole-document LLM call).
 
-    Prefer worker-local staged vision images when all pages are images; else
-    ``pod_merged_local_path``; otherwise download from S3. Never expects PDF bytes
-    in graph state.
+    Prefers ``pod_merged_local_path``; otherwise downloads from S3. Never
+    expects PDF bytes in graph state.
     """
     sid = resolve_shipment_id(data)
     if not sid:
@@ -305,29 +304,10 @@ def pod_analysis(data: dict) -> dict:
         source = "s3"
         byte_len = 0
 
-        vision_raw = [
-            str(p).strip()
-            for p in (data.get("pod_vision_image_paths") or [])
-            if str(p).strip()
-        ]
-        merge_raw = [
-            str(p).strip()
-            for p in (data.get("pod_merge_source_paths") or [])
-            if str(p).strip()
-        ]
-        vision_ok = bool(vision_raw) and all(os.path.isfile(p) for p in vision_raw)
-        # Reuse staged images only when every accepted source was an image.
-        use_staged_vision = (
-            vision_ok
-            and bool(merge_raw)
-            and len(vision_raw) == len(merge_raw)
-            and all(os.path.isfile(p) for p in merge_raw)
-        )
-
         if local_path and os.path.isfile(local_path):
             tmp_path = local_path
             owned_tmp = False
-            source = "local_vision_stage" if use_staged_vision else "local_stage"
+            source = "local_stage"
             try:
                 byte_len = os.path.getsize(local_path)
             except OSError:
@@ -367,13 +347,12 @@ def pod_analysis(data: dict) -> dict:
             source,
         )
 
-        page_results, final_pod_data, validation_issues, reconciliation_log = (
+        page_results, final_pod_data, validation_issues, reconciliation_log, raw_llm_response = (
             extract_pod_from_pdf_path(
                 tmp_path,
                 broker_name=broker_name,
-                model_label=settings.LLM_VISION_MODEL,
+                model_label=settings.LLM_PDF_MODEL,
                 tenant_settings=data.get("tenant_settings"),
-                prepared_image_paths=vision_raw if use_staged_vision else None,
             )
         )
 
@@ -396,7 +375,7 @@ def pod_analysis(data: dict) -> dict:
                 "pages_processed": len(page_results),
                 "successful_pages": ok_pages,
                 "failed_pages": len(page_results) - ok_pages,
-                "model": settings.LLM_VISION_MODEL,
+                "model": settings.LLM_PDF_MODEL,
                 "pod_object_key_source": url_meta.get("source"),
                 "pod_bytes_source": source,
             },
@@ -404,8 +383,11 @@ def pod_analysis(data: dict) -> dict:
             "validation_issues": validation_issues,
             "reconciliation_log": reconciliation_log,
             "page_details": page_results,
+            "llm_extraction": raw_llm_response,
         }
-        confidence = pod_confidence_score(page_results, final_pod_data, validation_issues)
+        confidence = pod_confidence_score(
+            page_results, final_pod_data, validation_issues, raw_llm_response
+        )
 
         if final_pod_data.get("delivery_confirmed") and not validation_issues:
             pod_status = "PASS"

@@ -3,10 +3,11 @@ POD attachment normalizer — port of old.services.attachment_normalizer.
 
 Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME.
 Assess-only mode stages accepted PDFs/images once under ``sources/`` in a
-worker-local directory (rate confirmation pages are stripped here). Image paths
-are reused for vision extraction via ``pod_vision_image_paths`` (same file, no
-second copy). Merge/upload of staged files (or full normalize with
-upload_merged=True) produces ``pod_merged_pdf_object_key`` on S3.
+worker-local directory (rate confirmation pages are stripped here) so
+``pod_merge_source_paths`` can be merged later without re-downloading.
+POD analysis reads the merged PDF directly (no staged-image reuse). Merge/
+upload of staged files (or full normalize with upload_merged=True) produces
+``pod_merged_pdf_object_key`` on S3.
 """
 
 from __future__ import annotations
@@ -357,7 +358,7 @@ class AttachmentNormalizerService:
             valid_source = [
                 self._valid_source_entry(ref) for ref, _ in valid_pdfs
             ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
-            merge_paths, vision_paths = self._stage_accepted_files(
+            merge_paths, _vision_paths = self._stage_accepted_files(
                 valid_pdfs,
                 valid_images,
                 stage_dir=stage_dir,
@@ -376,7 +377,6 @@ class AttachmentNormalizerService:
                 "error": None,
                 "assess_only": True,
                 "pod_merge_source_paths": merge_paths,
-                "pod_vision_image_paths": vision_paths,
             }
             return self._with_classification_index(out_assess, shipment_number)
 
@@ -650,10 +650,12 @@ class AttachmentNormalizerService:
         stage_dir: str | None,
         shipment_number: Optional[str],
     ) -> tuple[list[str], list[str]]:
-        """Write accepted PDFs/images under ``sources/`` once; return merge + vision paths.
+        """Write accepted PDFs/images under ``sources/`` once; return merge + image paths.
 
-        Images are written only under ``sources/``. The same path is listed in both
-        return lists so merge and extraction share one file (no ``vision/`` copy).
+        Images are written only under ``sources/``. ``vision_paths`` (image-only
+        subset of ``merge_paths``) is unused by current callers — kept for callers
+        that may need image-only paths later; POD analysis reads the merged PDF
+        directly (direct-PDF extraction only).
         """
         root = (stage_dir or "").strip()
         if not root:
@@ -971,7 +973,7 @@ class AttachmentNormalizerService:
                 valid_pdfs = [(attachment_ref, pdf_bytes)]
             elif accepted_image_bytes is not None:
                 valid_images = [(attachment_ref, accepted_image_bytes)]
-            merge_paths, vision_paths = self._stage_accepted_files(
+            merge_paths, _vision_paths = self._stage_accepted_files(
                 valid_pdfs,
                 valid_images,
                 stage_dir=stage_dir,
@@ -992,7 +994,6 @@ class AttachmentNormalizerService:
                     "single_attachment_short_circuit": True,
                     "assess_only": True,
                     "pod_merge_source_paths": merge_paths,
-                    "pod_vision_image_paths": vision_paths,
                 },
                 shipment_number,
             )

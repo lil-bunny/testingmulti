@@ -7,6 +7,7 @@ from typing import Any
 T3RA_PROMPTS: dict[str, Any] = {
     "pod_lifecycle": {
         "page_extraction": "pod-page-extraction:staging",
+        "pdf_extraction": "pod-pdf-extraction:staging",
         "vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
         "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging",
         "attachment_classifier": "pod-attachment-classifier:staging",

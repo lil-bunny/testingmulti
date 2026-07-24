@@ -129,11 +129,6 @@ class PodAttachmentPipelineService:
             for p in (normalization.get("pod_merge_source_paths") or [])
             if str(p).strip()
         ]
-        vision_paths = [
-            str(p).strip()
-            for p in (normalization.get("pod_vision_image_paths") or [])
-            if str(p).strip()
-        ]
         if not merge_paths:
             shutil.rmtree(stage_dir, ignore_errors=True)
             return PodAttachmentPipelineResult(
@@ -145,15 +140,13 @@ class PodAttachmentPipelineService:
         patch: dict[str, Any] = {
             "attachment_normalization": normalization,
             "pod_merge_source_paths": merge_paths,
-            "pod_vision_image_paths": vision_paths,
             "pod_source_object_keys": self._source_object_keys(normalization),
             "has_attachments": True,
             "pod_attachment_stage_dir": str(stage_dir),
         }
         logger.info(
-            "attachment.pipeline.assess.done success=true sources=%s vision=%s",
+            "attachment.pipeline.assess.done success=true sources=%s",
             len(merge_paths),
-            len(vision_paths),
         )
         return PodAttachmentPipelineResult(
             success=True,
@@ -249,8 +242,6 @@ class PodAttachmentPipelineService:
         }
         if local_merged:
             patch["pod_merged_local_path"] = local_merged
-        if data.get("pod_vision_image_paths"):
-            patch["pod_vision_image_paths"] = list(data["pod_vision_image_paths"])
         if data.get("pod_merge_source_paths"):
             patch["pod_merge_source_paths"] = list(data["pod_merge_source_paths"])
 

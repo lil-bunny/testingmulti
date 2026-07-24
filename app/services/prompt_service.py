@@ -114,6 +114,22 @@ def resolve_pod_vision_prompts(
     )
 
 
+def resolve_pod_pdf_prompts(
+    tenant_settings: dict[str, Any] | None,
+    *,
+    prompt_service: PromptService | None = None,
+) -> tuple[RenderedPrompt, PromptLoadMetadata]:
+    """Render POD whole-document PDF extraction prompts (no template variables)."""
+    from app.domain.prompt_step_keys import POD_PDF_EXTRACTION
+
+    service = prompt_service or PromptService()
+    return service.render_step(
+        _tenant_settings_dict(tenant_settings),
+        POD_PDF_EXTRACTION,
+        {},
+    )
+
+
 def resolve_pod_attachment_classifier_prompts(
     tenant_settings: dict[str, Any] | None,
     *,

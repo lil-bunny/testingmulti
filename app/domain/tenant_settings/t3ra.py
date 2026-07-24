@@ -81,6 +81,7 @@ class T3raPodLifecyclePrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     page_extraction: str
+    pdf_extraction: str
     vs_ratecon_summary: str
     vs_ratecon_semantic_match: str
     attachment_classifier: str

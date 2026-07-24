@@ -46,7 +46,6 @@ def _cleanup_pod_attachment_stage(state) -> None:
     """Remove worker-local stage dir; only paths live in state, never PDF bytes."""
     state.data.pop("pod_merged_local_path", None)
     state.data.pop("pod_merge_source_paths", None)
-    state.data.pop("pod_vision_image_paths", None)
     stage_dir = str(state.data.pop("pod_attachment_stage_dir", "") or "").strip()
     if not stage_dir:
         return

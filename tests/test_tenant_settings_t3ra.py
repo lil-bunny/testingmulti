@@ -36,6 +36,7 @@ def test_t3ra_fixture_validates() -> None:
     assert conf.default_template_html
     assert len(model.pod_lifecycle.reminders.steps) == 3
     assert model.prompts.pod_lifecycle.page_extraction == "pod-page-extraction:staging"
+    assert model.prompts.pod_lifecycle.pdf_extraction == "pod-pdf-extraction:staging"
     assert model.prompts.ratecon.page_extraction == "ratecon-page-extraction:staging"
     assert model.prompts.pod_lifecycle.vs_ratecon_summary == "pod-vs-ratecon-summary:staging"
     assert (
