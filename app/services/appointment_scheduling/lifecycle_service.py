@@ -22,6 +22,7 @@ from app.domain.appointment_scheduling.metadata_keys import (
     APPOINTMENT_FAILURE_REASON,
 )
 from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpoint_data
+from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.activity_service import (
     ActivityService,
 )
@@ -51,16 +52,28 @@ class LifecycleService:
         return self._lifecycle.read_lifecycle_row_by_id(lifecycle_id)
 
     def hydrate_read_context(self, state) -> None:
-        """Load slim lifecycle fields for send/reply routing (no full row on state)."""
+        """Load slim lifecycle fields for send/reply routing (no full row on state).
+
+        ``email_draft`` (incl. full HTML) is only hydrated for ``appointment_draft_send``.
+        Reply runs need status/sub-status only — draft stays in lifecycle metadata.
+        """
         lifecycle_id = str(state.data.get("workflow_lifecycle_id") or "").strip()
         if not lifecycle_id:
             return
         row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
         state.data["workflow_lifecycle_status"] = str(row.get("status") or "").strip()
         state.data["workflow_lifecycle_sub_status"] = str(row.get("sub_status") or "").strip()
-        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        if isinstance(meta, dict):
-            apply_lifecycle_email_draft_to_state(state, meta)
+
+        event_type = str(state.data.get("event_type") or "").strip()
+        if event_type == WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value:
+            # Reply classification / TMS / confirmation do not use draft HTML.
+            state.data.pop(EMAIL_DRAFT, None)
+            return
+
+        if event_type == WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value:
+            meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            if isinstance(meta, dict):
+                apply_lifecycle_email_draft_to_state(state, meta)
 
     def strip_intake_checkpoint(self, state) -> None:
         strip_intake_checkpoint_data(state.data)
