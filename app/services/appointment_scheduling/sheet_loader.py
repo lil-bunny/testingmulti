@@ -1,13 +1,16 @@
-"""Load appointment scheduling spreadsheet rows (local path or Google Sheets URL)."""
+"""Load appointment scheduling sheet rows for one customer (gquery or local xlsx)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-import httpx
-
-from app.integrations.google.sheets import GoogleSheetsError, fetch_public_spreadsheet_xlsx, is_google_spreadsheet_url
+from app.integrations.google.sheets import (
+    GoogleSheetsError,
+    is_google_spreadsheet_url,
+    query_public_spreadsheet_by_customer,
+)
+from app.tools.appointment_scheduling.customer_contact import find_customer_sheet_row
 from app.utils.excel import xlsx_bytes_to_sheet_records
 
 
@@ -20,34 +23,35 @@ def _rows_from_xlsx_bytes(data: bytes) -> list[dict[str, Any]]:
     return rows
 
 
-def load_appointment_sheet_rows(source: str) -> list[dict[str, Any]]:
+def load_appointment_customer_rows(
+    source: str,
+    customer_name: str,
+) -> list[dict[str, Any]]:
     """
-    Load row dicts from ``appointment_data_source``.
+    Load sheet rows for ``customer_name``.
 
-    Supports:
-    - local ``.xlsx`` path
-    - public Google Sheets share/edit URL (exported as xlsx)
-    - other ``http(s)`` URLs pointing at ``.xlsx`` bytes
+    - Google Sheets URL: public gviz/tq (gquery) by CUSTOMER column — no XLSX download.
+    - Local ``.xlsx`` path: read file and filter (tests / offline only).
     """
     text = str(source or "").strip()
     if not text:
         raise ValueError("appointment_data_source is empty")
+    customer = str(customer_name or "").strip()
+    if not customer:
+        return []
 
     if text.startswith(("http://", "https://")):
-        if is_google_spreadsheet_url(text):
-            data = fetch_public_spreadsheet_xlsx(text)
-        else:
-            try:
-                response = httpx.get(text, timeout=30.0, follow_redirects=True)
-            except httpx.HTTPError as exc:
-                raise GoogleSheetsError(f"Spreadsheet URL download failed: {exc}") from exc
-            if response.status_code >= 400:
-                raise GoogleSheetsError(
-                    "Spreadsheet URL download failed",
-                    status_code=response.status_code,
-                )
-            data = response.content
-    else:
-        data = Path(text).read_bytes()
+        if not is_google_spreadsheet_url(text):
+            raise GoogleSheetsError(
+                "appointment_data_source HTTP URL must be a Google Sheets link "
+                "(gquery); arbitrary XLSX URLs are not supported"
+            )
+        return query_public_spreadsheet_by_customer(text, customer)
 
-    return _rows_from_xlsx_bytes(data)
+    data = Path(text).read_bytes()
+    all_rows = _rows_from_xlsx_bytes(data)
+    row = find_customer_sheet_row(all_rows, customer)
+    return [row] if row is not None else []
+
+
+__all__ = ("load_appointment_customer_rows",)

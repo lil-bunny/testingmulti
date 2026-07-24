@@ -103,7 +103,7 @@ def test_contact_from_rows_skip_reason_email_mode_no_email() -> None:
 
 def test_missing_recipient_email_skip_reason_resolves_contact() -> None:
     with patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
+        "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         return_value=[_email_row()],
     ):
         assert (
@@ -118,7 +118,7 @@ def test_missing_recipient_email_skip_reason_resolves_contact() -> None:
 def test_missing_recipient_email_skip_reason_unknown_customer() -> None:
     rows = [{"CUSTOMER": "Other Customer", "CONTACT DETAILS(EMAILS)": "x@y.com"}]
     with patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
+        "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         return_value=rows,
     ):
         assert (
@@ -143,7 +143,7 @@ def test_missing_recipient_email_skip_reason_empty_sheet_source() -> None:
 
 def test_missing_recipient_email_skip_reason_sheet_load_error() -> None:
     with patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
+        "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         side_effect=OSError("missing file"),
     ):
         assert (
@@ -168,7 +168,7 @@ def test_missing_recipient_email_uses_delivery_stop_not_billing_customer() -> No
         billing_customer_name="DIAMOND PET FOODS",
     )
     with patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
+        "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         return_value=rows,
     ):
         assert (
@@ -199,7 +199,7 @@ def test_missing_recipient_email_billing_customer_only_does_not_match() -> None:
         }
     }
     with patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
+        "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         return_value=rows,
     ):
         assert (

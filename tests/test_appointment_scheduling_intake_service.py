@@ -233,7 +233,7 @@ def test_intake_success_from_google_sheets_url():
         "app.services.appointment_scheduling.intake_service.get_shipment_async",
         new=AsyncMock(return_value=turvo_shipment),
     ), patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_sheet_rows",
+        "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         return_value=sheet_rows,
     ), patch(
         "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
