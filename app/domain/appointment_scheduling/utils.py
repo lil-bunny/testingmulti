@@ -1,4 +1,4 @@
-"""Boundary string normalization for appointment scheduling ingress and hydration."""
+"""Small pure helpers for appointment scheduling."""
 
 from __future__ import annotations
 
@@ -21,3 +21,9 @@ def iso_or_empty(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value).strip()
+
+
+def is_costco_customer(customer_name: str) -> bool:
+    # Email parity with AgenticAI: detection is "costco" only. Pet Food Experts
+    # gets the standard email layout, not Costco presentation.
+    return "costco" in str(customer_name or "").lower()

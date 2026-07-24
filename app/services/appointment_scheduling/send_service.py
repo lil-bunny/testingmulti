@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
+from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService

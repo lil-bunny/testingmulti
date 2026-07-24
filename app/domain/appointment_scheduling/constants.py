@@ -1,9 +1,22 @@
-"""Constants for appointment scheduling Turvo ingress gates."""
+"""Appointment scheduling keys, ingress gates, and shared constants."""
 
 from __future__ import annotations
 
 from app.models.status import StatusSubType, StatusType
 
+# Lifecycle metadata / checkpoint keys
+EMAIL_DRAFT = "email_draft"
+DRAFT_SEND_QUEUED = "draft_send_queued"
+APPOINTMENT_PAYLOAD = "appointment_payload"
+LLM_APPOINTMENT_DECISION = "llm_appointment_decision"
+APPOINTMENT_FAILURE_REASON = "appointment_failure_reason"
+APPOINTMENT_INGRESS_SKIP_REASON = "appointment_ingress_skip_reason"
+APPOINTMENT_INTAKE_SKIP_REASON = "appointment_intake_skip_reason"
+
+# Costco
+COSTCO_PROPOSED_DELIVERY_WALL_TIME = "06:00"
+
+# Turvo / ingress
 APPOINTMENT_SCHEDULING_WORKFLOW = "appointment_scheduling"
 
 SHIPMENT_UPDATE_EVENT_NAME = "SHIPMENT_UPDATE"

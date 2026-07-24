@@ -7,21 +7,19 @@ from typing import Any
 from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
 from app.domain.error_catalog import SystemError
-from app.domain.appointment_scheduling.costco import (
+from app.domain.appointment_scheduling.constants import (
+    EMAIL_DRAFT,
+    LLM_APPOINTMENT_DECISION,
+    APPOINTMENT_FAILURE_REASON,
     COSTCO_PROPOSED_DELIVERY_WALL_TIME,
-    is_costco_customer,
 )
 from app.domain.appointment_scheduling.metadata_hydration import (
     apply_lifecycle_email_draft_to_state,
     apply_lifecycle_appointment_decision_to_state,
     hydrate_shipment_facts_into_state,
 )
-from app.domain.appointment_scheduling.metadata_keys import (
-    EMAIL_DRAFT,
-    LLM_APPOINTMENT_DECISION,
-    APPOINTMENT_FAILURE_REASON,
-)
 from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpoint_data
+from app.domain.appointment_scheduling.utils import is_costco_customer
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.activity_service import (
     ActivityService,

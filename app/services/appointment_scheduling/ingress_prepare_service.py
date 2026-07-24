@@ -12,7 +12,7 @@ from typing import Any
 
 from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
-from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
+from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.appointment_scheduling.models import CustomerContactRow
 from app.integrations.turvo.activity import fetch_shipment_activity_list
 from app.integrations.turvo.public_api_client import TurvoApiError

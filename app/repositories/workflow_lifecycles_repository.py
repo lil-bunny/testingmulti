@@ -609,7 +609,7 @@ class WorkflowLifecyclesRepository:
         Returns one of: ``claimed``, ``not_found``, ``conflict``, ``invalid_status``,
         ``missing_email_draft``.
         """
-        from app.domain.appointment_scheduling.metadata_keys import (
+        from app.domain.appointment_scheduling.constants import (
             DRAFT_SEND_QUEUED,
             EMAIL_DRAFT,
         )
@@ -714,10 +714,7 @@ class WorkflowLifecyclesRepository:
                       OR wl.sub_status = CAST(:resolved_manually AS lifecycle_sub_status)
                       OR (
                           wl.status = CAST(:pending_review_status AS lifecycle_status)
-                          AND (
-                              NULLIF(wl.metadata->>'appointment_failure_reason', '') IS NOT NULL
-                              OR NULLIF(wl.metadata->>'scheduling_failure_reason', '') IS NOT NULL
-                          )
+                          AND NULLIF(wl.metadata->>'appointment_failure_reason', '') IS NOT NULL
                       )
                   )
                 ORDER BY wl.updated_at DESC
@@ -811,7 +808,6 @@ class WorkflowLifecyclesRepository:
                   AND (
                     wl.metadata->>'reference_number' = :subject_token
                     OR wl.metadata->'appointment_payload'->>'reference_number' = :subject_token
-                    OR wl.metadata->'scheduling_payload'->>'reference_number' = :subject_token
                     OR s.metadata->>'reference_number' = :subject_token
                     OR s.metadata->>'load_id' = :subject_token
                   )

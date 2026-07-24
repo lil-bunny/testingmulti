@@ -28,7 +28,8 @@ def test_find_blocking_excludes_intake_failure_pending_review() -> None:
 
     assert found is None
     sql = str(session.execute.call_args[0][0])
-    assert "scheduling_failure_reason" in sql
+    assert "appointment_failure_reason" in sql
+    assert "scheduling_failure_reason" not in sql
     assert "pending_review" in sql
 
 

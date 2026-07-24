@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.appointment_scheduling.ingress_constants import APPOINTMENT_SCHEDULING_WORKFLOW
+from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.appointment_scheduling.scheduling_reference import is_diamond_scheduling_reference
 from app.domain.appointment_scheduling.skip_reasons import resolve_scheduling_error
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings

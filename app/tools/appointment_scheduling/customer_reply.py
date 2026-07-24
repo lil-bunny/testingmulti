@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.domain.appointment_scheduling.boundary import clean_optional_str
+from app.domain.appointment_scheduling.utils import clean_optional_str
 
 ACCEPTED = "accepted"
 REJECTED = "rejected"

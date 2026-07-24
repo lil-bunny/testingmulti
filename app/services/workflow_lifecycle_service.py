@@ -678,7 +678,7 @@ class WorkflowLifecycleService:
         turvo_shipment_number: str,
         workflow_name: str,
     ) -> str | None:
-        from app.domain.appointment_scheduling.ingress_constants import (
+        from app.domain.appointment_scheduling.constants import (
             APPOINTMENT_SCHEDULING_WORKFLOW,
         )
 
@@ -706,7 +706,7 @@ class WorkflowLifecycleService:
         shipments_row_id: str,
         workflow_name: str,
     ) -> str:
-        from app.domain.appointment_scheduling.ingress_constants import (
+        from app.domain.appointment_scheduling.constants import (
             APPOINTMENT_SCHEDULING_WORKFLOW,
         )
 
@@ -734,7 +734,7 @@ class WorkflowLifecycleService:
         shipments_row_id: str,
         workflow_name: str | None = None,
     ) -> str | None:
-        from app.domain.appointment_scheduling.ingress_constants import (
+        from app.domain.appointment_scheduling.constants import (
             APPOINTMENT_SCHEDULING_WORKFLOW,
         )
 
@@ -762,7 +762,7 @@ class WorkflowLifecycleService:
         subject_token: str,
         workflow_name: str | None = None,
     ) -> str | None:
-        from app.domain.appointment_scheduling.ingress_constants import (
+        from app.domain.appointment_scheduling.constants import (
             APPOINTMENT_SCHEDULING_WORKFLOW,
         )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.domain.appointment_scheduling.metadata_keys import DRAFT_SEND_QUEUED, EMAIL_DRAFT
+from app.domain.appointment_scheduling.constants import DRAFT_SEND_QUEUED, EMAIL_DRAFT
 from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
 
 _TENANT = "11111111-1111-1111-1111-111111111111"

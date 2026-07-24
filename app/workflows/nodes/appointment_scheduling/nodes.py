@@ -7,10 +7,7 @@ from app.domain.appointment_scheduling.failure import (
     raise_email_send_error,
     raise_scheduling_result_failure,
 )
-from app.domain.appointment_scheduling.metadata_hydration import (
-    normalize_appointment_state_data,
-)
-from app.domain.appointment_scheduling.metadata_keys import (
+from app.domain.appointment_scheduling.constants import (
     APPOINTMENT_INGRESS_SKIP_REASON,
     APPOINTMENT_PAYLOAD,
     LLM_APPOINTMENT_DECISION,
@@ -51,7 +48,6 @@ logger = get_logger(__name__)
 
 
 def prepare_appointment_ingress(state):
-    normalize_appointment_state_data(state.data)
     tenant_slug = str(state.data.get("tenant_slug") or state.tenant_slug or "").strip()
     tenant_id = str(state.data.get("tenant_id") or state.tenant_id or "").strip()
     tenant_settings = state.data.get("tenant_settings") or {}
@@ -83,7 +79,6 @@ def prepare_appointment_ingress(state):
 
 
 def read_appointment_lifecycle(state):
-    normalize_appointment_state_data(state.data)
     lifecycle = LifecycleService()
     lifecycle.hydrate_read_context(state)
     return state
@@ -167,7 +162,6 @@ def record_appointment_decision(state):
 
 
 def hydrate_appointment_send_context(state):
-    normalize_appointment_state_data(state.data)
     lifecycle = LifecycleService()
     lifecycle.hydrate_appointment_send_context(state)
     return state

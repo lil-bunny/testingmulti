@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.domain.appointment_scheduling.metadata_hydration import normalize_appointment_state_data
 from app.domain.appointment_scheduling.state_hygiene import (
     INTAKE_CHECKPOINT_STRIP_KEYS,
     strip_intake_checkpoint_data,
@@ -17,7 +16,6 @@ from app.services.appointment_scheduling.lifecycle_service import (
     LifecycleService,
 )
 from app.services.appointment_scheduling.turvo_stop_update_service import TurvoWriteResult
-from app.domain.appointment_scheduling.metadata_keys import EMAIL_DRAFT
 
 
 def test_strip_intake_checkpoint_data_removes_vendor_blobs() -> None:
@@ -103,37 +101,3 @@ def test_slim_ascend_write_result_helper() -> None:
 
 def test_slim_weekend_pickup_result_helper() -> None:
     assert slim_weekend_pickup_result(ok=True, skipped=True) == {"ok": True, "skipped": True}
-
-
-def test_normalize_appointment_state_data_promotes_legacy_keys() -> None:
-    data = {
-        "scheduling_payload": {"reference_number": "REF-1"},
-        "llm_scheduling_decision": {"weekend_shifted": True},
-        "scheduling_prepare_skip_reason": "duplicate",
-        "scheduling_intake_skip_reason": "missing_email",
-        "scheduling_failure_reason": "turvo_error",
-    }
-    normalize_appointment_state_data(data)
-    assert data["appointment_payload"] == {"reference_number": "REF-1"}
-    assert data["llm_appointment_decision"] == {"weekend_shifted": True}
-    assert data["appointment_ingress_skip_reason"] == "duplicate"
-    assert data["appointment_intake_skip_reason"] == "missing_email"
-    assert data["appointment_failure_reason"] == "turvo_error"
-    assert "scheduling_payload" in data
-
-
-def test_normalize_appointment_state_data_preserves_canonical() -> None:
-    data = {
-        "appointment_payload": {"reference_number": "CANON"},
-        "llm_appointment_decision": {"weekend_shifted": False},
-    }
-    normalize_appointment_state_data(data)
-    assert data["appointment_payload"]["reference_number"] == "CANON"
-    assert data["llm_appointment_decision"]["weekend_shifted"] is False
-
-
-def test_normalize_appointment_state_data_is_idempotent() -> None:
-    data = {"scheduling_payload": {"reference_number": "REF-2"}}
-    normalize_appointment_state_data(data)
-    normalize_appointment_state_data(data)
-    assert data["appointment_payload"] == {"reference_number": "REF-2"}

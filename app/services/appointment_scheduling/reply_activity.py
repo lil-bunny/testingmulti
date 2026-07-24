@@ -9,7 +9,7 @@ from app.domain.appointment_scheduling.activity_log_descriptions import (
     format_turvo_delivery_updated_action,
     format_turvo_tendered_action,
 )
-from app.domain.appointment_scheduling.boundary import clean_optional_str
+from app.domain.appointment_scheduling.utils import clean_optional_str
 from app.domain.lifecycle_transition import LifecycleTransitionCommand
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.models.activity_type import ActivityType
