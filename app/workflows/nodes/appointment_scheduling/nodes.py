@@ -74,6 +74,8 @@ def prepare_appointment_ingress(state):
     state.data["workflow_lifecycle_id"] = result.workflow_lifecycle_id
     state.data["shipments_row_id"] = result.shipments_row_id
     state.data["reference_number"] = result.reference_number
+    if result.load_id:
+        state.data["load_id"] = result.load_id
     state.data["customer_name"] = result.customer_name
     if result.customer_contact is not None:
         state.data["customer_contact"] = result.customer_contact.model_dump(mode="json")
