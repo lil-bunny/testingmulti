@@ -117,8 +117,59 @@ def test_applies_ascend_and_turvo_when_changed(
     "app.services.appointment_scheduling.weekend_pickup_service.skip_ascend_writes_enabled",
     return_value=True,
 )
-def test_dry_run_when_skip_ascend_writes(_skip: MagicMock) -> None:
+@patch(
+    "app.services.appointment_scheduling.weekend_pickup_service.update_stop_appointment_time",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.appointment_scheduling.weekend_pickup_service.update_appointment",
+)
+@patch(
+    "app.services.appointment_scheduling.weekend_pickup_service.login_ascend_api",
+)
+def test_skip_ascend_writes_still_updates_turvo(
+    mock_login: MagicMock,
+    mock_update_appt: MagicMock,
+    mock_turvo_update: AsyncMock,
+    _skip: MagicMock,
+) -> None:
+    mock_turvo_update.return_value = {
+        "ok": True,
+        "updated": True,
+        "stop_name": "Pickup WH",
+    }
+
     result = WeekendPickupService().apply_weekend_shifted_pickup_from_state(_state())
+
     assert result.ok is True
-    assert result.skipped is True
+    assert result.skipped is False
     assert result.dry_run is True
+    assert result.ascend_updated is False
+    assert result.turvo_updated is True
+    assert result.turvo_pickup_start_time == "2026-07-01 08:00:00"
+    mock_login.assert_not_called()
+    mock_update_appt.assert_not_called()
+    mock_turvo_update.assert_awaited_once()
+
+
+@patch(
+    "app.services.appointment_scheduling.weekend_pickup_service.skip_ascend_writes_enabled",
+    return_value=True,
+)
+@patch(
+    "app.services.appointment_scheduling.weekend_pickup_service.update_stop_appointment_time",
+    new_callable=AsyncMock,
+)
+def test_skip_ascend_writes_turvo_failure_still_fails(
+    mock_turvo_update: AsyncMock,
+    _skip: MagicMock,
+) -> None:
+    mock_turvo_update.return_value = {"ok": False, "error": "stop_not_found"}
+
+    result = WeekendPickupService().apply_weekend_shifted_pickup_from_state(_state())
+
+    assert result.ok is False
+    assert result.dry_run is True
+    assert result.ascend_updated is False
+    assert result.failure is not None
+    assert "stop_not_found" in (result.error or "")
