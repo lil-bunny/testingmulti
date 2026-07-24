@@ -117,12 +117,12 @@ def test_record_draft_ready_writes_action_only() -> None:
     lifecycle = MagicMock()
     svc = _svc(transitions=transitions, lifecycle=lifecycle)
     email_draft = {"to": "wh@example.com", "subject": "DEL APPT REQ"}
-    scheduling_payload = {"reference_number": "DIAMOND-1"}
+    appointment_payload = {"reference_number": "DIAMOND-1"}
 
     svc.record_draft_ready(
         _state(),
         email_draft=email_draft,
-        appointment_payload=scheduling_payload,
+        appointment_payload=appointment_payload,
     )
 
     cmd = transitions.apply.call_args[0][0]

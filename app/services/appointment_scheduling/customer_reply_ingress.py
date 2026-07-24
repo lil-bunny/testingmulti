@@ -7,8 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from app.core.logger import get_logger
-from app.domain.appointment_scheduling.boundary import clean_optional_str
-from app.domain.appointment_scheduling.ingress_constants import (
+from app.domain.appointment_scheduling.utils import clean_optional_str
+from app.domain.appointment_scheduling.constants import (
     APPOINTMENT_SCHEDULING_WORKFLOW,
     SCHEDULING_REPLY_TERMINAL_STATUSES,
     SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,

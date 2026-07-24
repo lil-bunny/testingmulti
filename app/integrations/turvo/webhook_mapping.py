@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.appointment_scheduling.ingress_constants import TENDER_ACCEPTED_STATUS_VALUES
+from app.domain.appointment_scheduling.constants import TENDER_ACCEPTED_STATUS_VALUES
 
 ROUTE_COMPLETED_STATUS_CODE_KEY = "2116"
 TENDERED_STATUS_CODE_KEY = "2101"

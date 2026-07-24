@@ -178,8 +178,7 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
         operation="appointment_scheduling",
         version="1.0.0",
         description=(
-            "Appointment scheduling workflow; Turvo pickup change, portal draft send, or customer reply. "
-            "Legacy scheduling_* checkpoint keys are promoted at runtime via normalize_appointment_state_data."
+            "Appointment scheduling workflow; Turvo pickup change, portal draft send, or customer reply."
         ),
         event_types=[
             "turvo_pickup_changed",

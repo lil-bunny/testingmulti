@@ -4,28 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.appointment_scheduling.boundary import iso_or_empty
-from app.domain.appointment_scheduling.metadata_keys import (
+from app.domain.appointment_scheduling.constants import (
     APPOINTMENT_PAYLOAD,
     EMAIL_DRAFT,
-    LEGACY_STATE_KEY_ALIASES,
     LLM_APPOINTMENT_DECISION,
 )
-
-
-def normalize_appointment_state_data(data: dict[str, Any]) -> None:
-    """Promote legacy checkpoint/metadata keys to canonical appointment_* names."""
-    for canonical, legacy_keys in LEGACY_STATE_KEY_ALIASES.items():
-        if canonical in data:
-            continue
-        for legacy in legacy_keys:
-            if legacy in data:
-                data[canonical] = data[legacy]
-                break
+from app.domain.appointment_scheduling.utils import iso_or_empty
 
 
 def _lifecycle_metadata_value(metadata: dict[str, Any], canonical: str) -> Any:
-    normalize_appointment_state_data(metadata)
     return metadata.get(canonical)
 
 
@@ -46,16 +33,11 @@ def apply_lifecycle_appointment_decision_to_state(
         state.data[LLM_APPOINTMENT_DECISION] = decision
 
 
-# ponytail: alias until callers finish migrating import names
-apply_lifecycle_scheduling_decision_to_state = apply_lifecycle_appointment_decision_to_state
-
-
 def rebuild_appointment_payload_from_shipment(
     *,
     shipment_row: dict[str, Any] | None,
     state_data: dict[str, Any],
 ) -> dict[str, Any]:
-    normalize_appointment_state_data(state_data)
     meta = (shipment_row or {}).get("metadata") or {}
     if not isinstance(meta, dict):
         meta = {}
@@ -81,9 +63,6 @@ def rebuild_appointment_payload_from_shipment(
         if delivery and "proposed_delivery_at" not in payload:
             payload["proposed_delivery_at"] = delivery
     return payload
-
-
-rebuild_scheduling_payload_from_shipment = rebuild_appointment_payload_from_shipment
 
 
 def hydrate_shipment_facts_into_state(

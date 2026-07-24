@@ -1,9 +1,7 @@
 from app.core.logger import get_logger
-from app.domain.appointment_scheduling.metadata_keys import (
+from app.domain.appointment_scheduling.constants import (
     APPOINTMENT_INGRESS_SKIP_REASON,
     LLM_APPOINTMENT_DECISION,
-)
-from app.domain.appointment_scheduling.ingress_constants import (
     SCHEDULING_REPLY_TERMINAL_STATUSES,
     SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,
 )

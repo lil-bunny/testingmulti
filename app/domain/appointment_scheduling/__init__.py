@@ -1,6 +1,6 @@
 """Appointment scheduling domain types."""
 
-from app.domain.appointment_scheduling.ingress_constants import (
+from app.domain.appointment_scheduling.constants import (
     APPOINTMENT_SCHEDULING_WORKFLOW,
     SCHEDULING_INGRESS_SKIP_REASONS,
 )

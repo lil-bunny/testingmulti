@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.appointment_scheduling.ingress_constants import (
+from app.domain.appointment_scheduling.constants import (
     PICKUP_STOP_TYPE_KEY,
     SHIPMENT_UPDATE_EVENT_NAME,
     TENDER_ACCEPTED_STATUS_VALUES,

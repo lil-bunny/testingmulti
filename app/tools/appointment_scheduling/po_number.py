@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.appointment_scheduling.costco import is_costco_customer
+from app.domain.appointment_scheduling.utils import is_costco_customer
 from app.domain.shipment_route_locations import active_route_stops
 
 _DELIVERY_STOP_VALUE = "delivery"

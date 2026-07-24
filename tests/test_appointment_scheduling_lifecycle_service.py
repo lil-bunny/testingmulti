@@ -6,13 +6,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.domain.appointment_scheduling.metadata_keys import (
+from app.domain.appointment_scheduling.constants import (
     EMAIL_DRAFT,
     LLM_APPOINTMENT_DECISION,
 )
 from app.services.appointment_scheduling.lifecycle_service import LifecycleService
 from app.workflows.graph.routers import appointment_ingress_router, appointment_weekend_pickup_router
-from app.domain.appointment_scheduling.metadata_hydration import normalize_appointment_state_data
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _RUN_UUID = "22222222-3333-4444-5555-666666666666"
@@ -48,7 +47,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         shipments_service=shipments,
     )
     email_draft = {"to": "a@example.com", "cc": [], "subject": "subj", "full_html": "<html/>"}
-    scheduling_payload = {
+    appointment_payload = {
         "reference_number": "DIAMOND-1",
         "shipment_details": "details",
         "proposed_pickup_at": "2026-07-30",
@@ -60,13 +59,13 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         state,
         lifecycle_id="lifecycle-1",
         email_draft=email_draft,
-        appointment_payload=scheduling_payload,
+        appointment_payload=appointment_payload,
     )
 
     activity.record_draft_ready.assert_called_once_with(
         state,
         email_draft=email_draft,
-        appointment_payload=scheduling_payload,
+        appointment_payload=appointment_payload,
     )
     lifecycle.patch_metadata.assert_called_once_with(
         lifecycle_id="lifecycle-1",
@@ -96,7 +95,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
     lifecycle.update_lifecycle_status.assert_not_called()
 
 
-def test_persist_draft_ready_patches_llm_scheduling_decision():
+def test_persist_draft_ready_patches_llm_appointment_decision():
     lifecycle = MagicMock()
     activity = MagicMock()
     shipments = MagicMock()
@@ -111,7 +110,7 @@ def test_persist_draft_ready_patches_llm_scheduling_decision():
         shipments_service=shipments,
     )
     email_draft = {"to": "a@example.com", "cc": [], "subject": "subj", "full_html": "<html/>"}
-    scheduling_payload = {"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"}
+    appointment_payload = {"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"}
     decision = {
         "weekend_shifted": True,
         "selected_pickup_date": "2026-07-01",
@@ -123,7 +122,7 @@ def test_persist_draft_ready_patches_llm_scheduling_decision():
         state,
         lifecycle_id="lifecycle-1",
         email_draft=email_draft,
-        appointment_payload=scheduling_payload,
+        appointment_payload=appointment_payload,
         llm_appointment_decision=decision,
     )
 
@@ -150,7 +149,7 @@ def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
         activity_service=activity,
         shipments_service=shipments,
     )
-    scheduling_payload = {
+    appointment_payload = {
         "proposed_pickup_at": "2026-07-30",
         "proposed_delivery_at": "08/04/2026",
     }
@@ -160,7 +159,7 @@ def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
         state,
         lifecycle_id="lifecycle-1",
         email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
-        appointment_payload=scheduling_payload,
+        appointment_payload=appointment_payload,
         llm_appointment_decision={"selected_pickup_time": "08:30"},
     )
 
@@ -330,7 +329,7 @@ def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
 
 def test_mark_restartable_skip_delegates_to_mark_failed() -> None:
     from app.domain.appointment_scheduling.failure import SchedulingFailure
-    from app.domain.appointment_scheduling.metadata_keys import APPOINTMENT_FAILURE_REASON
+    from app.domain.appointment_scheduling.constants import APPOINTMENT_FAILURE_REASON
     from app.domain.error_catalog import SystemError
 
     lifecycle = MagicMock()
@@ -360,7 +359,7 @@ def test_mark_restartable_skip_delegates_to_mark_failed() -> None:
 
 def test_mark_failed_delegates_activity_and_patches_metadata():
     from app.domain.appointment_scheduling.failure import SchedulingFailure
-    from app.domain.appointment_scheduling.metadata_keys import APPOINTMENT_FAILURE_REASON
+    from app.domain.appointment_scheduling.constants import APPOINTMENT_FAILURE_REASON
     from app.domain.error_catalog import BusinessError, format_error_message
 
     lifecycle = MagicMock()
@@ -454,29 +453,24 @@ def test_hydrate_appointment_send_context_keeps_turvo_id_when_shipments_row_alre
     lifecycle.read_correlation_by_id.assert_not_called()
 
 
-def test_legacy_checkpoint_llm_decision_routes_after_normalize() -> None:
+def test_weekend_pickup_router_uses_canonical_llm_decision() -> None:
     state = _state(
         event_type="appointment_draft_send",
         shipments_row_id=_SHIPMENT_ROW_ID,
+        llm_appointment_decision={
+            "weekend_shifted": True,
+            "selected_pickup_date": "2026-07-01",
+        },
     )
-    state.data["llm_scheduling_decision"] = {
-        "weekend_shifted": True,
-        "selected_pickup_date": "2026-07-01",
-    }
-    normalize_appointment_state_data(state.data)
-    assert state.data["llm_appointment_decision"]["weekend_shifted"] is True
     assert appointment_weekend_pickup_router(state) == "apply"
 
 
-def test_legacy_checkpoint_ingress_skip_routes_after_normalize() -> None:
-    state = _state()
-    state.data["scheduling_prepare_skip_reason"] = "duplicate_event"
-    normalize_appointment_state_data(state.data)
-    assert state.data["appointment_ingress_skip_reason"] == "duplicate_event"
+def test_ingress_router_ends_on_canonical_skip_reason() -> None:
+    state = _state(appointment_ingress_skip_reason="duplicate_event")
     assert appointment_ingress_router(state) == "end"
 
 
-def test_hydrate_appointment_send_context_restores_llm_scheduling_decision_for_send_path():
+def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_send_path():
     decision = {
         "weekend_shifted": True,
         "selected_pickup_date": "2026-07-01",

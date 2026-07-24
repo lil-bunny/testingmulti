@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.domain.appointment_scheduling.costco import is_costco_customer
+from app.domain.appointment_scheduling.utils import is_costco_customer
 from app.domain.appointment_scheduling.models import (
     AppointmentPayload,
     DraftStatic,

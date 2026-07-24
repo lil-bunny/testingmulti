@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def is_weekend_shifted_truthy(value: Any) -> bool:
-    """Coerce LLM/UI weekend_shifted values to bool (Repo A compatible)."""
+    """Coerce LLM/UI weekend_shifted values to bool."""
     if value is True:
         return True
     if value is None:

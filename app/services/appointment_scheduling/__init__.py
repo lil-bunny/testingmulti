@@ -25,22 +25,6 @@ from app.services.appointment_scheduling.teams_notification_service import (
 from app.services.appointment_scheduling.turvo_stop_update_service import TurvoStopUpdateService
 from app.services.appointment_scheduling.weekend_pickup_service import WeekendPickupService
 
-# Prefixed aliases for cross-package API stability.
-AppointmentSchedulingActivityService = ActivityService
-AppointmentSchedulingAscendWriteService = AscendWriteService
-AppointmentSchedulingDecisionService = DecisionService
-AppointmentSchedulingEmailService = EmailService
-AppointmentSchedulingIngressPrepareService = IngressPrepareService
-AppointmentSchedulingIngressService = IngressService
-AppointmentSchedulingIntakeService = IntakeService
-AppointmentSchedulingLifecycleService = LifecycleService
-AppointmentSchedulingReplyClassificationService = ReplyClassificationService
-AppointmentSchedulingSendConflictError = SendConflictError
-AppointmentSchedulingSendService = SendService
-AppointmentSchedulingTeamsNotificationService = TeamsNotificationService
-AppointmentSchedulingTurvoStopUpdateService = TurvoStopUpdateService
-AppointmentSchedulingWeekendPickupService = WeekendPickupService
-
 __all__ = [
     "APPOINTMENT_SCHEDULING_WORKFLOW",
     "ActivityService",
@@ -58,18 +42,4 @@ __all__ = [
     "TeamsNotificationService",
     "TurvoStopUpdateService",
     "WeekendPickupService",
-    "AppointmentSchedulingActivityService",
-    "AppointmentSchedulingAscendWriteService",
-    "AppointmentSchedulingDecisionService",
-    "AppointmentSchedulingEmailService",
-    "AppointmentSchedulingIngressPrepareService",
-    "AppointmentSchedulingIngressService",
-    "AppointmentSchedulingIntakeService",
-    "AppointmentSchedulingLifecycleService",
-    "AppointmentSchedulingReplyClassificationService",
-    "AppointmentSchedulingSendConflictError",
-    "AppointmentSchedulingSendService",
-    "AppointmentSchedulingTeamsNotificationService",
-    "AppointmentSchedulingTurvoStopUpdateService",
-    "AppointmentSchedulingWeekendPickupService",
 ]
