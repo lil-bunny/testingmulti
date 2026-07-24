@@ -298,8 +298,8 @@ def test_record_reply_rejected_writes_completed_rejected() -> None:
 
     svc.record_reply_rejected(
         _state(
-            customer_reply_reason="counter-proposal",
             customer_reply_decision="rejected",
+            customer_reply_extraction={"reason": "counter-proposal"},
         )
     )
 

@@ -45,9 +45,10 @@ class ReplyClassificationResult:
     llm_activity_log_id: str | None = None
 
     def to_state_patch(self) -> dict[str, Any]:
+        # reason lives only under customer_reply_extraction (no duplicate top-level key).
+        # llm_activity_log_id stays on this result object; not written to LangGraph state.
         patch: dict[str, Any] = {
             "customer_reply_decision": self.decision,
-            "customer_reply_reason": self.reason,
             "customer_reply_extraction": {
                 "decision": self.decision,
                 "confidence": self.confidence,
@@ -60,8 +61,6 @@ class ReplyClassificationResult:
         }
         if self.appointment_start_iso:
             patch["confirmed_delivery_at"] = self.appointment_start_iso
-        if self.llm_activity_log_id:
-            patch["customer_reply_llm_activity_log_id"] = self.llm_activity_log_id
         return patch
 
 
