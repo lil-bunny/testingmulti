@@ -11,7 +11,10 @@ from app.services.tenants_service import TenantsService
 
 
 def skip_ascend_writes_enabled(tenant_settings: dict[str, Any] | None) -> bool:
-    """True when Ascend HTTP writes should be skipped (dry-run payload + activity only)."""
+    """True when Ascend HTTP writes should be skipped (dry-run / staging).
+
+    Does **not** skip Turvo stop updates (weekend pickup or delivery confirm).
+    """
     env_raw = os.environ.get("APPOINTMENT_SCHEDULING_SKIP_ASCEND_WRITES")
     if env_raw is not None and str(env_raw).strip():
         return str(env_raw).strip().lower() in {"1", "true", "yes", "on"}

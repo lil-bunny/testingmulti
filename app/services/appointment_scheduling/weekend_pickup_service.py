@@ -104,79 +104,82 @@ class WeekendPickupService:
         if not plan.should_apply:
             return WeekendPickupResult(ok=True, skipped=True)
 
-        if skip_ascend_writes_enabled(tenant_settings):
+        skip_ascend = skip_ascend_writes_enabled(tenant_settings)
+        ascend_response: dict[str, Any] | None = None
+        ascend_updated = False
+        dry_run = False
+
+        if skip_ascend:
+            # Ascend HTTP only — Turvo weekend pickup still runs below.
             logger.info(
-                "skip_ascend_writes dry-run weekend pickup reference=%s plan=%s",
+                "skip_ascend_writes: skipping Ascend HTTP weekend pickup; "
+                "continuing Turvo update reference=%s plan=%s",
                 reference_number,
                 plan,
             )
-            return WeekendPickupResult(
-                ok=True,
-                skipped=True,
-                dry_run=True,
-                turvo_pickup_start_time=plan.turvo_pickup_start_time,
-            )
-
-        settings = load_appointment_scheduling_settings(tenant_slug)
-        if not settings.ascend_email or not settings.ascend_password:
-            failure = scheduling_failure_from_skip("ascend_not_configured")
-            if failure is None:
-                failure = SchedulingFailure.from_catalog(
-                    IntegrationError.VENDOR_API_ERROR,
-                    "Ascend credentials are not configured.",
-                )
-            return WeekendPickupResult(ok=False, failure=failure)
-
-        office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
-        try:
-            token_data = login_ascend_api(
-                email=str(settings.ascend_email),
-                password=str(settings.ascend_password),
-            )
-            access_token = str(token_data.get("accessToken") or "")
-            if appointments is None and reference_number:
-                appointments = get_loc_ref_for_ascend_slots(
-                    reference_number=reference_number,
-                    access_token=access_token,
-                    office_code=office_code,
-                )
-                plan = plan_ascend_pickup_update(appointments, selected_date, selected_time)
-                if not plan.should_apply:
-                    return WeekendPickupResult(ok=True, skipped=True)
-
-            if not plan.update_body or not plan.appointment_id:
-                failure = scheduling_failure_from_skip(
-                    "invalid_ascend_pickup_plan",
-                    reference_number=reference_number,
-                )
+            dry_run = True
+        else:
+            settings = load_appointment_scheduling_settings(tenant_slug)
+            if not settings.ascend_email or not settings.ascend_password:
+                failure = scheduling_failure_from_skip("ascend_not_configured")
                 if failure is None:
                     failure = SchedulingFailure.from_catalog(
                         IntegrationError.VENDOR_API_ERROR,
-                        "Invalid Ascend pickup plan.",
+                        "Ascend credentials are not configured.",
                     )
                 return WeekendPickupResult(ok=False, failure=failure)
 
-            ascend_response = update_appointment(
-                appointment_id=plan.appointment_id,
-                body=plan.update_body,
-                access_token=access_token,
-                office_code=office_code,
-            )
-        except AscendApiError as exc:
-            logger.warning(
-                "ascend pickup update failed reference=%s: %s",
-                reference_number,
-                exc,
-            )
-            catalog, message = catalog_from_ascend_api_error(
-                exc,
-                operation="pickup_update",
-                reference_number=reference_number,
-            )
-            return WeekendPickupResult(
-                ok=False,
-                failure=SchedulingFailure.from_catalog(catalog, message),
-            )
+            office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
+            try:
+                token_data = login_ascend_api(
+                    email=str(settings.ascend_email),
+                    password=str(settings.ascend_password),
+                )
+                access_token = str(token_data.get("accessToken") or "")
+                if appointments is None and reference_number:
+                    appointments = get_loc_ref_for_ascend_slots(
+                        reference_number=reference_number,
+                        access_token=access_token,
+                        office_code=office_code,
+                    )
+                    plan = plan_ascend_pickup_update(appointments, selected_date, selected_time)
+                    if not plan.should_apply:
+                        return WeekendPickupResult(ok=True, skipped=True)
+
+                if not plan.update_body or not plan.appointment_id:
+                    failure = scheduling_failure_from_skip(
+                        "invalid_ascend_pickup_plan",
+                        reference_number=reference_number,
+                    )
+                    if failure is None:
+                        failure = SchedulingFailure.from_catalog(
+                            IntegrationError.VENDOR_API_ERROR,
+                            "Invalid Ascend pickup plan.",
+                        )
+                    return WeekendPickupResult(ok=False, failure=failure)
+
+                ascend_response = update_appointment(
+                    appointment_id=plan.appointment_id,
+                    body=plan.update_body,
+                    access_token=access_token,
+                    office_code=office_code,
+                )
+                ascend_updated = True
+            except AscendApiError as exc:
+                logger.warning(
+                    "ascend pickup update failed reference=%s: %s",
+                    reference_number,
+                    exc,
+                )
+                catalog, message = catalog_from_ascend_api_error(
+                    exc,
+                    operation="pickup_update",
+                    reference_number=reference_number,
+                )
+                return WeekendPickupResult(
+                    ok=False,
+                    failure=SchedulingFailure.from_catalog(catalog, message),
+                )
 
         turvo_result = self._apply_turvo_pickup(
             tenant_slug=tenant_slug,
@@ -188,11 +191,12 @@ class WeekendPickupService:
             turvo_msg = str(turvo_result.get("error") or "turvo_pickup_update_failed")
             return WeekendPickupResult(
                 ok=False,
+                dry_run=dry_run,
                 failure=SchedulingFailure.from_catalog(
                     IntegrationError.TURVO_STOP_UPDATE_FAILED,
                     turvo_msg,
                 ),
-                ascend_updated=True,
+                ascend_updated=ascend_updated,
                 turvo_pickup_start_time=plan.turvo_pickup_start_time,
                 pickup_stop_name=turvo_result.get("stop_name"),
                 ascend_response=ascend_response,
@@ -219,7 +223,8 @@ class WeekendPickupService:
 
         return WeekendPickupResult(
             ok=True,
-            ascend_updated=True,
+            dry_run=dry_run,
+            ascend_updated=ascend_updated,
             turvo_updated=bool(turvo_result.get("updated")),
             turvo_pickup_start_time=plan.turvo_pickup_start_time,
             pickup_stop_name=str(turvo_result.get("stop_name") or "") or None,

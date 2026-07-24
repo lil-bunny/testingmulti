@@ -54,6 +54,7 @@ class T3raAppointmentSchedulingSettings(BaseModel):
     ascend_email: str | None = None
     ascend_password: str | None = None
     email_cc: list[str] | str = ""
+    # Ascend HTTP only; Turvo weekend/delivery writes still run when this is True.
     skip_ascend_writes: bool = True
     teams_notification: AppointmentSchedulingTeamsNotificationSettings | None = None
     confirmation_reply: AppointmentSchedulingConfirmationReplySettings | None = None
