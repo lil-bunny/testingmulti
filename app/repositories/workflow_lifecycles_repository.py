@@ -740,8 +740,23 @@ class WorkflowLifecyclesRepository:
         tenant_id: str,
         workflow_name: str,
         shipment_id: str,
+        lifecycle_id: str | None = None,
     ) -> str:
-        new_id = str(uuid.uuid4())
+        """Insert lifecycle, or attach ``shipment_id`` to an existing deferred stub."""
+        new_id = str(lifecycle_id or "").strip() or str(uuid.uuid4())
+        existing = self._session.execute(
+            text(
+                f"""
+                SELECT 1
+                FROM {self.TABLE_NAME}
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {"lifecycle_id": new_id},
+        ).first()
+        if existing:
+            self.update_shipment_id(lifecycle_id=new_id, shipment_id=shipment_id)
+            return new_id
         self.insert_lifecycle(
             lifecycle_id=new_id,
             tenant_id=tenant_id,
@@ -749,6 +764,42 @@ class WorkflowLifecyclesRepository:
             shipment_id=shipment_id,
         )
         return new_id
+
+    def ensure_lifecycle_stub(
+        self,
+        *,
+        lifecycle_id: str,
+        tenant_id: str,
+        workflow_name: str,
+    ) -> bool:
+        """Insert a shipment-less lifecycle row if missing (deferred Turvo ingress).
+
+        Returns True when a new row was inserted, False if it already existed.
+        """
+        lid = str(lifecycle_id or "").strip()
+        tid = str(tenant_id or "").strip()
+        wn = str(workflow_name or "").strip()
+        if not lid or not tid or not wn:
+            return False
+        existing = self._session.execute(
+            text(
+                f"""
+                SELECT 1
+                FROM {self.TABLE_NAME}
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {"lifecycle_id": lid},
+        ).first()
+        if existing:
+            return False
+        self.insert_lifecycle(
+            lifecycle_id=lid,
+            tenant_id=tid,
+            workflow_name=wn,
+            shipment_id=None,
+        )
+        return True
 
     def find_awaiting_customer_reply_lifecycle_id(
         self,
