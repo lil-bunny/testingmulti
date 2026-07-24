@@ -633,6 +633,51 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
     assert "llm_appointment_decision" not in state.data
 
 
+def test_hydrate_read_context_reply_skips_email_draft():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "pending_review",
+        "sub_status": "awaiting_customer_reply",
+        "metadata": {
+            EMAIL_DRAFT: {
+                "to": "a@example.com",
+                "subject": "DEL APPT",
+                "full_html": "<html>" + ("x" * 5000) + "</html>",
+            },
+        },
+    }
+    service = LifecycleService(lifecycle_service=lifecycle)
+    state = _state(
+        event_type="appointment_customer_reply_received",
+        email_draft={"to": "stale@example.com", "full_html": "<p>stale</p>"},
+    )
+
+    service.hydrate_read_context(state)
+
+    assert state.data["workflow_lifecycle_status"] == "pending_review"
+    assert state.data["workflow_lifecycle_sub_status"] == "awaiting_customer_reply"
+    assert "email_draft" not in state.data
+    assert "workflow_lifecycle_metadata" not in state.data
+
+
+def test_hydrate_read_context_intake_event_skips_email_draft():
+    lifecycle = MagicMock()
+    lifecycle.read_lifecycle_row_by_id.return_value = {
+        "status": "processing",
+        "sub_status": "appointment_scheduling_started",
+        "metadata": {
+            EMAIL_DRAFT: {"to": "a@example.com", "full_html": "<html/>"},
+        },
+    }
+    service = LifecycleService(lifecycle_service=lifecycle)
+    state = _state(event_type="turvo_pickup_changed")
+
+    service.hydrate_read_context(state)
+
+    assert state.data["workflow_lifecycle_status"] == "processing"
+    assert "email_draft" not in state.data
+
+
 def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metadata():
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
