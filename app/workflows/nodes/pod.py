@@ -183,7 +183,7 @@ def pod_analysis(state):
                 DocumentAnalysisType.POD_EXTRACTION,
                 results=out["findings"],
                 confidence_score=out.get("confidence_score"),
-                llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
+                llm_model={"model": settings.LLM_VISION_MODEL},
                 document_id=out.get("document_id"),
             )
             state.data["document_analysis_pod"] = persist
@@ -225,7 +225,7 @@ def pod_vs_ratecon_analysis(state):
             DocumentAnalysisType.POD_VS_RATECON_COMPARISON,
             results=out["findings"],
             confidence_score=out.get("confidence_score"),
-            llm_model={"model": settings.LLM_MODEL} if settings.LLM_MODEL else None,
+            llm_model={"model": settings.LLM_CHAT_MODEL},
             document_id=out.get("document_id"),
         )
         state.data["document_analysis_pod_vs_ratecon"] = persist

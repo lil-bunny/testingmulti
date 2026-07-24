@@ -432,7 +432,7 @@ class RateconDocumentService:
 
             page_results, extracted = extract_from_pdf_path(
                 tmp_path,
-                model_label=settings.LLM_MODEL or "",
+                model_label=settings.LLM_VISION_MODEL,
                 tenant_settings=data.get("tenant_settings"),
                 stage_dir=stage_dir,
             )
@@ -456,7 +456,7 @@ class RateconDocumentService:
                     "pages_processed": len(page_results),
                     "successful_pages": good_pages,
                     "failed_pages": len(page_results) - good_pages,
-                    "model": settings.LLM_MODEL,
+                    "model": settings.LLM_VISION_MODEL,
                     "total_identifiers_found": len(extracted.get("shipment_identifiers") or []),
                     "identifiers_list": extracted.get("shipment_identifiers") or [],
                 },
@@ -522,7 +522,7 @@ class RateconDocumentService:
 
         pages = normalize_page_count(page_count)
         row_id = str(uuid.uuid4())
-        llm_model = {"model": settings.LLM_MODEL} if settings.LLM_MODEL else None
+        llm_model = {"model": settings.LLM_VISION_MODEL}
         meta = metadata_with_page_count(pages)
 
         def _write(repos: Any) -> dict[str, Any]:

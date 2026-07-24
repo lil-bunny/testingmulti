@@ -21,13 +21,14 @@ class Settings(BaseSettings):
     LANGSMITH_ENDPOINT: Optional[str] = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = True
     LANGSMITH_TRACING_V2: bool = True
-    LLM_MODEL: Optional[str] = None
     LLM_BASE_URL: Optional[str] = None
     LLM_API_KEY: Optional[str] = None
+    LLM_CHAT_MODEL: str = "chat"
+    LLM_VISION_MODEL: str = "vision"
+    LLM_PDF_MODEL: str = "pdf"
     LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
     LLM_JSON_RESPONSE_MODE: bool = True
 
-    ATTACHMENT_CLASSIFIER_MODEL: Optional[str] = None
     # DB
     DATABASE_HOST: str
     DATABASE_PORT: int

@@ -67,7 +67,7 @@ Open `http://127.0.0.1:5555`
 None of these are things you can generate yourself, ask someone from the dev team for all of them:
 
 * `UNIPILE_API_KEY`, `UNIPILE_DSN`, `UNIPILE_WEBHOOK_SECRET`, needed for anything email related
-* `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, the vision LLM used for POD/ratecon document extraction (the "agentic-turbo" service mentioned in `POD.md`). Nothing that touches a document will work without these
+* `LLM_API_KEY`, `LLM_BASE_URL`, and modality models `LLM_CHAT_MODEL` / `LLM_VISION_MODEL` / `LLM_PDF_MODEL` (LiteLLM gateway aliases; defaults `chat` / `vision` / `pdf`). Nothing that touches a document will work without the API key and base URL.
 * Turvo sandbox access and partner API credentials, see below
 
 `LANGSMITH_API_KEY` is optional. Local fallback prompts (`prompts/fallbacks/`) are used automatically if this is missing or doesn't have access to the prompt Hub, so the app works fine without it. If you want working traces/prompt pulls, you need to be invited into the team's LangSmith organization, a personal LangSmith signup won't have access to the team's prompts.

@@ -77,12 +77,8 @@ async def test_aclassify_image_uses_achat_vision_json(monkeypatch):
         "test-key",
     )
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.ATTACHMENT_CLASSIFIER_MODEL",
-        "classifier-model",
-    )
-    monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_MODEL",
-        "default-model",
+        "app.services.attachment_normalizer.settings.LLM_VISION_MODEL",
+        "vision",
     )
     _stub_classifier_prompts(monkeypatch)
 
@@ -104,7 +100,7 @@ async def test_aclassify_image_uses_achat_vision_json(monkeypatch):
     assert captured["system_prompt"] == _CLASSIFIER_RENDERED.system
     assert captured["user_prompt"] == _CLASSIFIER_RENDERED.user
     assert captured["image_jpeg_bytes"] == png
-    assert captured["kwargs"]["model"] == "classifier-model"
+    assert captured["kwargs"].get("model") is None
     assert captured["kwargs"]["image_mime_type"] == "image/png"
     assert captured["kwargs"]["temperature"] == 0.1
     assert captured["kwargs"]["max_tokens"] == 150
@@ -414,7 +410,7 @@ def test_chat_vision_json_passes_model_override(monkeypatch):
 
     monkeypatch.setattr(llm_client.settings, "LLM_BASE_URL", "https://llm.example")
     monkeypatch.setattr(llm_client.settings, "LLM_API_KEY", "k")
-    monkeypatch.setattr(llm_client.settings, "LLM_MODEL", "default-model")
+    monkeypatch.setattr(llm_client.settings, "LLM_VISION_MODEL", "vision")
     monkeypatch.setattr(llm_client.settings, "LLM_JSON_RESPONSE_MODE", True)
     monkeypatch.setattr(llm_client, "AsyncOpenAI", FakeAsyncOpenAI)
     monkeypatch.setattr(llm_client, "get_current_run_tree", lambda: None)

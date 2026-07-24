@@ -185,7 +185,7 @@ def ratecon_analysis(data: dict) -> dict:
 
         page_results, extracted = extract_ratecon_from_pdf_path(
             tmp_path,
-            model_label=settings.LLM_MODEL or "",
+            model_label=settings.LLM_VISION_MODEL,
             tenant_settings=data.get("tenant_settings"),
             stage_dir=stage_dir,
         )
@@ -209,7 +209,7 @@ def ratecon_analysis(data: dict) -> dict:
                 "pages_processed": len(page_results),
                 "successful_pages": good_pages,
                 "failed_pages": len(page_results) - good_pages,
-                "model": settings.LLM_MODEL,
+                "model": settings.LLM_VISION_MODEL,
                 "total_identifiers_found": len(extracted.get("shipment_identifiers") or []),
                 "identifiers_list": extracted.get("shipment_identifiers") or [],
             },
@@ -371,7 +371,7 @@ def pod_analysis(data: dict) -> dict:
             extract_pod_from_pdf_path(
                 tmp_path,
                 broker_name=broker_name,
-                model_label=settings.LLM_MODEL or "",
+                model_label=settings.LLM_VISION_MODEL,
                 tenant_settings=data.get("tenant_settings"),
                 prepared_image_paths=vision_raw if use_staged_vision else None,
             )
@@ -396,7 +396,7 @@ def pod_analysis(data: dict) -> dict:
                 "pages_processed": len(page_results),
                 "successful_pages": ok_pages,
                 "failed_pages": len(page_results) - ok_pages,
-                "model": settings.LLM_MODEL,
+                "model": settings.LLM_VISION_MODEL,
                 "pod_object_key_source": url_meta.get("source"),
                 "pod_bytes_source": source,
             },
@@ -492,7 +492,7 @@ def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
     findings: dict[str, Any] = {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
-            "model": settings.LLM_MODEL,
+            "model": settings.LLM_CHAT_MODEL,
         },
         "overall_status": overall,
         "cross_validation": cross,

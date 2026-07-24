@@ -1113,11 +1113,6 @@ class AttachmentNormalizerService:
                 "prefiltered": False,
             }
 
-        model = (
-            settings.ATTACHMENT_CLASSIFIER_MODEL
-            or settings.LLM_MODEL
-        )
-
         mime = "image/jpeg"
         if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
             mime = "image/png"
@@ -1125,7 +1120,7 @@ class AttachmentNormalizerService:
         logger.info(
             "attachment.classify_llm_start attachment_id=%s model=%s bytes=%s mime=%s",
             attachment_id or "-",
-            model,
+            settings.LLM_VISION_MODEL,
             len(image_bytes),
             mime,
         )
@@ -1159,7 +1154,6 @@ class AttachmentNormalizerService:
                 image_bytes,
                 temperature=0.1,
                 max_tokens=150,
-                model=model,
                 image_mime_type=mime,
                 prompt_trace=prompt_trace,
                 metadata=base_meta,
