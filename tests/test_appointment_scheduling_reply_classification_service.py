@@ -78,6 +78,11 @@ def test_classify_accepted_records_activity() -> None:
     assert result.decision == ACCEPTED
     assert result.appointment_start_iso == "2026-07-18T10:30:00"
     assert result.llm_activity_log_id == "activity-1"
+    patch_data = result.to_state_patch()
+    assert patch_data["confirmed_delivery_at"] == "2026-07-18T10:30:00"
+    assert patch_data["customer_reply_extraction"]["reason"] == "explicit date and time"
+    assert "customer_reply_reason" not in patch_data
+    assert "customer_reply_llm_activity_log_id" not in patch_data
     svc._activity_deps.apply.assert_called_once()
     call_cmd = svc._activity_deps.apply.call_args.args[0]
     assert call_cmd.metadata is None
@@ -117,6 +122,9 @@ def test_classify_vague_reply_do_nothing() -> None:
     svc._activity_deps.apply.assert_called_once()
     patch_data = result.to_state_patch()
     assert patch_data["customer_reply_decision"] == DO_NOTHING
+    assert patch_data["customer_reply_extraction"]["reason"] == llm_raw["reason"]
+    assert "customer_reply_reason" not in patch_data
+    assert "customer_reply_llm_activity_log_id" not in patch_data
     assert "customer_reply_llm" not in patch_data
     assert "customer_reply_thread_llm_input" not in patch_data
     assert "customer_reply_thread_message_count" not in patch_data

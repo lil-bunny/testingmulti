@@ -293,14 +293,12 @@ class LifecycleService:
         )
 
     def finalize_after_teams_notify(self, state):
-        """Teams notify + draft pending review transition + strip intake checkpoint."""
+        """Teams notify + draft pending review transition + strip intake checkpoint.
+
+        Teams outcome is not mirrored onto LangGraph state (write-only noise).
+        """
         teams = TeamsNotificationService()
         result = teams.notify_from_state(state)
-        state.data["appointment_scheduling_teams_notification_sent"] = result.sent
-        if result.skip_reason:
-            state.data["appointment_scheduling_teams_notification_skipped"] = result.skip_reason
-        if result.error:
-            state.data["appointment_scheduling_teams_notification_error"] = result.error
         self._activity.record_draft_pending_review(state)
         self.strip_intake_checkpoint(state)
         return result

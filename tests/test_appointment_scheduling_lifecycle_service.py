@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.domain.appointment_scheduling.metadata_keys import (
     EMAIL_DRAFT,
@@ -699,3 +699,23 @@ def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metada
 
     assert "workflow_lifecycle_metadata" not in state.data
     assert state.data["llm_appointment_decision"] == {"weekend_shifted": False}
+
+
+def test_finalize_after_teams_notify_does_not_write_teams_outcome_to_state():
+    lifecycle = MagicMock()
+    activity = MagicMock()
+    service = LifecycleService(lifecycle_service=lifecycle, activity_service=activity)
+    state = _state()
+    teams_result = MagicMock(sent=True, skip_reason=None, error=None)
+
+    with patch(
+        "app.services.appointment_scheduling.lifecycle_service.TeamsNotificationService"
+    ) as teams_cls:
+        teams_cls.return_value.notify_from_state.return_value = teams_result
+        result = service.finalize_after_teams_notify(state)
+
+    assert result is teams_result
+    activity.record_draft_pending_review.assert_called_once_with(state)
+    assert "appointment_scheduling_teams_notification_sent" not in state.data
+    assert "appointment_scheduling_teams_notification_skipped" not in state.data
+    assert "appointment_scheduling_teams_notification_error" not in state.data
