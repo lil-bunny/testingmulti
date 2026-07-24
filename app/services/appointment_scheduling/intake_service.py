@@ -34,7 +34,7 @@ from app.integrations.turvo.shipments import (
     delivery_stop_name_from_payload,
     get_shipment as get_shipment_async,
 )
-from app.services.appointment_scheduling.sheet_loader import load_appointment_sheet_rows
+from app.services.appointment_scheduling.sheet_loader import load_appointment_customer_rows
 from app.tools.appointment_scheduling.ascend_transforms import pickup_dropoff_from_ascend_shipment
 from app.tools.appointment_scheduling.customer_contact import (
     appointment_mode_from_row,
@@ -116,7 +116,7 @@ class IntakeService:
                 customer_name=sheet_customer,
             )
         try:
-            rows = load_appointment_sheet_rows(sheet_source)
+            rows = load_appointment_customer_rows(sheet_source, sheet_customer)
         except (OSError, GoogleSheetsError, ValueError):
             return None, IntakeService._failure(
                 "appointment_sheet_unreadable",
@@ -383,17 +383,17 @@ def resolve_recipient_contact(
     tenant_settings: dict[str, Any],
     shipment_payload: dict[str, Any],
 ) -> tuple[str | None, CustomerContactRow | None]:
-    """Load appointment sheet once; return skip reason or resolved contact."""
+    """Resolve recipient via sheet gquery (or local xlsx); return skip reason or contact."""
     settings = IntakeService._settings(tenant_settings)
     sheet_source = str(settings.appointment_data_source or "").strip()
     if not sheet_source:
         return MISSING_APPOINTMENT_DATA_SOURCE, None
+    sheet_customer = delivery_stop_name_from_payload(shipment_payload) or ""
     try:
-        rows = load_appointment_sheet_rows(sheet_source)
+        rows = load_appointment_customer_rows(sheet_source, sheet_customer)
     except (OSError, GoogleSheetsError, ValueError):
         return APPOINTMENT_SHEET_UNREADABLE, None
 
-    sheet_customer = delivery_stop_name_from_payload(shipment_payload) or ""
     if skip := contact_from_rows_skip_reason(rows, sheet_customer):
         return skip, None
     row = find_customer_sheet_row(rows, sheet_customer)
