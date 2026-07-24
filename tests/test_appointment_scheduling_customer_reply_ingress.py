@@ -84,7 +84,44 @@ def test_try_customer_reply_enqueues_when_lifecycle_active() -> None:
     assert "tenant_settings" not in celery_payload
     assert "body" not in celery_payload
     assert "subject" not in celery_payload
+    assert celery_payload["communication_id"] == "comm-1"
+    svc._communications.record_or_resolve_inbound.assert_not_called()
 
+
+def test_try_customer_reply_records_inbound_when_communication_id_missing() -> None:
+    svc = _service()
+    svc._communications.record_or_resolve_inbound.return_value = "comm-created"
+    payload = {**_reply_payload(), "email_id": "unipile-email-1"}
+    with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
+        import sys
+
+        apply_async = MagicMock()
+        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = apply_async
+        with patch(
+            "app.services.tenants_service.TenantsService.get_by_slug",
+            return_value={"settings": _enabled_settings()},
+        ):
+            result = svc.try_customer_reply_received(
+                payload=payload,
+                tenant=_TENANT,
+                communication_id=None,
+            )
+
+    assert result is not None
+    assert result.outcome == "enqueued"
+    svc._communications.record_or_resolve_inbound.assert_called_once_with(
+        _TENANT.tenant_uuid,
+        payload,
+    )
+    celery_payload = apply_async.call_args.kwargs["kwargs"]["payload"]
+    assert celery_payload["communication_id"] == "comm-created"
+    svc._communications.link_inbound_to_workflow_run.assert_called_once()
+    assert (
+        svc._communications.link_inbound_to_workflow_run.call_args.kwargs[
+            "communication_id"
+        ]
+        == "comm-created"
+    )
 
 def test_try_customer_reply_skips_when_not_reply() -> None:
     svc = _service()

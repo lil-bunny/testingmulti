@@ -268,13 +268,32 @@ class CustomerReplyIngressService:
                 reason="lifecycle terminal",
             )
 
+        # Graph payload is slim (no Unipile email_id), so create/resolve the inbound
+        # communications row here while the full webhook payload is still available.
+        resolved_communication_id = clean_optional_str(communication_id)
+        if not resolved_communication_id:
+            resolved_communication_id = clean_optional_str(
+                self._communications.record_or_resolve_inbound(
+                    tenant.tenant_uuid,
+                    payload,
+                )
+            )
+        if not resolved_communication_id:
+            logger.warning(
+                "appointment_customer_reply missing communication_id "
+                "thread_id=%s lifecycle_id=%s email_id=%s",
+                thread_id,
+                lifecycle_id,
+                payload.get("email_id"),
+            )
+
         workflow_payload = self.build_reply_workflow_payload(
             tenant_uuid=tenant.tenant_uuid,
             tenant_slug=tenant.tenant_slug,
             lifecycle_id=lifecycle_id,
             thread_id=thread_id,
             payload=payload,
-            communication_id=communication_id,
+            communication_id=resolved_communication_id,
         )
         if workflow_payload is None:
             logger.warning(
@@ -289,7 +308,7 @@ class CustomerReplyIngressService:
             workflow_lifecycle_id=lifecycle_id,
             payload=workflow_payload,
             event_type=WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value,
-            communication_id=communication_id,
+            communication_id=resolved_communication_id,
             thread_id=thread_id,
         )
         return IngressResult(
