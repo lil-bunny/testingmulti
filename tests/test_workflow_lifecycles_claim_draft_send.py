@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from app.domain.appointment_scheduling.constants import DRAFT_SEND_QUEUED, EMAIL_DRAFT
+from app.domain.appointment_scheduling.constants import EMAIL_DRAFT, EMAIL_SENT
 from app.repositories.workflow_lifecycles_repository import WorkflowLifecyclesRepository
 
 _TENANT = "11111111-1111-1111-1111-111111111111"
@@ -56,12 +56,12 @@ def test_claim_wins_when_draft_ready() -> None:
     )
 
 
-def test_claim_conflict_when_already_queued() -> None:
+def test_claim_conflict_when_already_sent() -> None:
     repo = _repo_with_locked_row(
         status="pending_review",
         sub_status="appointment_draft_created",
         tenant_id=_TENANT,
-        metadata=_ready_draft_meta(**{DRAFT_SEND_QUEUED: True}),
+        metadata=_ready_draft_meta(**{EMAIL_SENT: True}),
     )
     assert (
         repo.claim_appointment_draft_send_queued(

@@ -604,14 +604,14 @@ class WorkflowLifecyclesRepository:
         lifecycle_id: str,
         expected_tenant_id: str,
     ) -> str:
-        """Atomically claim portal draft send via ``metadata.draft_send_queued``.
+        """Atomically claim portal draft send via ``metadata.email_sent``.
 
         Returns one of: ``claimed``, ``not_found``, ``conflict``, ``invalid_status``,
         ``scheduling_draft_not_ready``.
         """
         from app.domain.appointment_scheduling.constants import (
-            DRAFT_SEND_QUEUED,
             EMAIL_DRAFT,
+            EMAIL_SENT,
         )
         from app.domain.error_catalog import BusinessError
 
@@ -643,7 +643,7 @@ class WorkflowLifecyclesRepository:
         meta = parse_json(row[3]) if row[3] is not None else {}
         if not isinstance(meta, dict):
             meta = {}
-        if meta.get(DRAFT_SEND_QUEUED) is True:
+        if meta.get(EMAIL_SENT) is True:
             return "conflict"
 
         draft = meta.get(EMAIL_DRAFT)
@@ -663,12 +663,12 @@ class WorkflowLifecyclesRepository:
                 {_WHERE_LIFECYCLE_ID}
                   AND status = CAST(:status AS lifecycle_status)
                   AND sub_status = CAST(:sub_status AS lifecycle_sub_status)
-                  AND COALESCE((metadata->>'draft_send_queued')::boolean, false) IS NOT TRUE
+                  AND COALESCE((metadata->>'email_sent')::boolean, false) IS NOT TRUE
                 """
             ),
             {
                 "lifecycle_id": lifecycle_id,
-                "metadata_patch": jsonb_param({DRAFT_SEND_QUEUED: True}),
+                "metadata_patch": jsonb_param({EMAIL_SENT: True}),
                 "status": StatusType.PENDING_REVIEW.value,
                 "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
             },

@@ -9,9 +9,9 @@ from app.core.logger import get_logger
 from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.error_catalog import BusinessError
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tasks.workflows import run_workflow_async
 
 logger = get_logger(__name__)
 
@@ -103,18 +103,16 @@ def enqueue_appointment_draft_send(
         **payload,
         "event_type": WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value,
         "execution_id": execution_id,
-        "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
     }
-    task = run_workflow_async.apply_async(
-        kwargs={
-            "tenant_slug": tenant_slug,
-            "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
-            "payload": body,
-        }
+    result = LifecycleRunSerializerService().enqueue(
+        tenant_slug=tenant_slug,
+        workflow_name=APPOINTMENT_SCHEDULING_WORKFLOW,
+        payload=body,
     )
     logger.info(
-        "appointment_draft_send queued task_id=%s execution_id=%s lifecycle_id=%s",
-        task.id,
+        "appointment_draft_send serialize status=%s celery_task_id=%s execution_id=%s lifecycle_id=%s",
+        result.status,
+        result.celery_task_id,
         execution_id,
         payload.get("workflow_lifecycle_id"),
     )

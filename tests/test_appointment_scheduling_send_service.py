@@ -173,3 +173,32 @@ def test_send_service_missing_email_draft(mock_enqueue: MagicMock) -> None:
         )
 
     mock_enqueue.assert_not_called()
+
+
+@patch("app.services.appointment_scheduling.send_service.LifecycleRunSerializerService")
+def test_enqueue_appointment_draft_send_uses_serializer(mock_serializer_cls: MagicMock) -> None:
+    from app.services.appointment_scheduling.send_service import enqueue_appointment_draft_send
+
+    mock_serializer_cls.return_value.enqueue.return_value = MagicMock(
+        status="started",
+        celery_task_id="celery-abc",
+        lifecycle_id="wl-1",
+    )
+
+    execution_id = enqueue_appointment_draft_send(
+        tenant_slug="t3ra",
+        payload={
+            "tenant_id": _TENANT_UUID,
+            "workflow_lifecycle_id": "wl-1",
+            "actor_user_id": "user-1",
+        },
+    )
+
+    assert execution_id
+    mock_serializer_cls.return_value.enqueue.assert_called_once()
+    call_kwargs = mock_serializer_cls.return_value.enqueue.call_args.kwargs
+    assert call_kwargs["tenant_slug"] == "t3ra"
+    assert call_kwargs["workflow_name"] == "appointment_scheduling"
+    assert call_kwargs["payload"]["event_type"] == "appointment_draft_send"
+    assert call_kwargs["payload"]["workflow_lifecycle_id"] == "wl-1"
+    assert call_kwargs["payload"]["execution_id"] == execution_id
