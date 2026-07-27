@@ -14,7 +14,6 @@ from app.domain.appointment_scheduling.skip_reasons import (
     WIRE_TURVO_TENDER_STATUS_FAILED,
 )
 from app.domain.appointment_scheduling.state_hygiene import (
-    slim_turvo_confirm_result,
     slim_turvo_write_result,
 )
 from app.domain.error_catalog import IntegrationError
@@ -76,7 +75,7 @@ class TurvoConfirmResult:
     response: dict[str, Any] | None = None
 
     def to_checkpoint_dict(self) -> dict[str, Any]:
-        return slim_turvo_confirm_result(
+        return slim_turvo_write_result(
             ok=self.ok,
             updated=self.updated,
             error=self.error,

@@ -10,7 +10,6 @@ from app.services.appointment_scheduling.ingress_service import (
     evaluate_shipment_gates,
 )
 from app.tools.appointment_scheduling.ingress import (
-    is_multi_stop,
     is_multi_stop_shipment,
     parse_shipment_update_webhook,
     pickup_changed_in_activity_delta,
@@ -92,21 +91,6 @@ def test_pickup_changed_skips_system_bot() -> None:
         ]
     }
     assert pickup_changed_in_activity_delta(activity) is False
-
-
-def test_is_multi_stop() -> None:
-    activity = {
-        "data": [
-            {
-                "context_snapshot": {
-                    "global_route": {
-                        "ship_locations": [{}, {}, {}],
-                    }
-                }
-            }
-        ]
-    }
-    assert is_multi_stop(activity) is True
 
 
 def test_is_multi_stop_shipment_three_active_stops() -> None:

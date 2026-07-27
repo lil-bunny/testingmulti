@@ -466,7 +466,7 @@ def test_weekend_pickup_router_uses_canonical_llm_decision() -> None:
 
 
 def test_ingress_router_ends_on_canonical_skip_reason() -> None:
-    state = _state(appointment_ingress_skip_reason="duplicate_event")
+    state = _state(appointment_ingress_skip_reason="duplicate_lifecycle")
     assert appointment_ingress_router(state) == "end"
 
 
