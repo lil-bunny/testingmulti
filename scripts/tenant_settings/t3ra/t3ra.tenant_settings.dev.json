@@ -1,5 +1,10 @@
 {
-  "enabledProcesses": ["pod_collection", "driver_assignment", "spot_bidding"],
+  "enabledProcesses": [
+    "pod_collection",
+    "driver_assignment",
+    "spot_bidding",
+    "appointment_scheduling"
+  ],
   "prompts": {
     "ratecon": {
       "page_extraction": "ratecon-page-extraction:staging"
@@ -11,6 +16,25 @@
     },
     "driver_assignment": {
       "driver_details": "driver-details-extract:staging"
+    },
+    "appointment_scheduling": {
+      "scheduling_optimization": "appt-scheduling-optimization:staging",
+      "customer_reply": "appt-reply:staging"
+    }
+  },
+  "appointment_scheduling": {
+    "appointment_data_source": "https://docs.google.com/spreadsheets/d/1PqAPAFxGYNSiHUYzLtCNh-ezvpGPpq4W1C8D0PjComk/edit?usp=sharing",
+    "ascend_email": null,
+    "ascend_password": null,
+    "email_cc": [],
+    "skip_ascend_writes": true,
+    "teams_notification": {
+      "teams_webhook_url": "https://example.invalid/teams-webhook",
+      "message_title": "Appointment draft ready — Load {load_id}"
+    },
+    "confirmation_reply": {
+      "template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Confirmed for load {load_id}.</p><p>Reference: {reference_number}<br>Customer: {customer_name}<br>Delivery: {confirmed_delivery_at}</p><p>Thank you.</p></body></html>",
+      "body_text": "Confirmed, Thank You"
     }
   },
   "pod_lifecycle": {

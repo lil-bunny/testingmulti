@@ -73,7 +73,12 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                 "message_title": "POD analyzed — Load {load_id}",
             },
         },
-        "enabledProcesses": ["pod_lifecycle", "pod_collection", "driver_assignment"],
+        "enabledProcesses": [
+            "pod_lifecycle",
+            "pod_collection",
+            "driver_assignment",
+            "appointment_scheduling",
+        ],
         "appointment_scheduling": {
             "appointment_data_source": "/tmp/appointments.xlsx",
             "ascend_email": "ascend@example.com",
