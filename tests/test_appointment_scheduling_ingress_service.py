@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.integrations.turvo.shipments import COVERED_STATUS_CODE_KEY
+from app.integrations.turvo.webhook_mapping import TENDER_ACCEPTED_STATUS_CODE_KEY
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.ingress_service import IngressService
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
@@ -19,9 +21,14 @@ _LIFECYCLE_ID = "33333333-3333-3333-3333-333333333333"
 
 def _shipment_update_body(*, tender_accepted: bool = True) -> dict:
     status = (
-        {"code": {"value": "Tender-Accepted"}}
+        {
+            "code": {
+                "key": TENDER_ACCEPTED_STATUS_CODE_KEY,
+                "value": "Tender - accepted",
+            }
+        }
         if tender_accepted
-        else {"code": {"value": "Covered"}}
+        else {"code": {"key": COVERED_STATUS_CODE_KEY, "value": "Covered"}}
     )
     return {
         "eventName": "SHIPMENT_UPDATE",

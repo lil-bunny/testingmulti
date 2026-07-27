@@ -17,7 +17,10 @@ from app.integrations.turvo.load_to_shipment import (
     shipment_id_from_list_response,
 )
 from app.integrations.turvo.public_api_client import TurvoApiClient
-from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
+from app.integrations.turvo.webhook_mapping import (
+    TENDER_ACCEPTED_STATUS_CODE_KEY,
+    map_turvo_status_webhook_to_payload,
+)
 from app.main import app
 from app.tools import turvo as turvo_tool
 from app.services.pod_lifecycle.ingress_service import (
@@ -353,7 +356,12 @@ def test_turvo_webhook_scheduling_handled_short_circuits_pod_path() -> None:
                 "eventPayload": {
                     "id": 1000324868,
                     "load": {"id": 47361},
-                    "status": {"code": {"value": "Tender-Accepted"}},
+                    "status": {
+                        "code": {
+                            "key": TENDER_ACCEPTED_STATUS_CODE_KEY,
+                            "value": "Tender - accepted",
+                        }
+                    },
                 },
             },
         )
