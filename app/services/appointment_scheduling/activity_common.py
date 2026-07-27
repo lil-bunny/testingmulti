@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from app.core.logger import get_logger
@@ -115,16 +116,29 @@ class SchedulingActivityDeps:
         actor_type: ActorType | None = None,
         actor_id: str | None = None,
     ) -> LifecycleTransitionCommand:
-        return LifecycleTransitionCommand.from_workflow_state(
+        """ACTION log: link email only when ``communication_id`` is passed."""
+        if communication_id:
+            return LifecycleTransitionCommand.from_workflow_state(
+                state,
+                activity_type=ActivityType.ACTION,
+                description=description,
+                update_lifecycle=False,
+                communication_id=communication_id,
+                metadata=metadata,
+                actor_type=actor_type or ActorType.SYSTEM,
+                actor_id=actor_id,
+            )
+        # Omit communication_id so from_workflow_state may inherit, then clear it.
+        command = LifecycleTransitionCommand.from_workflow_state(
             state,
             activity_type=ActivityType.ACTION,
             description=description,
             update_lifecycle=False,
-            communication_id=communication_id,
             metadata=metadata,
             actor_type=actor_type or ActorType.SYSTEM,
             actor_id=actor_id,
         )
+        return dataclasses.replace(command, communication_id=None)
 
 
 __all__ = (
