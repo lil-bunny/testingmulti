@@ -27,7 +27,9 @@ LOAD_TENDERING_SETTINGS_KEY = "load_tendering"
 _LOAD_TYPE_BUCKETS = frozenset({"ltl", "ftl"})
 
 # Fixed Unipile sender for Gelita — lives at ``tenants.settings`` root (not per ltl/ftl).
-_SHARED_UNIPILE_ACCOUNT_KEYS = frozenset({"ana_at_gelita_account_id"})
+_SHARED_UNIPILE_ACCOUNT_KEYS = frozenset(
+    {"ana_at_gelita_account_id", "unipile_sent_folder_id"}
+)
 
 
 def tenant_settings_root(state_or_data: Any) -> dict[str, Any]:

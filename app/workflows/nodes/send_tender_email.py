@@ -153,6 +153,7 @@ def send_tender_email(state):
         )
 
     run_id = str(state.execution_id or "").strip() or None
+    sent_folder_id = str(merged.get("unipile_sent_folder_id") or "").strip() or None
     result = send_email(
         to=recipients.to,
         cc=recipients.cc,
@@ -162,6 +163,7 @@ def send_tender_email(state):
         account_id=account_id,
         tenant_id=state.tenant_id,
         workflow_run_id=run_id,
+        sent_folder_id=sent_folder_id,
     )
     if not result or not result.get("success"):
         err = (result or {}).get("error") if isinstance(result, dict) else None

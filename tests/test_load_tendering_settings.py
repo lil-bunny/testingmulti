@@ -74,9 +74,11 @@ def test_shared_unipile_accounts_merged_from_tenant_settings_root() -> None:
     state = SimpleNamespace(
         data={"tenant_settings": _gelita_tenant_settings()},
     )
-    account_id = "oizK1OAzTyqJJJ6VySWEDw"
+    account_id = _gelita_tenant_settings()["ana_at_gelita_account_id"]
+    sent_folder_id = _gelita_tenant_settings()["unipile_sent_folder_id"]
     ltl_email = action_settings(state, "send_tender_email", load_type="LTL")
     assert ltl_email["ana_at_gelita_account_id"] == account_id
+    assert ltl_email["unipile_sent_folder_id"] == sent_folder_id
     assert "ana_gelita_at_freightx_ai_account_id" not in ltl_email
     ltl_rem = action_settings(state, "send_tender_reminder", load_type="LTL")
     assert ltl_rem["ana_at_gelita_account_id"] == account_id

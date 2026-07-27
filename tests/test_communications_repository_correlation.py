@@ -44,6 +44,24 @@ def test_resolve_lifecycle_id_for_thread_returns_earliest_lifecycle() -> None:
     assert scalar.call_args[0][2]["workflow_name"] == "load_tendering"
 
 
+def test_resolve_lifecycle_id_for_external_id_uses_deprecated_id_key() -> None:
+    session = MagicMock()
+    repo = CommunicationsRepository(session)
+    with patch(
+        "app.repositories.communications_repository.execute_scalar",
+        return_value="11111111-1111-1111-1111-111111111111",
+    ) as scalar:
+        out = repo.resolve_lifecycle_id_for_external_id(
+            tenant_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            external_id="DWAjX8BsWQiL2lcBmw3PVg",
+            workflow_name="load_tendering",
+        )
+    assert out == "11111111-1111-1111-1111-111111111111"
+    params = scalar.call_args[0][2]
+    assert params["external_id"] == "DWAjX8BsWQiL2lcBmw3PVg"
+    assert "external_id = :external_id" in scalar.call_args[0][1]
+
+
 def test_is_thread_linked_to_lifecycle_delegates_exists_query() -> None:
     session = MagicMock()
     repo = CommunicationsRepository(session)
