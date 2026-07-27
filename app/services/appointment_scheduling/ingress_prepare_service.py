@@ -14,6 +14,7 @@ from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.appointment_scheduling.models import CustomerContactRow
+from app.domain.error_catalog import BusinessError
 from app.integrations.turvo.activity import fetch_shipment_activity_list
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
@@ -127,7 +128,7 @@ class IngressPrepareService:
         if reason or fetched is None:
             return IngressPrepareResult(
                 ok=False,
-                skip_reason=reason or "missing_reference_number",
+                skip_reason=reason or BusinessError.ASCEND_MISSING_REFERENCE.value,
             )
 
         try:
@@ -153,18 +154,18 @@ class IngressPrepareService:
         load_id = fetched.load_id
         reference_number = fetched.reference_number
 
-        skip_reason, contact = resolve_recipient_contact(
+        skip_error, contact = resolve_recipient_contact(
             tenant_settings=tenant_settings,
             shipment_payload=shipment_payload,
         )
-        if skip_reason:
+        if skip_error is not None:
             logger.info(
                 "appointment_scheduling prepare skipped tenant_slug=%s shipment_id=%s reason=%s",
                 tenant_slug,
                 shipment_id,
-                skip_reason,
+                skip_error.value,
             )
-            return IngressPrepareResult(ok=False, skip_reason=skip_reason)
+            return IngressPrepareResult(ok=False, skip_reason=skip_error.value)
 
         display_fields = appointment_scheduling_display_fields_from_payload(shipment_payload)
         upsert = self._shipments.upsert_from_turvo(

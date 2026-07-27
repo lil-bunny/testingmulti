@@ -14,19 +14,11 @@ from app.domain.appointment_scheduling.models import (
     PickupDropoffData,
 )
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
-from app.domain.appointment_scheduling.skip_reasons import (
-    SKIP_APPOINTMENT_MODE_NOT_EMAIL,
-    SKIP_APPOINTMENT_SHEET_UNREADABLE,
-    SKIP_MISSING_APPOINTMENT_DATA_SOURCE,
-    SKIP_MISSING_RECIPIENT_EMAIL,
-    scheduling_failure_from_skip,
-)
-from app.domain.error_catalog import IntegrationError, SystemError
+from app.domain.error_catalog import BusinessError, ErrorCode, IntegrationError
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots
 from app.integrations.ascend.auth import login_ascend_api
-from app.integrations.ascend.errors import AscendApiError
-from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
+from app.integrations.ascend.errors import AscendApiError, AscendError, is_ascend_timeout
 from app.integrations.ascend.shipments import fetched_shipment_details
 from app.integrations.google.sheets import GoogleSheetsError
 from app.integrations.turvo.public_api_client import TurvoApiError
@@ -112,14 +104,14 @@ class IntakeService:
         sheet_source = str(settings.appointment_data_source or "").strip()
         if not sheet_source:
             return None, IntakeService._failure(
-                "missing_appointment_data_source",
+                BusinessError.MISSING_APPOINTMENT_DATA_SOURCE,
                 customer_name=sheet_customer,
             )
         try:
             rows = load_appointment_customer_rows(sheet_source, sheet_customer)
         except (OSError, GoogleSheetsError, ValueError):
             return None, IntakeService._failure(
-                "appointment_sheet_unreadable",
+                BusinessError.APPOINTMENT_SHEET_UNREADABLE,
                 customer_name=sheet_customer,
             )
         if skip := contact_from_rows_skip_reason(rows, sheet_customer):
@@ -138,23 +130,13 @@ class IntakeService:
 
     @staticmethod
     def _failure(
-        skip_reason: str,
-        *,
-        customer_name: str = "",
-        reference_number: str = "",
+        error: ErrorCode,
+        **context: str,
     ) -> IntakeResult:
-        failure = scheduling_failure_from_skip(
-            skip_reason,
-            customer_name=customer_name,
-            reference_number=reference_number,
+        return IntakeResult(
+            ok=False,
+            failure=SchedulingFailure.from_catalog(error, **context),
         )
-        if failure is None:
-            failure = SchedulingFailure(
-                code=skip_reason,
-                message=skip_reason.replace("_", " "),
-                category=SystemError.UNEXPECTED_NODE_FAILURE.category,
-            )
-        return IntakeResult(ok=False, failure=failure)
 
     def run_intake(
         self,
@@ -165,7 +147,7 @@ class IntakeService:
     ) -> IntakeResult:
         shipment_id = str(payload.get("shipment_id") or "").strip()
         if not shipment_id:
-            return self._failure("missing_shipment_id")
+            return self._failure(BusinessError.SCHEDULING_MISSING_SHIPMENT_ID)
 
         try:
             turvo_shipment = self._turvo_shipment_from_payload(
@@ -201,12 +183,18 @@ class IntakeService:
         if contact_failure is not None:
             return contact_failure
         if contact is None:
-            return self._failure("missing_recipient_email", customer_name=sheet_customer)
+            return self._failure(
+                BusinessError.MISSING_RECIPIENT_EMAIL,
+                customer_name=sheet_customer,
+            )
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number)
         ascend_settings = load_appointment_scheduling_settings(tenant_slug)
         if not ascend_settings.ascend_email or not ascend_settings.ascend_password:
-            return self._failure("ascend_not_configured", customer_name=sheet_customer)
+            return self._failure(
+                BusinessError.ASCEND_NOT_CONFIGURED,
+                customer_name=sheet_customer,
+            )
 
         try:
             auth = login_ascend_api(
@@ -215,11 +203,14 @@ class IntakeService:
             )
             access_token = str(auth.get("accessToken") or "")
         except AscendApiError as exc:
-            catalog, message = catalog_from_ascend_api_error(exc, operation="login")
-            return IntakeResult(
-                ok=False,
-                failure=SchedulingFailure.from_catalog(catalog, message),
-            )
+            if is_ascend_timeout(exc):
+                failure = SchedulingFailure.from_catalog(IntegrationError.VENDOR_API_TIMEOUT)
+            else:
+                failure = SchedulingFailure.from_ascend(
+                    AscendError.LOGIN_FAILED,
+                    status_code=str(exc.status_code or ""),
+                )
+            return IntakeResult(ok=False, failure=failure)
 
         try:
             ascend_shipment = fetched_shipment_details(
@@ -227,26 +218,37 @@ class IntakeService:
                 access_token=access_token,
                 office_code=office_code,
             )
+        except AscendApiError as exc:
+            if is_ascend_timeout(exc):
+                failure = SchedulingFailure.from_catalog(IntegrationError.VENDOR_API_TIMEOUT)
+            else:
+                failure = SchedulingFailure.from_ascend(
+                    AscendError.SHIPMENT_FETCH_FAILED,
+                    reference_number=reference_number,
+                    status_code=str(exc.status_code or ""),
+                )
+            return IntakeResult(ok=False, failure=failure)
+
+        try:
             appointments = get_loc_ref_for_ascend_slots(
                 reference_number=reference_number,
                 access_token=access_token,
                 office_code=office_code,
             )
         except AscendApiError as exc:
-            catalog, message = catalog_from_ascend_api_error(
-                exc,
-                operation="shipment_fetch",
-                reference_number=reference_number,
-            )
-            return IntakeResult(
-                ok=False,
-                failure=SchedulingFailure.from_catalog(catalog, message),
-            )
+            if is_ascend_timeout(exc):
+                failure = SchedulingFailure.from_catalog(IntegrationError.VENDOR_API_TIMEOUT)
+            else:
+                failure = SchedulingFailure.from_ascend(
+                    AscendError.AVAILABILITY_FETCH_FAILED,
+                    reference_number=reference_number,
+                )
+            return IntakeResult(ok=False, failure=failure)
 
         pickup_raw = pickup_dropoff_from_ascend_shipment(ascend_shipment)
         if pickup_raw.get("error"):
             return self._failure(
-                "pickup_dropoff_extract_failed",
+                BusinessError.ASCEND_PICKUP_DROPOFF_EXTRACT_FAILED,
                 reference_number=reference_number,
             )
 
@@ -347,15 +349,15 @@ class IntakeService:
 def contact_from_rows_skip_reason(
     rows: list[dict[str, Any]],
     customer_name: str,
-) -> str | None:
+) -> BusinessError | None:
     row = find_customer_sheet_row(rows, customer_name)
     if row is None:
-        return SKIP_MISSING_RECIPIENT_EMAIL
+        return BusinessError.MISSING_RECIPIENT_EMAIL
     if not is_email_appointment_mode(appointment_mode_from_row(row)):
-        return SKIP_APPOINTMENT_MODE_NOT_EMAIL
+        return BusinessError.APPOINTMENT_MODE_NOT_EMAIL
     contact = customer_contact_from_row(row)
     if contact is None or not contact.email:
-        return SKIP_MISSING_RECIPIENT_EMAIL
+        return BusinessError.MISSING_RECIPIENT_EMAIL
     return None
 
 
@@ -364,34 +366,34 @@ def missing_recipient_email_skip_reason(
     tenant_settings: dict[str, Any],
     shipment_payload: dict[str, Any],
 ) -> str | None:
-    """Return a skip reason when sheet/recipient pre-check fails; else None."""
+    """Return a skip reason wire string when sheet/recipient pre-check fails; else None."""
     skip_reason, _contact = resolve_recipient_contact(
         tenant_settings=tenant_settings,
         shipment_payload=shipment_payload,
     )
-    return skip_reason
+    return skip_reason.value if skip_reason is not None else None
 
 
 def resolve_recipient_contact(
     *,
     tenant_settings: dict[str, Any],
     shipment_payload: dict[str, Any],
-) -> tuple[str | None, CustomerContactRow | None]:
-    """Resolve recipient via sheet gquery (or local xlsx); return skip reason or contact."""
+) -> tuple[BusinessError | None, CustomerContactRow | None]:
+    """Resolve recipient via sheet gquery (or local xlsx); return catalog error or contact."""
     settings = IntakeService._settings(tenant_settings)
     sheet_source = str(settings.appointment_data_source or "").strip()
     if not sheet_source:
-        return SKIP_MISSING_APPOINTMENT_DATA_SOURCE, None
+        return BusinessError.MISSING_APPOINTMENT_DATA_SOURCE, None
     sheet_customer = delivery_stop_name_from_payload(shipment_payload) or ""
     try:
         rows = load_appointment_customer_rows(sheet_source, sheet_customer)
     except (OSError, GoogleSheetsError, ValueError):
-        return SKIP_APPOINTMENT_SHEET_UNREADABLE, None
+        return BusinessError.APPOINTMENT_SHEET_UNREADABLE, None
 
     if skip := contact_from_rows_skip_reason(rows, sheet_customer):
         return skip, None
     row = find_customer_sheet_row(rows, sheet_customer)
     contact = customer_contact_from_row(row) if row is not None else None
     if contact is None or not contact.email:
-        return SKIP_MISSING_RECIPIENT_EMAIL, None
+        return BusinessError.MISSING_RECIPIENT_EMAIL, None
     return None, contact

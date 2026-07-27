@@ -607,12 +607,13 @@ class WorkflowLifecyclesRepository:
         """Atomically claim portal draft send via ``metadata.draft_send_queued``.
 
         Returns one of: ``claimed``, ``not_found``, ``conflict``, ``invalid_status``,
-        ``missing_email_draft``.
+        ``scheduling_draft_not_ready``.
         """
         from app.domain.appointment_scheduling.constants import (
             DRAFT_SEND_QUEUED,
             EMAIL_DRAFT,
         )
+        from app.domain.error_catalog import BusinessError
 
         row = self._session.execute(
             text(
@@ -651,7 +652,7 @@ class WorkflowLifecyclesRepository:
             and str(draft.get("subject") or "").strip()
             and str(draft.get("full_html") or "").strip()
         ):
-            return "missing_email_draft"
+            return BusinessError.SCHEDULING_DRAFT_NOT_READY.value
 
         updated = self._session.execute(
             text(

@@ -8,15 +8,10 @@ from typing import Any
 from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.failure import SchedulingFailure
-from app.domain.appointment_scheduling.skip_reasons import (
-    WIRE_TURVO_SHIPMENT_FETCH_FAILED,
-    WIRE_TURVO_STOP_UPDATE_FAILED,
-    WIRE_TURVO_TENDER_STATUS_FAILED,
-)
 from app.domain.appointment_scheduling.state_hygiene import (
     slim_turvo_write_result,
 )
-from app.domain.error_catalog import IntegrationError
+from app.domain.error_catalog import BusinessError, IntegrationError, format_error_message
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipment_status import (
     build_tender_status_body,
@@ -84,12 +79,8 @@ class TurvoConfirmResult:
         )
 
 
-def _wire_failure(wire: str, message: str) -> SchedulingFailure:
-    return SchedulingFailure.from_wire(wire, message)
-
-
-def _wire_error(raw: dict[str, Any], wire: str) -> str:
-    return str(raw.get("error") or wire)
+def _vendor_error_message(raw: dict[str, Any], catalog: IntegrationError) -> str:
+    return str(raw.get("error") or format_error_message(catalog))
 
 
 @dataclass(frozen=True)
@@ -168,18 +159,18 @@ class TurvoStopUpdateService:
         slug = tenant_slug
         sid = shipment_id
         if not slug or not sid:
-            wire = "missing_turvo_shipment_fields"
+            err = BusinessError.MISSING_TURVO_UPDATE_FIELDS
             return TurvoConfirmResult(
                 ok=False,
-                error=wire,
-                failure=SchedulingFailure.from_wire(wire, wire.replace("_", " ")),
+                error=err.value,
+                failure=SchedulingFailure.from_catalog(err),
             )
 
         payload, fetch_failure = await _fetch_shipment_payload(slug, sid, shipment_payload)
         if fetch_failure is not None:
             return TurvoConfirmResult(
                 ok=False,
-                error=WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+                error=IntegrationError.TURVO_SHIPMENT_FETCH_FAILED.value,
                 failure=fetch_failure,
             )
 
@@ -190,11 +181,11 @@ class TurvoStopUpdateService:
             delivery_date=str(delivery_date or ""),
         )
         if placeholder is None:
-            wire = "missing_delivery_stop_or_date"
+            err = BusinessError.MISSING_DELIVERY_STOP_OR_DATE
             return TurvoConfirmResult(
                 ok=False,
-                error=wire,
-                failure=SchedulingFailure.from_wire(wire, wire.replace("_", " ")),
+                error=err.value,
+                failure=SchedulingFailure.from_catalog(err),
                 stop_name=stop_name or None,
             )
 
@@ -216,7 +207,7 @@ class TurvoStopUpdateService:
             detail = str(exc)
             return TurvoConfirmResult(
                 ok=False,
-                error=WIRE_TURVO_STOP_UPDATE_FAILED,
+                error=IntegrationError.TURVO_STOP_UPDATE_FAILED.value,
                 failure=SchedulingFailure.from_catalog(
                     IntegrationError.TURVO_STOP_UPDATE_FAILED,
                     detail,
@@ -227,15 +218,13 @@ class TurvoStopUpdateService:
 
         ok = bool(raw.get("ok"))
         if not ok:
-            err = _wire_error(raw, WIRE_TURVO_STOP_UPDATE_FAILED)
+            catalog = IntegrationError.TURVO_STOP_UPDATE_FAILED
+            err = _vendor_error_message(raw, catalog)
             return TurvoConfirmResult(
                 ok=False,
                 updated=bool(raw.get("updated")),
-                error=WIRE_TURVO_STOP_UPDATE_FAILED,
-                failure=SchedulingFailure.from_catalog(
-                    IntegrationError.TURVO_STOP_UPDATE_FAILED,
-                    err,
-                ),
+                error=catalog.value,
+                failure=SchedulingFailure.from_catalog(catalog, err),
                 stop_name=placeholder.stop_name,
                 start_time=placeholder.start_time,
                 response=raw,
@@ -295,7 +284,7 @@ class TurvoStopUpdateService:
             if fetch_failure is not None:
                 return TurvoWriteResult(
                     ok=False,
-                    error=WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+                    error=IntegrationError.TURVO_SHIPMENT_FETCH_FAILED.value,
                     failure=fetch_failure,
                 )
             payload = fetched
@@ -305,11 +294,11 @@ class TurvoStopUpdateService:
             name = str(delivery_stop_name_from_payload(payload) or "").strip()
 
         if not slug or not sid or not name or not wall_time:
-            wire = "missing_turvo_update_fields"
+            err = BusinessError.MISSING_TURVO_UPDATE_FIELDS
             return TurvoWriteResult(
                 ok=False,
-                error=wire,
-                failure=_wire_failure(wire, wire.replace("_", " ")),
+                error=err.value,
+                failure=SchedulingFailure.from_catalog(err),
             )
 
         try:
@@ -330,7 +319,7 @@ class TurvoStopUpdateService:
             detail = str(exc)
             return TurvoWriteResult(
                 ok=False,
-                error=WIRE_TURVO_STOP_UPDATE_FAILED,
+                error=IntegrationError.TURVO_STOP_UPDATE_FAILED.value,
                 failure=SchedulingFailure.from_catalog(
                     IntegrationError.TURVO_STOP_UPDATE_FAILED,
                     detail,
@@ -341,15 +330,13 @@ class TurvoStopUpdateService:
 
         ok = bool(raw.get("ok"))
         if not ok:
-            err = _wire_error(raw, WIRE_TURVO_STOP_UPDATE_FAILED)
+            catalog = IntegrationError.TURVO_STOP_UPDATE_FAILED
+            err = _vendor_error_message(raw, catalog)
             return TurvoWriteResult(
                 ok=False,
                 updated=bool(raw.get("updated")),
-                error=WIRE_TURVO_STOP_UPDATE_FAILED,
-                failure=SchedulingFailure.from_catalog(
-                    IntegrationError.TURVO_STOP_UPDATE_FAILED,
-                    err,
-                ),
+                error=catalog.value,
+                failure=SchedulingFailure.from_catalog(catalog, err),
                 stop_name=name,
                 start_time=wall_time,
                 response=raw,
@@ -411,11 +398,11 @@ class TurvoStopUpdateService:
         slug = tenant_slug
         sid = shipment_id
         if not slug or not sid:
-            wire = "missing_turvo_tender_fields"
+            err = BusinessError.MISSING_TURVO_TENDER_FIELDS
             return TurvoWriteResult(
                 ok=False,
-                error=wire,
-                failure=_wire_failure(wire, wire.replace("_", " ")),
+                error=err.value,
+                failure=SchedulingFailure.from_catalog(err),
             )
 
         try:
@@ -428,7 +415,7 @@ class TurvoStopUpdateService:
             )
             return TurvoWriteResult(
                 ok=False,
-                error=WIRE_TURVO_SHIPMENT_FETCH_FAILED,
+                error=IntegrationError.TURVO_SHIPMENT_FETCH_FAILED.value,
                 failure=SchedulingFailure.from_catalog(
                     IntegrationError.TURVO_SHIPMENT_FETCH_FAILED,
                     str(exc),
@@ -440,11 +427,11 @@ class TurvoStopUpdateService:
 
         fragment_id = fragment_id_from_shipment_payload(payload)
         if not fragment_id:
-            wire = "missing_fragment_id"
+            err = BusinessError.MISSING_TURVO_FRAGMENT_ID
             return TurvoWriteResult(
                 ok=False,
-                error=wire,
-                failure=_wire_failure(wire, wire.replace("_", " ")),
+                error=err.value,
+                failure=SchedulingFailure.from_catalog(err),
             )
 
         tz = timezone_from_shipment_payload(payload)
@@ -457,7 +444,7 @@ class TurvoStopUpdateService:
             detail = str(exc)
             return TurvoWriteResult(
                 ok=False,
-                error=WIRE_TURVO_TENDER_STATUS_FAILED,
+                error=IntegrationError.TURVO_TENDER_STATUS_FAILED.value,
                 failure=SchedulingFailure.from_catalog(
                     IntegrationError.TURVO_TENDER_STATUS_FAILED,
                     detail,

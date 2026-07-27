@@ -7,6 +7,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.confirmation_reply import resolve_confirmation_reply_body
+from app.domain.error_catalog import BusinessError
 from app.domain.pod_lifecycle.settings import mikey_unipile_from, resolve_mikey_mailbox
 from app.domain.tenant_settings.email_recipients import (
     coerce_email_list,
@@ -71,7 +72,7 @@ class EmailService:
                 "appointment_draft_send missing draft fields lifecycle_id=%s",
                 data.get("workflow_lifecycle_id"),
             )
-            return SendResult(sent=False, error="missing_email_draft")
+            return SendResult(sent=False, error=BusinessError.SCHEDULING_DRAFT_NOT_READY.value)
 
         to, subject, body, cc = validated
         tenant_raw = getattr(state, "tenant_id", None) or data.get("tenant_id")
@@ -84,7 +85,7 @@ class EmailService:
                 data.get("workflow_lifecycle_id"),
                 data.get("shipment_id"),
             )
-            return SendResult(sent=False, error="missing_mikey_account_id")
+            return SendResult(sent=False, error=BusinessError.MISSING_MIKEY_ACCOUNT_ID.value)
 
         to_list = unipile_recipients_from_addresses([to])
         cc_list = unipile_recipients_from_addresses(cc) if cc else None
@@ -157,11 +158,11 @@ class EmailService:
         thread_id = str(data.get("thread_id") or "").strip()
         run_id = str(getattr(state, "execution_id", None) or data.get("execution_id") or "").strip()
         if not tenant_id or not thread_id:
-            return ConfirmationEmailResult(sent=False, error="missing_thread_or_tenant")
+            return ConfirmationEmailResult(sent=False, error=BusinessError.SCHEDULING_DRAFT_NOT_READY.value)
 
         mailbox = resolve_mikey_mailbox(state)
         if not mailbox:
-            return ConfirmationEmailResult(sent=False, error="missing_mikey_account_id")
+            return ConfirmationEmailResult(sent=False, error=BusinessError.MISSING_MIKEY_ACCOUNT_ID.value)
 
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):

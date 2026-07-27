@@ -14,7 +14,7 @@ from typing import Any
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.appointment_scheduling.scheduling_reference import is_diamond_scheduling_reference
-from app.domain.appointment_scheduling.skip_reasons import resolve_scheduling_error
+from app.domain.error_catalog import BusinessError, format_error_message, resolve_error_code
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
 from app.domain.tenant_settings.tms import has_tms_partner_config
 from app.models.workflow_run_event_type import WorkflowRunEventType
@@ -68,9 +68,8 @@ class IngressService:
         tenant_slug: str,
         shipment_id: str | None = None,
     ) -> IngressHandleResult:
-        resolved = resolve_scheduling_error(skip_reason)
-        if resolved is not None:
-            catalog, message = resolved
+        catalog = resolve_error_code(skip_reason)
+        if catalog is not None:
             logger.info(
                 "appointment_scheduling ingress skipped tenant_slug=%s shipment_id=%s "
                 "reason=%s error_code=%s error_category=%s error_description=%s",
@@ -79,7 +78,7 @@ class IngressService:
                 skip_reason,
                 catalog.value,
                 catalog.category.value,
-                message,
+                format_error_message(catalog),
             )
         else:
             logger.info(
@@ -221,7 +220,7 @@ def evaluate_shipment_gates(
 
     reference_number = reference_number_from_turvo_shipment(shipment_payload)
     if not reference_number:
-        return "missing_reference_number", None
+        return BusinessError.ASCEND_MISSING_REFERENCE.value, None
     if not is_diamond_scheduling_reference(reference_number):
         return "non_diamond_customer", None
 

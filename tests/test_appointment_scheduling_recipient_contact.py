@@ -4,12 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from app.domain.appointment_scheduling.skip_reasons import (
-    SKIP_APPOINTMENT_MODE_NOT_EMAIL,
-    SKIP_APPOINTMENT_SHEET_UNREADABLE,
-    SKIP_MISSING_APPOINTMENT_DATA_SOURCE,
-    SKIP_MISSING_RECIPIENT_EMAIL,
-)
+from app.domain.error_catalog import BusinessError
 from app.services.appointment_scheduling.intake_service import (
     contact_from_rows_skip_reason,
     missing_recipient_email_skip_reason,
@@ -62,7 +57,7 @@ def test_contact_from_rows_skip_reason_returns_none_when_email_found() -> None:
 
 def test_contact_from_rows_skip_reason_missing_recipient_email() -> None:
     rows = [{"CUSTOMER": "Other Customer", "CONTACT DETAILS(EMAILS)": "x@y.com"}]
-    assert contact_from_rows_skip_reason(rows, "Acme Corp") == SKIP_MISSING_RECIPIENT_EMAIL
+    assert contact_from_rows_skip_reason(rows, "Acme Corp") == BusinessError.MISSING_RECIPIENT_EMAIL
 
 
 def test_contact_from_rows_skip_reason_portal_mode_with_email() -> None:
@@ -74,7 +69,7 @@ def test_contact_from_rows_skip_reason_portal_mode_with_email() -> None:
             }
         )
     ]
-    assert contact_from_rows_skip_reason(rows, "Acme Corp") == SKIP_APPOINTMENT_MODE_NOT_EMAIL
+    assert contact_from_rows_skip_reason(rows, "Acme Corp") == BusinessError.APPOINTMENT_MODE_NOT_EMAIL
 
 
 def test_contact_from_rows_skip_reason_call_mode_phone_only() -> None:
@@ -85,7 +80,7 @@ def test_contact_from_rows_skip_reason_call_mode_phone_only() -> None:
             "CONTACT DETAILS(CALLS)": "555-123-4567",
         }
     ]
-    assert contact_from_rows_skip_reason(rows, "Acme Corp") == SKIP_APPOINTMENT_MODE_NOT_EMAIL
+    assert contact_from_rows_skip_reason(rows, "Acme Corp") == BusinessError.APPOINTMENT_MODE_NOT_EMAIL
 
 
 def test_contact_from_rows_skip_reason_blank_mode_with_email() -> None:
@@ -95,12 +90,12 @@ def test_contact_from_rows_skip_reason_blank_mode_with_email() -> None:
             "CONTACT DETAILS(EMAILS)": "ops@acme.example",
         }
     ]
-    assert contact_from_rows_skip_reason(rows, "Acme Corp") == SKIP_APPOINTMENT_MODE_NOT_EMAIL
+    assert contact_from_rows_skip_reason(rows, "Acme Corp") == BusinessError.APPOINTMENT_MODE_NOT_EMAIL
 
 
 def test_contact_from_rows_skip_reason_email_mode_no_email() -> None:
     rows = [{"CUSTOMER": "Acme Corp", "APPOINTMENT MODE": "email"}]
-    assert contact_from_rows_skip_reason(rows, "Acme Corp") == SKIP_MISSING_RECIPIENT_EMAIL
+    assert contact_from_rows_skip_reason(rows, "Acme Corp") == BusinessError.MISSING_RECIPIENT_EMAIL
 
 
 def test_missing_recipient_email_skip_reason_resolves_contact() -> None:
@@ -128,7 +123,7 @@ def test_missing_recipient_email_skip_reason_unknown_customer() -> None:
                 tenant_settings=_tenant_settings(),
                 shipment_payload=_shipment_payload(),
             )
-            == SKIP_MISSING_RECIPIENT_EMAIL
+            == BusinessError.MISSING_RECIPIENT_EMAIL.value
         )
 
 
@@ -139,7 +134,7 @@ def test_missing_recipient_email_skip_reason_empty_sheet_source() -> None:
             tenant_settings=settings,
             shipment_payload=_shipment_payload(),
         )
-        == SKIP_MISSING_APPOINTMENT_DATA_SOURCE
+        == BusinessError.MISSING_APPOINTMENT_DATA_SOURCE.value
     )
 
 
@@ -153,7 +148,7 @@ def test_missing_recipient_email_skip_reason_sheet_load_error() -> None:
                 tenant_settings=_tenant_settings(),
                 shipment_payload=_shipment_payload(),
             )
-            == SKIP_APPOINTMENT_SHEET_UNREADABLE
+            == BusinessError.APPOINTMENT_SHEET_UNREADABLE.value
         )
 
 
@@ -209,5 +204,5 @@ def test_missing_recipient_email_billing_customer_only_does_not_match() -> None:
                 tenant_settings=_tenant_settings(),
                 shipment_payload=payload,
             )
-            == SKIP_MISSING_RECIPIENT_EMAIL
+            == BusinessError.MISSING_RECIPIENT_EMAIL.value
         )

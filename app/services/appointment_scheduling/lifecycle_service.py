@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.domain.appointment_scheduling.failure import SchedulingFailure
-from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
-from app.domain.error_catalog import SystemError
+from app.domain.error_catalog import SystemError, resolve_error_code
 from app.domain.appointment_scheduling.constants import (
     EMAIL_DRAFT,
     LLM_APPOINTMENT_DECISION,
@@ -256,12 +255,13 @@ class LifecycleService:
     ) -> None:
         """Mark lifecycle restartable after a pre-workflow skip (e.g. enqueue_failed)."""
         reason = str(skip_reason or "").strip()
-        failure = scheduling_failure_from_skip(reason)
-        if failure is None:
-            failure = SchedulingFailure(
-                code=reason or SystemError.UNEXPECTED_NODE_FAILURE.value,
-                message=reason.replace("_", " ") if reason else "unexpected failure",
-                category=SystemError.UNEXPECTED_NODE_FAILURE.category,
+        catalog = resolve_error_code(reason)
+        if catalog is not None:
+            failure = SchedulingFailure.from_catalog(catalog)
+        else:
+            failure = SchedulingFailure.from_catalog(
+                SystemError.UNEXPECTED_NODE_FAILURE,
+                reason.replace("_", " ") if reason else SystemError.UNEXPECTED_NODE_FAILURE.description,
             )
         self.mark_failed(
             lifecycle_id,
