@@ -1049,7 +1049,7 @@ class AttachmentNormalizerService:
         if not items:
             return []
 
-        if not settings.LLM_API_KEY:
+        if not settings.LITELLM_API_KEY:
             results: List[Dict[str, Any]] = []
             for attachment_ref, image_bytes, attachment_id in items:
                 result = await self._aclassify_image(
@@ -1100,7 +1100,7 @@ class AttachmentNormalizerService:
         client: AsyncOpenAI | None = None,
     ) -> Dict[str, Any]:
         """Classify image via traced ``achat_vision_json`` on the current event loop."""
-        api_key = settings.LLM_API_KEY
+        api_key = settings.LITELLM_API_KEY
         if not api_key:
             logger.warning(
                 "attachment.classify_llm_skip attachment_id=%s reason=no_api_key",

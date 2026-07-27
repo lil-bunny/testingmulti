@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.config import settings
 from app.domain.load_tendering_settings import tenant_settings_root
 from app.domain.state import workflow_state_data
 from app.domain.tenant_settings.email_recipients import unipile_recipients_from_addresses
@@ -61,7 +60,7 @@ def resolve_mikey_mailbox(state_or_data: Any) -> MikeyMailbox | None:
     Resolve Unipile mailbox for T3RA POD / driver-assignment send.
 
     Precedence: explicit payload ``account_id`` (alias from tenant) → tenant
-    ``mikey_account_id`` → env ``UNIPILE_ACCOUNT_ID``.
+    ``mikey_account_id``.
     """
     data = workflow_state_data(state_or_data)
     explicit = _clean(data.get("account_id"))
@@ -74,9 +73,6 @@ def resolve_mikey_mailbox(state_or_data: Any) -> MikeyMailbox | None:
     if tenant_mailbox:
         return tenant_mailbox
 
-    env_account = _clean(settings.UNIPILE_ACCOUNT_ID)
-    if env_account:
-        return MikeyMailbox(account_id=env_account)
     return None
 
 
@@ -90,7 +86,7 @@ def resolve_pod_sender_account_id(state_or_data: Any) -> str | None:
     """
     Resolve Unipile ``account_id`` for POD send/fetch.
 
-    Precedence: explicit payload ``account_id`` → ``mikey_account_id`` → env fallback.
+    Precedence: explicit payload ``account_id`` → ``mikey_account_id``.
     """
     mailbox = resolve_mikey_mailbox(state_or_data)
     return mailbox.account_id if mailbox else None

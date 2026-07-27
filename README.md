@@ -44,10 +44,10 @@ Open `http://127.0.0.1:8000/docs`.
 uv run celery -A app.celery_app:celery_app worker -n default@%h -Q celery -c 1 --loglevel=info
 ```
 
-  - T3RA queue (`T3RA`):
+  - T3RA queue (`t3ra`):
 
 ```bash
-uv run celery -A app.celery_app:celery_app worker -n t3ra@%h -Q T3RA -c 2 --loglevel=info
+uv run celery -A app.celery_app:celery_app worker -n t3ra@%h -Q t3ra -c 2 --loglevel=info
 ```
 
 On Windows, add `--pool=solo` (concurrency is then sequential; use `--pool=threads` on the T3RA worker if you need overlapping tasks locally). Do not start one worker with `-Q celery,T3RA` if you are checking queue isolation. Queues are created automatically on first publish or worker bind - nothing to create in Redis by hand.
@@ -67,7 +67,7 @@ Open `http://127.0.0.1:5555`
 None of these are things you can generate yourself, ask someone from the dev team for all of them:
 
 * `UNIPILE_API_KEY`, `UNIPILE_DSN`, `UNIPILE_WEBHOOK_SECRET`, needed for anything email related
-* `LLM_API_KEY`, `LLM_BASE_URL`, and modality models `LLM_CHAT_MODEL` / `LLM_VISION_MODEL` / `LLM_PDF_MODEL` (LiteLLM gateway aliases; defaults `chat` / `vision` / `pdf`). Nothing that touches a document will work without the API key and base URL.
+* `LITELLM_API_KEY`, `LITELLM_PROXY_BASE_URL`, and modality models `LLM_CHAT_MODEL` / `LLM_VISION_MODEL` / `LLM_PDF_MODEL` (LiteLLM gateway aliases; defaults `chat` / `vision` / `pdf`). Nothing that touches a document will work without the API key and base URL.
 * Turvo sandbox access and partner API credentials, see below
 
 `LANGSMITH_API_KEY` is optional. Local fallback prompts (`prompts/fallbacks/`) are used automatically if this is missing or doesn't have access to the prompt Hub, so the app works fine without it. If you want working traces/prompt pulls, you need to be invited into the team's LangSmith organization, a personal LangSmith signup won't have access to the team's prompts.
@@ -153,7 +153,7 @@ Send a **fresh email** (not a reply) to the address you connected to Unipile, wi
 - subject containing "rate confirmation" (case insensitive), and not containing "tonu" or "revised"
 - the PDF attached
 
-Watch the Celery worker log. You should see it resolve the shipment from Turvo, upload the attachment, run vision extraction, and cache the result (`document_analysis` table, `analysis_type=ratecon_extraction`). If nothing shows up in the log at all, check "Common issues" below, particularly the classification and S3 ones.
+Watch the Celery worker log. You should see it resolve the shipment from Turvo and upload the attachment to S3 (`documents` table, `type=ratecon`). If nothing shows up in the log at all, check "Common issues" below, particularly the classification and S3 ones.
 
 ### 4. Trigger driver assignment / POD collection
 
@@ -162,7 +162,7 @@ This continues on the same email thread as the ratecon step above, it isn't a se
 - in Turvo, set the shipment status to Covered. This should trigger a driver assignment thread on the same email chain (a new email sent asking for driver details)
 - reply to that email with any driver name/phone, this is what actually completes the driver assignment step
 - once driver assignment is done, mark the shipment Route Complete in Turvo. This creates the POD `workflow_lifecycle` row and schedules reminder emails, it does not send one immediately, only on the reminder schedule
-- pick a POD PDF from the SharePoint folder and **reply** (not a fresh email) on the same thread with it attached. This is what actually gets classified as `pod_lifecycle` and runs the extraction + cross-validation pipeline
+- pick a POD PDF from the SharePoint folder and **reply** (not a fresh email) on the same thread with it attached. This is what actually gets classified as `pod_lifecycle` and runs the extraction + scoring pipeline (scores the POD against Turvo shipment facts directly, see `scripts/pod-scoring-model-v2/`)
 
 If you want to see a POD reminder email fire without waiting hours for the real schedule, you can revoke the scheduled Celery task and re-submit it with `countdown=0`, see `celery -A app.celery_app:celery_app inspect scheduled` to find it.
 
@@ -175,10 +175,6 @@ Check `BUCKET_ENDPOINT`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` in `.e
 ### "no workflow classified" for every email you send
 
 Most likely your test email isn't a fresh compose when it needs to be, or is a reply when it needs to be fresh. Rate confirmation classification requires `is_in_reply_to=False` (subject match, PDF attachment). POD classification requires `is_in_reply_to=True` (an actual Reply on the existing thread). Check `app/domain/t3ra/email_classification.py` for the exact rule if you're unsure.
-
-### `load_ratecon_analysis: cache miss` when replying with a POD
-
-The POD flow cross-validates against a cached ratecon extraction. If step 3 above (the ratecon email) never actually completed (check `documents`/`document_analysis` for a `ratecon` row on that shipment), the POD flow will short-circuit to `end` before running extraction. Send the ratecon email again once S3 is working.
 
 ### Route Complete webhook does nothing
 

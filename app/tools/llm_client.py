@@ -67,7 +67,7 @@ def _resolve_model(model: str | None, *, modality: LLMModality) -> str:
 
 
 def _require_llm_config() -> None:
-    if not settings.LLM_BASE_URL or not settings.LLM_API_KEY:
+    if not settings.LITELLM_PROXY_BASE_URL or not settings.LITELLM_API_KEY:
         raise LLMClientError("LLM config missing (base_url/api_key)")
 
 
@@ -87,8 +87,8 @@ def build_async_llm_client(
     )
     pool_size = max(1, max_connections)
     return AsyncOpenAI(
-        base_url=settings.LLM_BASE_URL,
-        api_key=settings.LLM_API_KEY,
+        base_url=settings.LITELLM_PROXY_BASE_URL,
+        api_key=settings.LITELLM_API_KEY,
         max_retries=0,
         timeout=effective_timeout_s,
         http_client=DefaultAsyncHttpxClient(
@@ -251,6 +251,7 @@ async def _achat_json_impl(
     temperature: float,
     timeout_s: float,
     model: str | None = None,
+    json_response_mode: bool = True,
     client: AsyncOpenAI,
 ) -> dict:
     """Call chat completions and parse JSON; raise ``LLMClientError`` on API/parse failure."""
@@ -264,7 +265,7 @@ async def _achat_json_impl(
         "temperature": temperature,
         "timeout": timeout_s,
     }
-    if settings.LLM_JSON_RESPONSE_MODE:
+    if json_response_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
     try:
@@ -293,6 +294,7 @@ async def _achat_vision_json_impl(
     max_tokens: int | None = None,
     model: str | None = None,
     image_mime_type: str = "image/jpeg",
+    json_response_mode: bool = True,
     client: AsyncOpenAI,
 ) -> dict:
     """Call vision chat completions and parse JSON; raise ``LLMClientError`` on failure."""
@@ -318,7 +320,7 @@ async def _achat_vision_json_impl(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    if settings.LLM_JSON_RESPONSE_MODE:
+    if json_response_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
     try:
@@ -347,6 +349,7 @@ async def _achat_pdf_json_impl(
     timeout_s: float,
     max_tokens: int | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     client: AsyncOpenAI,
 ) -> dict:
     """Call PDF chat completions and parse JSON; raise ``LLMClientError`` on failure.
@@ -377,7 +380,7 @@ async def _achat_pdf_json_impl(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    if settings.LLM_JSON_RESPONSE_MODE:
+    if json_response_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
     try:
@@ -397,6 +400,7 @@ async def achat_json(
     temperature: float = 0.2,
     timeout_s: float | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -413,6 +417,7 @@ async def achat_json(
             temperature=temperature,
             timeout_s=effective_timeout_s,
             model=model,
+            json_response_mode=json_response_mode,
             client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
@@ -432,6 +437,7 @@ async def achat_vision_json(
     max_tokens: int | None = None,
     model: str | None = None,
     image_mime_type: str = "image/jpeg",
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -451,6 +457,7 @@ async def achat_vision_json(
             max_tokens=max_tokens,
             model=model,
             image_mime_type=image_mime_type,
+            json_response_mode=json_response_mode,
             client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
@@ -470,6 +477,7 @@ async def achat_pdf_json(
     temperature: float = 0.2,
     max_tokens: int | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -489,6 +497,7 @@ async def achat_pdf_json(
             timeout_s=effective_timeout_s,
             max_tokens=max_tokens,
             model=model,
+            json_response_mode=json_response_mode,
             client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
@@ -505,6 +514,7 @@ def chat_json(
     temperature: float = 0.2,
     timeout_s: float | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -517,6 +527,7 @@ def chat_json(
             temperature=temperature,
             timeout_s=timeout_s,
             model=model,
+            json_response_mode=json_response_mode,
             prompt_trace=prompt_trace,
             metadata=metadata,
             tags=tags,
@@ -534,6 +545,7 @@ def chat_vision_json(
     max_tokens: int | None = None,
     model: str | None = None,
     image_mime_type: str = "image/jpeg",
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -549,6 +561,7 @@ def chat_vision_json(
             max_tokens=max_tokens,
             model=model,
             image_mime_type=image_mime_type,
+            json_response_mode=json_response_mode,
             prompt_trace=prompt_trace,
             metadata=metadata,
             tags=tags,
@@ -566,6 +579,7 @@ def chat_pdf_json(
     temperature: float = 0.2,
     max_tokens: int | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -581,6 +595,7 @@ def chat_pdf_json(
             temperature=temperature,
             max_tokens=max_tokens,
             model=model,
+            json_response_mode=json_response_mode,
             prompt_trace=prompt_trace,
             metadata=metadata,
             tags=tags,

@@ -21,7 +21,6 @@ dependencies = [
     "langgraph-cli[inmem]>=0.4.24",
     "langsmith>=0.7.32",
     "python-dotenv>=1.2.2",
-    "logfire[fastapi,httpx,psycopg]>=4.32.1",
     "boto3>=1.42.96",
     "openai>=2.33.0",
     "img2pdf>=0.6.3",

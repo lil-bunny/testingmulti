@@ -12,8 +12,6 @@ class Settings(BaseSettings):
     ENV: str = "dev"
 
     # LLM / observability
-    LOGFIRE_TOKEN: Optional[str] = None
-    LOGFIRE_SERVICE_NAME: Optional[str] = "freightx-local"
     OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROMPT_OWNER: Optional[str] = None
@@ -21,13 +19,12 @@ class Settings(BaseSettings):
     LANGSMITH_ENDPOINT: Optional[str] = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = True
     LANGSMITH_TRACING_V2: bool = True
-    LLM_BASE_URL: Optional[str] = None
-    LLM_API_KEY: Optional[str] = None
+    LITELLM_PROXY_BASE_URL: str
+    LITELLM_API_KEY: str
     LLM_CHAT_MODEL: str = "chat"
     LLM_VISION_MODEL: str = "vision"
     LLM_PDF_MODEL: str = "pdf"
     LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
-    LLM_JSON_RESPONSE_MODE: bool = True
 
     # DB
     DATABASE_HOST: str
@@ -49,8 +46,6 @@ class Settings(BaseSettings):
     # Unipile (required for POD reminder replies in thread)
     UNIPILE_API_KEY: str
     UNIPILE_BASE_URL: str = "https://api16.unipile.com:14674"
-    # Legacy fallback; prefer tenants.settings.mikey_account_id for T3RA POD mail
-    UNIPILE_ACCOUNT_ID: Optional[str] = None
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
     STUDIO_TENANT_SLUG: str = TenantSlug.T3RA
@@ -73,7 +68,7 @@ class Settings(BaseSettings):
     TURVO_POD_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024
     TURVO_POD_UPLOAD_TIMEOUT_S: float = 180.0
     TURVO_POD_UPLOAD_MAX_ATTEMPTS: int = 3
-    TURVO_HTTP_MAX_ATTEMPTS: int = 5  # 1 initial try + 4 retries
+    TURVO_HTTP_MAX_ATTEMPTS: int = 1  # 1 initial try + 4 retries
     TURVO_HTTP_RETRY_DELAY_S: float = 15.0
     TURVO_POD_OPTIMIZE_DPI: int = 150
     TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75

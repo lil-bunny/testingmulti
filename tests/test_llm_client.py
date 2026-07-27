@@ -12,12 +12,11 @@ from app.tools.llm_client import LLMClientError
 
 
 def _patch_llm_settings(monkeypatch) -> None:
-    monkeypatch.setattr(llm_client.settings, "LLM_BASE_URL", "https://llm.example")
-    monkeypatch.setattr(llm_client.settings, "LLM_API_KEY", "k")
+    monkeypatch.setattr(llm_client.settings, "LITELLM_PROXY_BASE_URL", "https://llm.example")
+    monkeypatch.setattr(llm_client.settings, "LITELLM_API_KEY", "k")
     monkeypatch.setattr(llm_client.settings, "LLM_CHAT_MODEL", "chat")
     monkeypatch.setattr(llm_client.settings, "LLM_VISION_MODEL", "vision")
     monkeypatch.setattr(llm_client.settings, "LLM_PDF_MODEL", "pdf")
-    monkeypatch.setattr(llm_client.settings, "LLM_JSON_RESPONSE_MODE", True)
     monkeypatch.setattr(llm_client, "get_current_run_tree", lambda: None)
 
 

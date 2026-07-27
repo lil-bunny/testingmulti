@@ -73,7 +73,7 @@ async def test_aclassify_image_uses_achat_vision_json(monkeypatch):
         fake_achat_vision_json,
     )
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
@@ -136,7 +136,7 @@ async def test_aclassify_image_omits_thread_id_without_lifecycle(monkeypatch):
         fake_achat_vision_json,
     )
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     _stub_classifier_prompts(monkeypatch)
@@ -176,7 +176,7 @@ async def test_aclassify_image_loads_hub_prompt_when_tenant_ref_configured(monke
         fake_achat_vision_json,
     )
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
@@ -220,7 +220,7 @@ async def test_aclassify_image_raises_on_llm_error(monkeypatch):
         raise LLMClientError("boom")
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
@@ -243,7 +243,7 @@ async def test_normalize_async_maps_llm_error_to_classifier_failed(monkeypatch):
         raise LLMClientError("boom")
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
@@ -277,7 +277,7 @@ async def test_aclassify_image_skips_without_api_key(monkeypatch):
         return {}
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         None,
     )
     monkeypatch.setattr(
@@ -311,7 +311,7 @@ async def test_classify_images_batch_runs_concurrently(monkeypatch):
         }
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
@@ -354,7 +354,7 @@ async def test_aclassify_under_running_loop_does_not_nest_asyncio_run(monkeypatc
         }
 
     monkeypatch.setattr(
-        "app.services.attachment_normalizer.settings.LLM_API_KEY",
+        "app.services.attachment_normalizer.settings.LITELLM_API_KEY",
         "test-key",
     )
     monkeypatch.setattr(
@@ -408,10 +408,9 @@ def test_chat_vision_json_passes_model_override(monkeypatch):
         async def close(self):
             return None
 
-    monkeypatch.setattr(llm_client.settings, "LLM_BASE_URL", "https://llm.example")
-    monkeypatch.setattr(llm_client.settings, "LLM_API_KEY", "k")
+    monkeypatch.setattr(llm_client.settings, "LITELLM_PROXY_BASE_URL", "https://llm.example")
+    monkeypatch.setattr(llm_client.settings, "LITELLM_API_KEY", "k")
     monkeypatch.setattr(llm_client.settings, "LLM_VISION_MODEL", "vision")
-    monkeypatch.setattr(llm_client.settings, "LLM_JSON_RESPONSE_MODE", True)
     monkeypatch.setattr(llm_client, "AsyncOpenAI", FakeAsyncOpenAI)
     monkeypatch.setattr(llm_client, "get_current_run_tree", lambda: None)
 
