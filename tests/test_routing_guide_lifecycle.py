@@ -125,13 +125,23 @@ def test_evaluate_nodes_set_routing_guide_reason():
     assert timeout_state.data["routing_guide_reason"] == "carrier_timeout"
 
 
-def test_evaluate_reject_marks_gelita_shipper_domain_terminal():
+def test_evaluate_reject_marks_shipper_domain_terminal():
+    """Domain comes from tenant_settings.inbound_routing_emails[0] (freightx.ai in fixture)."""
     reject_state = _state(
-        from_attendee={"identifier": "ops@gelita.com", "display_name": "Ops"}
+        from_attendee={"identifier": "ops@freightx.ai", "display_name": "Ops"}
     )
     evaluate_reject_routing_guide(reject_state)
     assert reject_state.data["routing_guide_reason"] == "shipper_rejected"
     assert reject_state.data["routing_guide_shipper_domain_reject"] is True
+
+
+def test_evaluate_reject_ignores_from_outside_inbound_routing_domain():
+    reject_state = _state(
+        from_attendee={"identifier": "ops@gelita.com", "display_name": "Ops"}
+    )
+    evaluate_reject_routing_guide(reject_state)
+    assert reject_state.data["routing_guide_reason"] == "carrier_rejected"
+    assert not reject_state.data.get("routing_guide_shipper_domain_reject")
 
 
 def test_routing_guide_router_shipper_domain_reject_is_terminal():
