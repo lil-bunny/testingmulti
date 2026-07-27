@@ -232,6 +232,61 @@ def test_record_confirm_email_sent_skips_when_already_awaiting() -> None:
     transitions.apply.assert_not_called()
 
 
+def test_tms_and_ascend_actions_do_not_inherit_state_communication_id() -> None:
+    transitions = MagicMock()
+    svc = _svc(transitions=transitions)
+    state = _state(
+        communication_id=_COMM_UUID,
+        ascend_update_result={"ok": True, "skipped": False, "dry_run": False},
+        turvo_update_result={"stop_name": "COSTCO", "start_time": "2026-07-04 08:00:00"},
+    )
+
+    svc.record_ascend_update(state)
+    svc.record_turvo_update(state)
+    svc.record_turvo_tendered(state)
+    svc.record_turvo_confirm_placeholder(
+        state,
+        result={
+            "ok": True,
+            "stop_name": "COSTCO #584 NW",
+            "start_time": "2026-06-03 00:01:00",
+        },
+    )
+    svc.record_weekend_pickup_update(
+        state,
+        result={
+            "skipped": False,
+            "ascend_updated": True,
+            "turvo_updated": True,
+            "turvo_pickup_start_time": "2026-07-01 08:00:00",
+            "pickup_stop_name": "Pickup",
+        },
+    )
+
+    assert transitions.apply.call_count == 4
+    for call in transitions.apply.call_args_list:
+        assert call[0][0].communication_id is None
+
+    seq = transitions.apply_sequence.call_args[0]
+    assert len(seq) == 2
+    assert all(cmd.communication_id is None for cmd in seq)
+
+
+def test_record_confirmation_sent_keeps_explicit_communication_id() -> None:
+    transitions = MagicMock()
+    svc = _svc(transitions=transitions)
+
+    svc.record_confirmation_sent(
+        _state(
+            communication_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            confirmation_communication_id=_COMM_UUID,
+        )
+    )
+
+    cmd = transitions.apply.call_args[0][0]
+    assert cmd.communication_id == _COMM_UUID
+
+
 def test_record_failed_writes_exception_and_pending_review_status() -> None:
     from app.domain.appointment_scheduling.failure import SchedulingFailure
     from app.domain.error_catalog import BusinessError, format_error_message
