@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from app.core.asyncio_util import run_sync
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
@@ -73,14 +73,14 @@ class WeekendPickupService:
         self._shipments = shipments_service or ShipmentsService()
 
     def apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
-        result = self._apply_weekend_shifted_pickup_from_state(state)
+        result = run_sync(self._apply_weekend_shifted_pickup_from_state(state))
         self._activity.record_weekend_pickup_update(
             state,
             result=result.to_checkpoint_dict(),
         )
         return result
 
-    def _apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
+    async def _apply_weekend_shifted_pickup_from_state(self, state) -> WeekendPickupResult:
         data = state.data or {}
         decision = data.get("llm_appointment_decision") or {}
         if not isinstance(decision, dict):
@@ -173,7 +173,7 @@ class WeekendPickupService:
                     )
                 return WeekendPickupResult(ok=False, failure=failure)
 
-        turvo_result = self._apply_turvo_pickup(
+        turvo_result = await self._apply_turvo_pickup(
             tenant_slug=tenant_slug,
             shipment_id=shipment_id,
             shipment_payload=data.get("shipment") if isinstance(data.get("shipment"), dict) else None,
@@ -199,7 +199,7 @@ class WeekendPickupService:
         load_id = str(data.get("load_id") or "").strip()
         customer_name_override = str(data.get("customer_name") or "").strip() or None
         if tenant_id and load_id:
-            refresh = self._shipments.refresh_display_from_turvo_sync(
+            refresh = await self._shipments.refresh_display_from_turvo(
                 tenant_id=tenant_id,
                 tenant_slug=tenant_slug,
                 turvo_shipment_id=shipment_id,
@@ -225,7 +225,7 @@ class WeekendPickupService:
         )
 
     @staticmethod
-    def _apply_turvo_pickup(
+    async def _apply_turvo_pickup(
         *,
         tenant_slug: str,
         shipment_id: str,
@@ -241,18 +241,16 @@ class WeekendPickupService:
         payload = shipment_payload
         try:
             if payload is None:
-                payload = run_sync(get_shipment(slug, sid))
+                payload = await get_shipment(slug, sid)
             stop_name = str(pickup_stop_name_from_payload(payload or {}) or "").strip()
             if not stop_name:
                 return {"ok": False, "error": "missing_pickup_stop_name"}
-            return run_sync(
-                update_stop_appointment_time(
-                    slug,
-                    sid,
-                    stop_name=stop_name,
-                    start_time=wall_time,
-                    shipment_payload=payload,
-                )
+            return await update_stop_appointment_time(
+                slug,
+                sid,
+                stop_name=stop_name,
+                start_time=wall_time,
+                shipment_payload=payload,
             )
         except (TurvoApiError, ValueError) as exc:
             logger.warning(

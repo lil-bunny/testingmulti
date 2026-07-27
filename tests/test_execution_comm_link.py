@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -14,13 +14,21 @@ _LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 _TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
+async def _invoke_to_thread_inline(fn, /, *args, **kwargs):
+    return fn(*args, **kwargs)
+
+
 @pytest.mark.asyncio
 async def test_execute_links_communication_to_workflow_run() -> None:
     graph = MagicMock()
-    graph.invoke.return_value = {"data": {}}
+    graph.invoke = MagicMock(return_value={"data": {}})
 
     with (
         patch.object(ExecutionService, "__init__", lambda self: None),
+        patch(
+            "app.services.execution_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=_invoke_to_thread_inline),
+        ),
         patch(
             "app.services.execution_service.WorkflowRunsService"
         ) as runs_cls,
@@ -56,10 +64,14 @@ async def test_execute_links_communication_to_workflow_run() -> None:
 @pytest.mark.asyncio
 async def test_execute_skips_comm_link_without_communication_id() -> None:
     graph = MagicMock()
-    graph.invoke.return_value = {"data": {}}
+    graph.invoke = MagicMock(return_value={"data": {}})
 
     with (
         patch.object(ExecutionService, "__init__", lambda self: None),
+        patch(
+            "app.services.execution_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=_invoke_to_thread_inline),
+        ),
         patch("app.services.execution_service.WorkflowRunsService") as runs_cls,
         patch("app.services.execution_service.CommunicationsService") as comm_cls,
     ):
@@ -82,10 +94,14 @@ async def test_execute_skips_comm_link_without_communication_id() -> None:
 @pytest.mark.asyncio
 async def test_execute_carrier_email_received_links_lifecycle() -> None:
     graph = MagicMock()
-    graph.invoke.return_value = {"data": {}}
+    graph.invoke = MagicMock(return_value={"data": {}})
 
     with (
         patch.object(ExecutionService, "__init__", lambda self: None),
+        patch(
+            "app.services.execution_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=_invoke_to_thread_inline),
+        ),
         patch("app.services.execution_service.WorkflowRunsService") as runs_cls,
         patch("app.services.execution_service.CommunicationsService") as comm_cls,
     ):

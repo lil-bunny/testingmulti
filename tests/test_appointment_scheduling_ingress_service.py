@@ -1,4 +1,4 @@
-"""IngressService unit tests (cheap webhook gates + enqueue only)."""
+"""IngressService unit tests (cheap webhook gates + serializer enqueue)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from app.integrations.turvo.shipments import COVERED_STATUS_CODE_KEY
 from app.integrations.turvo.webhook_mapping import TENDER_ACCEPTED_STATUS_CODE_KEY
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.appointment_scheduling.ingress_service import IngressService
+from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
 _TENANT_SLUG = "t3ra"
@@ -17,6 +18,8 @@ _TENANT_UUID = "11111111-1111-1111-1111-111111111111"
 _SHIPMENT_ID = "12345"
 _LOAD_ID = "47361"
 _LIFECYCLE_ID = "33333333-3333-3333-3333-333333333333"
+_SHIPMENTS_ROW_ID = "22222222-2222-2222-2222-222222222222"
+_STUB_LIFECYCLE_ID = "44444444-4444-4444-4444-444444444444"
 
 
 def _shipment_update_body(*, tender_accepted: bool = True) -> dict:
@@ -55,6 +58,7 @@ def _service(
     *,
     tenant_settings: dict | None = None,
     blocking_lifecycle_id: str | None = None,
+    shipments_row: dict | None = None,
 ) -> IngressService:
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {
@@ -66,10 +70,15 @@ def _service(
     lifecycle.find_blocking_appointment_scheduling_lifecycle_id.return_value = (
         blocking_lifecycle_id
     )
+    lifecycle.deterministic_pickup_lifecycle_id.return_value = _STUB_LIFECYCLE_ID
+
+    shipments = MagicMock()
+    shipments.get_by_shipment_number.return_value = shipments_row
 
     return IngressService(
         tenants_service=tenants,
         lifecycle_service=lifecycle,
+        shipments_service=shipments,
     )
 
 
@@ -108,38 +117,65 @@ async def test_handle_shipment_update_skips_duplicate_lifecycle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_shipment_update_happy_path_enqueues_slim_payload() -> None:
-    svc = _service()
-    celery_task = MagicMock(id="celery-task-1")
+async def test_handle_shipment_update_resolve_then_enqueue_when_shipments_row_exists() -> None:
+    svc = _service(
+        shipments_row={"id": _SHIPMENTS_ROW_ID, "shipment_number": _SHIPMENT_ID},
+    )
+    serialize_result = SerializeEnqueueResult(
+        lifecycle_id=_LIFECYCLE_ID,
+        inbox_key="inbox",
+        status="started",
+        celery_task_id="celery-task-1",
+    )
 
     with patch(
-        "app.services.appointment_scheduling.ingress_service.run_workflow_async.apply_async",
-        return_value=celery_task,
-    ) as apply_async:
+        "app.services.appointment_scheduling.ingress_service.LifecycleRunSerializerService"
+    ) as serializer_cls:
+        serializer_cls.return_value.resolve_then_enqueue.return_value = serialize_result
         result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
 
     assert result.enqueued is True
     assert result.execution_id
-    apply_async.assert_called_once()
-    kwargs = apply_async.call_args.kwargs["kwargs"]
-    assert kwargs["workflow_name"] == "appointment_scheduling"
-    payload = kwargs["payload"]
-    assert payload["event_type"] == WorkflowRunEventType.TURVO_PICKUP_CHANGED.value
-    assert payload["shipment_id"] == _SHIPMENT_ID
-    assert payload["load_id"] == _LOAD_ID
-    assert payload["tenant_id"] == _TENANT_UUID
-    assert payload["tenant_slug"] == _TENANT_SLUG
-    assert "shipment" not in payload
-    assert "workflow_lifecycle_id" not in payload
-    assert "shipments_row_id" not in payload
-    assert "reference_number" not in payload
+    serializer_cls.return_value.resolve_then_enqueue.assert_called_once()
+    serializer_cls.return_value.enqueue.assert_not_called()
+    kwargs = serializer_cls.return_value.resolve_then_enqueue.call_args.kwargs
+    assert kwargs["payload"]["shipments_row_id"] == _SHIPMENTS_ROW_ID
+    assert kwargs["payload"]["event_type"] == WorkflowRunEventType.TURVO_PICKUP_CHANGED.value
 
 
 @pytest.mark.asyncio
-async def test_handle_shipment_update_enqueue_failed_does_not_create_lifecycle() -> None:
+async def test_handle_shipment_update_enqueue_stub_when_no_shipments_row() -> None:
+    svc = _service(shipments_row=None)
+    serialize_result = SerializeEnqueueResult(
+        lifecycle_id=_STUB_LIFECYCLE_ID,
+        inbox_key="inbox",
+        status="buffered",
+        celery_task_id=None,
+    )
+
+    with patch(
+        "app.services.appointment_scheduling.ingress_service.LifecycleRunSerializerService"
+    ) as serializer_cls:
+        serializer_cls.return_value.enqueue.return_value = serialize_result
+        result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)
+
+    assert result.enqueued is True
+    assert result.execution_id
+    svc._lifecycle.deterministic_pickup_lifecycle_id.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_number=_SHIPMENT_ID,
+    )
+    svc._lifecycle.ensure_pickup_ingress_lifecycle_stub.assert_not_called()
+    serializer_cls.return_value.enqueue.assert_called_once()
+    payload = serializer_cls.return_value.enqueue.call_args.kwargs["payload"]
+    assert payload["workflow_lifecycle_id"] == _STUB_LIFECYCLE_ID
+
+
+@pytest.mark.asyncio
+async def test_handle_shipment_update_enqueue_failed() -> None:
     svc = _service()
     with patch(
-        "app.services.appointment_scheduling.ingress_service.enqueue_appointment_scheduling_pickup_changed",
+        "app.services.appointment_scheduling.ingress_service.LifecycleRunSerializerService",
         side_effect=RuntimeError("broker down"),
     ):
         result = await svc.handle_shipment_update(_shipment_update_body(), _TENANT_SLUG)

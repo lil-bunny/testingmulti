@@ -11,7 +11,7 @@ from app.domain.appointment_scheduling.constants import (
     LLM_APPOINTMENT_DECISION,
 )
 from app.services.appointment_scheduling.lifecycle_service import LifecycleService
-from app.workflows.graph.routers import appointment_ingress_router, appointment_weekend_pickup_router
+from app.workflows.graph.routers import appointment_weekend_pickup_router
 
 _TENANT_UUID = "00000000-0000-4000-8000-0000000000e1"
 _RUN_UUID = "22222222-3333-4444-5555-666666666666"
@@ -463,11 +463,6 @@ def test_weekend_pickup_router_uses_canonical_llm_decision() -> None:
         },
     )
     assert appointment_weekend_pickup_router(state) == "apply"
-
-
-def test_ingress_router_ends_on_canonical_skip_reason() -> None:
-    state = _state(appointment_ingress_skip_reason="duplicate_lifecycle")
-    assert appointment_ingress_router(state) == "end"
 
 
 def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_send_path():

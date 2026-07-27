@@ -1,8 +1,8 @@
 """Worker-side prepare for appointment scheduling Turvo pickup ingress.
 
 Owns Turvo shipment/activity fetch, diamond/multi-stop/pickup gates, sheet recipient
-resolution, shipment upsert, and lifecycle create. HTTP webhook only enqueues a slim
-payload (tenant + shipment_id + optional load_id).
+resolution, shipment upsert, and lifecycle create. Invoked from ``WorkflowService.run``
+before LangGraph (not a graph node).
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
 from app.domain.appointment_scheduling.models import CustomerContactRow
@@ -59,7 +58,7 @@ class IngressPrepareService:
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
         self._location_link = location_link_service or ShipmentLocationLinkService()
 
-    def prepare_pickup_changed(
+    async def prepare_pickup_changed(
         self,
         *,
         tenant_slug: str,
@@ -103,7 +102,7 @@ class IngressPrepareService:
 
         if shipment_payload is None:
             try:
-                shipment_payload = run_sync(get_shipment(tenant_slug, shipment_id))
+                shipment_payload = await get_shipment(tenant_slug, shipment_id)
             except (TurvoApiError, ValueError) as exc:
                 logger.warning(
                     "appointment_scheduling prepare shipment fetch failed "
@@ -132,9 +131,7 @@ class IngressPrepareService:
             )
 
         try:
-            activity_json = run_sync(
-                fetch_shipment_activity_list(tenant_slug, shipment_id)
-            )
+            activity_json = await fetch_shipment_activity_list(tenant_slug, shipment_id)
         except (TurvoApiError, ValueError) as exc:
             logger.warning(
                 "appointment_scheduling prepare activity fetch failed "
@@ -212,7 +209,29 @@ class IngressPrepareService:
         )
 
 
+def merge_prepare_result_into_payload(
+    payload: dict[str, Any],
+    result: IngressPrepareResult,
+) -> dict[str, Any]:
+    """Stamp prepare outputs onto the workflow payload before graph invoke."""
+    merged = dict(payload)
+    if result.workflow_lifecycle_id:
+        merged["workflow_lifecycle_id"] = result.workflow_lifecycle_id
+    if result.shipments_row_id:
+        merged["shipments_row_id"] = result.shipments_row_id
+    if result.reference_number:
+        merged["reference_number"] = result.reference_number
+    if result.load_id:
+        merged["load_id"] = result.load_id
+    if result.customer_name:
+        merged["customer_name"] = result.customer_name
+    if result.customer_contact is not None:
+        merged["customer_contact"] = result.customer_contact.model_dump(mode="json")
+    return merged
+
+
 __all__ = (
     "IngressPrepareService",
     "IngressPrepareResult",
+    "merge_prepare_result_into_payload",
 )

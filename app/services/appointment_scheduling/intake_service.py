@@ -75,7 +75,7 @@ class IntakeService:
         self._location_link = location_link_service or ShipmentLocationLinkService()
 
     @staticmethod
-    def _turvo_shipment_from_payload(
+    async def _turvo_shipment_from_payload(
         payload: dict[str, Any],
         *,
         tenant_slug: str,
@@ -84,7 +84,7 @@ class IntakeService:
         cached = payload.get("shipment")
         if isinstance(cached, dict):
             return cached
-        return run_sync(get_shipment_async(tenant_slug, shipment_id))
+        return await get_shipment_async(tenant_slug, shipment_id)
 
     @staticmethod
     def _contact_from_payload(
@@ -145,12 +145,27 @@ class IntakeService:
         tenant_settings: dict[str, Any],
         payload: dict[str, Any],
     ) -> IntakeResult:
+        return run_sync(
+            self._run_intake_async(
+                tenant_slug=tenant_slug,
+                tenant_settings=tenant_settings,
+                payload=payload,
+            )
+        )
+
+    async def _run_intake_async(
+        self,
+        *,
+        tenant_slug: str,
+        tenant_settings: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> IntakeResult:
         shipment_id = str(payload.get("shipment_id") or "").strip()
         if not shipment_id:
             return self._failure(BusinessError.SCHEDULING_MISSING_SHIPMENT_ID)
 
         try:
-            turvo_shipment = self._turvo_shipment_from_payload(
+            turvo_shipment = await self._turvo_shipment_from_payload(
                 payload,
                 tenant_slug=tenant_slug,
                 shipment_id=shipment_id,

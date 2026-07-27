@@ -8,7 +8,6 @@ from app.domain.appointment_scheduling.failure import (
     raise_scheduling_result_failure,
 )
 from app.domain.appointment_scheduling.constants import (
-    APPOINTMENT_INGRESS_SKIP_REASON,
     APPOINTMENT_PAYLOAD,
     LLM_APPOINTMENT_DECISION,
 )
@@ -27,9 +26,6 @@ from app.services.appointment_scheduling.email_service import (
 from app.services.appointment_scheduling.intake_service import (
     IntakeService,
 )
-from app.services.appointment_scheduling.ingress_prepare_service import (
-    IngressPrepareService,
-)
 from app.services.appointment_scheduling.lifecycle_service import (
     LifecycleService,
 )
@@ -45,37 +41,6 @@ from app.services.appointment_scheduling.weekend_pickup_service import (
 from app.workflows.utils.decorators import safe_node
 
 logger = get_logger(__name__)
-
-
-def prepare_appointment_ingress(state):
-    tenant_slug = str(state.data.get("tenant_slug") or state.tenant_slug or "").strip()
-    tenant_id = str(state.data.get("tenant_id") or state.tenant_id or "").strip()
-    tenant_settings = state.data.get("tenant_settings") or {}
-    ingress = IngressPrepareService()
-    result = ingress.prepare_pickup_changed(
-        tenant_slug=tenant_slug,
-        tenant_id=tenant_id,
-        tenant_settings=tenant_settings,
-        payload=state.data,
-    )
-    if not result.ok:
-        state.data[APPOINTMENT_INGRESS_SKIP_REASON] = result.skip_reason
-        logger.info(
-            "prepare_appointment_ingress skip reason=%s shipment_id=%s",
-            result.skip_reason,
-            state.data.get("shipment_id"),
-        )
-        return state
-
-    state.data["workflow_lifecycle_id"] = result.workflow_lifecycle_id
-    state.data["shipments_row_id"] = result.shipments_row_id
-    state.data["reference_number"] = result.reference_number
-    if result.load_id:
-        state.data["load_id"] = result.load_id
-    state.data["customer_name"] = result.customer_name
-    if result.customer_contact is not None:
-        state.data["customer_contact"] = result.customer_contact.model_dump(mode="json")
-    return state
 
 
 def read_appointment_lifecycle(state):

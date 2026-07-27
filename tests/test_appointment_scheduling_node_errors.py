@@ -236,9 +236,11 @@ def test_apply_weekend_shifted_pickup_preserves_business_category(
         BusinessError.ASCEND_NOT_CONFIGURED,
         "Ascend credentials are not configured.",
     )
-    mock_weekend_cls.return_value.apply_weekend_shifted_pickup_from_state.return_value = WeekendPickupResult(
-        ok=False,
-        failure=failure,
+    mock_weekend_cls.return_value.apply_weekend_shifted_pickup_from_state.return_value = (
+        WeekendPickupResult(
+            ok=False,
+            failure=failure,
+        )
     )
 
     result = apply_weekend_shifted_pickup(_state())
@@ -252,9 +254,11 @@ def test_apply_weekend_shifted_pickup_preserves_business_category(
 def test_apply_weekend_shifted_pickup_skip_does_not_set_error(
     mock_weekend_cls,
 ) -> None:
-    mock_weekend_cls.return_value.apply_weekend_shifted_pickup_from_state.return_value = WeekendPickupResult(
-        ok=True,
-        skipped=True,
+    mock_weekend_cls.return_value.apply_weekend_shifted_pickup_from_state.return_value = (
+        WeekendPickupResult(
+            ok=True,
+            skipped=True,
+        )
     )
 
     state = _state()
