@@ -132,7 +132,8 @@ class Unipile:
         after: Optional[str] = None,
         meta_only: bool = False,
         thread_id: Optional[str] = None,
-        cursor: Optional[str] = None
+        cursor: Optional[str] = None,
+        to: Optional[str] = None,
     ) -> List[Dict]:
         """
         List emails from a mailbox with various filtering options.
@@ -146,6 +147,7 @@ class Unipile:
             meta_only: If True, only return email metadata (no body)
             thread_id: Optional thread ID to filter emails by specific thread
             cursor: Cursor for pagination (alternative to before/after)
+            to: Optional recipient filter (to/cc/bcc)
             
         Returns:
             List[Dict]: List of email objects
@@ -178,6 +180,9 @@ class Unipile:
                     
                 if thread_id:
                     params["thread_id"] = thread_id
+
+                if to:
+                    params["to"] = to
                     
                 if meta_only:
                     params["meta_only"] = "true"

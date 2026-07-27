@@ -45,7 +45,28 @@ def _has_in_reply_to(payload: dict[str, Any]) -> bool:
     val = payload.get("in_reply_to")
     if val is None:
         return False
+    if isinstance(val, dict):
+        for key in ("id", "message_id"):
+            raw = val.get(key)
+            if raw is not None and str(raw).strip():
+                return True
+        return False
     return bool(str(val).strip())
+
+
+def _in_reply_to_id(payload: dict[str, Any]) -> str | None:
+    """Unipile ``in_reply_to.id`` (= parent ``deprecated_id``) for outbound correlation."""
+    val = payload.get("in_reply_to")
+    if val is None:
+        return None
+    if isinstance(val, dict):
+        raw = val.get("id")
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        return text or None
+    text = str(val).strip()
+    return text or None
 
 
 def _clean_thread_id(payload: dict[str, Any]) -> str | None:
@@ -54,6 +75,16 @@ def _clean_thread_id(payload: dict[str, Any]) -> str | None:
         return None
     s = str(raw).strip()
     return s if s else None
+
+
+def _is_forward_subject(payload: dict[str, Any]) -> bool:
+    subject = str(payload.get("subject") or "").strip().lower()
+    return subject.startswith(("fw:", "fwd:"))
+
+
+def _is_tender_sent_to_tenant_sub_status(value: Any) -> bool:
+    sub_status = str(value or "").strip().lower()
+    return sub_status.startswith("tender_sent_to_tenant")
 
 
 def _is_inbox_role(payload: dict[str, Any]) -> bool:
@@ -258,15 +289,39 @@ class GelitaEmailIngressService:
         if not thread_id:
             return None
 
-        # Resolve lifecycle from prior carrier_email_received comm patches on this thread.
-        lifecycle_id = self._communications.resolve_lifecycle_id_for_thread(
-            tenant_id=tenant.tenant_uuid,
-            thread_id=thread_id,
-            workflow_name=WORKFLOW_NAME,
-        )
+        # Prefer parent message correlation: in_reply_to.id == outbound deprecated_id
+        # stored as communications.external_id. Fall back to thread → lifecycle.
+        parent_external_id = _in_reply_to_id(payload)
+        lifecycle_id: str | None = None
+        if parent_external_id:
+            lifecycle_id = self._communications.resolve_lifecycle_id_for_external_id(
+                tenant_id=tenant.tenant_uuid,
+                external_id=parent_external_id,
+                workflow_name=WORKFLOW_NAME,
+            )
+        if not lifecycle_id:
+            lifecycle_id = self._communications.resolve_lifecycle_id_for_thread(
+                tenant_id=tenant.tenant_uuid,
+                thread_id=thread_id,
+                workflow_name=WORKFLOW_NAME,
+            )
         if not lifecycle_id:
             return None
         lifecycle_row = self._lifecycle.read_lifecycle_row_by_id(lifecycle_id) or {}
+
+        # Ops forwards on the original outbound thread should transition the lifecycle
+        # into carrier-sent handling, not run ack classification first.
+        if _is_forward_subject(payload) and _is_tender_sent_to_tenant_sub_status(
+            lifecycle_row.get("sub_status")
+        ):
+            logger.info(
+                "gelita ack_received rerouted forward to carrier_email_received "
+                "lifecycle_id=%s thread_id=%s subject=%r",
+                lifecycle_id,
+                thread_id,
+                payload.get("subject"),
+            )
+            return None
 
         # Guard: lifecycle already accepted — ack is a no-op.
         if status_type_from_db(lifecycle_row.get("status")) == StatusType.COMPLETED:

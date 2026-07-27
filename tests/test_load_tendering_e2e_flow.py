@@ -105,6 +105,7 @@ def _tenant_settings_json(
         "enabledProcesses": ["load_tendering"],
         "inbound_routing_emails": ["ops@example-test.com"],
         "ana_at_gelita_account_id": "test-unipile-account-id",
+        "unipile_sent_folder_id": "test-unipile-sent-folder-id",
         "prompts": {"load_tendering": {"carrier_ack": "carrier-ack-classify:e2e-test"}},
         "load_tendering": {
             "ltl": _load_type_branch(carrier_email, include_products_block=include_products_block),
@@ -715,6 +716,49 @@ async def test_ack_received_rejected_ltl_is_terminal(
 
     assert mock_carrier_ack.called
     assert not mock_send_email.called, "LTL rejection is terminal, should not fail over"
+
+
+@pytest.mark.asyncio
+async def test_ack_received_rejected_from_gelita_domain_is_terminal(
+    test_tenant, mock_send_email, mock_carrier_ack
+):
+    """FTL: @gelita.com shipper reject completes as rejected — no next-carrier failover."""
+    ctx = await _create_tender_then_reply(
+        test_tenant, mock_send_email, "30006", load_type="FTL"
+    )
+    mock_carrier_ack.return_value = {
+        "decision": "rejected",
+        "confidence": 0.93,
+        "reason": "shipper cancelled the tender",
+    }
+    mock_send_email.reset_mock()
+
+    ack_payload = {
+        "event_type": "ack_received",
+        "tender_id": ctx["tender_id"],
+        "order_number": ctx["order_number"],
+        "thread_id": ctx["thread_id"],
+        "in_reply_to": "prior-msg-id",
+        "from_attendee": {
+            "identifier": "ops@gelita.com",
+            "display_name": "Gelita Ops",
+        },
+        "body": "Tender closed / cancelled.",
+    }
+    result = await _run(test_tenant, ack_payload)
+
+    assert mock_carrier_ack.called
+    assert not mock_send_email.called, (
+        "gelita.com reject must not advance routing guide / send next carrier email"
+    )
+    wl_id = result.get("workflow_lifecycle_id") or (result.get("data") or {}).get(
+        "workflow_lifecycle_id"
+    )
+    assert wl_id, f"expected workflow_lifecycle_id in result: {result}"
+    lifecycle = _fetch_lifecycle(wl_id)
+    assert lifecycle is not None
+    assert lifecycle["status"] == "completed"
+    assert lifecycle["sub_status"] == "rejected"
 
 
 @pytest.mark.asyncio

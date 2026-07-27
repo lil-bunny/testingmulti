@@ -38,6 +38,7 @@ def _record_outbound_communication(
     account_id: str | None = None,
     from_email: str | None = None,
     workflow_run_id: str | None = None,
+    sent_folder_id: str | None = None,
 ) -> str | None:
     if not tenant_id or not isinstance(result, dict) or not result.get("success"):
         return None
@@ -55,6 +56,7 @@ def _record_outbound_communication(
         from_email=from_email,
         extra_metadata=communication_metadata,
         workflow_run_id=workflow_run_id,
+        sent_folder_id=sent_folder_id,
     )
 
 # Private helpers (thread reply primitives live in app.domain.email_thread_reply)
@@ -187,6 +189,7 @@ def send_email(
     workflow_run_id: Optional[str] = None,
     handle_auto_reply: bool = True,
     from_email: Optional[str] = None,
+    sent_folder_id: Optional[str] = None,
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
@@ -197,6 +200,9 @@ def send_email(
     ``to``, ``cc``, and ``bcc`` accept a single email string or a list of strings.
 
     ``subject`` is optional; empty/missing values default to ``"POD Request"``.
+
+    When ``sent_folder_id`` is set, outbound ``communications.external_id`` is enriched
+    to Unipile ``deprecated_id`` (reply ``in_reply_to.id`` correlation key).
     """
     subject = subject or "POD Request"
     body = (body or "").strip() or "Please send pod"
@@ -275,6 +281,7 @@ def send_email(
         account_id=acc,
         from_email=from_email,
         workflow_run_id=workflow_run_id,
+        sent_folder_id=sent_folder_id,
     )
     if comm_id:
         out["communication_id"] = comm_id
