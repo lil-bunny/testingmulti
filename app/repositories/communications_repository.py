@@ -407,6 +407,43 @@ class CommunicationsRepository:
             return None
         return str(lifecycle_id).strip() or None
 
+    def resolve_lifecycle_id_for_external_id(
+        self,
+        *,
+        tenant_id: str,
+        external_id: str,
+        workflow_name: str = "load_tendering",
+    ) -> str | None:
+        """Outbound/parent ``external_id`` (Unipile deprecated_id) → lifecycle."""
+        lifecycle_id = execute_scalar(
+            self._session,
+            f"""
+            SELECT COALESCE(c.workflow_lifecycle_id, wr.workflow_lifecycle_id)::text
+            FROM {self.TABLE_NAME} c
+            LEFT JOIN workflow_runs wr ON wr.id = c.workflow_run_id
+            LEFT JOIN workflow_lifecycles wl ON wl.id = COALESCE(
+                c.workflow_lifecycle_id, wr.workflow_lifecycle_id
+            )
+            WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+              AND c.external_id = :external_id
+              AND (
+                c.workflow_lifecycle_id IS NOT NULL
+                OR c.workflow_run_id IS NOT NULL
+              )
+              AND wl.workflow_name = :workflow_name
+            ORDER BY c.created_at ASC
+            LIMIT 1
+            """,
+            {
+                "tenant_id": tenant_id,
+                "external_id": external_id,
+                "workflow_name": workflow_name,
+            },
+        )
+        if not lifecycle_id:
+            return None
+        return str(lifecycle_id).strip() or None
+
     def find_shipment_context_for_thread(
         self,
         *,
