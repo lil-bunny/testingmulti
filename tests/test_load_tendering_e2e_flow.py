@@ -719,10 +719,10 @@ async def test_ack_received_rejected_ltl_is_terminal(
 
 
 @pytest.mark.asyncio
-async def test_ack_received_rejected_from_gelita_domain_is_terminal(
+async def test_ack_received_rejected_from_shipper_domain_is_terminal(
     test_tenant, mock_send_email, mock_carrier_ack
 ):
-    """FTL: @gelita.com shipper reject completes as rejected — no next-carrier failover."""
+    """FTL: reject from inbound_routing_emails[0] domain is terminal (no failover)."""
     ctx = await _create_tender_then_reply(
         test_tenant, mock_send_email, "30006", load_type="FTL"
     )
@@ -740,8 +740,9 @@ async def test_ack_received_rejected_from_gelita_domain_is_terminal(
         "thread_id": ctx["thread_id"],
         "in_reply_to": "prior-msg-id",
         "from_attendee": {
-            "identifier": "ops@gelita.com",
-            "display_name": "Gelita Ops",
+            # Same domain as e2e tenant inbound_routing_emails[0] (ops@example-test.com).
+            "identifier": "desk@example-test.com",
+            "display_name": "Shipper Ops",
         },
         "body": "Tender closed / cancelled.",
     }
@@ -749,7 +750,7 @@ async def test_ack_received_rejected_from_gelita_domain_is_terminal(
 
     assert mock_carrier_ack.called
     assert not mock_send_email.called, (
-        "gelita.com reject must not advance routing guide / send next carrier email"
+        "shipper-domain reject must not advance routing guide / send next carrier email"
     )
     wl_id = result.get("workflow_lifecycle_id") or (result.get("data") or {}).get(
         "workflow_lifecycle_id"
