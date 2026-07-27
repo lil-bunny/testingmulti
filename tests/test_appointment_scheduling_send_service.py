@@ -157,7 +157,7 @@ def test_send_service_rejects_other_tenant_lifecycle(mock_enqueue: MagicMock) ->
 @patch("app.services.appointment_scheduling.send_service.enqueue_appointment_draft_send")
 def test_send_service_missing_email_draft(mock_enqueue: MagicMock) -> None:
     lifecycle = MagicMock()
-    lifecycle.claim_appointment_draft_send_queued.return_value = "missing_email_draft"
+    lifecycle.claim_appointment_draft_send_queued.return_value = "scheduling_draft_not_ready"
     tenants = MagicMock()
     tenants.get_by_slug.return_value = {"id": _TENANT_UUID}
     svc = SendService(
@@ -165,7 +165,7 @@ def test_send_service_missing_email_draft(mock_enqueue: MagicMock) -> None:
         tenants_service=tenants,
     )
 
-    with pytest.raises(ValueError, match="missing_email_draft"):
+    with pytest.raises(ValueError, match="scheduling_draft_not_ready"):
         svc.validate_and_enqueue_draft_send(
             tenant_slug="t3ra",
             workflow_lifecycle_id="wl-1",

@@ -7,6 +7,7 @@ from typing import Any
 
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
+from app.domain.error_catalog import BusinessError
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
@@ -69,8 +70,8 @@ class SendService:
             raise ValueError("lifecycle_not_found")
         if claim == "invalid_status":
             raise ValueError("invalid_lifecycle_status")
-        if claim == "missing_email_draft":
-            raise ValueError("missing_email_draft")
+        if claim == BusinessError.SCHEDULING_DRAFT_NOT_READY.value:
+            raise ValueError(BusinessError.SCHEDULING_DRAFT_NOT_READY.value)
         if claim == "conflict":
             raise SendConflictError(
                 "Draft email was already sent or lifecycle is not ready to send"

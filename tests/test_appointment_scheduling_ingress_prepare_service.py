@@ -126,12 +126,14 @@ def _patch_activity(*, pickup_changed: bool = True):
 
 
 def test_prepare_skips_missing_recipient_without_lifecycle() -> None:
+    from app.domain.error_catalog import BusinessError
+
     svc = _service()
     with (
         _patch_activity(),
         patch(
             "app.services.appointment_scheduling.ingress_prepare_service.resolve_recipient_contact",
-            return_value=("missing_recipient_email", None),
+            return_value=(BusinessError.MISSING_RECIPIENT_EMAIL, None),
         ),
     ):
         result = svc.prepare_pickup_changed(
@@ -142,7 +144,7 @@ def test_prepare_skips_missing_recipient_without_lifecycle() -> None:
         )
 
     assert result.ok is False
-    assert result.skip_reason == "missing_recipient_email"
+    assert result.skip_reason == BusinessError.MISSING_RECIPIENT_EMAIL.value
     svc._shipments.upsert_from_turvo.assert_not_called()
     svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
 

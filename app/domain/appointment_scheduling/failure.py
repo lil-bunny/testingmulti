@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.domain.error_catalog import ErrorCategory
+from app.domain.error_catalog import (
+    BusinessError,
+    ErrorCategory,
+    ErrorCode,
+    IntegrationError,
+    SystemError,
+    format_error_message,
+    resolve_error_code,
+)
+from app.exceptions import WorkflowException
+from app.integrations.ascend.errors import AscendError, resolve_ascend_error
 
 
 @dataclass(frozen=True)
@@ -16,48 +26,60 @@ class SchedulingFailure:
     @classmethod
     def from_catalog(
         cls,
-        error: object,
-        message: str,
+        error: ErrorCode,
+        message: str | None = None,
+        **context: str,
     ) -> SchedulingFailure:
-        from app.domain.error_catalog import _CatalogError
-
-        if isinstance(error, _CatalogError):
-            return cls(
-                code=error.value,
-                message=message,
-                category=error.category,
-            )
+        text = message if message is not None else format_error_message(error, **context)
         return cls(
-            code=str(error),
-            message=message,
-            category=ErrorCategory.SYSTEM,
+            code=error.value,
+            message=text,
+            category=error.category,
         )
 
     @classmethod
-    def from_wire(cls, code: str, message: str) -> SchedulingFailure:
-        from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
-        from app.domain.error_catalog import SystemError
+    def from_ascend(
+        cls,
+        error: AscendError,
+        message: str | None = None,
+        **context: str,
+    ) -> SchedulingFailure:
+        if message is not None:
+            text = message
+        else:
 
-        wire = str(code or "").strip()
-        mapped = scheduling_failure_from_skip(wire)
-        if mapped is not None:
-            text = str(message or "").strip() or mapped.message
-            return cls(code=mapped.code, message=text, category=mapped.category)
+            class _SafeFormatMap(dict[str, str]):
+                def __missing__(self, key: str) -> str:
+                    return ""
+
+            text = error.description.format_map(_SafeFormatMap(context))
         return cls(
-            code=wire or SystemError.UNEXPECTED_NODE_FAILURE.value,
-            message=message or wire.replace("_", " "),
-            category=SystemError.UNEXPECTED_NODE_FAILURE.category,
+            code=error.value,
+            message=text,
+            category=error.category,
         )
 
-    def to_workflow_exception(self) -> "WorkflowException":
-        from app.domain.error_catalog import SystemError, resolve_error_code
-        from app.exceptions import WorkflowException
+    @classmethod
+    def from_wire(cls, code: str, message: str = "") -> SchedulingFailure:
+        wire = str(code or "").strip()
+        catalog = resolve_error_code(wire)
+        if catalog is not None:
+            text = str(message or "").strip() or format_error_message(catalog)
+            return cls.from_catalog(catalog, text)
+        ascend = resolve_ascend_error(wire)
+        if ascend is not None:
+            text = str(message or "").strip()
+            return cls.from_ascend(ascend, text or None)
+        return cls.from_catalog(
+            SystemError.UNEXPECTED_NODE_FAILURE,
+            str(message or "").strip() or wire.replace("_", " ") or SystemError.UNEXPECTED_NODE_FAILURE.description,
+        )
 
+    def to_workflow_exception(self) -> WorkflowException:
         catalog = resolve_error_code(self.code)
-        return WorkflowException(
-            catalog or SystemError.UNEXPECTED_NODE_FAILURE,
-            self.message,
-        )
+        if catalog is not None:
+            return WorkflowException(catalog, self.message)
+        return WorkflowException(self.code, self.message, category=self.category)
 
 
 def raise_scheduling_result_failure(
@@ -75,12 +97,12 @@ def raise_scheduling_result_failure(
 
 def raise_email_send_error(error: str | None) -> None:
     """Map draft/confirmation send outcomes to business vs integration catalog errors."""
-    from app.domain.error_catalog import IntegrationError
-    from app.exceptions import WorkflowException
-
     wire = str(error or "").strip()
-    if wire in {"missing_mikey_account_id", "missing_email_draft", "missing_thread_or_tenant"}:
-        raise SchedulingFailure.from_wire(wire, wire.replace("_", " ")).to_workflow_exception()
+    if wire in {
+        BusinessError.MISSING_MIKEY_ACCOUNT_ID.value,
+        BusinessError.SCHEDULING_DRAFT_NOT_READY.value,
+    }:
+        raise SchedulingFailure.from_wire(wire).to_workflow_exception()
     raise WorkflowException(
         IntegrationError.EMAIL_SEND_FAILED,
         wire or IntegrationError.EMAIL_SEND_FAILED.description,

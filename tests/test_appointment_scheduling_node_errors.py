@@ -5,7 +5,8 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from app.domain.appointment_scheduling.failure import SchedulingFailure
-from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
+from app.domain.error_catalog import BusinessError, ErrorCategory, IntegrationError, SystemError
+from app.integrations.ascend.errors import AscendError
 from app.domain.state import WorkflowState
 from app.services.appointment_scheduling.ascend_write_service import AscendWriteResult
 from app.services.appointment_scheduling.email_service import ConfirmationEmailResult
@@ -47,7 +48,8 @@ def _state(**data) -> WorkflowState:
 def _assert_error(result, expected_code, expected_category: str) -> None:
     assert isinstance(result, dict), "safe_node should return dict on error"
     error = result["data"]["error"]
-    assert error["code"] == expected_code.value
+    code = expected_code.value if hasattr(expected_code, "value") else expected_code
+    assert error["code"] == code
     assert error["category"] == expected_category
     assert error["message"]
 
@@ -75,9 +77,9 @@ def test_run_appointment_intake_business_failure_uses_global_sink(
 
 @patch("app.workflows.nodes.appointment_scheduling.nodes.IntakeService")
 def test_run_appointment_intake_integration_failure(mock_intake_cls) -> None:
-    failure = SchedulingFailure.from_catalog(
-        IntegrationError.ASCEND_LOGIN_FAILED,
-        "Ascend login failed (HTTP 401).",
+    failure = SchedulingFailure.from_ascend(
+        AscendError.LOGIN_FAILED,
+        status_code="401",
     )
     mock_intake_cls.return_value.run_intake.return_value = IntakeResult(
         ok=False,
@@ -86,7 +88,7 @@ def test_run_appointment_intake_integration_failure(mock_intake_cls) -> None:
 
     result = run_appointment_intake(_state())
 
-    _assert_error(result, IntegrationError.ASCEND_LOGIN_FAILED, IntegrationError.CATEGORY.value)
+    _assert_error(result, AscendError.LOGIN_FAILED, ErrorCategory.INTEGRATION.value)
 
 
 @patch("app.workflows.nodes.appointment_scheduling.nodes.EmailService")
@@ -268,9 +270,9 @@ def test_apply_weekend_shifted_pickup_skip_does_not_set_error(
 def test_apply_ascend_dropoff_preserves_integration_category(
     mock_ascend_cls,
 ) -> None:
-    failure = SchedulingFailure.from_catalog(
-        IntegrationError.ASCEND_DROPOFF_UPDATE_FAILED,
-        "Ascend dropoff appointment update failed for REF-1.",
+    failure = SchedulingFailure.from_ascend(
+        AscendError.DROPOFF_UPDATE_FAILED,
+        reference_number="REF-1",
     )
     mock_ascend_cls.return_value.apply_dropoff_from_state.return_value = AscendWriteResult(
         ok=False,
@@ -281,8 +283,8 @@ def test_apply_ascend_dropoff_preserves_integration_category(
 
     _assert_error(
         result,
-        IntegrationError.ASCEND_DROPOFF_UPDATE_FAILED,
-        IntegrationError.CATEGORY.value,
+        AscendError.DROPOFF_UPDATE_FAILED,
+        ErrorCategory.INTEGRATION.value,
     )
 
 
@@ -318,8 +320,9 @@ def test_scheduling_failure_from_wire_known_business() -> None:
 def test_scheduling_failure_from_wire_unknown_is_system() -> None:
     failure = SchedulingFailure.from_wire("totally_unknown_wire", "boom")
 
-    assert failure.code == "totally_unknown_wire"
+    assert failure.code == SystemError.UNEXPECTED_NODE_FAILURE.value
     assert failure.category == SystemError.CATEGORY
+    assert failure.message == "boom"
 
 
 def test_scheduling_failure_to_workflow_exception_preserves_catalog_category() -> None:

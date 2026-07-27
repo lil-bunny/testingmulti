@@ -208,27 +208,6 @@ class IntegrationError(_CatalogError):
         "tms_connection_timed_out",
         "TMS connection timed out.",
     )
-    # Appointment scheduling / Ascend
-    ASCEND_LOGIN_FAILED = (
-        "ascend_login_failed",
-        "Ascend login failed (HTTP {status_code}).",
-    )
-    ASCEND_SHIPMENT_FETCH_FAILED = (
-        "ascend_shipment_fetch_failed",
-        "Ascend shipment fetch failed for {reference_number} (HTTP {status_code}).",
-    )
-    ASCEND_AVAILABILITY_FETCH_FAILED = (
-        "ascend_availability_fetch_failed",
-        "Ascend warehouse availability fetch failed for {reference_number}.",
-    )
-    ASCEND_PICKUP_UPDATE_FAILED = (
-        "ascend_pickup_update_failed",
-        "Ascend pickup appointment update failed for {reference_number}.",
-    )
-    ASCEND_DROPOFF_UPDATE_FAILED = (
-        "ascend_dropoff_update_failed",
-        "Ascend dropoff appointment update failed for {reference_number}.",
-    )
     TURVO_SHIPMENT_FETCH_FAILED = (
         "turvo_shipment_fetch_failed",
         "Turvo shipment fetch failed.",

@@ -116,7 +116,7 @@ def test_claim_missing_email_draft() -> None:
             lifecycle_id=_LIFECYCLE,
             expected_tenant_id=_TENANT,
         )
-        == "missing_email_draft"
+        == "scheduling_draft_not_ready"
     )
 
 

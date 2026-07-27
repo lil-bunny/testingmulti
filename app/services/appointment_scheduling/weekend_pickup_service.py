@@ -10,12 +10,10 @@ from app.core.logger import get_logger
 from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
 from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
-from app.domain.appointment_scheduling.skip_reasons import scheduling_failure_from_skip
-from app.domain.error_catalog import IntegrationError
+from app.domain.error_catalog import BusinessError, IntegrationError
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots, update_appointment
 from app.integrations.ascend.auth import login_ascend_api
-from app.integrations.ascend.error_mapping import catalog_from_ascend_api_error
-from app.integrations.ascend.errors import AscendApiError
+from app.integrations.ascend.errors import AscendApiError, AscendError, is_ascend_timeout
 from app.domain.appointment_scheduling.settings import load_appointment_scheduling_settings
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
@@ -121,13 +119,10 @@ class WeekendPickupService:
         else:
             settings = load_appointment_scheduling_settings(tenant_slug)
             if not settings.ascend_email or not settings.ascend_password:
-                failure = scheduling_failure_from_skip("ascend_not_configured")
-                if failure is None:
-                    failure = SchedulingFailure.from_catalog(
-                        IntegrationError.VENDOR_API_ERROR,
-                        "Ascend credentials are not configured.",
-                    )
-                return WeekendPickupResult(ok=False, failure=failure)
+                return WeekendPickupResult(
+                    ok=False,
+                    failure=SchedulingFailure.from_catalog(BusinessError.ASCEND_NOT_CONFIGURED),
+                )
 
             office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
             try:
@@ -147,16 +142,13 @@ class WeekendPickupService:
                         return WeekendPickupResult(ok=True, skipped=True)
 
                 if not plan.update_body or not plan.appointment_id:
-                    failure = scheduling_failure_from_skip(
-                        "invalid_ascend_pickup_plan",
-                        reference_number=reference_number,
+                    return WeekendPickupResult(
+                        ok=False,
+                        failure=SchedulingFailure.from_catalog(
+                            BusinessError.ASCEND_INVALID_PAYLOAD,
+                            reference_number=reference_number,
+                        ),
                     )
-                    if failure is None:
-                        failure = SchedulingFailure.from_catalog(
-                            IntegrationError.VENDOR_API_ERROR,
-                            "Invalid Ascend pickup plan.",
-                        )
-                    return WeekendPickupResult(ok=False, failure=failure)
 
                 ascend_response = update_appointment(
                     appointment_id=plan.appointment_id,
@@ -171,15 +163,15 @@ class WeekendPickupService:
                     reference_number,
                     exc,
                 )
-                catalog, message = catalog_from_ascend_api_error(
-                    exc,
-                    operation="pickup_update",
-                    reference_number=reference_number,
-                )
-                return WeekendPickupResult(
-                    ok=False,
-                    failure=SchedulingFailure.from_catalog(catalog, message),
-                )
+                if is_ascend_timeout(exc):
+                    failure = SchedulingFailure.from_catalog(IntegrationError.VENDOR_API_TIMEOUT)
+                else:
+                    failure = SchedulingFailure.from_ascend(
+                        AscendError.PICKUP_UPDATE_FAILED,
+                        reference_number=reference_number,
+                        status_code=str(exc.status_code or ""),
+                    )
+                return WeekendPickupResult(ok=False, failure=failure)
 
         turvo_result = self._apply_turvo_pickup(
             tenant_slug=tenant_slug,

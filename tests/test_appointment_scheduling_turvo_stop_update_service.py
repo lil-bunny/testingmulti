@@ -322,7 +322,7 @@ async def test_apply_tender_missing_fragment_id() -> None:
         result = await svc.apply_tender(tenant_slug="t3ra", shipment_id="1000324213")
 
     assert result.ok is False
-    assert result.error == "missing_fragment_id"
+    assert result.error == "missing_turvo_fragment_id"
 
 
 @pytest.mark.asyncio
@@ -401,5 +401,5 @@ async def test_apply_delivery_placeholder_missing_shipment_fields() -> None:
         shipment_id="",
     )
     assert result.ok is False
-    assert result.error == "missing_turvo_shipment_fields"
+    assert result.error == "missing_turvo_update_fields"
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from app.domain.error_catalog import BusinessError
 from app.services.appointment_scheduling.email_service import EmailService
 
 
@@ -55,4 +56,4 @@ def test_send_from_state_missing_draft() -> None:
     state = _state(email_draft={"to": "a@b.com"})
     result = EmailService().send_draft_from_state(state)
     assert result.sent is False
-    assert result.error == "missing_email_draft"
+    assert result.error == BusinessError.SCHEDULING_DRAFT_NOT_READY.value
