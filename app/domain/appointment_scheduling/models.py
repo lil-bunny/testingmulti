@@ -72,7 +72,3 @@ class LlmAppointmentDecision(BaseModel):
     pcs_pickup_date: str | None = None
     transit_days: int | None = None
     weekend_shifted: bool = False
-
-
-SchedulingPayload = AppointmentPayload
-LlmSchedulingDecision = LlmAppointmentDecision

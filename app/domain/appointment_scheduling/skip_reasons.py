@@ -1,4 +1,4 @@
-"""Map legacy appointment-scheduling skip strings to error catalog entries."""
+"""Map appointment-scheduling skip wire strings to error catalog entries."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.domain.error_catalog import (
     format_error_message,
 )
 
-# Wire strings shared with ingress / intake (promoted from recipient_contact_gate).
+# Wire strings shared with ingress / intake.
 SKIP_MISSING_RECIPIENT_EMAIL = "missing_recipient_email"
 SKIP_MISSING_APPOINTMENT_DATA_SOURCE = "missing_appointment_data_source"
 SKIP_APPOINTMENT_SHEET_UNREADABLE = "appointment_sheet_unreadable"
@@ -28,7 +28,6 @@ _SKIP_TO_CATALOG: dict[str, ErrorCode] = {
     SKIP_APPOINTMENT_SHEET_UNREADABLE: BusinessError.APPOINTMENT_SHEET_UNREADABLE,
     SKIP_APPOINTMENT_MODE_NOT_EMAIL: BusinessError.APPOINTMENT_MODE_NOT_EMAIL,
     "ascend_not_configured": BusinessError.ASCEND_NOT_CONFIGURED,
-    "missing_ascend_credentials": BusinessError.ASCEND_NOT_CONFIGURED,
     "pickup_dropoff_extract_failed": BusinessError.ASCEND_PICKUP_DROPOFF_EXTRACT_FAILED,
     "invalid_ascend_payload": BusinessError.ASCEND_INVALID_PAYLOAD,
     "invalid_ascend_pickup_plan": BusinessError.ASCEND_INVALID_PAYLOAD,
@@ -42,9 +41,7 @@ _SKIP_TO_CATALOG: dict[str, ErrorCode] = {
     "missing_delivery_stop_or_date": BusinessError.MISSING_DELIVERY_STOP_OR_DATE,
     "missing_turvo_tender_fields": BusinessError.MISSING_TURVO_TENDER_FIELDS,
     "missing_fragment_id": BusinessError.MISSING_TURVO_FRAGMENT_ID,
-    "intake_failed": SystemError.UNEXPECTED_NODE_FAILURE,
-    # Integration — Ascend / Turvo / email
-    "ascend_fetch_failed": IntegrationError.ASCEND_SHIPMENT_FETCH_FAILED,
+    # Integration — Ascend / Turvo
     WIRE_TURVO_SHIPMENT_FETCH_FAILED: IntegrationError.TURVO_SHIPMENT_FETCH_FAILED,
     WIRE_TURVO_STOP_UPDATE_FAILED: IntegrationError.TURVO_STOP_UPDATE_FAILED,
     WIRE_TURVO_TENDER_STATUS_FAILED: IntegrationError.TURVO_TENDER_STATUS_FAILED,
@@ -52,11 +49,8 @@ _SKIP_TO_CATALOG: dict[str, ErrorCode] = {
     "enqueue_failed": SystemError.UNEXPECTED_NODE_FAILURE,
     "lifecycle_create_failed": SystemError.UNEXPECTED_NODE_FAILURE,
     "tenant_not_resolved": SystemError.UNEXPECTED_NODE_FAILURE,
-    # Ingress HTTP logging only
+    # Ingress logging only (reference used for Ascend/office resolution)
     "missing_reference_number": BusinessError.ASCEND_MISSING_REFERENCE,
-    "turvo_shipment_fetch_failed": IntegrationError.TURVO_SHIPMENT_FETCH_FAILED,
-    "turvo_activity_fetch_failed": IntegrationError.TMS_CONNECTION_TIMED_OUT,
-    "process_disabled": BusinessError.ASCEND_NOT_CONFIGURED,
 }
 
 

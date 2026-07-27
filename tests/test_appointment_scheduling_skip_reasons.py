@@ -10,7 +10,7 @@ from app.domain.appointment_scheduling.skip_reasons import (
     resolve_scheduling_error,
     scheduling_failure_from_skip,
 )
-from app.domain.error_catalog import BusinessError, IntegrationError
+from app.domain.error_catalog import BusinessError
 
 
 def test_resolve_missing_recipient_email() -> None:
@@ -30,18 +30,10 @@ def test_resolve_ascend_not_configured() -> None:
     assert resolved[0] == BusinessError.ASCEND_NOT_CONFIGURED
 
 
-def test_resolve_ascend_fetch_failed_legacy() -> None:
-    resolved = resolve_scheduling_error(
-        "ascend_fetch_failed",
-        reference_number="REF-99",
-        status_code="503",
-    )
-    assert resolved is not None
-    assert resolved[0] == IntegrationError.ASCEND_SHIPMENT_FETCH_FAILED
-
-
 def test_resolve_unknown_returns_none() -> None:
     assert resolve_scheduling_error("totally_unknown_reason") is None
+    assert resolve_scheduling_error("ascend_fetch_failed") is None
+    assert resolve_scheduling_error("process_disabled") is None
 
 
 def test_scheduling_failure_from_skip() -> None:

@@ -22,7 +22,6 @@ def test_strip_intake_checkpoint_data_removes_vendor_blobs() -> None:
     data = {
         "shipment": {"details": "x" * 1000},
         "ascend_shipment": {"stops": []},
-        "customer_id": "123",
         "email_draft": {"to": "a@b.com"},
         "llm_appointment_decision": {"weekend_shifted": False},
         "workflow_lifecycle_status": "processing",

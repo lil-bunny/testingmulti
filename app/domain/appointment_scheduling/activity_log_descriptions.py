@@ -34,10 +34,6 @@ def format_appointment_email_sent_action() -> str:
     return "Appointment request email sent"
 
 
-def format_appointment_scheduling_failed_action(*, reason: str) -> str:
-    return f"Appointment scheduling failed: {(reason or '').strip() or 'unknown'}"
-
-
 def format_customer_reply_llm_action(
     *,
     decision: str,

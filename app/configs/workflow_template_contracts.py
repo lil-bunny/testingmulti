@@ -217,7 +217,6 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "turvo_confirm_result",
             "confirmation_communication_id",
             "confirmation_sent",
-            "appointment_intake_skip_reason",
             "appointment_ingress_skip_reason",
         ],
     ),

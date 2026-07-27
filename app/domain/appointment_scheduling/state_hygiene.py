@@ -7,8 +7,6 @@ from typing import Any
 INTAKE_CHECKPOINT_STRIP_KEYS: tuple[str, ...] = (
     "shipment",
     "ascend_shipment",
-    "customer_id",
-    "shipment_location_link",
     "draft_static",
     "ascend_context",
     "email_draft",
@@ -45,23 +43,6 @@ def slim_turvo_write_result(
     if start_time:
         out["start_time"] = start_time
     return out
-
-
-def slim_turvo_confirm_result(
-    *,
-    ok: bool,
-    updated: bool = False,
-    error: str | None = None,
-    stop_name: str | None = None,
-    start_time: str | None = None,
-) -> dict[str, Any]:
-    return slim_turvo_write_result(
-        ok=ok,
-        updated=updated,
-        error=error,
-        stop_name=stop_name,
-        start_time=start_time,
-    )
 
 
 def slim_ascend_write_result(

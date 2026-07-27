@@ -11,9 +11,6 @@ from app.domain.appointment_scheduling.constants import (
     TENDER_ACCEPTED_STATUS_VALUES,
     TURVO_SYSTEM_BOT_NAMES,
 )
-from app.domain.appointment_scheduling.scheduling_reference import (
-    is_diamond_scheduling_reference,
-)
 from app.domain.shipment_route_locations import active_route_stops
 from app.integrations.turvo.shipments import global_route_stops_from_payload
 from app.integrations.turvo.webhook_mapping import extract_shipment_and_load_ids
@@ -75,33 +72,6 @@ def parse_shipment_update_webhook(body: dict[str, Any]) -> ParsedShipmentUpdateW
         load_id=_clean(load_id),
         tender_accepted=status in {s.replace("-", "") for s in TENDER_ACCEPTED_STATUS_VALUES},
     )
-
-
-def get_ship_locations_from_activity_json(activity_json: dict[str, Any]) -> list[dict[str, Any]]:
-    data = activity_json.get("data") or []
-    if not isinstance(data, list):
-        return []
-    for entry in data:
-        if not isinstance(entry, dict):
-            continue
-        context = entry.get("context_snapshot") or {}
-        if not isinstance(context, dict):
-            continue
-        global_route = context.get("global_route") or {}
-        if not isinstance(global_route, dict):
-            continue
-        ship_locations = global_route.get("ship_locations") or []
-        if isinstance(ship_locations, list) and ship_locations:
-            return [loc for loc in ship_locations if isinstance(loc, dict)]
-    return []
-
-
-def ship_location_count(activity_json: dict[str, Any]) -> int:
-    return len(get_ship_locations_from_activity_json(activity_json))
-
-
-def is_multi_stop(activity_json: dict[str, Any]) -> bool:
-    return ship_location_count(activity_json) > 2
 
 
 def is_multi_stop_shipment(payload: dict[str, Any]) -> bool:
@@ -206,54 +176,3 @@ def load_id_from_turvo_shipment(payload: dict[str, Any]) -> str | None:
         if value:
             return value
     return None
-
-
-def customer_name_from_turvo_shipment(payload: dict[str, Any]) -> str | None:
-    details = payload.get("details") if isinstance(payload.get("details"), dict) else payload
-    if not isinstance(details, dict):
-        return None
-    orders = details.get("customerOrder") or details.get("customer_order") or []
-    if not isinstance(orders, list):
-        return None
-    for order in orders:
-        if not isinstance(order, dict) or order.get("deleted"):
-            continue
-        customer = order.get("customer") or {}
-        if isinstance(customer, dict):
-            name = _clean(customer.get("name"))
-            if name:
-                return name
-    return None
-
-
-def customer_id_from_turvo_shipment(payload: dict[str, Any]) -> str | None:
-    details = payload.get("details") if isinstance(payload.get("details"), dict) else payload
-    if not isinstance(details, dict):
-        return None
-    orders = details.get("customerOrder") or details.get("customer_order") or []
-    if not isinstance(orders, list):
-        return None
-    for order in orders:
-        if not isinstance(order, dict) or order.get("deleted"):
-            continue
-        customer = order.get("customer") or {}
-        if isinstance(customer, dict):
-            cid = _clean(customer.get("id"))
-            if cid:
-                return cid
-    return None
-
-
-__all__ = [
-    "ParsedShipmentUpdateWebhook",
-    "customer_id_from_turvo_shipment",
-    "customer_name_from_turvo_shipment",
-    "is_diamond_scheduling_reference",
-    "is_multi_stop",
-    "is_multi_stop_shipment",
-    "load_id_from_turvo_shipment",
-    "parse_shipment_update_webhook",
-    "pickup_changed_in_activity_delta",
-    "reference_number_from_turvo_shipment",
-    "ship_location_count",
-]

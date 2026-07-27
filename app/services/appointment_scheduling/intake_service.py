@@ -344,24 +344,18 @@ class IntakeService:
         )
 
 
-MISSING_RECIPIENT_EMAIL = SKIP_MISSING_RECIPIENT_EMAIL
-MISSING_APPOINTMENT_DATA_SOURCE = SKIP_MISSING_APPOINTMENT_DATA_SOURCE
-APPOINTMENT_SHEET_UNREADABLE = SKIP_APPOINTMENT_SHEET_UNREADABLE
-APPOINTMENT_MODE_NOT_EMAIL = SKIP_APPOINTMENT_MODE_NOT_EMAIL
-
-
 def contact_from_rows_skip_reason(
     rows: list[dict[str, Any]],
     customer_name: str,
 ) -> str | None:
     row = find_customer_sheet_row(rows, customer_name)
     if row is None:
-        return MISSING_RECIPIENT_EMAIL
+        return SKIP_MISSING_RECIPIENT_EMAIL
     if not is_email_appointment_mode(appointment_mode_from_row(row)):
-        return APPOINTMENT_MODE_NOT_EMAIL
+        return SKIP_APPOINTMENT_MODE_NOT_EMAIL
     contact = customer_contact_from_row(row)
     if contact is None or not contact.email:
-        return MISSING_RECIPIENT_EMAIL
+        return SKIP_MISSING_RECIPIENT_EMAIL
     return None
 
 
@@ -387,17 +381,17 @@ def resolve_recipient_contact(
     settings = IntakeService._settings(tenant_settings)
     sheet_source = str(settings.appointment_data_source or "").strip()
     if not sheet_source:
-        return MISSING_APPOINTMENT_DATA_SOURCE, None
+        return SKIP_MISSING_APPOINTMENT_DATA_SOURCE, None
     sheet_customer = delivery_stop_name_from_payload(shipment_payload) or ""
     try:
         rows = load_appointment_customer_rows(sheet_source, sheet_customer)
     except (OSError, GoogleSheetsError, ValueError):
-        return APPOINTMENT_SHEET_UNREADABLE, None
+        return SKIP_APPOINTMENT_SHEET_UNREADABLE, None
 
     if skip := contact_from_rows_skip_reason(rows, sheet_customer):
         return skip, None
     row = find_customer_sheet_row(rows, sheet_customer)
     contact = customer_contact_from_row(row) if row is not None else None
     if contact is None or not contact.email:
-        return MISSING_RECIPIENT_EMAIL, None
+        return SKIP_MISSING_RECIPIENT_EMAIL, None
     return None, contact

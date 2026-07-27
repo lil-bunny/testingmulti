@@ -9,19 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.domain.appointment_scheduling.constants import TENDER_ACCEPTED_STATUS_VALUES
-
 ROUTE_COMPLETED_STATUS_CODE_KEY = "2116"
 TENDERED_STATUS_CODE_KEY = "2101"
-SHIPMENT_UPDATE_EVENT_NAME = "SHIPMENT_UPDATE"
-
-
-@dataclass(frozen=True)
-class TurvoShipmentUpdateEvent:
-    event_name: str
-    shipment_id: str
-    load_id: str | None
-    tender_accepted: bool
 
 
 @dataclass(frozen=True)
@@ -79,51 +68,6 @@ def extract_status_code_key(body: dict[str, Any]) -> str | None:
 
     key = code.get("key")
     return str(key) if key is not None else None
-
-
-def _normalize_tender_accepted_status(raw: Any) -> str | None:
-    if raw is None:
-        return None
-    value = str(raw).strip()
-    if not value:
-        return None
-    return value.lower().replace(" ", "").replace("-", "")
-
-
-def _extract_tender_status_from_webhook(body: dict[str, Any]) -> str | None:
-    event_payload = body.get("eventPayload")
-    if not isinstance(event_payload, dict):
-        return None
-    status = event_payload.get("status")
-    if not isinstance(status, dict):
-        return None
-    code = status.get("code")
-    if isinstance(code, dict):
-        for key in ("value", "key"):
-            normalized = _normalize_tender_accepted_status(code.get(key))
-            if normalized in {s.replace("-", "") for s in TENDER_ACCEPTED_STATUS_VALUES}:
-                return normalized
-    return _normalize_tender_accepted_status(status.get("value"))
-
-
-def map_turvo_shipment_update_event(body: dict[str, Any]) -> TurvoShipmentUpdateEvent | None:
-    """Parse Turvo SHIPMENT_UPDATE webhook for delivery scheduling ingress."""
-    event_name = body.get("eventName")
-    if str(event_name or "").strip() != SHIPMENT_UPDATE_EVENT_NAME:
-        return None
-
-    shipment_id, load_id = extract_shipment_and_load_ids(body)
-    sid = str(shipment_id or "").strip()
-    if not sid:
-        return None
-
-    status = _extract_tender_status_from_webhook(body)
-    return TurvoShipmentUpdateEvent(
-        event_name=SHIPMENT_UPDATE_EVENT_NAME,
-        shipment_id=sid,
-        load_id=str(load_id).strip() if load_id else None,
-        tender_accepted=status in {s.replace("-", "") for s in TENDER_ACCEPTED_STATUS_VALUES},
-    )
 
 
 def map_turvo_status_webhook(body: dict[str, Any]) -> TurvoStatusWebhookEvent | None:
