@@ -12,6 +12,10 @@ if TYPE_CHECKING:
     from app.models.status import StatusSubType, StatusType
     from app.models.pause_type import PauseType
 
+# Omitted ``communication_id`` inherits ``state.data["communication_id"]``.
+# Explicit ``None`` means no communications link on the activity log.
+_COMMUNICATION_ID_UNSET: object = object()
+
 
 def _normalize_uuid(value: Any) -> str | None:
     if value is None:
@@ -73,7 +77,7 @@ class LifecycleTransitionCommand:
         record_activity: bool = True,
         require_lifecycle_row: bool = True,
         email_thread_id: str | None = None,
-        communication_id: str | None = None,
+        communication_id: Any = _COMMUNICATION_ID_UNSET,
         workflow_lifecycle_id: str | None = None,
         workflow_run_id: str | None = None,
         tenant_id: str | None = None,
@@ -98,9 +102,11 @@ class LifecycleTransitionCommand:
         if thread is None and isinstance(data, dict):
             thread = data.get("thread_id") or data.get("email_thread_id")
 
-        comm = communication_id
-        if comm is None and isinstance(data, dict):
-            comm = data.get("communication_id")
+        if communication_id is _COMMUNICATION_ID_UNSET:
+            comm = data.get("communication_id") if isinstance(data, dict) else None
+        else:
+            # Explicit None (or invalid) → no link; do not fall back to state.
+            comm = communication_id
 
         wl_clean = str(wl or "").strip() or None
         wr_clean = str(wr or "").strip() or None

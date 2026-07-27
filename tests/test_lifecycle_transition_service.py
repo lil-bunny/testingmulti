@@ -814,6 +814,49 @@ def test_apply_from_state_passes_communication_id_to_insert(
     "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
     return_value=TENANT_UUID,
 )
+def test_apply_from_state_explicit_none_skips_state_communication_id(
+    _resolve_tenant: MagicMock,
+) -> None:
+    lifecycles = MagicMock()
+    lifecycles.get_for_update.return_value = {
+        "status": StatusType.PROCESSING.value,
+        "sub_status": StatusSubType.TENDER_CREATED.value,
+        "tenant_id": TENANT_UUID,
+        "workflow_name": "load_tendering",
+    }
+    activity_logs = MagicMock()
+    activity_logs.insert.return_value = ACTIVITY_UUID
+
+    state = WorkflowState(
+        tenant_id="gelita",
+        tenant_slug="gelita",
+        execution_id=RUN_UUID,
+        data={
+            "workflow_lifecycle_id": LIFECYCLE_UUID,
+            "communication_id": COMM_UUID,
+        },
+    )
+
+    svc = LifecycleTransitionService(
+        lifecycles_repo=lifecycles,
+        activity_logs_repo=activity_logs,
+    )
+    svc.apply_from_state(
+        state,
+        activity_type=ActivityType.ACTION,
+        description="Turvo delivery placeholder set",
+        update_lifecycle=False,
+        communication_id=None,
+    )
+
+    row = activity_logs.insert.call_args[0][0]
+    assert row["communication_id"] is None
+
+
+@patch(
+    "app.services.lifecycle_transition_service.resolve_graph_tenant_to_uuid",
+    return_value=TENANT_UUID,
+)
 def test_apply_status_change_uses_generated_description(
     _resolve_tenant: MagicMock,
 ) -> None:
