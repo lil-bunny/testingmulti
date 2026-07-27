@@ -26,6 +26,20 @@ def _state(**overrides):
 
 
 @patch("app.services.appointment_scheduling.email_service.Unipile")
+def test_send_skips_unipile_when_draft_comm_exists(mock_unipile_cls: MagicMock) -> None:
+    communications = MagicMock()
+    communications.find_outbound_draft_communication_id.return_value = "comm-existing"
+    svc = EmailService(communications_service=communications)
+
+    result = svc.send_draft_from_state(_state())
+
+    assert result.sent is True
+    assert result.communication_id == "comm-existing"
+    mock_unipile_cls.return_value.send_email.assert_not_called()
+    communications.record_outbound_from_send.assert_not_called()
+
+
+@patch("app.services.appointment_scheduling.email_service.Unipile")
 def test_send_from_state_records_communication_without_lifecycle_transitions(
     mock_unipile_cls: MagicMock,
 ) -> None:
@@ -35,6 +49,7 @@ def test_send_from_state_records_communication_without_lifecycle_transitions(
     }
     communications = MagicMock()
     communications.record_outbound_from_send.return_value = "comm-1"
+    communications.find_outbound_draft_communication_id.return_value = None
     activity = MagicMock()
     svc = EmailService(
         communications_service=communications,

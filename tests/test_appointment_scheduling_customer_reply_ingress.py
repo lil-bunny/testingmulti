@@ -15,6 +15,17 @@ from app.services.unipile_tenant_resolution import UnipileTenantContext
 _TENANT = UnipileTenantContext(tenant_uuid="tenant-1", tenant_slug="t3ra")
 _THREAD = "thread-abc"
 _LC = "lifecycle-1"
+_SERIALIZER_PATCH = "app.services.lifecycle_run_serializer_service.LifecycleRunSerializerService"
+
+
+def _mock_serializer_enqueue(*, status: str = "started") -> MagicMock:
+    mock_cls = MagicMock()
+    mock_cls.return_value.enqueue.return_value = MagicMock(
+        status=status,
+        celery_task_id="celery-1",
+        lifecycle_id=_LC,
+    )
+    return mock_cls
 
 
 def _enabled_settings() -> dict:
@@ -62,50 +73,51 @@ def _service(**overrides) -> CustomerReplyIngressService:
 
 def test_try_customer_reply_enqueues_when_lifecycle_active() -> None:
     svc = _service()
-    with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
-        import sys
-
-        apply_async = MagicMock()
-        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = apply_async
-        with patch(
+    serializer_cls = _mock_serializer_enqueue()
+    with (
+        patch(_SERIALIZER_PATCH, serializer_cls),
+        patch(
             "app.services.tenants_service.TenantsService.get_by_slug",
             return_value={"settings": _enabled_settings()},
-        ):
-            result = svc.try_customer_reply_received(
-                payload=_reply_payload(),
-                tenant=_TENANT,
-                communication_id="comm-1",
-            )
+        ),
+    ):
+        result = svc.try_customer_reply_received(
+            payload=_reply_payload(),
+            tenant=_TENANT,
+            communication_id="comm-1",
+        )
 
     assert isinstance(result, IngressResult)
     assert result.outcome == "enqueued"
     assert result.event_type == WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value
-    celery_payload = apply_async.call_args.kwargs["kwargs"]["payload"]
-    assert "tenant_settings" not in celery_payload
-    assert "body" not in celery_payload
-    assert "subject" not in celery_payload
-    assert celery_payload["communication_id"] == "comm-1"
+    enqueue_call = serializer_cls.return_value.enqueue.call_args
+    workflow_payload = enqueue_call.kwargs["payload"]
+    assert workflow_payload["workflow_lifecycle_id"] == _LC
+    assert workflow_payload["communication_id"] == "comm-1"
+    assert "tenant_settings" not in workflow_payload
+    assert "body" not in workflow_payload
+    assert "subject" not in workflow_payload
     svc._communications.record_or_resolve_inbound.assert_not_called()
+    svc._runs_service.record_workflow_run.assert_called_once()
 
 
 def test_try_customer_reply_records_inbound_when_communication_id_missing() -> None:
     svc = _service()
     svc._communications.record_or_resolve_inbound.return_value = "comm-created"
     payload = {**_reply_payload(), "email_id": "unipile-email-1"}
-    with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
-        import sys
-
-        apply_async = MagicMock()
-        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = apply_async
-        with patch(
+    serializer_cls = _mock_serializer_enqueue()
+    with (
+        patch(_SERIALIZER_PATCH, serializer_cls),
+        patch(
             "app.services.tenants_service.TenantsService.get_by_slug",
             return_value={"settings": _enabled_settings()},
-        ):
-            result = svc.try_customer_reply_received(
-                payload=payload,
-                tenant=_TENANT,
-                communication_id=None,
-            )
+        ),
+    ):
+        result = svc.try_customer_reply_received(
+            payload=payload,
+            tenant=_TENANT,
+            communication_id=None,
+        )
 
     assert result is not None
     assert result.outcome == "enqueued"
@@ -113,8 +125,8 @@ def test_try_customer_reply_records_inbound_when_communication_id_missing() -> N
         _TENANT.tenant_uuid,
         payload,
     )
-    celery_payload = apply_async.call_args.kwargs["kwargs"]["payload"]
-    assert celery_payload["communication_id"] == "comm-created"
+    workflow_payload = serializer_cls.return_value.enqueue.call_args.kwargs["payload"]
+    assert workflow_payload["communication_id"] == "comm-created"
     svc._communications.link_inbound_to_workflow_run.assert_called_once()
     assert (
         svc._communications.link_inbound_to_workflow_run.call_args.kwargs[
@@ -160,22 +172,21 @@ def test_try_customer_reply_enqueues_via_subject_fallback_when_thread_miss() -> 
         process_enabled_check=lambda _s: True,
     )
 
-    with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
-        import sys
-
-        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = MagicMock()
-        with patch(
+    with (
+        patch(_SERIALIZER_PATCH, _mock_serializer_enqueue()),
+        patch(
             "app.services.tenants_service.TenantsService.get_by_slug",
             return_value={"settings": _enabled_settings()},
-        ):
-            result = svc.try_customer_reply_received(
-                payload={
-                    **_reply_payload(),
-                    "subject": 'Re: DEL APPT REQ "63294"',
-                },
-                tenant=_TENANT,
-                communication_id="comm-1",
-            )
+        ),
+    ):
+        result = svc.try_customer_reply_received(
+            payload={
+                **_reply_payload(),
+                "subject": 'Re: DEL APPT REQ "63294"',
+            },
+            tenant=_TENANT,
+            communication_id="comm-1",
+        )
 
     assert isinstance(result, IngressResult)
     assert result.outcome == "enqueued"
@@ -217,22 +228,21 @@ def test_try_customer_reply_enqueues_via_costco_rpn_subject_fallback() -> None:
         process_enabled_check=lambda _s: True,
     )
 
-    with patch.dict("sys.modules", {"app.tasks.workflows": MagicMock()}):
-        import sys
-
-        sys.modules["app.tasks.workflows"].run_workflow_async.apply_async = MagicMock()
-        with patch(
+    with (
+        patch(_SERIALIZER_PATCH, _mock_serializer_enqueue()),
+        patch(
             "app.services.tenants_service.TenantsService.get_by_slug",
             return_value={"settings": _enabled_settings()},
-        ):
-            result = svc.try_customer_reply_received(
-                payload={
-                    **_reply_payload(),
-                    "subject": 'Re: DEL APPT REQ "DIAMOND-RPN00006732"',
-                },
-                tenant=_TENANT,
-                communication_id="comm-1",
-            )
+        ),
+    ):
+        result = svc.try_customer_reply_received(
+            payload={
+                **_reply_payload(),
+                "subject": 'Re: DEL APPT REQ "DIAMOND-RPN00006732"',
+            },
+            tenant=_TENANT,
+            communication_id="comm-1",
+        )
 
     assert isinstance(result, IngressResult)
     assert result.outcome == "enqueued"
@@ -240,6 +250,25 @@ def test_try_customer_reply_enqueues_via_costco_rpn_subject_fallback() -> None:
         tenant_id=_TENANT.tenant_uuid,
         subject_token="DIAMOND-RPN00006732",
     )
+
+
+def test_enqueue_reply_buffered_still_records_run() -> None:
+    svc = _service()
+    serializer_cls = _mock_serializer_enqueue(status="buffered")
+    with patch(_SERIALIZER_PATCH, serializer_cls):
+        execution_id = svc.enqueue_reply_event_and_link(
+            tenant_uuid=_TENANT.tenant_uuid,
+            tenant_slug=_TENANT.tenant_slug,
+            workflow_lifecycle_id=_LC,
+            payload={"tenant_id": _TENANT.tenant_uuid, "workflow_lifecycle_id": _LC},
+            event_type=WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value,
+            communication_id="comm-1",
+            thread_id=_THREAD,
+        )
+
+    assert execution_id
+    svc._runs_service.record_workflow_run.assert_called_once()
+    svc._communications.link_inbound_to_workflow_run.assert_called_once()
 
 
 def test_try_customer_reply_skips_when_thread_and_subject_miss() -> None:
