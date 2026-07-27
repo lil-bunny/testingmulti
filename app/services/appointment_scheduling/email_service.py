@@ -87,6 +87,17 @@ class EmailService:
             )
             return SendResult(sent=False, error=BusinessError.MISSING_MIKEY_ACCOUNT_ID.value)
 
+        tenant_id = str(tenant_raw or "").strip()
+        lifecycle_id = str(data.get("workflow_lifecycle_id") or "").strip()
+        if tenant_id and lifecycle_id:
+            existing = self._communications.find_outbound_draft_communication_id(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=lifecycle_id,
+            )
+            if existing:
+                state.data["communication_id"] = existing
+                return SendResult(sent=True, communication_id=existing)
+
         to_list = unipile_recipients_from_addresses([to])
         cc_list = unipile_recipients_from_addresses(cc) if cc else None
         from_recipient = mikey_unipile_from(mailbox)
