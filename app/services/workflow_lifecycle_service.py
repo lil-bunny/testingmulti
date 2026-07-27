@@ -453,7 +453,7 @@ class WorkflowLifecycleService:
         lifecycle_id: str,
         expected_tenant_id: str,
     ) -> str:
-        """Claim portal draft send (``metadata.draft_send_queued``) in one transaction."""
+        """Claim portal draft send (``metadata.email_sent``) in one transaction."""
         lid = self._clean(lifecycle_id)
         tenant_id = self._clean(expected_tenant_id)
         if not lid or not tenant_id:
