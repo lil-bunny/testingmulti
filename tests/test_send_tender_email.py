@@ -120,3 +120,6 @@ def test_send_tender_email_does_not_pass_from_email(mock_send_email) -> None:
 
     mock_send_email.assert_called_once()
     assert mock_send_email.call_args.kwargs.get("from_email") is None
+    assert mock_send_email.call_args.kwargs.get("sent_folder_id") == (
+        load_tenant_settings_dev("gelita")["unipile_sent_folder_id"]
+    )

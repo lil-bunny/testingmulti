@@ -27,7 +27,10 @@ from app.domain.email_thread_reply import (
     merge_cc,
     resolve_parent_id,
 )
-from app.domain.tenant_settings.email_recipients import unipile_recipients_from_addresses
+from app.domain.tenant_settings.email_recipients import (
+    coerce_email_list,
+    unipile_recipients_from_addresses,
+)
 from app.services.unipile_service import Unipile, UnipileException
 
 if TYPE_CHECKING:
@@ -370,6 +373,41 @@ class CommunicationsService:
             )
             return None
 
+    def resolve_lifecycle_id_for_external_id(
+        self,
+        *,
+        tenant_id: str,
+        external_id: str,
+        workflow_name: str = "load_tendering",
+    ) -> str | None:
+        """Parent ``external_id`` (Unipile ``deprecated_id``) → lifecycle for ack ingress."""
+        tid = self._tenant_uuid_or_none(tenant_id)
+        eid = self._clean(external_id)
+        if not tid or not eid:
+            return None
+        try:
+            if self._repository is not None:
+                return self._repository.resolve_lifecycle_id_for_external_id(
+                    tenant_id=tid,
+                    external_id=eid,
+                    workflow_name=workflow_name,
+                )
+            return run_with_repos(
+                lambda repos: repos.communications.resolve_lifecycle_id_for_external_id(
+                    tenant_id=tid,
+                    external_id=eid,
+                    workflow_name=workflow_name,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "communications resolve_lifecycle_id_for_external_id failed "
+                "tenant_id=%s external_id=%s",
+                tid,
+                eid,
+            )
+            return None
+
     def find_shipment_context_for_thread(
         self,
         *,
@@ -651,6 +689,48 @@ class CommunicationsService:
             )
             return None
 
+    def _enrich_outbound_from_sent_folder(
+        self,
+        *,
+        account_id: str,
+        sent_folder_id: str,
+        tracking_id: str,
+        to_email: str | None = None,
+    ) -> dict[str, str]:
+        """
+        List Sent Items and match ``tracking_id`` to recover ``deprecated_id`` / ``thread_id``.
+
+        Unipile reply ``in_reply_to.id`` equals the parent email's ``deprecated_id``, not
+        the send API ``tracking_id`` we get from POST /emails.
+        """
+        unipile = Unipile()
+        listed = unipile.list_emails(
+            account_id=account_id,
+            folder=sent_folder_id,
+            limit=50,
+            meta_only=True,
+            to=to_email,
+        )
+        items = listed.get("items") if isinstance(listed, dict) else None
+        if not isinstance(items, list):
+            return {}
+        track = str(tracking_id or "").strip()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_track = str(item.get("tracking_id") or "").strip()
+            if not track or item_track != track:
+                continue
+            out: dict[str, str] = {}
+            deprecated_id = str(item.get("deprecated_id") or "").strip()
+            if deprecated_id:
+                out["deprecated_id"] = deprecated_id
+            thread_id = str(item.get("thread_id") or "").strip()
+            if thread_id:
+                out["thread_id"] = thread_id
+            return out
+        return {}
+
     def record_outbound_from_send(
         self,
         tenant_id: str,
@@ -666,8 +746,14 @@ class CommunicationsService:
         from_email: str | None = None,
         extra_metadata: dict[str, Any] | None = None,
         workflow_run_id: str | None = None,
+        sent_folder_id: str | None = None,
     ) -> str | None:
-        """Log one successful outbound email (Unipile send result)."""
+        """Log one successful outbound email (Unipile send result).
+
+        When ``sent_folder_id`` is set, list Sent Items for ``deprecated_id`` (reply
+        correlation key) and insert once with that as ``external_id``. Falls back to
+        the send ``tracking_id`` if enrichment fails.
+        """
         tid = self._tenant_uuid_or_none(tenant_id)
         if not tid:
             logger.warning(
@@ -677,13 +763,55 @@ class CommunicationsService:
             return None
 
         run_id = self._uuid_or_none(workflow_run_id, field_name="workflow_run_id")
+        tracking_id = str(
+            (send_result or {}).get("tracking_id")
+            or (send_result or {}).get("message_id")
+            or ""
+        ).strip()
+        effective_result = dict(send_result or {})
+        resolved_thread = thread_id
+
+        folder = self._clean(sent_folder_id)
+        acc = self._clean(account_id)
+        if folder and acc and tracking_id:
+            to_email: str | None = None
+            to_list = coerce_email_list(to, required=False) or []
+            if to_list:
+                to_email = to_list[0]
+            try:
+                enriched = self._enrich_outbound_from_sent_folder(
+                    account_id=acc,
+                    sent_folder_id=folder,
+                    tracking_id=tracking_id,
+                    to_email=to_email,
+                )
+                deprecated_id = enriched.get("deprecated_id")
+                if deprecated_id:
+                    effective_result["message_id"] = deprecated_id
+                    effective_result["tracking_id"] = deprecated_id
+                if enriched.get("thread_id"):
+                    resolved_thread = enriched["thread_id"]
+                if not deprecated_id:
+                    logger.warning(
+                        "communications outbound enrichment: no deprecated_id for "
+                        "tracking_id=%s tenant_id=%s; falling back to tracking_id",
+                        tracking_id,
+                        tid,
+                    )
+            except Exception:
+                logger.exception(
+                    "communications outbound enrichment failed tracking_id=%s "
+                    "tenant_id=%s; falling back to tracking_id",
+                    tracking_id,
+                    tid,
+                )
 
         row = outbound_row_from_send(
             tenant_id=tid,
-            send_result=send_result,
+            send_result=effective_result,
             body=body,
             subject=subject,
-            thread_id=thread_id,
+            thread_id=resolved_thread,
             to=to,
             cc=cc,
             bcc=bcc,
@@ -693,7 +821,7 @@ class CommunicationsService:
             workflow_run_id=run_id,
         )
         if not row:
-            if send_result.get("success"):
+            if (send_result or {}).get("success"):
                 logger.warning(
                     "communications outbound skipped: no tracking id tenant_id=%s",
                     tid,
@@ -720,6 +848,38 @@ class CommunicationsService:
                 )
             return comm_id
         except Exception:
+            used_external = str(row.get("external_id") or "").strip()
+            if tracking_id and used_external and used_external != tracking_id:
+                logger.exception(
+                    "communications outbound insert failed external_id=%s tenant_id=%s; "
+                    "retrying with tracking_id",
+                    used_external,
+                    tid,
+                )
+                row["external_id"] = tracking_id
+                try:
+                    if self._repository is not None:
+                        comm_id = self._repository.insert(row)
+                    else:
+                        comm_id = run_with_repos(
+                            lambda repos: self._repo(repos).insert(row)
+                        )
+                    if comm_id:
+                        logger.info(
+                            "communications outbound recorded id=%s external_id=%s "
+                            "tenant_id=%s (tracking_id fallback)",
+                            comm_id,
+                            tracking_id,
+                            tid,
+                        )
+                    return comm_id
+                except Exception:
+                    logger.exception(
+                        "communications outbound insert failed external_id=%s tenant_id=%s",
+                        tracking_id,
+                        tid,
+                    )
+                    return None
             logger.exception(
                 "communications outbound insert failed external_id=%s tenant_id=%s",
                 row.get("external_id"),

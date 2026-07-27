@@ -200,6 +200,9 @@ def carrier_ack_router(state):
 
 def routing_guide_router(state):
     """Route reject/timeout to advance, exhausted, or LTL terminal."""
+    # Shipper (@gelita.com) reject: complete as rejected, never advance/escalate.
+    if state.data.get("routing_guide_shipper_domain_reject"):
+        return "ltl_terminal"
     if not is_ftl_load_type(resolve_load_type(state)):
         return "ltl_terminal"
     attempt = routing_guide_attempt_from_state(state.data)

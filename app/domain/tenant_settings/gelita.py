@@ -218,6 +218,7 @@ class GelitaTenantSettings(BaseModel):
     enabledProcesses: list[str] = Field(default_factory=list)
     inbound_routing_emails: InboundRoutingEmails
     ana_at_gelita_account_id: str
+    unipile_sent_folder_id: str
     prompts: GelitaPrompts
     load_tendering: GelitaLoadTenderingSettings
     workflow_error_alerts: WorkflowErrorAlertSettings | None = None
