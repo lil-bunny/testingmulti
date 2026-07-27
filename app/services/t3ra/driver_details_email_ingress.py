@@ -145,7 +145,10 @@ class DriverDetailsEmailIngressService:
         if not all((load_id, turvo_shipment_id, ratecon_workflow_lifecycle_id)):
             return None
 
-        return {
+        # Keep Unipile fields (email_id, attendees, attachments, …) so graph prep
+        # can persist communications via record_or_resolve_inbound.
+        workflow_payload: dict[str, Any] = {
+            **payload,
             "event_type": WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
             "tenant_id": tenant_uuid,
             "tenant_slug": tenant_slug,
@@ -155,10 +158,10 @@ class DriverDetailsEmailIngressService:
             "shipment_id": turvo_shipment_id,
             "load_id": load_id,
             "ratecon_workflow_lifecycle_id": ratecon_workflow_lifecycle_id,
-            "communication_id": communication_id,
-            "body": payload.get("body"),
-            "subject": payload.get("subject"),
         }
+        if communication_id:
+            workflow_payload["communication_id"] = communication_id
+        return workflow_payload
 
     def enqueue_driver_assignment_event_and_link(
         self,

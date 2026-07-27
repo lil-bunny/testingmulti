@@ -81,11 +81,11 @@ def _ratecon_success_state_data(**overrides) -> dict:
         "workflow_lifecycle_id": _RATECON_LC_ID,
         "thread_id": "thread-1",
         "shipment": _turvo_shipment_fixture(),
-        "ratecon_s3_upload": {
-            "all_succeeded": True,
-            "results": [{"document_persist": {"stored": True}}],
+        "ratecon_page_count_cache": {
+            "success": True,
+            "page_count": 3,
+            "document_analysis": {"stored": True},
         },
-        "document_analysis_ratecon": {"stored": True},
     }
     data.update(overrides)
     return data
@@ -962,11 +962,23 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
         resp = svc.try_driver_details_email_received(
             payload={
                 "thread_id": "thread-1",
+                "email_id": "unipile-email-driver-1",
                 "in_reply_to": {
                     "message_id": "<parent@example.com>",
                     "id": "mail-parent-1",
                 },
+                "from_attendee": {
+                    "identifier": "carrier@example.com",
+                    "identifier_type": "EMAIL_ADDRESS",
+                },
+                "to_attendees": [
+                    {
+                        "identifier": "ops@example.com",
+                        "identifier_type": "EMAIL_ADDRESS",
+                    }
+                ],
                 "body": "Driver John 555-0100",
+                "subject": "Re: Rate confirmation for shipment: #30389",
             },
             tenant=tenant,
             communication_id="comm-1",
@@ -974,7 +986,13 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
 
     assert resp is not None
     ser.enqueue.assert_called_once()
-
+    enqueued = ser.enqueue.call_args.kwargs["payload"]
+    assert enqueued["email_id"] == "unipile-email-driver-1"
+    assert enqueued["from_attendee"]["identifier"] == "carrier@example.com"
+    assert enqueued["body"] == "Driver John 555-0100"
+    assert enqueued["event_type"] == "driver_details_email_received"
+    assert enqueued["communication_id"] == "comm-1"
+    assert enqueued["shipment_id"] == "1000324895"
 
 def test_try_driver_details_email_received_re_subject_fallback_enqueues():
     from app.services.unipile_tenant_resolution import UnipileTenantContext

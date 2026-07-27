@@ -1,257 +1,38 @@
 import logging
 import os
-import shutil
 import tempfile
 from datetime import datetime
-from typing import Any
 
 from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
-from app.services.pod_lifecycle.extraction import pod_confidence_score
-from app.tools.pdf_to_images import (
-    PdfTooLargeError,
-    PodPdfTooLargeError,
-    freightx_stage_dir,
-    make_temp_pdf,
-)
-from app.services.pod_lifecycle.vs_ratecon_validation import (
-    generate_validation_summary,
-    validate_pod_against_ratecon,
-)
-from app.services.ratecon_extraction import extract_from_pdf_path as extract_ratecon_from_pdf_path
-from app.models.document import DocumentType
-from app.tools.document_analysis import read_ratecon_extraction
-from app.tools.documents import read_document, resolve_merged_pod_object_key
-from app.workflows.shipment_resolver import (
-    resolve_shipment_id,
-    resolve_shipments_row_id_for_db,
-)
+from app.services.pod_lifecycle.extraction import derive_pod_scoring_observations, pod_confidence_score
+from app.tools.pdf_to_images import PdfTooLargeError, PodPdfTooLargeError, make_temp_pdf
+from app.tools.documents import resolve_merged_pod_object_key
+from app.workflows.shipment_resolver import resolve_shipment_id
 
 logger = logging.getLogger(__name__)
 
 
-def load_ratecon_analysis(data: dict) -> dict:
+def _carrier_name_from_shipment(data: dict) -> str | None:
     """
-    Hydrate ``ratecon_analysis_results`` from cached ``document_analysis`` row
-    written by the ratecon workflow (no S3 download or LLM re-run).
+    Assigned carrier name from Turvo ``details.carrierOrder[0].carrier.name``.
+
+    Passed to PDF extraction as ``broker_name`` so the LLM excludes the carrier's
+    own letterhead when picking a carrier-name candidate off the POD.
     """
-    sid = resolve_shipment_id(data)
-    if not sid:
-        return {"success": False, "error": "missing_shipment_id"}
-
-    shipments_row_id = resolve_shipments_row_id_for_db(data)
-    if not shipments_row_id:
-        return {"success": False, "error": "missing_shipments_row_id", "shipment_id": sid}
-
-    read_result = read_ratecon_extraction(shipments_row_id)
-    if read_result.get("error"):
-        return {
-            "success": False,
-            "error": read_result["error"],
-            "shipment_id": sid,
-        }
-    if not read_result.get("found"):
-        logger.info(
-            "load_ratecon_analysis: no cached ratecon_extraction shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": False,
-            "skipped": True,
-            "reason": "no_ratecon_extraction",
-            "shipment_id": sid,
-        }
-
-    row = read_result["row"]
-    findings = row.get("results") if isinstance(row.get("results"), dict) else {}
-    extracted = findings.get("extracted_fields") if isinstance(findings, dict) else {}
-    if not isinstance(extracted, dict):
-        extracted = {}
-
-    if not extracted:
-        logger.info(
-            "load_ratecon_analysis: incomplete cache shipment_id=%s (no extracted_fields)",
-            sid,
-        )
-        return {
-            "success": False,
-            "skipped": True,
-            "reason": "no_ratecon_extraction",
-            "shipment_id": sid,
-        }
-
-    analysis_id = row.get("id")
-    logger.info(
-        "load_ratecon_analysis: cache hit shipment_id=%s document_analysis_id=%s",
-        sid,
-        analysis_id,
-    )
-    return {
-        "success": True,
-        "shipment_id": sid,
-        "findings": findings,
-        "confidence_score": row.get("confidence_score"),
-        "document_id": str(row["document_id"]) if row.get("document_id") else None,
-        "cached": True,
-        "document_analysis_id": str(analysis_id) if analysis_id is not None else None,
-    }
-
-
-def ratecon_analysis(data: dict) -> dict:
-    """
-    Load the rate confirmation PDF from ``documents`` (``type='ratecon'``) by
-    ``shipment_id`` using the stored S3 object key, then run per-page vision extraction.
-    Expected object basename: ``ratecon_{shipmentId}.pdf`` (sanitized segment).
-    """
-    sid = resolve_shipment_id(data)
-    if not sid:
-        return {"success": False, "error": "missing_shipment_id"}
-
-    shipments_row_id = resolve_shipments_row_id_for_db(data)
-    if not shipments_row_id:
-        return {"success": False, "error": "missing_shipments_row_id", "shipment_id": sid}
-
-    doc = read_document(shipments_row_id, DocumentType.RATECON)
-    if doc.get("error"):
-        return {
-            "success": False,
-            "error": doc["error"],
-            "shipment_id": sid,
-        }
-
-    if not doc.get("found") or not doc.get("storage_key"):
-        logger.info(
-            "ratecon_analysis: no ratecon document row for shipment_id=%s",
-            sid,
-        )
-        return {
-            "success": True,
-            "skipped": True,
-            "reason": "no_ratecon_document_in_db",
-            "shipment_id": sid,
-        }
-
-    raw_key = doc["storage_key"]
-    try:
-        object_key = normalize_object_key(raw_key)
-    except ValueError as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "shipment_id": sid,
-            "ratecon_object_key": raw_key,
-        }
-    document_id = doc.get("id")
-    expected_key = f"ratecon_{_sanitize_path_segment(sid)}.pdf"
-    if expected_key.lower() not in (object_key or "").lower():
-        logger.warning(
-            "ratecon_analysis: object key missing expected basename %r (shipment_id=%s)",
-            expected_key,
-            sid,
-        )
-    tmp_path: str | None = None
-    stage_dir = freightx_stage_dir(
-        settings.RATECON_STAGE_ROOT,
-        f"ratecon_{_sanitize_path_segment(sid)}",
-    )
-    try:
-        dl = bucket.download_object_bytes(object_key)
-        if not dl.get("success"):
-            return {
-                "success": False,
-                "error": dl.get("error_message") or "s3_download_failed",
-                "shipment_id": sid,
-                "ratecon_object_key": object_key,
-            }
-        body = dl["body"]
-        if not body.startswith(b"%PDF"):
-            return {
-                "success": False,
-                "error": "downloaded_file_not_pdf",
-                "shipment_id": sid,
-                "ratecon_object_key": object_key,
-            }
-
-        fd, tmp_path = make_temp_pdf(
-            prefix=f"ratecon_{sid}",
-            directory=stage_dir,
-        )
-        try:
-            os.write(fd, body)
-        finally:
-            os.close(fd)
-
-        page_results, extracted = extract_ratecon_from_pdf_path(
-            tmp_path,
-            model_label=settings.LLM_VISION_MODEL,
-            tenant_settings=data.get("tenant_settings"),
-            stage_dir=stage_dir,
-        )
-        good_pages = sum(1 for p in page_results if p.get("extracted_data"))
-        has_ids = bool(extracted.get("shipment_identifiers")) or bool(
-            extracted.get("primary_identifier")
-        )
-        if not has_ids and good_pages == 0:
-            return {
-                "success": False,
-                "error": "extraction_empty",
-                "shipment_id": sid,
-                "ratecon_object_key": object_key,
-                "page_results": page_results,
-                "extracted_data": extracted,
-            }
-
-        findings = {
-            "metadata": {
-                "timestamp": datetime.now().isoformat(),
-                "pages_processed": len(page_results),
-                "successful_pages": good_pages,
-                "failed_pages": len(page_results) - good_pages,
-                "model": settings.LLM_VISION_MODEL,
-                "total_identifiers_found": len(extracted.get("shipment_identifiers") or []),
-                "identifiers_list": extracted.get("shipment_identifiers") or [],
-            },
-            "extracted_fields": extracted,
-            "page_details": page_results,
-        }
-        id_count = len(extracted.get("shipment_identifiers") or [])
-        confidence = 1.0 if id_count else 0.25
-
-        return {
-            "success": True,
-            "shipment_id": sid,
-            "ratecon_object_key": object_key,
-            "ratecon_document_id": document_id,
-            "primary_identifier": extracted.get("primary_identifier"),
-            "identifiers_found": extracted.get("shipment_identifiers"),
-            "findings": findings,
-            "document_id": document_id,
-            "confidence_score": confidence,
-        }
-    except Exception as exc:
-        logger.exception("ratecon_analysis failed shipment_id=%s", sid)
-        return {
-            "success": False,
-            "error": str(exc),
-            "shipment_id": sid,
-            "ratecon_object_key": object_key,
-        }
-    finally:
-        shutil.rmtree(stage_dir, ignore_errors=True)
-
-
-def _broker_name_from_ratecon_results(data: dict) -> str | None:
-    rc = data.get("ratecon_analysis_results") or {}
-    if not rc.get("success") or rc.get("skipped"):
+    shipment = data.get("shipment")
+    details = shipment.get("details") if isinstance(shipment, dict) else None
+    orders = details.get("carrierOrder") if isinstance(details, dict) else None
+    if not isinstance(orders, list) or not orders:
         return None
-    findings = rc.get("findings") or {}
-    extracted = findings.get("extracted_fields") or {}
-    b = extracted.get("broker_name")
-    if b is None:
+    first = orders[0]
+    carrier = first.get("carrier") if isinstance(first, dict) else None
+    name = carrier.get("name") if isinstance(carrier, dict) else None
+    if name is None:
         return None
-    s = str(b).strip()
+    s = str(name).strip()
     return s or None
 
 
@@ -295,7 +76,7 @@ def pod_analysis(data: dict) -> dict:
     else:
         document_id = url_meta.get("document_id")
 
-    broker_name = _broker_name_from_ratecon_results(data)
+    broker_name = _carrier_name_from_shipment(data)
 
     tmp_path: str | None = None
     owned_tmp = False
@@ -369,6 +150,10 @@ def pod_analysis(data: dict) -> dict:
                 "pod_data": final_pod_data,
             }
 
+        pod_observations = derive_pod_scoring_observations(
+            (raw_llm_response or {}).get("pages"), final_pod_data
+        )
+
         findings = {
             "metadata": {
                 "timestamp": datetime.now().isoformat(),
@@ -384,6 +169,7 @@ def pod_analysis(data: dict) -> dict:
             "reconciliation_log": reconciliation_log,
             "page_details": page_results,
             "llm_extraction": raw_llm_response,
+            "pod_observations": pod_observations,
         }
         confidence = pod_confidence_score(
             page_results, final_pod_data, validation_issues, raw_llm_response
@@ -434,68 +220,3 @@ def pod_analysis(data: dict) -> dict:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-
-def pod_vs_ratecon_analysis(data: dict) -> dict[str, Any]:
-    """
-    Compare reconciled POD ``pod_data`` to ratecon ``extracted_fields`` using legacy rules,
-    then LLM summary + confidence (same contracts as upstream analysis nodes).
-
-    ponytail: inputs assumed valid — graph error edges and ``ratecon_cache_router`` guarantee
-    upstream nodes succeeded before this tool runs; fix upstream, do not re-add guards here.
-    """
-    sid = resolve_shipment_id(data) or ""
-    pod_res = data.get("pod_analysis_results") or {}
-    rc_res = data.get("ratecon_analysis_results") or {}
-    pod_data = (pod_res.get("findings") or {}).get("pod_data")
-    ratecon_data = (rc_res.get("findings") or {}).get("extracted_fields") or {}
-
-    try:
-        cross = validate_pod_against_ratecon(
-            pod_data,
-            ratecon_data,
-            tenant_settings=data.get("tenant_settings"),
-        )
-        summary_result = generate_validation_summary(
-            cross,
-            pod_data,
-            tenant_settings=data.get("tenant_settings"),
-        )
-    except Exception as exc:
-        logger.exception("pod_vs_ratecon_analysis failed shipment_id=%s", sid)
-        return {
-            "success": False,
-            "error": str(exc),
-            "shipment_id": sid,
-        }
-
-    overall = cross.get("overall_status", "UNKNOWN")
-    pod_status = overall if overall in ("PASS", "FAIL") else "UNKNOWN"
-
-    findings: dict[str, Any] = {
-        "metadata": {
-            "timestamp": datetime.now().isoformat(),
-            "model": settings.LLM_CHAT_MODEL,
-        },
-        "overall_status": overall,
-        "cross_validation": cross,
-        "validation_summary": summary_result.get("summary"),
-    }
-
-    document_id = pod_res.get("document_id")
-    if document_id is not None:
-        document_id = str(document_id)
-
-    confidence = summary_result.get("confidence_score")
-    if confidence is None:
-        confidence = 0.5
-
-    return {
-        "success": True,
-        "shipment_id": sid,
-        "pod_status": pod_status,
-        "overall_status": overall,
-        "confidence_score": confidence,
-        "validation_summary": summary_result.get("summary"),
-        "findings": findings,
-        "document_id": document_id,
-    }

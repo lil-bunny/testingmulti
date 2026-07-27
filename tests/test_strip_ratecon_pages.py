@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 import fitz
 
 from app.domain.pod_lifecycle.rate_confirmation_heading import page_has_rate_confirmation_heading
-from app.services.pod_lifecycle.strip_ratecon_pages import StripRateconPagesService
+from app.services.pod_lifecycle.strip_ratecon_pages import (
+    StripRateconPagesService,
+    resolve_ratecon_page_count,
+)
 from app.tools.pdf_page_text_extractor import PageText
 
 
@@ -296,6 +299,27 @@ def test_terminal_neither_falls_back_to_match_only():
     find_pages.assert_called_once()
     assert result.excluded_page_numbers == [3, 4]
     assert result.kept_page_count == 4
+
+
+def test_resolve_ratecon_page_count_none_when_missing_shipments_row_id():
+    assert resolve_ratecon_page_count(None) is None
+    assert resolve_ratecon_page_count("") is None
+
+
+def test_resolve_ratecon_page_count_none_on_cache_miss():
+    with patch(
+        "app.services.pod_lifecycle.strip_ratecon_pages._read_cached_ratecon_extraction_row",
+        return_value={"found": False},
+    ):
+        assert resolve_ratecon_page_count("11111111-1111-4111-8111-111111111111") is None
+
+
+def test_resolve_ratecon_page_count_reads_cached_metadata():
+    with patch(
+        "app.services.pod_lifecycle.strip_ratecon_pages._read_cached_ratecon_extraction_row",
+        return_value={"found": True, "row": {"metadata": {"page_count": 4}}},
+    ):
+        assert resolve_ratecon_page_count("11111111-1111-4111-8111-111111111111") == 4
 
 
 def test_terminal_p_equals_r_all_excluded():

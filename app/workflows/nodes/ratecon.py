@@ -3,13 +3,14 @@
 from app.services.ratecon_document_service import RateconDocumentService
 
 
-def upload_ratecon_attachments(state):
+def cache_ratecon_page_count(state):
     """
-    When the run includes Unipile attachment metadata + ``email_id``, download each
-    file and upload to S3. Persists ``documents`` rows via ``RateconDocumentService``.
-    Result is stored on ``state.data['ratecon_s3_upload']``.
+    Download ratecon email attachments and cache PDF page count for POD strip.
+
+    No S3 upload. Result is stored on ``state.data['ratecon_page_count_cache']``.
     """
-    state.data["ratecon_s3_upload"] = RateconDocumentService().upload_email_attachments(
-        state.data
+    ratecon_document_service = RateconDocumentService()
+    state.data["ratecon_page_count_cache"] = (
+        ratecon_document_service.cache_from_email_attachments(state.data)
     )
     return state

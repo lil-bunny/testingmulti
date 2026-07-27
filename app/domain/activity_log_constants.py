@@ -25,13 +25,8 @@ RATECON_RECEIVED_ACTION = "Ratecon email received"
 RATECON_SUPERSEDED_ACTION = (
     "Ratecon cancelled — superseded by new inbound ratecon email"
 )
-RATECON_DOCUMENT_UPLOADED_ACTION = "Ratecon document uploaded to S3"
-RATECON_DOCUMENT_UPLOAD_FAILED_ACTION = "Ratecon document upload failed"
-RATECON_DOCUMENT_PROCESSED_ACTION = "Ratecon document processed"
-RATECON_DOCUMENT_PROCESSING_FAILED_ACTION = "Ratecon document processing failed"
-RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE = (
-    "Ratecon document processed — LLM extraction{confidence_suffix}"
-)
+RATECON_PAGE_COUNT_CACHED_ACTION = "Ratecon page count cached"
+RATECON_PAGE_COUNT_FAILED_ACTION = "Ratecon page count cache failed"
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
 POD_UPLOADED_MANUALLY_INFO = "POD uploaded manually"
@@ -41,13 +36,6 @@ POD_DOCUMENT_PROCESSING_FAILED_ACTION = "POD document processing failed"
 POD_EXTRACTION_PROCESSED_TEMPLATE = (
     "POD document processed — LLM extraction{confidence_suffix}"
 )
-POD_VS_RATECON_VALIDATED_TEMPLATE = (
-    "POD validated against ratecon{confidence_suffix} ({status})"
-)
-POD_VS_RATECON_VALIDATION_SKIPPED_TEMPLATE = (
-    "POD vs ratecon validation skipped ({reason})"
-)
-POD_VS_RATECON_VALIDATION_FAILED_ACTION = "POD vs ratecon validation failed"
 POD_UPLOADED_TO_TMS_ACTION = "POD document uploaded to TMS"
 POD_UPLOAD_TO_TMS_FAILED_ACTION = "POD upload to TMS failed"
 POD_FOUND_IN_TMS_INFO = "Pod found in TMS"

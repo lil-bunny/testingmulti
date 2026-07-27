@@ -98,10 +98,6 @@ class BusinessError(_CatalogError):
         "pod_extraction_empty",
         "POD LLM extraction returned no usable data.",
     )
-    RATECON_EXTRACTION_EMPTY = (
-        "ratecon_extraction_empty",
-        "Ratecon LLM extraction returned no usable data.",
-    )
     SHIPMENT_NOT_FOUND_IN_TMS = (
         "shipment_not_found_in_tms",
         "No TMS shipment found for load_id or could not extract shipment_id.",

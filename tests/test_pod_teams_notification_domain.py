@@ -29,21 +29,34 @@ def test_parse_pod_teams_notification_settings() -> None:
     assert settings.message_title == "POD — Load {load_id}"
 
 
+def _scoring_results(*, final_score: float, result: str, po_scores: list | None = None) -> dict:
+    return {
+        "success": True,
+        "score": {
+            "final_score": final_score,
+            "result": result,
+            "po_scores": po_scores if po_scores is not None else [],
+            "exceptions": [],
+            "remarks": [],
+        },
+    }
+
+
 def test_pod_analysis_display_fields_from_data() -> None:
     fields = pod_analysis_display_fields_from_data(
         {
             "load_id": "30389",
-            "pod_vs_ratecon_analysis_results": {
-                "confidence_score": 0.876,
-                "validation_summary": "Line 1 match.\nLine 2 delivery confirmed.",
-                "overall_status": "PASS",
-            },
+            "pod_scoring_results": _scoring_results(
+                final_score=88,
+                result="PASS",
+                po_scores=[{"po_number": "A1176371", "po_total": 88}],
+            ),
         }
     )
     assert fields == PodAnalysisDisplayFields(
         load_id="30389",
         confidence_score="0.88",
-        validation_summary="Line 1 match.\nLine 2 delivery confirmed.",
+        validation_summary="A1176371: 88/100",
         overall_status="PASS",
     )
 
@@ -53,11 +66,7 @@ def test_pod_analysis_display_fields_from_shipment_custom_id() -> None:
         {
             "shipment_id": "1000324895",
             "shipment": {"details": {"customId": "30389", "id": 1000324895}},
-            "pod_vs_ratecon_analysis_results": {
-                "confidence_score": 0.083,
-                "validation_summary": "Mismatch on addresses.",
-                "overall_status": "FAIL",
-            },
+            "pod_scoring_results": _scoring_results(final_score=8, result="FAIL"),
         }
     )
     assert fields is not None
@@ -69,15 +78,21 @@ def test_pod_analysis_display_fields_falls_back_to_shipment_id() -> None:
     fields = pod_analysis_display_fields_from_data(
         {
             "shipment_id": "1000324895",
-            "pod_vs_ratecon_analysis_results": {
-                "confidence_score": 0.5,
-                "validation_summary": "OK",
-                "overall_status": "UNKNOWN",
-            },
+            "pod_scoring_results": _scoring_results(final_score=50, result="FAIL"),
         }
     )
     assert fields is not None
     assert fields.load_id == "1000324895"
+
+
+def test_pod_analysis_display_fields_none_when_skipped() -> None:
+    fields = pod_analysis_display_fields_from_data(
+        {
+            "load_id": "30389",
+            "pod_scoring_results": {"success": True, "skipped": True, "reason": "multi_stop_not_supported"},
+        }
+    )
+    assert fields is None
 
 
 def test_format_pod_analysis_title_and_facts() -> None:

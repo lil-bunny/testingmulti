@@ -64,34 +64,6 @@ def test_extraction_metadata_id_only() -> None:
     assert sequence.steps[0].metadata == {"document_analysis_id": "analysis-pod-1"}
 
 
-def test_vs_ratecon_success_metadata_id_only() -> None:
-    mock_activity = MagicMock()
-    mock_lifecycle = MagicMock()
-    mock_lifecycle.read_lifecycle_row_by_id.return_value = _lifecycle_row()
-
-    service = PodPipelineActivityService(
-        activity_log_service=mock_activity,
-        lifecycle_service=mock_lifecycle,
-    )
-    state = _base_state(
-        data={
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
-            "document_analysis_pod_vs_ratecon": {"stored": True, "id": "analysis-vs-1"},
-            "pod_vs_ratecon_analysis_results": {
-                "success": True,
-                "confidence_score": 0.91,
-                "overall_status": "PASS",
-                "validation_summary": "All fields match.",
-            },
-        }
-    )
-
-    service.record_vs_ratecon_from_state(state)
-
-    sequence = mock_activity.record_sequence.call_args[0][0]
-    assert sequence.steps[0].metadata == {"document_analysis_id": "analysis-vs-1"}
-
-
 def test_started_status_metadata_none() -> None:
     from app.models.status import StatusSubType, StatusType
 

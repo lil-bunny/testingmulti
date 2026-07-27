@@ -1,29 +1,21 @@
 import logging
 import shutil
+from dataclasses import asdict
 from pathlib import Path
 
 from app.core.config import settings
 from app.domain.error_catalog import BusinessError, IntegrationError, SystemError
 from app.exceptions import WorkflowException
+from app.integrations.turvo.pod_inputs import extract_pod_inputs_from_shipment
 from app.models.document_analysis import DocumentAnalysisType
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.pod_lifecycle.pod_scoring import score_pod
 from app.tools.document_analysis import upsert_document_analysis
-from app.tools.pod import (
-    load_ratecon_analysis as load_ratecon_analysis_tool,
-    pod_analysis as get_pod_analysis,
-    pod_vs_ratecon_analysis as get_pod_vs_ratecon_analysis,
-)
-from app.services.ratecon_document_service import RateconDocumentService
+from app.tools.pod import pod_analysis as get_pod_analysis
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
 from app.workflows.utils.decorators import safe_node
 
 logger = logging.getLogger(__name__)
-
-_PDF_FETCH_ERRORS = {
-    "missing_shipment_id": SystemError.MISSING_SHIPMENT_ID,
-    "missing_shipments_row_id": SystemError.MISSING_SHIPMENT_ID,
-    "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
-}
 
 _POD_ANALYSIS_ERRORS = {
     "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
@@ -87,51 +79,6 @@ def merge_and_upload_pod_attachments(state):
         raise
 
 
-@safe_node
-def load_ratecon_analysis(state):
-    """
-    Load cached ratecon extraction from ``document_analysis`` (ratecon workflow).
-
-    Intentional skips (ratecon not yet processed) fall through silently so
-    ``ratecon_cache_router`` can route to ``end`` as usual.
-    Hard failures (missing shipment id, S3 error) raise WorkflowException.
-    """
-    if not state.data.get("shipment_id"):
-        resolved = resolve_shipment_id(state.data)
-        if resolved:
-            state.data["shipment_id"] = resolved
-
-    out = load_ratecon_analysis_tool(state.data)
-    state.data["ratecon_analysis_results"] = out
-
-    _raise_on_tool_failure(out, _PDF_FETCH_ERRORS)
-
-    analysis_id = out.get("document_analysis_id")
-    if out.get("success") and not out.get("skipped") and analysis_id:
-        state.data["document_analysis_ratecon"] = {
-            "stored": True,
-            "id": analysis_id,
-            "source": "cache",
-        }
-        logger.info(
-            "load_ratecon_analysis: cache hit shipment_id=%s id=%s",
-            out.get("shipment_id"),
-            analysis_id,
-        )
-    else:
-        logger.warning(
-            "load_ratecon_analysis: cache miss shipment_id=%s reason=%s",
-            out.get("shipment_id"),
-            out.get("reason") or out.get("error"),
-        )
-    return state
-
-
-def ratecon_analysis(state):
-    state.data.update(RateconDocumentService().analyze_and_persist(state.data))
-    return state
-
-
 def _is_manual_pod_upload(data: dict) -> bool:
     return str(data.get("event_type") or "").strip() == (
         WorkflowRunEventType.MANUAL_POD_UPLOAD.value
@@ -148,6 +95,12 @@ def _manual_pod_analysis_soft_fail(out: dict) -> bool:
 
 @safe_node
 def pod_analysis(state):
+    """
+    Extract PoD fields from the merged PDF and upsert ``pod_extraction``.
+
+    Manual uploads soft-fail on empty extraction; other paths raise via
+    ``_POD_ANALYSIS_ERRORS``. Always cleans the worker stage dir in ``finally``.
+    """
     try:
         out = get_pod_analysis(state.data)
         state.data["pod_analysis_results"] = out
@@ -171,18 +124,23 @@ def pod_analysis(state):
             raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
 
         shipments_row_id = resolve_shipments_row_id_for_db(state.data)
+        findings = out.get("findings") if isinstance(out.get("findings"), dict) else {}
         if (
             out.get("success")
             and not out.get("skipped")
-            and out.get("findings")
+            and findings.get("pod_data")
             and shipments_row_id
         ):
+            # Persist extract-only shape; scoring/observations stay in state findings.
             persist = upsert_document_analysis(
                 shipments_row_id,
                 DocumentAnalysisType.POD_EXTRACTION,
-                results=out["findings"],
+                results={
+                    "pod_data": findings.get("pod_data"),
+                    "llm_extraction": findings.get("llm_extraction"),
+                },
                 confidence_score=out.get("confidence_score"),
-                llm_model={"model": settings.LLM_VISION_MODEL},
+                llm_model={"model": settings.LLM_PDF_MODEL},
                 document_id=out.get("document_id"),
             )
             state.data["document_analysis_pod"] = persist
@@ -197,40 +155,76 @@ def pod_analysis(state):
 
 
 @safe_node
-def pod_vs_ratecon_analysis(state):
-    out = get_pod_vs_ratecon_analysis(state.data)
-    state.data["pod_vs_ratecon_analysis_results"] = out
+def capture_turvo_shipment_snapshot(state):
+    """
+    Store a dict snapshot of Turvo PoD-scoring inputs on state for audit/debug.
 
-    if not out.get("skipped") and not out.get("success"):
-        if _is_manual_pod_upload(state.data):
-            logger.warning(
-                "pod_vs_ratecon_analysis: manual soft-fail shipment_id=%s lifecycle_id=%s error=%s",
-                state.data.get("shipment_id"),
-                state.data.get("workflow_lifecycle_id"),
-                out.get("error"),
-            )
-            return state
-        raise WorkflowException(SystemError.UNEXPECTED_NODE_FAILURE)
+    ``pod_scoring`` re-extracts from ``state.data["shipment"]`` itself (cheap, pure)
+    rather than reconstructing dataclasses from this dict.
+    """
+    shipment = state.data.get("shipment") or {}
+    pod_inputs = extract_pod_inputs_from_shipment(shipment)
+    state.data["turvo_shipment_snapshot"] = asdict(pod_inputs)
+    return state
+
+
+def _pod_analysis_findings(state) -> dict:
+    pod_results = state.data.get("pod_analysis_results")
+    pod_results = pod_results if isinstance(pod_results, dict) else {}
+    findings = pod_results.get("findings")
+    return findings if isinstance(findings, dict) else {}
+
+
+def _pod_extraction_persisted(state) -> bool:
+    persist = state.data.get("document_analysis_pod")
+    return isinstance(persist, dict) and persist.get("stored") is True
+
+
+@safe_node
+def pod_scoring(state):
+    """
+    Score the PoD against Turvo inputs and persist a ``pod_vs_tms_analysis`` row.
+
+    Skips multi-stop shipments. Uses in-memory ``pod_analysis`` findings
+    (``pod_observations``); does not overwrite the ``pod_extraction`` row.
+    """
+    shipment = state.data.get("shipment") or {}
+    pod_inputs = extract_pod_inputs_from_shipment(shipment)
+
+    if not pod_inputs.is_single_stop:
+        state.data["pod_scoring_results"] = {
+            "success": True,
+            "skipped": True,
+            "reason": "multi_stop_not_supported",
+        }
+        return state
+
+    findings = _pod_analysis_findings(state)
+    pod_observations = findings.get("pod_observations")
+    pod_observations = pod_observations if isinstance(pod_observations, dict) else {}
+
+    score = score_pod(pod_observations, pod_inputs)
+    score_dict = asdict(score)
+    state.data["pod_scoring_results"] = {"success": True, "score": score_dict}
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
-    if (
-        out.get("success")
-        and not out.get("skipped")
-        and out.get("findings")
-        and shipments_row_id
-    ):
+    if shipments_row_id and _pod_extraction_persisted(state):
+        pod_results = state.data.get("pod_analysis_results") or {}
         persist = upsert_document_analysis(
             shipments_row_id,
-            DocumentAnalysisType.POD_VS_RATECON_COMPARISON,
-            results=out["findings"],
-            confidence_score=out.get("confidence_score"),
-            llm_model={"model": settings.LLM_CHAT_MODEL},
-            document_id=out.get("document_id"),
+            DocumentAnalysisType.POD_VS_TMS_ANALYSIS,
+            results=score_dict,
+            confidence_score=score.final_score / 100,
+            document_id=pod_results.get("document_id"),
         )
-        state.data["document_analysis_pod_vs_ratecon"] = persist
+        state.data["document_analysis_pod_scoring"] = persist
         logger.info(
-            "pod_vs_ratecon_analysis: document_analysis stored=%s id=%s",
+            "pod_scoring: document_analysis stored=%s id=%s type=%s "
+            "final_score=%s result=%s",
             persist.get("stored"),
             persist.get("id"),
+            DocumentAnalysisType.POD_VS_TMS_ANALYSIS.value,
+            score.final_score,
+            score.result,
         )
     return state

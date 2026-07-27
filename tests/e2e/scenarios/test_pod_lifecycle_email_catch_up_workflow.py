@@ -74,7 +74,7 @@ _POLL_DEFAULT_INTERVAL_S = 5.0
 _POD_DOCUMENT_ANALYSIS_TYPES = frozenset(
     (
         DocumentAnalysisType.POD_EXTRACTION.value,
-        DocumentAnalysisType.POD_VS_RATECON_COMPARISON.value,
+        DocumentAnalysisType.POD_VS_TMS_ANALYSIS.value,
     )
 )
 

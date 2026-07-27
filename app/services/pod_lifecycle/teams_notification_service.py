@@ -40,6 +40,12 @@ class PodTeamsNotificationResult:
 
 class PodLifecycleTeamsNotificationService:
     def notify_from_state(self, state: WorkflowState) -> PodTeamsNotificationResult:
+        """
+        Post a Teams card after POD analysis when tenant webhook settings exist.
+
+        Guard order: settings → event type → upload success → extraction stored →
+        scoring display fields. Returns skipped/error results without raising.
+        """
         data = state.data
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):
@@ -59,15 +65,15 @@ class PodLifecycleTeamsNotificationService:
         if not _analysis_success(data):
             return PodTeamsNotificationResult(skipped=True, skip_reason="pod_analysis_not_stored")
 
-        vs_results = data.get("pod_vs_ratecon_analysis_results")
-        if not isinstance(vs_results, dict):
+        scoring_results = data.get("pod_scoring_results")
+        if not isinstance(scoring_results, dict):
             return PodTeamsNotificationResult(
-                skipped=True, skip_reason="missing_vs_ratecon_results"
+                skipped=True, skip_reason="missing_pod_scoring_results"
             )
 
         fields = pod_analysis_display_fields_from_data(data)
         if fields is None:
-            skip_reason = _display_fields_skip_reason(data, vs_results)
+            skip_reason = _display_fields_skip_reason(data, scoring_results)
             return PodTeamsNotificationResult(skipped=True, skip_reason=skip_reason)
 
         title = format_pod_analysis_title(settings.message_title, fields=fields)
@@ -106,11 +112,12 @@ def _analysis_success(data: dict[str, Any]) -> bool:
     return isinstance(persist, dict) and persist.get("stored") is True
 
 
-def _display_fields_skip_reason(data: dict[str, Any], vs_results: dict[str, Any]) -> str:
-    if vs_results.get("confidence_score") is None:
-        return "missing_confidence_score"
-    if not str(vs_results.get("validation_summary") or "").strip():
-        return "missing_validation_summary"
+def _display_fields_skip_reason(data: dict[str, Any], scoring_results: dict[str, Any]) -> str:
+    if scoring_results.get("skipped"):
+        return "pod_scoring_skipped"
+    score = scoring_results.get("score")
+    if not isinstance(score, dict) or score.get("final_score") is None:
+        return "missing_pod_score"
     if not resolve_pod_analysis_load_id(data):
         return "missing_load_id"
     return "missing_display_fields"

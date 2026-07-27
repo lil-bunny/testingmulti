@@ -16,14 +16,8 @@ from app.domain.activity_log_constants import (
     POD_EXTRACTION_PROCESSED_TEMPLATE,
     POD_UPLOADED_TO_TMS_ACTION,
     POD_UPLOAD_TO_TMS_FAILED_ACTION,
-    POD_VS_RATECON_VALIDATED_TEMPLATE,
-    POD_VS_RATECON_VALIDATION_FAILED_ACTION,
-    POD_VS_RATECON_VALIDATION_SKIPPED_TEMPLATE,
-    RATECON_DOCUMENT_PROCESSED_ACTION,
-    RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE,
-    RATECON_DOCUMENT_PROCESSING_FAILED_ACTION,
-    RATECON_DOCUMENT_UPLOADED_ACTION,
-    RATECON_DOCUMENT_UPLOAD_FAILED_ACTION,
+    RATECON_PAGE_COUNT_CACHED_ACTION,
+    RATECON_PAGE_COUNT_FAILED_ACTION,
     RATECON_RECEIVED_ACTION,
     RATECON_SUPERSEDED_ACTION,
     REMINDER_SENT_ACTION_TEMPLATE,
@@ -135,30 +129,12 @@ def format_ratecon_superseded_action() -> str:
     return RATECON_SUPERSEDED_ACTION
 
 
-def format_ratecon_document_uploaded_action() -> str:
-    return RATECON_DOCUMENT_UPLOADED_ACTION
+def format_ratecon_page_count_cached_action() -> str:
+    return RATECON_PAGE_COUNT_CACHED_ACTION
 
 
-def format_ratecon_document_upload_failed_action() -> str:
-    return RATECON_DOCUMENT_UPLOAD_FAILED_ACTION
-
-
-def format_ratecon_document_processed_action() -> str:
-    return RATECON_DOCUMENT_PROCESSED_ACTION
-
-
-def format_ratecon_document_processing_failed_action() -> str:
-    return RATECON_DOCUMENT_PROCESSING_FAILED_ACTION
-
-
-def format_ratecon_document_processed_with_llm_action(
-    *,
-    confidence: float | None = None,
-) -> str:
-    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
-    return RATECON_DOCUMENT_PROCESSED_WITH_LLM_TEMPLATE.format(
-        confidence_suffix=conf,
-    )
+def format_ratecon_page_count_failed_action() -> str:
+    return RATECON_PAGE_COUNT_FAILED_ACTION
 
 
 def format_pod_escalation_sent_action() -> str:
@@ -193,26 +169,6 @@ def format_pod_extraction_processed_action(
     return POD_EXTRACTION_PROCESSED_TEMPLATE.format(confidence_suffix=conf)
 
 
-def format_pod_vs_ratecon_validated_action(
-    *,
-    confidence: float | None = None,
-    status: str | None = None,
-) -> str:
-    conf = f" confidence={confidence:.2f}" if confidence is not None else ""
-    status_label = (status or "UNKNOWN").strip().upper() or "UNKNOWN"
-    return POD_VS_RATECON_VALIDATED_TEMPLATE.format(
-        confidence_suffix=conf,
-        status=status_label,
-    )
-
-
-def format_pod_vs_ratecon_validation_skipped_action(*, reason: str) -> str:
-    reason_label = (reason or "unknown").strip() or "unknown"
-    return POD_VS_RATECON_VALIDATION_SKIPPED_TEMPLATE.format(reason=reason_label)
-
-
-def format_pod_vs_ratecon_validation_failed_action() -> str:
-    return POD_VS_RATECON_VALIDATION_FAILED_ACTION
 
 
 def format_pod_uploaded_to_tms_action() -> str:

@@ -26,11 +26,15 @@ _BASE_DATA = {
     "documents_pod": {"stored": True, "id": "doc-1"},
     "pod_merged_pdf_object_key": "pod_attachments/pod.pdf",
     "document_analysis_pod": {"stored": True, "id": "analysis-1"},
-    "pod_vs_ratecon_analysis_results": {
+    "pod_scoring_results": {
         "success": True,
-        "confidence_score": 0.87,
-        "validation_summary": "Fields matched. Delivery confirmed.",
-        "overall_status": "PASS",
+        "score": {
+            "final_score": 87,
+            "result": "PASS",
+            "po_scores": [{"po_number": "A1176371", "po_total": 87}],
+            "exceptions": [],
+            "remarks": [],
+        },
     },
 }
 

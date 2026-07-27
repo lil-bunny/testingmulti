@@ -1,4 +1,4 @@
-"""POD pipeline activity logging (started, reminders, extraction, ratecon)."""
+"""POD pipeline activity logging (started, reminders, extraction)."""
 
 from __future__ import annotations
 
@@ -8,16 +8,12 @@ from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
     format_pod_escalation_sent_action,
     format_pod_extraction_processed_action,
-    format_pod_vs_ratecon_validated_action,
-    format_pod_vs_ratecon_validation_failed_action,
-    format_pod_vs_ratecon_validation_skipped_action,
     format_reminder_sent_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.domain.pod_lifecycle.activity_metadata import (
     extraction_action_metadata,
     reminder_action_metadata,
-    vs_ratecon_action_metadata,
 )
 from app.domain.pod_lifecycle.guards import (
     POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
@@ -58,16 +54,6 @@ def _communication_id(state: WorkflowState) -> str | None:
 def _analysis_success(state: WorkflowState) -> bool:
     persist = state.data.get("document_analysis_pod")
     return isinstance(persist, dict) and persist.get("stored") is True
-
-
-def _validation_stored(state: WorkflowState) -> bool:
-    persist = state.data.get("document_analysis_pod_vs_ratecon")
-    return isinstance(persist, dict) and persist.get("stored") is True
-
-
-def _validation_skipped(state: WorkflowState) -> bool:
-    results = state.data.get("pod_vs_ratecon_analysis_results")
-    return isinstance(results, dict) and results.get("skipped") is True
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -119,32 +105,6 @@ def _lifecycle_already_started(row: dict[str, Any] | None) -> bool:
     if sub == StatusSubType.POD_STARTED:
         return True
     return False
-
-
-def _vs_ratecon_action_description(state: WorkflowState) -> str:
-    if _validation_stored(state):
-        vs_results = state.data.get("pod_vs_ratecon_analysis_results") or {}
-        if not isinstance(vs_results, dict):
-            vs_results = {}
-        status = (
-            vs_results.get("overall_status")
-            or vs_results.get("pod_status")
-            or "UNKNOWN"
-        )
-        confidence = _float_or_none(vs_results.get("confidence_score"))
-        return format_pod_vs_ratecon_validated_action(
-            confidence=confidence,
-            status=str(status),
-        )
-
-    if _validation_skipped(state):
-        vs_results = state.data.get("pod_vs_ratecon_analysis_results") or {}
-        if not isinstance(vs_results, dict):
-            vs_results = {}
-        reason = str(vs_results.get("reason") or "unknown").strip() or "unknown"
-        return format_pod_vs_ratecon_validation_skipped_action(reason=reason)
-
-    return format_pod_vs_ratecon_validation_failed_action()
 
 
 class PodPipelineActivityService:
@@ -388,67 +348,6 @@ class PodPipelineActivityService:
                         description=format_pod_extraction_processed_action(
                             confidence=confidence,
                         ),
-                        metadata=action_meta,
-                    ),
-                ),
-            )
-        )
-
-    def record_vs_ratecon_from_state(self, state: WorkflowState) -> None:
-        scope = _scope_ids(state)
-        if scope is None:
-            logger.warning(
-                "PodPipelineActivityService.vs_ratecon skipped missing ids "
-                "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
-                bool(state.data.get("workflow_lifecycle_id")),
-                bool(state.tenant_id or state.data.get("tenant_id")),
-                bool(state.execution_id),
-            )
-            return
-
-        if not pod_upload_success_from_state(state.data):
-            return
-
-        if not _analysis_success(state):
-            return
-
-        wl_id, tenant_id, run_id = scope
-        row = self._lifecycle_service.read_lifecycle_row_by_id(wl_id)
-        if should_skip_idempotent_pod_activity_log(
-            state.data,
-            row,
-            done_sub_statuses=POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
-        ):
-            logger.info(
-                "PodPipelineActivityService.vs_ratecon skipping already processed lifecycle_id=%s",
-                wl_id,
-            )
-            return
-
-        vs_results = state.data.get("pod_vs_ratecon_analysis_results")
-        if not isinstance(vs_results, dict):
-            logger.info(
-                "PodPipelineActivityService.vs_ratecon skipping missing results lifecycle_id=%s",
-                wl_id,
-            )
-            return
-
-        vs_persist = state.data.get("document_analysis_pod_vs_ratecon")
-        vs_persist_dict = vs_persist if isinstance(vs_persist, dict) else None
-        action_meta = vs_ratecon_action_metadata(
-            vs_persist=vs_persist_dict,
-            vs_results=vs_results,
-        )
-
-        self._activity_log_service.record_sequence(
-            ActivityLogSequence(
-                tenant_id=tenant_id,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
-                steps=(
-                    ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=_vs_ratecon_action_description(state),
                         metadata=action_meta,
                     ),
                 ),

@@ -28,7 +28,7 @@ from app.services.email_webhook_attachment_ingestion import (
     fetch_email_attachment_bytes_with_retry,
 )
 from app.services.pod_lifecycle.ingress_service import POD_EMAIL_SKIP_INVALID_ATTACHMENT
-from app.tools.document_analysis import resolve_ratecon_page_count
+from app.services.pod_lifecycle.strip_ratecon_pages import resolve_ratecon_page_count
 from app.tools.documents import insert_document
 
 logger = get_logger(__name__)

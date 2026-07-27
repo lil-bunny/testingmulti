@@ -68,7 +68,7 @@ def test_pymupdf_conversion_opens_document_once(tmp_path: Path) -> None:
     """Multi-page convert must parse the PDF once (session owns Document)."""
     import fitz
 
-    from app.tools import pdf_raster
+    from app.tools import pdf_to_images
 
     pdf_path = tmp_path / "two_page.pdf"
     doc = fitz.open()
@@ -88,8 +88,8 @@ def test_pymupdf_conversion_opens_document_once(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    with patch.object(pdf_raster.fitz, "open", side_effect=counting_open):
-        paths = pdf_raster._convert_pdf_with_pymupdf_page_at_a_time(
+    with patch.object(pdf_to_images.fitz, "open", side_effect=counting_open):
+        paths = pdf_to_images._convert_pdf_with_pymupdf_page_at_a_time(
             str(pdf_path),
             str(out_dir),
             dpi=72,

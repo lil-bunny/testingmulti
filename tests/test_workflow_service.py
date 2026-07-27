@@ -157,6 +157,9 @@ async def test_pod_lifecycle_route_completed_duplicate_returns_early(monkeypatch
                 lifecycle_id=lifecycle_id,
             )
         )
+        ingress_cls.return_value.enrich_payload_load_id.side_effect = (
+            lambda **kwargs: kwargs["payload"]
+        )
         service = WorkflowService(WorkflowRepository(), TenantRepository())
 
         execute_called = False
@@ -202,6 +205,9 @@ async def test_pod_lifecycle_route_completed_convoy_skip_returns_early(monkeypat
         ingress_cls.return_value.check_route_completed_pod_gate = AsyncMock(
             return_value=RouteCompletedIngressGateResult(skip=False)
         )
+        ingress_cls.return_value.enrich_payload_load_id.side_effect = (
+            lambda **kwargs: kwargs["payload"]
+        )
         service = WorkflowService(WorkflowRepository(), TenantRepository())
 
         execute_called = False
@@ -246,6 +252,9 @@ async def test_pod_lifecycle_route_completed_pod_exists_skip_returns_early(monke
                 reason=ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
             )
         )
+        ingress_cls.return_value.enrich_payload_load_id.side_effect = (
+            lambda **kwargs: kwargs["payload"]
+        )
         service = WorkflowService(WorkflowRepository(), TenantRepository())
 
         execute_called = False
@@ -284,7 +293,7 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         return [path]
 
     monkeypatch.setattr(
-        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        "app.tools.pdf_to_images._convert_pdf_with_pymupdf_page_at_a_time",
         _fake_pymupdf_convert,
     )
     monkeypatch.setattr(
@@ -337,27 +346,6 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         fake_read_workflow_lifecycle,
     )
 
-    def fake_load_ratecon(state):
-        state.data["ratecon_analysis_results"] = {
-            "success": True,
-            "shipment_id": ship,
-            "findings": {"extracted_fields": {"broker_name": "Acme Transport"}},
-            "cached": True,
-            "document_analysis_id": "cached-ratecon-1",
-        }
-        state.data["document_analysis_ratecon"] = {
-            "stored": True,
-            "id": "cached-ratecon-1",
-            "source": "cache",
-        }
-        return state
-
-    monkeypatch.setitem(
-        workflow_registry.NODE_REGISTRY,
-        "load_ratecon_analysis",
-        fake_load_ratecon,
-    )
-
     def fake_merge_and_upload(state):
         stage = str(state.data.get("pod_attachment_stage_dir") or "").strip()
         merged = f"{stage}/pod_SHIP.pdf" if stage else "/tmp/pod_SHIP.pdf"
@@ -384,16 +372,6 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         workflow_registry.NODE_REGISTRY,
         "pod_analysis",
         fake_pod_analysis,
-    )
-
-    def fake_pod_vs_ratecon_analysis(state):
-        state.data["pod_vs_ratecon_analysis_results"] = {"success": True, "skipped": False}
-        return state
-
-    monkeypatch.setitem(
-        workflow_registry.NODE_REGISTRY,
-        "pod_vs_ratecon_analysis",
-        fake_pod_vs_ratecon_analysis,
     )
 
     with patch(
@@ -446,7 +424,7 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
         return [path]
 
     monkeypatch.setattr(
-        "app.tools.pdf_raster._convert_pdf_with_pymupdf_page_at_a_time",
+        "app.tools.pdf_to_images._convert_pdf_with_pymupdf_page_at_a_time",
         _fake_pymupdf_convert,
     )
     monkeypatch.setattr(
@@ -483,27 +461,6 @@ async def test_pod_lifecycle_email_received_uses_ingress_and_routes_to_processin
     monkeypatch.setattr(
         "app.services.workflow_lifecycle_service.WorkflowLifecycleService.read_lifecycle",
         fake_read_lifecycle,
-    )
-
-    def fake_load_ratecon(state):
-        state.data["ratecon_analysis_results"] = {
-            "success": True,
-            "shipment_id": ship,
-            "findings": {"extracted_fields": {"broker_name": "Acme Transport"}},
-            "cached": True,
-            "document_analysis_id": "cached-ratecon-1",
-        }
-        state.data["document_analysis_ratecon"] = {
-            "stored": True,
-            "id": "cached-ratecon-1",
-            "source": "cache",
-        }
-        return state
-
-    monkeypatch.setitem(
-        workflow_registry.NODE_REGISTRY,
-        "load_ratecon_analysis",
-        fake_load_ratecon,
     )
 
     with patch(

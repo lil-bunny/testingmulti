@@ -1,10 +1,13 @@
 """
 Strip rate confirmation pages from mixed POD PDFs during pre-graph assess.
 
-When ``ratecon_page_count`` (R) is known from ratecon
+When ``ratecon_page_count`` (R) is known from a cached ratecon
 ``document_analysis.metadata.page_count`` and ``P >= R``, OCR page 1 and page P;
 on a terminal hit strip the contiguous R-window (verify far end, log miss, still
 strip). Otherwise OCR all pages and strip heading matches only.
+
+R may be ``None`` (no historical cache) — callers treat that as expected and
+fall back to the match-only path.
 """
 
 from __future__ import annotations
@@ -12,16 +15,77 @@ from __future__ import annotations
 import io
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
+from app.core.db import db_scope
 from app.domain.pod_lifecycle.rate_confirmation_heading import (
     page_has_rate_confirmation_heading,
 )
+from app.models.document_analysis import (
+    DOCUMENT_ANALYSIS_PAGE_COUNT_KEY,
+    DocumentAnalysisType,
+)
+from app.tools.documents import _uuid_or_none
 from app.tools.pdf_page_text_extractor import (
     PdfPageTextExtractor,
     pdf_page_count,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _page_count_from_document_analysis_row(row: dict[str, Any] | None) -> int | None:
+    if not row:
+        return None
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    raw = metadata.get(DOCUMENT_ANALYSIS_PAGE_COUNT_KEY)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 1 else None
+
+
+def _read_cached_ratecon_extraction_row(shipments_row_id: str | None) -> dict[str, Any]:
+    """Load cached ``ratecon_extraction`` row for ``shipments_row_id``. Returns ``{found, row?, error?}``."""
+    row_shipment_id = _uuid_or_none(shipments_row_id)
+    if shipments_row_id and not row_shipment_id:
+        return {"found": False, "error": "invalid_shipments_row_id"}
+    if not row_shipment_id:
+        return {"found": False, "error": "missing_shipments_row_id"}
+
+    try:
+        with db_scope() as repos:
+            row = repos.document_analysis.get_by_shipment_and_type(
+                shipment_id=row_shipment_id,
+                analysis_type=DocumentAnalysisType.RATECON_EXTRACTION.value,
+            )
+        if not row:
+            return {"found": False}
+        if row.get("document_id") is not None:
+            row["document_id"] = str(row["document_id"])
+        return {"found": True, "row": row}
+    except Exception as exc:
+        logger.exception(
+            "_read_cached_ratecon_extraction_row failed shipment_id=%s",
+            row_shipment_id,
+        )
+        return {"found": False, "error": str(exc)}
+
+
+def resolve_ratecon_page_count(shipments_row_id: str | None) -> int | None:
+    """
+    Cached ratecon PDF page count (R hint for the terminal-window strip), or ``None``.
+
+    ``None`` means "no hint available" (never cached, or cache miss) — callers must
+    treat that as expected and fall back to the match-only strip path, not an error.
+    """
+    out = _read_cached_ratecon_extraction_row(shipments_row_id)
+    if not out.get("found"):
+        return None
+    return _page_count_from_document_analysis_row(out.get("row"))
 
 
 @dataclass(frozen=True)

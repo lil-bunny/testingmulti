@@ -10,24 +10,16 @@ from typing import Any
 # Tenant-settings step keys (``tenants.settings.prompts`` dot paths).
 LOAD_TENDERING_CARRIER_ACK = "load_tendering.carrier_ack"
 DRIVER_ASSIGNMENT_DRIVER_DETAILS = "driver_assignment.driver_details"
-POD_PAGE_EXTRACTION = "pod_lifecycle.page_extraction"
 POD_PDF_EXTRACTION = "pod_lifecycle.pdf_extraction"
 POD_ATTACHMENT_CLASSIFIER = "pod_lifecycle.attachment_classifier"
-RATECON_PAGE_EXTRACTION = "ratecon.page_extraction"
-POD_VS_RATECON_SUMMARY = "pod_lifecycle.vs_ratecon_summary"
-POD_VS_RATECON_SEMANTIC_MATCH = "pod_lifecycle.vs_ratecon_semantic_match"
 APPOINTMENT_SCHEDULING_OPTIMIZATION = "appointment_scheduling.scheduling_optimization"
 APPOINTMENT_SCHEDULING_CUSTOMER_REPLY = "appointment_scheduling.customer_reply"
 
 # LangSmith Hub prompt names (not tenant step keys).
 CARRIER_ACK_CLASSIFY_PROMPT = "carrier-ack-classify"
 DRIVER_DETAILS_EXTRACT_PROMPT = "driver-details-extract"
-POD_PAGE_EXTRACTION_PROMPT = "pod-page-extraction"
 POD_PDF_EXTRACTION_PROMPT = "pod-pdf-extraction"
 POD_ATTACHMENT_CLASSIFIER_PROMPT = "pod-attachment-classifier"
-RATECON_PAGE_EXTRACTION_PROMPT = "ratecon-page-extraction"
-POD_VS_RATECON_SUMMARY_PROMPT = "pod-vs-ratecon-summary"
-POD_VS_RATECON_SEMANTIC_MATCH_PROMPT = "pod-vs-ratecon-semantic-match"
 
 
 def hub_prompt_id(prompt_name: str, *, owner: str | None = None) -> str:

@@ -127,32 +127,6 @@ def extraction_action_metadata(document_analysis_pod: dict[str, Any] | None) -> 
     return compact(document_analysis_id=str(analysis_id).strip())
 
 
-def vs_ratecon_action_metadata(
-    *,
-    vs_persist: dict[str, Any] | None,
-    vs_results: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Ratecon ACTION: ``document_analysis_id`` on success, skip reason on skip, error on failure."""
-    if not isinstance(vs_results, dict):
-        return None
-
-    if vs_results.get("skipped"):
-        reason = vs_results.get("reason")
-        if reason is not None and str(reason).strip():
-            return compact(validation_skip_reason=str(reason).strip())
-        return None
-
-    if isinstance(vs_persist, dict) and vs_persist.get("stored") is True:
-        vs_id = vs_persist.get("id")
-        if vs_id is not None and str(vs_id).strip():
-            return compact(document_analysis_id=str(vs_id).strip())
-
-    error = vs_results.get("error")
-    if error is not None and str(error).strip():
-        return compact(error=str(error).strip())
-    return None
-
-
 def tms_action_metadata(
     *,
     outcome: str,

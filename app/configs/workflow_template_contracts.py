@@ -36,6 +36,9 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "has_attachments",
             "pod_attachment_stage_dir",
             "pod_merged_local_path",
+            "turvo_shipment_snapshot",
+            "pod_scoring_results",
+            "document_analysis_pod_scoring",
         ],
     ),
     "ratecon": WorkflowTemplateContract(
@@ -56,7 +59,7 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "communication_id",
             "workflow_lifecycle_payload",
             "ratecon_lifecycle_thread_persist",
-            "ratecon_s3_upload",
+            "ratecon_page_count_cache",
             "shipment",
             "shipment_location_link",
             "shipments_row_id",

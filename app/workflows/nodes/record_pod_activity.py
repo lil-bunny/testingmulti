@@ -38,12 +38,6 @@ def record_pod_extraction_activity(state):
     return state
 
 
-def record_pod_vs_ratecon_activity(state):
-    """Log POD vs ratecon validation outcome after ``pod_vs_ratecon_analysis``."""
-    PodPipelineActivityService().record_vs_ratecon_from_state(state)
-    return state
-
-
 def record_pod_processed_activity(state):
     """Finalize POD processing after LLM/ratecon."""
     PodProcessedActivityService().record_from_state(state)
