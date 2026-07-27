@@ -115,7 +115,6 @@ class SchedulingActivityDeps:
         actor_type: ActorType | None = None,
         actor_id: str | None = None,
     ) -> LifecycleTransitionCommand:
-        """Build an ACTION command. ``communication_id=None`` means no email link."""
         return LifecycleTransitionCommand.from_workflow_state(
             state,
             activity_type=ActivityType.ACTION,
