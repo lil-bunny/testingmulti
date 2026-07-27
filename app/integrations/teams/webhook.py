@@ -6,7 +6,6 @@ from typing import Any
 
 import httpx
 
-from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -107,13 +106,34 @@ def post_message_card_sync(
     facts: list[tuple[str, str]],
     timeout_s: float = _DEFAULT_TIMEOUT_S,
 ) -> None:
-    """Sync facade for graph nodes and sync services."""
-    run_sync(
-        post_message_card(
-            webhook_url,
-            title=title,
-            text=text,
-            facts=facts,
-            timeout_s=timeout_s,
+    """Sync POST for graph nodes and sync services."""
+    url = (webhook_url or "").strip()
+    if not url:
+        raise TeamsWebhookError("teams webhook url is required")
+
+    payload = build_message_card_payload(title=title, text=text, facts=facts)
+    try:
+        resp = httpx.post(url, json=payload, timeout=timeout_s)
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "teams webhook request failed url=%s error=%s",
+            _redact_webhook_url(url),
+            exc,
         )
+        raise TeamsWebhookError(f"teams webhook request failed: {exc}") from exc
+
+    if 200 <= resp.status_code < 300:
+        return
+
+    body_snippet = (resp.text or "")[:500]
+    logger.warning(
+        "teams webhook non-2xx url=%s status=%s body=%s",
+        _redact_webhook_url(url),
+        resp.status_code,
+        body_snippet,
+    )
+    raise TeamsWebhookError(
+        f"teams webhook returned {resp.status_code}",
+        status_code=resp.status_code,
+        body=body_snippet,
     )

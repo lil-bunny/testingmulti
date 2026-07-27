@@ -8,6 +8,13 @@ from app.exceptions import WorkflowException
 logger = get_logger(__name__)
 
 
+def _apply_node_error(state: WorkflowState, error_payload: dict) -> dict:
+    if not isinstance(state.data, dict):
+        state.data = {}
+    state.data["error"] = error_payload
+    return {"data": state.data}
+
+
 def safe_node(node_func):
     """
     Wraps LangGraph node functions to catch exceptions.
@@ -37,11 +44,6 @@ def safe_node(node_func):
                 message=SystemError.UNEXPECTED_NODE_FAILURE.description,
                 category=ErrorCategory.SYSTEM,
             )
-
-        if not isinstance(state.data, dict):
-            state.data = {}
-
-        state.data["error"] = error_payload
-        return {"data": state.data}
+        return _apply_node_error(state, error_payload)
 
     return wrapper

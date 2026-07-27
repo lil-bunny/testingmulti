@@ -5,15 +5,13 @@ from __future__ import annotations
 from app.configs.workflow_configs import WORKFLOW_CONFIGS
 
 
-def test_appointment_scheduling_pickup_routes_through_prepare() -> None:
+def test_appointment_scheduling_pickup_routes_to_read_lifecycle() -> None:
     cfg = WORKFLOW_CONFIGS["appointment_scheduling"]
     route_map = cfg["routers"]["route_event"]["map"]
-    prepare_router = cfg["routers"]["prepare_appointment_ingress"]
 
-    assert route_map["turvo_pickup_changed"] == "prepare_appointment_ingress"
-    assert "prepare_appointment_ingress" in cfg["nodes"]
-    assert prepare_router["map"]["continue"] == "read_appointment_lifecycle"
-    assert prepare_router["map"]["end"] == "end"
+    assert route_map["turvo_pickup_changed"] == "read_appointment_lifecycle"
+    assert "prepare_appointment_ingress" not in cfg["nodes"]
+    assert "prepare_appointment_ingress" not in cfg["routers"]
 
 
 def test_appointment_scheduling_intake_tail_includes_teams_notify() -> None:

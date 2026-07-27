@@ -10,7 +10,6 @@ EMAIL_SENT = "email_sent"
 APPOINTMENT_PAYLOAD = "appointment_payload"
 LLM_APPOINTMENT_DECISION = "llm_appointment_decision"
 APPOINTMENT_FAILURE_REASON = "appointment_failure_reason"
-APPOINTMENT_INGRESS_SKIP_REASON = "appointment_ingress_skip_reason"
 
 # Costco
 COSTCO_PROPOSED_DELIVERY_WALL_TIME = "06:00"

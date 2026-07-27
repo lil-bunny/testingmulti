@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.domain.appointment_scheduling.models import CustomerContactRow
 from app.services.appointment_scheduling.ingress_prepare_service import (
     IngressPrepareService,
@@ -125,7 +127,8 @@ def _patch_activity(*, pickup_changed: bool = True):
     )
 
 
-def test_prepare_skips_missing_recipient_without_lifecycle() -> None:
+@pytest.mark.asyncio
+async def test_prepare_skips_missing_recipient_without_lifecycle() -> None:
     from app.domain.error_catalog import BusinessError
 
     svc = _service()
@@ -136,7 +139,7 @@ def test_prepare_skips_missing_recipient_without_lifecycle() -> None:
             return_value=(BusinessError.MISSING_RECIPIENT_EMAIL, None),
         ),
     ):
-        result = svc.prepare_pickup_changed(
+        result = await svc.prepare_pickup_changed(
             tenant_slug=_TENANT_SLUG,
             tenant_id=_TENANT_UUID,
             tenant_settings={},
@@ -149,7 +152,8 @@ def test_prepare_skips_missing_recipient_without_lifecycle() -> None:
     svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
 
 
-def test_prepare_creates_lifecycle_when_recipient_resolves() -> None:
+@pytest.mark.asyncio
+async def test_prepare_creates_lifecycle_when_recipient_resolves() -> None:
     contact = CustomerContactRow(email="wh@example.com", customer="PETCO DC 810")
     svc = _service()
     with (
@@ -159,7 +163,7 @@ def test_prepare_creates_lifecycle_when_recipient_resolves() -> None:
             return_value=(None, contact),
         ),
     ):
-        result = svc.prepare_pickup_changed(
+        result = await svc.prepare_pickup_changed(
             tenant_slug=_TENANT_SLUG,
             tenant_id=_TENANT_UUID,
             tenant_settings={},
@@ -178,7 +182,8 @@ def test_prepare_creates_lifecycle_when_recipient_resolves() -> None:
     svc._location_link.try_link_from_turvo_shipment_payload.assert_called_once()
 
 
-def test_prepare_fetches_shipment_when_not_on_payload() -> None:
+@pytest.mark.asyncio
+async def test_prepare_fetches_shipment_when_not_on_payload() -> None:
     contact = CustomerContactRow(email="wh@example.com", customer="PETCO DC 810")
     svc = _service()
     with (
@@ -192,7 +197,7 @@ def test_prepare_fetches_shipment_when_not_on_payload() -> None:
             return_value=(None, contact),
         ),
     ):
-        result = svc.prepare_pickup_changed(
+        result = await svc.prepare_pickup_changed(
             tenant_slug=_TENANT_SLUG,
             tenant_id=_TENANT_UUID,
             tenant_settings={},
@@ -204,7 +209,8 @@ def test_prepare_fetches_shipment_when_not_on_payload() -> None:
     get_shipment_mock.assert_awaited_once()
 
 
-def test_prepare_skips_non_diamond_reference() -> None:
+@pytest.mark.asyncio
+async def test_prepare_skips_non_diamond_reference() -> None:
     svc = _service()
     with (
         patch(
@@ -216,7 +222,7 @@ def test_prepare_skips_non_diamond_reference() -> None:
             new=AsyncMock(),
         ) as activity_mock,
     ):
-        result = svc.prepare_pickup_changed(
+        result = await svc.prepare_pickup_changed(
             tenant_slug=_TENANT_SLUG,
             tenant_id=_TENANT_UUID,
             tenant_settings={},
@@ -229,7 +235,8 @@ def test_prepare_skips_non_diamond_reference() -> None:
     svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
 
 
-def test_prepare_skips_multi_stop_from_shipment() -> None:
+@pytest.mark.asyncio
+async def test_prepare_skips_multi_stop_from_shipment() -> None:
     from tests.test_shipment_location_link import THREE_STOP_ROUTE
 
     svc = _service()
@@ -246,7 +253,7 @@ def test_prepare_skips_multi_stop_from_shipment() -> None:
             new=activity_mock,
         ),
     ):
-        result = svc.prepare_pickup_changed(
+        result = await svc.prepare_pickup_changed(
             tenant_slug=_TENANT_SLUG,
             tenant_id=_TENANT_UUID,
             tenant_settings={},
@@ -257,7 +264,8 @@ def test_prepare_skips_multi_stop_from_shipment() -> None:
     activity_mock.assert_not_called()
 
 
-def test_prepare_skips_when_no_pickup_change() -> None:
+@pytest.mark.asyncio
+async def test_prepare_skips_when_no_pickup_change() -> None:
     svc = _service()
     with (
         _patch_activity(pickup_changed=False),
@@ -265,7 +273,7 @@ def test_prepare_skips_when_no_pickup_change() -> None:
             "app.services.appointment_scheduling.ingress_prepare_service.resolve_recipient_contact",
         ) as contact_mock,
     ):
-        result = svc.prepare_pickup_changed(
+        result = await svc.prepare_pickup_changed(
             tenant_slug=_TENANT_SLUG,
             tenant_id=_TENANT_UUID,
             tenant_settings={},
@@ -277,7 +285,8 @@ def test_prepare_skips_when_no_pickup_change() -> None:
     svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
 
 
-def test_prepare_reuses_existing_lifecycle_from_payload() -> None:
+@pytest.mark.asyncio
+async def test_prepare_reuses_existing_lifecycle_from_payload() -> None:
     contact = CustomerContactRow(email="wh@example.com", customer="PETCO DC 810")
     svc = _service()
     payload = _payload_with_shipment()
@@ -286,7 +295,7 @@ def test_prepare_reuses_existing_lifecycle_from_payload() -> None:
     payload["customer_contact"] = contact.model_dump(mode="json")
     payload["customer_name"] = "PETCO DC 810"
 
-    result = svc.prepare_pickup_changed(
+    result = await svc.prepare_pickup_changed(
         tenant_slug=_TENANT_SLUG,
         tenant_id=_TENANT_UUID,
         tenant_settings={},
@@ -301,7 +310,8 @@ def test_prepare_reuses_existing_lifecycle_from_payload() -> None:
     svc._lifecycle.create_appointment_scheduling_lifecycle.assert_not_called()
 
 
-def test_prepare_reuses_existing_lifecycle_without_shipment_on_payload() -> None:
+@pytest.mark.asyncio
+async def test_prepare_reuses_existing_lifecycle_without_shipment_on_payload() -> None:
     contact = CustomerContactRow(email="wh@example.com", customer="PETCO DC 810")
     svc = _service()
     payload = {
@@ -316,7 +326,7 @@ def test_prepare_reuses_existing_lifecycle_without_shipment_on_payload() -> None
         "customer_name": "PETCO DC 810",
     }
 
-    result = svc.prepare_pickup_changed(
+    result = await svc.prepare_pickup_changed(
         tenant_slug=_TENANT_SLUG,
         tenant_id=_TENANT_UUID,
         tenant_settings={},

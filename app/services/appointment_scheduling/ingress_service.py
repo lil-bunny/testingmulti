@@ -1,8 +1,7 @@
 """Turvo SHIPMENT_UPDATE ingress for appointment_scheduling.
 
-Webhook path: cheap tenant/process/parse/duplicate gates, then Celery enqueue with a
-slim payload. Worker ``prepare_appointment_ingress`` owns Turvo fetch, activity and
-sheet gates, shipment upsert, and lifecycle create.
+Webhook path: cheap tenant/process/parse/duplicate gates, then serializer enqueue.
+Worker ``WorkflowService.run`` calls ``prepare_pickup_changed`` before LangGraph.
 """
 
 from __future__ import annotations
@@ -18,9 +17,10 @@ from app.domain.error_catalog import BusinessError, format_error_message, resolv
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
 from app.domain.tenant_settings.tms import has_tms_partner_config
 from app.models.workflow_run_event_type import WorkflowRunEventType
+from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
+from app.services.shipments_service import ShipmentsService
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
-from app.tasks.workflows import run_workflow_async
 from app.tools.appointment_scheduling.ingress import (
     ParsedShipmentUpdateWebhook,
     is_multi_stop_shipment,
@@ -45,8 +45,6 @@ class IngressHandleResult:
 
 @dataclass(frozen=True)
 class FetchedSchedulingIngressData:
-    activity_json: dict
-    shipment_payload: dict
     reference_number: str
     load_id: str
 
@@ -57,9 +55,11 @@ class IngressService:
         *,
         tenants_service: TenantsService | None = None,
         lifecycle_service: WorkflowLifecycleService | None = None,
+        shipments_service: ShipmentsService | None = None,
     ) -> None:
         self._tenants = tenants_service or TenantsService()
         self._lifecycle = lifecycle_service or WorkflowLifecycleService()
+        self._shipments = shipments_service or ShipmentsService()
 
     @staticmethod
     def _skip(
@@ -143,20 +143,49 @@ class IngressService:
                 shipment_id=parsed.shipment_id,
             )
 
+        execution_id = str(uuid.uuid4())
         payload: dict[str, Any] = {
             "tenant_id": tenant_uuid,
             "tenant_slug": tenant_slug,
             "shipment_id": parsed.shipment_id,
+            "event_type": WorkflowRunEventType.TURVO_PICKUP_CHANGED.value,
+            "execution_id": execution_id,
+            "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
         }
         load_id = str(parsed.load_id or "").strip()
         if load_id:
             payload["load_id"] = load_id
 
         try:
-            execution_id = enqueue_appointment_scheduling_pickup_changed(
-                tenant_slug=tenant_slug,
-                payload=payload,
+            serializer = LifecycleRunSerializerService()
+            shipments_row = self._shipments.get_by_shipment_number(
+                tenant_id=tenant_uuid,
+                shipment_number=parsed.shipment_id,
             )
+            if shipments_row:
+                row_id = str(shipments_row.get("id") or "").strip()
+                if row_id:
+                    payload["shipments_row_id"] = row_id
+                result = serializer.resolve_then_enqueue(
+                    tenant_id=tenant_uuid,
+                    tenant_slug=tenant_slug,
+                    workflow_name=APPOINTMENT_SCHEDULING_WORKFLOW,
+                    payload=payload,
+                )
+                ingress_path = "resolve_then_enqueue"
+            else:
+                payload["workflow_lifecycle_id"] = (
+                    self._lifecycle.deterministic_pickup_lifecycle_id(
+                        tenant_id=tenant_uuid,
+                        shipment_number=parsed.shipment_id,
+                    )
+                )
+                result = serializer.enqueue(
+                    tenant_slug=tenant_slug,
+                    workflow_name=APPOINTMENT_SCHEDULING_WORKFLOW,
+                    payload=payload,
+                )
+                ingress_path = "enqueue_stub"
         except Exception:
             logger.exception(
                 "appointment_scheduling enqueue failed tenant_slug=%s shipment_id=%s",
@@ -170,10 +199,14 @@ class IngressService:
             )
 
         logger.info(
-            "appointment_scheduling ingress enqueued tenant_slug=%s shipment_id=%s execution_id=%s",
-            tenant_slug,
-            parsed.shipment_id,
+            "appointment_scheduling ingress serialize status=%s celery_task_id=%s "
+            "execution_id=%s lifecycle_id=%s shipment_id=%s ingress_path=%s",
+            result.status,
+            result.celery_task_id,
             execution_id,
+            result.lifecycle_id,
+            parsed.shipment_id,
+            ingress_path,
         )
         return IngressHandleResult(
             handled=True,
@@ -229,39 +262,9 @@ def evaluate_shipment_gates(
         return "missing_load_id", None
 
     return None, FetchedSchedulingIngressData(
-        activity_json={},
-        shipment_payload=shipment_payload,
         reference_number=reference_number,
         load_id=load_id,
     )
-
-
-def enqueue_appointment_scheduling_pickup_changed(
-    *,
-    tenant_slug: str,
-    payload: dict[str, Any],
-) -> str:
-    execution_id = str(uuid.uuid4())
-    body = {
-        **payload,
-        "event_type": WorkflowRunEventType.TURVO_PICKUP_CHANGED.value,
-        "execution_id": execution_id,
-        "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
-    }
-    task = run_workflow_async.apply_async(
-        kwargs={
-            "tenant_slug": tenant_slug,
-            "workflow_name": APPOINTMENT_SCHEDULING_WORKFLOW,
-            "payload": body,
-        }
-    )
-    logger.info(
-        "appointment_scheduling ingress queued workflow task_id=%s execution_id=%s shipment_id=%s",
-        task.id,
-        execution_id,
-        payload.get("shipment_id"),
-    )
-    return execution_id
 
 
 __all__ = [
@@ -269,7 +272,6 @@ __all__ = [
     "IngressService",
     "FetchedSchedulingIngressData",
     "IngressHandleResult",
-    "enqueue_appointment_scheduling_pickup_changed",
     "evaluate_activity_gates",
     "evaluate_parsed_webhook",
     "evaluate_process_enabled",

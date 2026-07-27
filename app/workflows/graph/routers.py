@@ -1,6 +1,5 @@
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.constants import (
-    APPOINTMENT_INGRESS_SKIP_REASON,
     LLM_APPOINTMENT_DECISION,
     SCHEDULING_REPLY_TERMINAL_STATUSES,
     SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,
@@ -262,12 +261,6 @@ def tms_driver_router(state):
     if outcome == "error":
         return "error"
     return "error"
-
-
-def appointment_ingress_router(state):
-    if state.data.get(APPOINTMENT_INGRESS_SKIP_REASON):
-        return "end"
-    return "continue"
 
 
 def appointment_intake_router(state):
