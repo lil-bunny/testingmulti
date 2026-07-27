@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.domain.appointment_scheduling.scheduling_reference import is_diamond_scheduling_reference
+from app.integrations.turvo.shipments import COVERED_STATUS_CODE_KEY
+from app.integrations.turvo.webhook_mapping import TENDER_ACCEPTED_STATUS_CODE_KEY
 from app.services.appointment_scheduling.ingress_service import (
     evaluate_activity_gates,
     evaluate_parsed_webhook,
@@ -55,7 +57,12 @@ def test_parse_shipment_update_webhook_tender_accepted() -> None:
         "eventPayload": {
             "id": "12345",
             "load": {"id": "47361"},
-            "status": {"code": {"value": "Tender Accepted"}},
+            "status": {
+                "code": {
+                    "key": TENDER_ACCEPTED_STATUS_CODE_KEY,
+                    "value": "Tender - accepted",
+                }
+            },
         },
     }
     parsed = parse_shipment_update_webhook(body)
@@ -184,9 +191,14 @@ def test_evaluate_activity_gates_ignores_multi_stop_activity_snapshot() -> None:
 
 def _shipment_update_body(*, tender_accepted: bool = True) -> dict:
     status = (
-        {"code": {"value": "Tender-Accepted"}}
+        {
+            "code": {
+                "key": TENDER_ACCEPTED_STATUS_CODE_KEY,
+                "value": "Tender - accepted",
+            }
+        }
         if tender_accepted
-        else {"code": {"value": "Covered"}}
+        else {"code": {"key": COVERED_STATUS_CODE_KEY, "value": "Covered"}}
     )
     return {
         "eventName": "SHIPMENT_UPDATE",

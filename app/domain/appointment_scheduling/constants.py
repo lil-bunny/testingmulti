@@ -20,13 +20,6 @@ APPOINTMENT_SCHEDULING_WORKFLOW = "appointment_scheduling"
 
 SHIPMENT_UPDATE_EVENT_NAME = "SHIPMENT_UPDATE"
 
-TENDER_ACCEPTED_STATUS_VALUES = frozenset(
-    {
-        "tender-accepted",
-        "tendered-accepted",
-    }
-)
-
 PICKUP_STOP_TYPE_KEY = "1500"
 
 TURVO_SYSTEM_BOT_NAMES = frozenset(

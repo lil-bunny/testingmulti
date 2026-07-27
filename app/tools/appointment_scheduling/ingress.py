@@ -8,12 +8,15 @@ from typing import Any
 from app.domain.appointment_scheduling.constants import (
     PICKUP_STOP_TYPE_KEY,
     SHIPMENT_UPDATE_EVENT_NAME,
-    TENDER_ACCEPTED_STATUS_VALUES,
     TURVO_SYSTEM_BOT_NAMES,
 )
 from app.domain.shipment_route_locations import active_route_stops
 from app.integrations.turvo.shipments import global_route_stops_from_payload
-from app.integrations.turvo.webhook_mapping import extract_shipment_and_load_ids
+from app.integrations.turvo.webhook_mapping import (
+    TENDER_ACCEPTED_STATUS_CODE_KEY,
+    extract_shipment_and_load_ids,
+    extract_status_code_key,
+)
 
 
 @dataclass(frozen=True)
@@ -31,29 +34,6 @@ def _clean(value: Any) -> str | None:
     return s if s else None
 
 
-def normalize_tender_accepted_status(raw: Any) -> str | None:
-    value = _clean(raw)
-    if not value:
-        return None
-    return value.lower().replace(" ", "").replace("-", "")
-
-
-def extract_tender_status_from_webhook(body: dict[str, Any]) -> str | None:
-    event_payload = body.get("eventPayload")
-    if not isinstance(event_payload, dict):
-        return None
-    status = event_payload.get("status")
-    if not isinstance(status, dict):
-        return None
-    code = status.get("code")
-    if isinstance(code, dict):
-        for key in ("value", "key"):
-            normalized = normalize_tender_accepted_status(code.get(key))
-            if normalized in {s.replace("-", "") for s in TENDER_ACCEPTED_STATUS_VALUES}:
-                return normalized
-    return normalize_tender_accepted_status(status.get("value"))
-
-
 def parse_shipment_update_webhook(body: dict[str, Any]) -> ParsedShipmentUpdateWebhook | None:
     """Return parsed SHIPMENT_UPDATE fields, or None when event is not scheduling-relevant."""
     event_name = _clean(body.get("eventName"))
@@ -65,12 +45,12 @@ def parse_shipment_update_webhook(body: dict[str, Any]) -> ParsedShipmentUpdateW
     if not sid:
         return None
 
-    status = extract_tender_status_from_webhook(body)
+    status_key = extract_status_code_key(body)
     return ParsedShipmentUpdateWebhook(
         event_name=event_name,
         shipment_id=sid,
         load_id=_clean(load_id),
-        tender_accepted=status in {s.replace("-", "") for s in TENDER_ACCEPTED_STATUS_VALUES},
+        tender_accepted=status_key == TENDER_ACCEPTED_STATUS_CODE_KEY,
     )
 
 

@@ -11,6 +11,7 @@ from typing import Any
 
 ROUTE_COMPLETED_STATUS_CODE_KEY = "2116"
 TENDERED_STATUS_CODE_KEY = "2101"
+TENDER_ACCEPTED_STATUS_CODE_KEY = "2118"
 
 
 @dataclass(frozen=True)
