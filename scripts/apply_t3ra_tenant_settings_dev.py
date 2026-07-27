@@ -12,6 +12,15 @@ Deliberately NOT in the fixture JSON, since they're either secret or personal-pe
   - inbound_routing_emails — the email address(es) you connected to Unipile, that this
     tenant should treat as its inbox. Usually the same account as mikey_account_id.
 
+Appointment scheduling (in the fixture JSON; fill secrets in DB after apply if null):
+  - enabledProcesses includes ``appointment_scheduling``
+  - appointment_scheduling.appointment_data_source (Google Sheets URL)
+  - appointment_scheduling.ascend_email / ascend_password (null in seed — set for live Ascend)
+  - appointment_scheduling.skip_ascend_writes (true by default; keep until Ascend PUTs approved)
+  - prompts.appointment_scheduling hub refs (appt-scheduling-optimization / appt-reply)
+  - replace teams_notification.teams_webhook_url placeholder before relying on Teams alerts
+
+
 Usage:
   uv run python scripts/apply_t3ra_tenant_settings_dev.py \
       --mikey-account-id <unipile_account_id> \

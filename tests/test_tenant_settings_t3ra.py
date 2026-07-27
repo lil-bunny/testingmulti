@@ -19,7 +19,11 @@ def test_t3ra_fixture_validates() -> None:
     assert model.mikey_account_id.account_id == "test-mikey-account-id"
     assert model.mikey_account_id.email_alias == "ops@example.com"
     assert "driver_assignment" in model.enabledProcesses
+    assert "appointment_scheduling" in model.enabledProcesses
     assert model.driver_assignment is not None
+    assert model.appointment_scheduling is not None
+    assert model.appointment_scheduling.skip_ascend_writes is True
+
     da_steps = model.driver_assignment.reminders.steps
     assert len(da_steps) == 5
     assert da_steps[-1].event_type == "escalation_due"
