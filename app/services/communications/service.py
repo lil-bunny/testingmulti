@@ -722,7 +722,6 @@ class CommunicationsService:
                 lid,
             )
             return None
-
     def _enrich_outbound_from_sent_folder(
         self,
         *,

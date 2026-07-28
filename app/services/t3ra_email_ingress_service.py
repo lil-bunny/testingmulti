@@ -77,6 +77,7 @@ class T3raEmailIngressService:
     """
     Classify inbound T3RA mail and enqueue the matching workflow.
 
+    Priority when multiple rules could apply: POD lifecycle → appointment reply → driver-details reply → ratecon.
     Priority: POD lifecycle → appointment reply → driver-details reply → ratecon. Out-of-order or
     duplicate POD paths return skip (no retry storm).
     """
