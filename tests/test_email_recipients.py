@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain.tenant_settings.email_recipients import (
+    DefaultEmailRecipients,
     EmailRecipients,
     coerce_email_list,
     email_recipients_from_action_cfg,
@@ -52,3 +53,15 @@ def test_unipile_recipients_from_addresses() -> None:
 def test_email_recipients_legacy_string_to() -> None:
     rec = EmailRecipients(to="only@x.com")
     assert rec.to == ["only@x.com"]
+
+
+def test_default_email_recipients_allows_empty_to() -> None:
+    rec = DefaultEmailRecipients()
+    assert rec.to == []
+    assert rec.cc == []
+    assert rec.bcc == []
+
+
+def test_default_email_recipients_coerces_cc() -> None:
+    rec = DefaultEmailRecipients(cc="ops@example.com")
+    assert rec.cc == ["ops@example.com"]

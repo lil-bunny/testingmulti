@@ -24,9 +24,11 @@
   },
   "appointment_scheduling": {
     "appointment_data_source": "https://docs.google.com/spreadsheets/d/1PqAPAFxGYNSiHUYzLtCNh-ezvpGPpq4W1C8D0PjComk/edit?usp=sharing",
-    "ascend_email": null,
-    "ascend_password": null,
-    "email_cc": [],
+    "emails": {
+      "to": [],
+      "cc": [],
+      "bcc": []
+    },
     "skip_ascend_writes": true,
     "teams_notification": {
       "teams_webhook_url": "https://example.invalid/teams-webhook",

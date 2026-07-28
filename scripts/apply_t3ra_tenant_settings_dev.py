@@ -15,7 +15,8 @@ Deliberately NOT in the fixture JSON, since they're either secret or personal-pe
 Appointment scheduling (in the fixture JSON; fill secrets in DB after apply if null):
   - enabledProcesses includes ``appointment_scheduling``
   - appointment_scheduling.appointment_data_source (Google Sheets URL)
-  - appointment_scheduling.ascend_email / ascend_password (null in seed — set for live Ascend)
+  - appointment_scheduling.emails (default to/cc/bcc; customer TO merged at intake)
+  - root ``ascend`` block for Ascend API credentials (not under appointment_scheduling)
   - appointment_scheduling.skip_ascend_writes (true by default; keep until Ascend PUTs approved)
   - prompts.appointment_scheduling hub refs (appt-scheduling-optimization / appt-reply)
   - replace teams_notification.teams_webhook_url placeholder before relying on Teams alerts

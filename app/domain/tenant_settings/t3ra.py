@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from app.domain.driver_assignment.confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,
@@ -23,9 +23,9 @@ from app.domain.driver_assignment.reminders_config import DriverAssignmentRemind
 from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import (
+    DefaultEmailRecipients,
     EmailRecipients,
     InboundRoutingEmails,
-    coerce_email_list,
 )
 from app.domain.tenant_settings.ascend import AscendSettings
 from app.domain.tenant_settings.tms import TmsSettings
@@ -56,18 +56,38 @@ class T3raAppointmentSchedulingSettings(BaseModel):
 
     turvo_app_user_id: str | None = None
     appointment_data_source: str = ""
-    to: list[str] = Field(default_factory=list)
-    cc: list[str] = Field(default_factory=list)
-    bcc: list[str] = Field(default_factory=list)
+    emails: DefaultEmailRecipients = Field(default_factory=DefaultEmailRecipients)
     # Ascend HTTP only; Turvo weekend/delivery writes still run when this is True.
     skip_ascend_writes: bool = True
     teams_notification: AppointmentSchedulingTeamsNotificationSettings | None = None
     confirmation_reply: AppointmentSchedulingConfirmationReplySettings | None = None
 
-    @field_validator("to", "cc", "bcc", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _coerce_recipients(cls, value: Any) -> list[str]:
-        return coerce_email_list(value, required=False)
+    def _normalize_legacy_recipients(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        emails_raw = out.get("emails")
+        emails = dict(emails_raw) if isinstance(emails_raw, dict) else {}
+
+        if "email_cc" in out:
+            legacy_cc = out.pop("email_cc")
+            if legacy_cc and "cc" not in emails:
+                emails["cc"] = legacy_cc
+
+        for key in ("to", "cc", "bcc"):
+            if key in out:
+                flat_val = out.pop(key)
+                if key not in emails:
+                    emails[key] = flat_val
+
+        if emails or "emails" in out:
+            out["emails"] = emails
+
+        out.pop("ascend_email", None)
+        out.pop("ascend_password", None)
+        return out
 
 
 class T3raDriverAssignmentSettings(BaseModel):

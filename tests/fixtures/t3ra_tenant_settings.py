@@ -85,9 +85,11 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
         },
         "appointment_scheduling": {
             "appointment_data_source": "/tmp/appointments.xlsx",
-            "to": [],
-            "cc": ["ops@example.com"],
-            "bcc": [],
+            "emails": {
+                "to": [],
+                "cc": ["ops@example.com"],
+                "bcc": [],
+            },
             "teams_notification": {
                 "teams_webhook_url": "https://example.invalid/webhook",
                 "message_title": "Appointment draft ready — Load {load_id}",

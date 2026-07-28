@@ -71,6 +71,34 @@ def unipile_recipients_from_addresses(addresses: list[str]) -> list[dict[str, st
     ]
 
 
+class DefaultEmailRecipients(BaseModel):
+    """Tenant default TO / CC / BCC (TO may be empty until customer is merged at intake)."""
+
+    to: list[str] = Field(default_factory=list)
+    cc: list[str] = Field(default_factory=list)
+    bcc: list[str] = Field(default_factory=list)
+
+    @field_validator("to", "cc", "bcc", mode="before")
+    @classmethod
+    def _validate_recipients(cls, value: Any) -> list[str]:
+        return coerce_email_list(value, required=False)
+
+    def to_unipile_to(self) -> list[dict[str, str]] | None:
+        if not self.to:
+            return None
+        return unipile_recipients_from_addresses(self.to)
+
+    def to_unipile_cc(self) -> list[dict[str, str]] | None:
+        if not self.cc:
+            return None
+        return unipile_recipients_from_addresses(self.cc)
+
+    def to_unipile_bcc(self) -> list[dict[str, str]] | None:
+        if not self.bcc:
+            return None
+        return unipile_recipients_from_addresses(self.bcc)
+
+
 class EmailRecipients(BaseModel):
     """Parsed TO / CC / BCC for one outbound email action."""
 

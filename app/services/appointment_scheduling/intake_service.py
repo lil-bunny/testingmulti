@@ -318,7 +318,7 @@ class IntakeService:
         contact = data.get("customer_contact") or {}
         settings = self._settings(data.get("tenant_settings") or {})
         customer = str(contact.get("email") or "").strip()
-        to_emails = coerce_email_list([customer, *settings.to], required=False)
+        to_emails = coerce_email_list([customer, *settings.emails.to], required=False)
         email_draft, appointment_payload = build_email_draft(
             pickup_dropoff=PickupDropoffData.model_validate(
                 data.get("pickup_dropoff_data") or {}
@@ -328,8 +328,8 @@ class IntakeService:
             ),
             draft_static=DraftStatic.model_validate(data.get("draft_static") or {}),
             to_emails=to_emails,
-            cc=settings.cc,
-            bcc=settings.bcc,
+            cc=settings.emails.cc,
+            bcc=settings.emails.bcc,
             load_id=str(data.get("load_id") or ""),
             customer_name=str(data.get("customer_name") or ""),
         )

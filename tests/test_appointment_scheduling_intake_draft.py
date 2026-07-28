@@ -33,9 +33,11 @@ def test_build_email_draft_from_state_success():
             "customer_contact": {"email": "customer@example.com"},
             "tenant_settings": {
                 "appointment_scheduling": {
-                    "to": ["primary@example.com"],
-                    "cc": ["ops@example.com", "cc@example.com"],
-                    "bcc": [],
+                    "emails": {
+                        "to": ["primary@example.com"],
+                        "cc": ["ops@example.com", "cc@example.com"],
+                        "bcc": [],
+                    }
                 }
             },
             "load_id": "63294",
@@ -68,9 +70,11 @@ def test_build_email_draft_from_state_merges_to_dedupes_customer():
             "customer_contact": {"email": "Customer@Example.com"},
             "tenant_settings": {
                 "appointment_scheduling": {
-                    "to": ["customer@example.com", "primary@example.com"],
-                    "cc": [],
-                    "bcc": ["bcc@example.com"],
+                    "emails": {
+                        "to": ["customer@example.com", "primary@example.com"],
+                        "cc": [],
+                        "bcc": ["bcc@example.com"],
+                    }
                 }
             },
             "load_id": "63294",
