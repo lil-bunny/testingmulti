@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.services.appointment_scheduling.ascend_write_service import (
     AscendWriteService,
 )
+from app.services.ascend_oauth_service import AscendOAuthService
 
 _REF = "DIAMOND-RPN00008809"
 _ISO = "2026-07-18T10:30:00"
@@ -18,6 +18,10 @@ _ASCEND_SHIPMENT = {
         {"id": "stop-2", "stopNumber": "2"},
     ]
 }
+
+
+def _oauth_token_patch(token: str | None = "token"):
+    return patch.object(AscendOAuthService, "get_access_token", return_value=token)
 
 
 def test_skip_ascend_writes_dry_run_records_activity_from_state() -> None:
@@ -37,12 +41,10 @@ def test_skip_ascend_writes_dry_run_records_activity_from_state() -> None:
             "ascend_shipment": _ASCEND_SHIPMENT,
         },
     )
-    with patch(
-        "app.services.appointment_scheduling.ascend_write_service.login_ascend_api"
-    ) as login_mock:
+    with _oauth_token_patch() as token_mock:
         result = svc.apply_dropoff_from_state(state)
 
-    login_mock.assert_not_called()
+    token_mock.assert_not_called()
     assert result.ok is True
     assert state.data["ascend_update_result"]["dry_run"] is True
     activity.record_ascend_update.assert_called_once_with(state)
@@ -50,9 +52,7 @@ def test_skip_ascend_writes_dry_run_records_activity_from_state() -> None:
 
 def test_skip_ascend_writes_dry_run_no_http() -> None:
     svc = AscendWriteService()
-    with patch(
-        "app.services.appointment_scheduling.ascend_write_service.login_ascend_api"
-    ) as login_mock:
+    with _oauth_token_patch() as token_mock:
         result = svc.apply_dropoff(
             tenant_slug="t3ra",
             tenant_settings={"appointment_scheduling": {"skip_ascend_writes": True}},
@@ -61,7 +61,7 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
             ascend_shipment=_ASCEND_SHIPMENT,
         )
 
-    login_mock.assert_not_called()
+    token_mock.assert_not_called()
     assert result.ok is True
     assert result.skipped is True
     assert result.dry_run is True
@@ -72,10 +72,7 @@ def test_skip_ascend_writes_dry_run_no_http() -> None:
 def test_dry_run_refetches_when_ascend_shipment_missing() -> None:
     svc = AscendWriteService()
     with (
-        patch(
-            "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
-            return_value={"accessToken": "token"},
-        ) as login_mock,
+        _oauth_token_patch(),
         patch(
             "app.services.appointment_scheduling.ascend_write_service.fetched_shipment_details",
             return_value=_ASCEND_SHIPMENT,
@@ -88,7 +85,6 @@ def test_dry_run_refetches_when_ascend_shipment_missing() -> None:
             appointment_start_iso=_ISO,
         )
 
-    login_mock.assert_called_once()
     fetch_mock.assert_called_once()
     assert result.ok is True
     assert result.dry_run is True
@@ -97,10 +93,7 @@ def test_dry_run_refetches_when_ascend_shipment_missing() -> None:
 def test_dry_run_fails_when_dropoff_stop_missing_after_refetch() -> None:
     svc = AscendWriteService()
     with (
-        patch(
-            "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
-            return_value={"accessToken": "token"},
-        ),
+        _oauth_token_patch(),
         patch(
             "app.services.appointment_scheduling.ascend_write_service.fetched_shipment_details",
             return_value={"shipmentStops": []},
@@ -131,20 +124,7 @@ def test_live_ascend_put_when_writes_enabled() -> None:
             "app.services.appointment_scheduling.ascend_write_service.skip_ascend_writes_enabled",
             return_value=False,
         ),
-        patch(
-            "app.services.appointment_scheduling.ascend_write_service.load_appointment_scheduling_settings",
-            return_value=T3raAppointmentSchedulingSettings.model_validate(
-                {
-                    "skip_ascend_writes": False,
-                    "ascend_email": "user@example.com",
-                    "ascend_password": "secret",
-                }
-            ),
-        ),
-        patch(
-            "app.services.appointment_scheduling.ascend_write_service.login_ascend_api",
-            return_value={"accessToken": "token"},
-        ),
+        _oauth_token_patch(),
         patch(
             "app.services.appointment_scheduling.ascend_write_service.fetched_shipment_details",
             return_value=shipment,
@@ -178,10 +158,7 @@ def test_missing_credentials_when_writes_enabled() -> None:
             "app.services.appointment_scheduling.ascend_write_service.skip_ascend_writes_enabled",
             return_value=False,
         ),
-        patch(
-            "app.services.appointment_scheduling.ascend_write_service.load_appointment_scheduling_settings",
-            return_value=T3raAppointmentSchedulingSettings.model_validate({}),
-        ),
+        _oauth_token_patch(token=None),
     ):
         result = svc.apply_dropoff(
             tenant_slug="t3ra",

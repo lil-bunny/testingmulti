@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.appointment_scheduling.weekend_pickup_service import (
     WeekendPickupService,
 )
+from app.services.ascend_oauth_service import AscendOAuthService
 
 
 def _state(**overrides):
@@ -80,24 +81,13 @@ def test_skipped_when_not_weekend_shifted() -> None:
     "app.services.appointment_scheduling.weekend_pickup_service.update_appointment",
     return_value={"success": True},
 )
-@patch(
-    "app.services.appointment_scheduling.weekend_pickup_service.login_ascend_api",
-    return_value={"accessToken": "token"},
-)
-@patch(
-    "app.services.appointment_scheduling.weekend_pickup_service.load_appointment_scheduling_settings",
-)
+@patch.object(AscendOAuthService, "get_access_token", return_value="token")
 def test_applies_ascend_and_turvo_when_changed(
-    mock_load_settings: MagicMock,
-    _login: MagicMock,
+    _token: MagicMock,
     _update_appt: MagicMock,
     mock_turvo_update: AsyncMock,
     _skip_writes: MagicMock,
 ) -> None:
-    mock_load_settings.return_value = MagicMock(
-        ascend_email="a@b.com",
-        ascend_password="secret",
-    )
     mock_turvo_update.return_value = {
         "ok": True,
         "updated": True,
@@ -124,11 +114,9 @@ def test_applies_ascend_and_turvo_when_changed(
 @patch(
     "app.services.appointment_scheduling.weekend_pickup_service.update_appointment",
 )
-@patch(
-    "app.services.appointment_scheduling.weekend_pickup_service.login_ascend_api",
-)
+@patch.object(AscendOAuthService, "get_access_token")
 def test_skip_ascend_writes_still_updates_turvo(
-    mock_login: MagicMock,
+    mock_token: MagicMock,
     mock_update_appt: MagicMock,
     mock_turvo_update: AsyncMock,
     _skip: MagicMock,
@@ -147,7 +135,7 @@ def test_skip_ascend_writes_still_updates_turvo(
     assert result.ascend_updated is False
     assert result.turvo_updated is True
     assert result.turvo_pickup_start_time == "2026-07-01 08:00:00"
-    mock_login.assert_not_called()
+    mock_token.assert_not_called()
     mock_update_appt.assert_not_called()
     mock_turvo_update.assert_awaited_once()
 

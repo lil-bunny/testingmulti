@@ -7,18 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.services.appointment_scheduling.intake_service import IntakeService
+from app.services.ascend_oauth_service import AscendOAuthService
 
 
-def _ascend_settings(**overrides) -> T3raAppointmentSchedulingSettings:
-    data = {
-        "appointment_data_source": "/tmp/x",
-        "ascend_email": "ascend@example.com",
-        "ascend_password": "secret",
-    }
-    data.update(overrides)
-    return T3raAppointmentSchedulingSettings.model_validate(data)
+def _oauth_token_patch():
+    return patch.object(AscendOAuthService, "get_access_token", return_value="token")
 
 
 @pytest.fixture
@@ -44,8 +38,6 @@ def test_intake_success(appointment_sheet):
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
-            "ascend_email": "ascend@example.com",
-            "ascend_password": "secret",
         }
     }
     turvo_shipment = {
@@ -71,13 +63,7 @@ def test_intake_success(appointment_sheet):
     with patch(
         "app.services.appointment_scheduling.intake_service.get_shipment_async",
         new=AsyncMock(return_value=turvo_shipment),
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
-        return_value=_ascend_settings(appointment_data_source=appointment_sheet),
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.login_ascend_api",
-        return_value={"accessToken": "token"},
-    ), patch(
+    ), _oauth_token_patch(), patch(
         "app.services.appointment_scheduling.intake_service.fetched_shipment_details",
         return_value=ascend_shipment,
     ), patch(
@@ -102,8 +88,6 @@ def test_intake_reuses_shipment_from_payload_without_turvo_fetch(appointment_she
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
-            "ascend_email": "ascend@example.com",
-            "ascend_password": "secret",
         }
     }
     turvo_shipment = {
@@ -121,13 +105,7 @@ def test_intake_reuses_shipment_from_payload_without_turvo_fetch(appointment_she
     with patch(
         "app.services.appointment_scheduling.intake_service.get_shipment_async",
         new=turvo_mock,
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
-        return_value=_ascend_settings(appointment_data_source=appointment_sheet),
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.login_ascend_api",
-        return_value={"accessToken": "token"},
-    ), patch(
+    ), _oauth_token_patch(), patch(
         "app.services.appointment_scheduling.intake_service.fetched_shipment_details",
         return_value={
             "totalCharge": "$100.00",
@@ -157,8 +135,6 @@ def test_intake_missing_recipient_email(appointment_sheet):
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
-            "ascend_email": "ascend@example.com",
-            "ascend_password": "secret",
         }
     }
     turvo_shipment = {
@@ -195,8 +171,6 @@ def test_intake_success_from_google_sheets_url():
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": google_url,
-            "ascend_email": "ascend@example.com",
-            "ascend_password": "secret",
         }
     }
     turvo_shipment = {
@@ -235,13 +209,7 @@ def test_intake_success_from_google_sheets_url():
     ), patch(
         "app.services.appointment_scheduling.intake_service.load_appointment_customer_rows",
         return_value=sheet_rows,
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
-        return_value=_ascend_settings(appointment_data_source=google_url),
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.login_ascend_api",
-        return_value={"accessToken": "token"},
-    ), patch(
+    ), _oauth_token_patch(), patch(
         "app.services.appointment_scheduling.intake_service.fetched_shipment_details",
         return_value=ascend_shipment,
     ), patch(
@@ -269,8 +237,6 @@ def test_intake_links_shipment_locations_when_shipments_row_id_present(appointme
     tenant_settings = {
         "appointment_scheduling": {
             "appointment_data_source": appointment_sheet,
-            "ascend_email": "ascend@example.com",
-            "ascend_password": "secret",
         }
     }
     turvo_shipment = {
@@ -296,13 +262,7 @@ def test_intake_links_shipment_locations_when_shipments_row_id_present(appointme
     with patch(
         "app.services.appointment_scheduling.intake_service.get_shipment_async",
         new=AsyncMock(return_value=turvo_shipment),
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.load_appointment_scheduling_settings",
-        return_value=_ascend_settings(appointment_data_source=appointment_sheet),
-    ), patch(
-        "app.services.appointment_scheduling.intake_service.login_ascend_api",
-        return_value={"accessToken": "token"},
-    ), patch(
+    ), _oauth_token_patch(), patch(
         "app.services.appointment_scheduling.intake_service.fetched_shipment_details",
         return_value=ascend_shipment,
     ), patch(

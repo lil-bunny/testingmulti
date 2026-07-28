@@ -17,7 +17,6 @@ from app.domain.appointment_scheduling.scheduling_reference import ascend_office
 from app.domain.error_catalog import BusinessError, ErrorCode, IntegrationError
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots
-from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.errors import AscendApiError, AscendError, is_ascend_timeout
 from app.integrations.ascend.shipments import fetched_shipment_details
 from app.integrations.google.sheets import GoogleSheetsError
@@ -40,7 +39,7 @@ from app.tools.appointment_scheduling.draft_email import (
     build_email_draft,
     build_shipment_details_summary,
 )
-from app.domain.appointment_scheduling.settings import load_appointment_scheduling_settings
+from app.services.ascend_oauth_service import AscendOAuthService
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.tools.appointment_scheduling.ingress import reference_number_from_turvo_shipment
 
@@ -204,28 +203,12 @@ class IntakeService:
             )
 
         office_code = ascend_office_code_from_reference(reference_number=reference_number)
-        ascend_settings = load_appointment_scheduling_settings(tenant_slug)
-        if not ascend_settings.ascend_email or not ascend_settings.ascend_password:
+        access_token = AscendOAuthService().get_access_token(tenant_slug)
+        if not access_token:
             return self._failure(
                 BusinessError.ASCEND_NOT_CONFIGURED,
                 customer_name=sheet_customer,
             )
-
-        try:
-            auth = login_ascend_api(
-                email=ascend_settings.ascend_email,
-                password=ascend_settings.ascend_password,
-            )
-            access_token = str(auth.get("accessToken") or "")
-        except AscendApiError as exc:
-            if is_ascend_timeout(exc):
-                failure = SchedulingFailure.from_catalog(IntegrationError.VENDOR_API_TIMEOUT)
-            else:
-                failure = SchedulingFailure.from_ascend(
-                    AscendError.LOGIN_FAILED,
-                    status_code=str(exc.status_code or ""),
-                )
-            return IntakeResult(ok=False, failure=failure)
 
         try:
             ascend_shipment = fetched_shipment_details(

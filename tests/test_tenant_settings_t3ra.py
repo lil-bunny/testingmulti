@@ -74,8 +74,9 @@ def test_tenant_settings_for_workflow_state_strips_secrets() -> None:
     assert projected["tms"]["client_id"] == "test-client-id"
     assert "client_secret" not in projected["tms"]
     assert "x_api_key" not in projected["tms"]
-    assert projected["appointment_scheduling"]["ascend_email"] == "ascend@example.com"
-    assert "ascend_password" not in projected["appointment_scheduling"]
+    assert projected["ascend"]["email"] == "ascend@example.com"
+    assert "password_ciphertext" not in projected["ascend"]
+    assert "access_token" not in projected["ascend"]
     assert projected["prompts"]["pod_lifecycle"]["page_extraction"] == "pod-page-extraction:staging"
 
 
@@ -86,7 +87,7 @@ def test_tenant_settings_for_workflow_state_projects_appointment_scheduling() ->
         workflow_name="appointment_scheduling",
     )
     assert projected["mikey_account_id"]["account_id"] == "test-mikey-account-id"
-    assert projected["appointment_scheduling"]["ascend_email"] == "ascend@example.com"
+    assert "ascend" not in projected
     assert (
         projected["prompts"]["appointment_scheduling"]["scheduling_optimization"]
         == "appt-scheduling-optimization:staging"

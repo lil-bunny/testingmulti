@@ -79,10 +79,12 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
             "driver_assignment",
             "appointment_scheduling",
         ],
+        "ascend": {
+            "email": "ascend@example.com",
+            "password_ciphertext": "plain:secret",
+        },
         "appointment_scheduling": {
             "appointment_data_source": "/tmp/appointments.xlsx",
-            "ascend_email": "ascend@example.com",
-            "ascend_password": "secret",
             "email_cc": "ops@example.com",
             "teams_notification": {
                 "teams_webhook_url": "https://example.invalid/webhook",

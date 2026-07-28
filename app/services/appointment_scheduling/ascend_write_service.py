@@ -8,16 +8,13 @@ from typing import Any
 from app.core.logger import get_logger
 from app.domain.appointment_scheduling.failure import SchedulingFailure
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
-from app.domain.appointment_scheduling.settings import (
-    load_appointment_scheduling_settings,
-    skip_ascend_writes_enabled,
-)
+from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
 from app.domain.appointment_scheduling.state_hygiene import slim_ascend_write_result
 from app.domain.error_catalog import BusinessError, IntegrationError
-from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.errors import AscendApiError, AscendError, is_ascend_timeout
 from app.integrations.ascend.shipments import fetched_shipment_details, update_shipment_stops
 from app.services.appointment_scheduling.activity_service import ActivityService
+from app.services.ascend_oauth_service import AscendOAuthService
 from app.tools.appointment_scheduling.customer_reply import (
     build_ascend_dropoff_update_payload,
     extract_dropoff_stop,
@@ -141,8 +138,8 @@ class AscendWriteService:
                 payload=payload,
             )
 
-        settings = load_appointment_scheduling_settings(tenant_slug)
-        if not settings.ascend_email or not settings.ascend_password:
+        access_token = AscendOAuthService().get_access_token(tenant_slug)
+        if not access_token:
             return AscendWriteResult(
                 ok=False,
                 failure=SchedulingFailure.from_catalog(BusinessError.ASCEND_NOT_CONFIGURED),
@@ -150,11 +147,6 @@ class AscendWriteService:
 
         office_code = ascend_office_code_from_reference(reference_number=ref) or ""
         try:
-            token_data = login_ascend_api(
-                email=str(settings.ascend_email),
-                password=str(settings.ascend_password),
-            )
-            access_token = str(token_data.get("accessToken") or "")
             shipment = fetched_shipment_details(
                 reference_number=ref,
                 access_token=access_token,
@@ -191,16 +183,11 @@ class AscendWriteService:
 
     @staticmethod
     def _fetch_dropoff_stop(*, tenant_slug: str, reference_number: str) -> dict[str, Any]:
-        settings = load_appointment_scheduling_settings(tenant_slug)
-        if not settings.ascend_email or not settings.ascend_password:
+        access_token = AscendOAuthService().get_access_token(tenant_slug)
+        if not access_token:
             return {}
         office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
         try:
-            token_data = login_ascend_api(
-                email=str(settings.ascend_email),
-                password=str(settings.ascend_password),
-            )
-            access_token = str(token_data.get("accessToken") or "")
             shipment = fetched_shipment_details(
                 reference_number=reference_number,
                 access_token=access_token,

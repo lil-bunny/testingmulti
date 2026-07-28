@@ -12,9 +12,7 @@ from app.domain.appointment_scheduling.scheduling_reference import ascend_office
 from app.domain.appointment_scheduling.settings import skip_ascend_writes_enabled
 from app.domain.error_catalog import BusinessError, IntegrationError
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots, update_appointment
-from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.errors import AscendApiError, AscendError, is_ascend_timeout
-from app.domain.appointment_scheduling.settings import load_appointment_scheduling_settings
 from app.integrations.turvo.public_api_client import TurvoApiError
 from app.integrations.turvo.shipments import (
     get_shipment,
@@ -27,6 +25,7 @@ from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
 from app.services.appointment_scheduling.activity_service import (
     ActivityService,
 )
+from app.services.ascend_oauth_service import AscendOAuthService
 from app.services.shipments_service import ShipmentsService
 
 logger = get_logger(__name__)
@@ -117,8 +116,8 @@ class WeekendPickupService:
             )
             dry_run = True
         else:
-            settings = load_appointment_scheduling_settings(tenant_slug)
-            if not settings.ascend_email or not settings.ascend_password:
+            access_token = AscendOAuthService().get_access_token(tenant_slug)
+            if not access_token:
                 return WeekendPickupResult(
                     ok=False,
                     failure=SchedulingFailure.from_catalog(BusinessError.ASCEND_NOT_CONFIGURED),
@@ -126,11 +125,6 @@ class WeekendPickupService:
 
             office_code = ascend_office_code_from_reference(reference_number=reference_number) or ""
             try:
-                token_data = login_ascend_api(
-                    email=str(settings.ascend_email),
-                    password=str(settings.ascend_password),
-                )
-                access_token = str(token_data.get("accessToken") or "")
                 if appointments is None and reference_number:
                     appointments = get_loc_ref_for_ascend_slots(
                         reference_number=reference_number,

@@ -23,6 +23,7 @@ from app.domain.driver_assignment.reminders_config import DriverAssignmentRemind
 from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
 from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
+from app.domain.tenant_settings.ascend import AscendSettings
 from app.domain.tenant_settings.tms import TmsSettings
 
 
@@ -51,8 +52,6 @@ class T3raAppointmentSchedulingSettings(BaseModel):
 
     turvo_app_user_id: str | None = None
     appointment_data_source: str = ""
-    ascend_email: str | None = None
-    ascend_password: str | None = None
     email_cc: list[str] | str = ""
     # Ascend HTTP only; Turvo weekend/delivery writes still run when this is True.
     skip_ascend_writes: bool = True
@@ -145,6 +144,7 @@ class T3raTenantSettings(BaseModel):
     inbound_routing_emails: InboundRoutingEmails
     mikey_account_id: MikeyAccountId
     tms: TmsSettings
+    ascend: AscendSettings | None = None
     prompts: T3raPrompts
     pod_lifecycle: T3raPodLifecycleSettings
     driver_assignment: T3raDriverAssignmentSettings | None = None

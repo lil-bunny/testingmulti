@@ -55,7 +55,8 @@ _SECRET_SETTING_PATHS: tuple[tuple[str, ...], ...] = (
     ("tms", "refresh_token"),
     ("tms", "password_ciphertext"),
     ("tms", "user_name"),
-    ("appointment_scheduling", "ascend_password"),
+    ("ascend", "password_ciphertext"),
+    ("ascend", "access_token"),
 )
 
 
