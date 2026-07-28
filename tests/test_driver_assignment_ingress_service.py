@@ -81,10 +81,15 @@ def _ratecon_success_state_data(**overrides) -> dict:
         "workflow_lifecycle_id": _RATECON_LC_ID,
         "thread_id": "thread-1",
         "shipment": _turvo_shipment_fixture(),
-        "ratecon_page_count_cache": {
-            "success": True,
-            "page_count": 3,
-            "document_analysis": {"stored": True},
+        "ratecon_s3_upload": {
+            "all_succeeded": True,
+            "results": [
+                {
+                    "success": True,
+                    "object_key": "ratecon_attachments/ratecon_1000324895.pdf",
+                    "document_persist": {"stored": True, "id": "doc-1"},
+                }
+            ],
         },
     }
     data.update(overrides)
@@ -144,13 +149,24 @@ def _service(**gate_overrides) -> DriverAssignmentIngressService:
     )
 
 
-def test_try_enqueue_proceeds_when_ratecon_analysis_not_stored():
-    """Soft-complete: DA still enqueues when ratecon analysis failed to store."""
+def test_try_enqueue_proceeds_when_ratecon_upload_not_stored():
+    """Soft-complete: DA still enqueues when ratecon upload did not persist a document row."""
     svc = _service(duplicate=False)
     svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
     state = SimpleNamespace(
         tenant_id=_TENANT_ID,
-        data=_ratecon_success_state_data(document_analysis_ratecon={"stored": False}),
+        data=_ratecon_success_state_data(
+            ratecon_s3_upload={
+                "all_succeeded": False,
+                "results": [
+                    {
+                        "success": False,
+                        "object_key": None,
+                        "document_persist": {"stored": False},
+                    }
+                ],
+            }
+        ),
     )
     celery_task = MagicMock(id="celery-1")
     patch_ctx, ser = _patch_run_workflow_async(return_value=celery_task)

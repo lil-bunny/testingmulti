@@ -12,8 +12,6 @@ _FORBIDDEN = (
     "def analyze_and_persist",
     "_broker_name_from_ratecon_results",
     "pod_vs_ratecon_analysis",
-    "upload_email_attachments",
-    "ratecon_s3_upload",
 )
 
 

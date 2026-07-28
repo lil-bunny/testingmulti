@@ -80,7 +80,8 @@ def test_ratecon_graph():
         "link_shipment_locations",
         "resolve_workflow_lifecycle",
         "record_ratecon_received_activity",
-        "cache_ratecon_page_count",
+        "upload_ratecon_attachments",
+        "record_ratecon_upload_activity",
         "record_ratecon_processed_activity",
         "enqueue_driver_assignment_on_ratecon_complete",
         "check_ratecon_workflow_lifecycle",
@@ -91,8 +92,9 @@ def test_ratecon_graph():
     assert ("get_shipment", "link_shipment_locations") in edges
     assert ("link_shipment_locations", "resolve_workflow_lifecycle") in edges
     assert ("resolve_workflow_lifecycle", "record_ratecon_received_activity") in edges
-    assert ("record_ratecon_received_activity", "cache_ratecon_page_count") in edges
-    assert ("cache_ratecon_page_count", "record_ratecon_processed_activity") in edges
+    assert ("record_ratecon_received_activity", "upload_ratecon_attachments") in edges
+    assert ("upload_ratecon_attachments", "record_ratecon_upload_activity") in edges
+    assert ("record_ratecon_upload_activity", "record_ratecon_processed_activity") in edges
     assert (
         "record_ratecon_processed_activity",
         "enqueue_driver_assignment_on_ratecon_complete",

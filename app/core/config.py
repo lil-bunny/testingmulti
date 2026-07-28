@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     LANGSMITH_TRACING_V2: bool = True
     LITELLM_PROXY_BASE_URL: str
     LITELLM_API_KEY: str
-    LLM_CHAT_MODEL: str = "chat"
-    LLM_VISION_MODEL: str = "vision"
-    LLM_PDF_MODEL: str = "pdf"
+    LLM_CHAT_MODEL: str = "text"
+    LLM_VISION_MODEL: str = "doc_processing"
+    LLM_PDF_MODEL: str = "doc_processing"
     LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
 
     # DB

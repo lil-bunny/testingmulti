@@ -1,4 +1,4 @@
-"""t3ra ratecon workflow: ingress, graph run, and page-count cache (mocked)."""
+"""t3ra ratecon workflow: ingress, graph run, and document upload (mocked)."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def ratecon_ingress_mocks(monkeypatch):
 
 
 def _patch_ratecon_graph_mocks(monkeypatch) -> list[dict]:
-    """Turvo + lifecycle + page-count mocks shared by happy-path test."""
+    """Turvo + lifecycle + upload mocks shared by happy-path test."""
 
     def fake_load_id_to_shipment(load_id, *, tenant_slug=None):
         return {
@@ -148,34 +148,30 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> list[dict]:
         fake_link_shipment_row,
     )
 
-    def fake_cache_from_email_attachments(self, data):
-        from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
-
-        shipments_row_id = resolve_shipments_row_id_for_db(data)
+    def fake_upload_email_attachments(self, data):
         return {
-            "success": True,
-            "skipped": False,
-            "page_count": 3,
+            "all_succeeded": True,
             "results": [
                 {
                     "attachment_id": "att-1",
                     "success": True,
-                    "page_count": 3,
+                    "object_key": "ratecon_attachments/ratecon_SHIP-99.pdf",
                     "error_message": None,
                     "original_filename": "Carrier_rate_confirmation.pdf",
+                    "document_persist": {
+                        "stored": True,
+                        "id": "doc-row-1",
+                        "shipment_id": data.get("shipments_row_id"),
+                    },
                 }
             ],
-            "document_analysis": {
-                "stored": True,
-                "id": "da-row-1",
-                "shipments_row_id": shipments_row_id,
-            },
+            "ratecon_object_keys": ["ratecon_attachments/ratecon_SHIP-99.pdf"],
         }
 
     monkeypatch.setattr(
         RateconDocumentService,
-        "cache_from_email_attachments",
-        fake_cache_from_email_attachments,
+        "upload_email_attachments",
+        fake_upload_email_attachments,
     )
 
     return link_calls
@@ -198,7 +194,7 @@ async def test_ratecon_workflow_happy_path_mocked(
     ratecon_ingress_mocks,
     ratecon_lifecycle_stubs,
 ):
-    """Resolve load, link locations, cache ratecon page count (all mocked)."""
+    """Resolve load, link locations, upload ratecon, and persist document metadata."""
     link_calls = _patch_ratecon_graph_mocks(monkeypatch)
 
     service = WorkflowService(WorkflowRepository(), TenantRepository())
@@ -228,9 +224,10 @@ async def test_ratecon_workflow_happy_path_mocked(
         "11111111-1111-1111-1111-111111111111"
     )
 
-    cache = result["data"]["ratecon_page_count_cache"]
-    assert cache["success"] is True
-    assert cache["page_count"] == 3
-    assert cache["document_analysis"]["stored"] is True
-    assert "ratecon_s3_upload" not in result["data"]
+    upload = result["data"]["ratecon_s3_upload"]
+    assert upload["all_succeeded"] is True
+    assert upload["ratecon_object_keys"] == ["ratecon_attachments/ratecon_SHIP-99.pdf"]
+    assert upload["results"][0]["document_persist"]["stored"] is True
+    assert upload["results"][0]["document_persist"]["id"] == "doc-row-1"
+    assert "ratecon_page_count_cache" not in result["data"]
     assert "ratecon_analysis" not in result["data"]

@@ -1,4 +1,4 @@
-from app.workflows.nodes.ratecon import cache_ratecon_page_count
+from app.workflows.nodes.ratecon import upload_ratecon_attachments
 from app.workflows.nodes.pod import (
     merge_and_upload_pod_attachments,
     capture_turvo_shipment_snapshot,
@@ -50,6 +50,7 @@ from app.workflows.nodes.record_tender_created_activity import record_tender_cre
 from app.workflows.nodes.record_ratecon_activity import (
     record_ratecon_processed_activity,
     record_ratecon_received_activity,
+    record_ratecon_upload_activity,
 )
 from app.workflows.nodes.enqueue_driver_assignment import (
     enqueue_driver_assignment_on_ratecon_complete,
@@ -140,7 +141,7 @@ NODE_REGISTRY = {
     "pod_scoring": pod_scoring,
     "read_workflow_lifecycle": read_workflow_lifecycle,
     "check_ratecon_workflow_lifecycle": check_ratecon_workflow_lifecycle,
-    "cache_ratecon_page_count": cache_ratecon_page_count,
+    "upload_ratecon_attachments": upload_ratecon_attachments,
     "resolve_workflow_lifecycle": resolve_workflow_lifecycle,
     "route_event": route_event,
     "calculate_tender_params": calculate_tender_params,
@@ -156,6 +157,7 @@ NODE_REGISTRY = {
     "record_ack_received": record_ack_received,
     "record_tender_created_activity": record_tender_created_activity,
     "record_ratecon_received_activity": record_ratecon_received_activity,
+    "record_ratecon_upload_activity": record_ratecon_upload_activity,
     "record_ratecon_processed_activity": record_ratecon_processed_activity,
     "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
     "check_driver_assignment_eligibility": check_driver_assignment_eligibility,

@@ -59,7 +59,7 @@ WORKFLOW_TEMPLATE_CONTRACTS = {
             "communication_id",
             "workflow_lifecycle_payload",
             "ratecon_lifecycle_thread_persist",
-            "ratecon_page_count_cache",
+            "ratecon_s3_upload",
             "shipment",
             "shipment_location_link",
             "shipments_row_id",

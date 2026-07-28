@@ -23,20 +23,20 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_workflow_service
 from app.core.config import settings
 from app.main import app
-from app.models.document_analysis import DOCUMENT_ANALYSIS_PAGE_COUNT_KEY, DocumentAnalysisType
+from app.models.document import DocumentType
 from app.services import workflow_runs_service
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 from tests.e2e.fixtures.main import RATECON_WEBHOOK_PAYLOAD
 from tests.e2e.helpers.countdown_wait import wait_with_countdown
 from tests.e2e.helpers.db_snapshots import (
-    fetch_document_analysis_for_shipment,
+    fetch_documents_for_shipment,
     fetch_lifecycle_by_id,
     fetch_lifecycles_for_email_thread,
 )
 from tests.e2e.helpers.workflow_runs_db import execution_id_from_webhook_response
 
 _RATECON_E2E_TENANT_ID = "t3ra"
-_RATECON_ANALYSIS_TYPE = DocumentAnalysisType.RATECON_EXTRACTION.value
+_RATECON_DOC_TYPE = DocumentType.RATECON.value
 _POST_WEBHOOK_FULL_STACK_WAIT_S = 20
 
 
@@ -72,7 +72,7 @@ def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> Non
     Before snapshot:
     1) payload has thread_id
     2) no workflow_lifecycles row for this thread
-    3) if lifecycle rows already exist, no ratecon docs for related shipments
+    3) if lifecycle rows already exist, no ratecon documents for related shipments
     """
     print("\n[before snapshot]\n")
 
@@ -123,32 +123,30 @@ def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> Non
 
     ratecon_hits: list[str] = []
     for sid in sorted(shipment_ids):
-        analysis_rows = fetch_document_analysis_for_shipment(shipment_id=sid)
+        docs = fetch_documents_for_shipment(shipment_id=sid)
         ratecon_rows = [
-            r
-            for r in analysis_rows
-            if str(r.get("analysis_type") or "").strip() == _RATECON_ANALYSIS_TYPE
+            d for d in docs if str(d.get("type") or "").strip() == _RATECON_DOC_TYPE
         ]
 
         ok = not ratecon_rows
         _report_check(
             ok,
-            f"no ratecon_extraction analysis for shipment_id={sid}",
-            f"ratecon_analysis_count={len(ratecon_rows)}",
+            f"no ratecon documents for shipment_id={sid}",
+            f"ratecon_count={len(ratecon_rows)}",
         )
 
         if ratecon_rows:
             ratecon_hits.append(
-                f"  shipment_id={sid!r}: found {len(ratecon_rows)} document_analysis "
-                f"row(s) with analysis_type={_RATECON_ANALYSIS_TYPE!r} "
+                f"  shipment_id={sid!r}: found {len(ratecon_rows)} document "
+                f"row(s) with type={_RATECON_DOC_TYPE!r} "
                 f"(ids={[d.get('id') for d in ratecon_rows]})"
             )
 
     if ratecon_hits:
         parts.append(
             "Before snapshot failed (check 3): lifecycle row(s) already exist for this thread, and "
-            f"at least one `document_analysis` row has analysis_type {_RATECON_ANALYSIS_TYPE!r} for "
-            "the related shipment(s) — clean DB state required."
+            f"at least one `documents` row has type {_RATECON_DOC_TYPE!r} for the related "
+            "shipment(s) — clean DB state required."
         )
         parts.extend(ratecon_hits)
 
@@ -162,7 +160,7 @@ def assert_ratecon_post_webhook_db_state(*, execution_id: str) -> dict[str, Any]
     2) workflow_lifecycle_id exists
     3) workflow_lifecycles row exists
     4) shipment_id exists
-    5) ratecon_extraction document_analysis with page_count exists for shipment
+    5) ratecon document exists for shipment
     """
     print("\n[after snapshot]\n")
 
@@ -212,33 +210,19 @@ def assert_ratecon_post_webhook_db_state(*, execution_id: str) -> dict[str, Any]
     if not shipment_id:
         _fail_ratecon_e2e(
             "After snapshot failed (check 3): `workflow_lifecycles` row exists but `shipment_id` is "
-            "null or empty — cannot verify `document_analysis`.\n"
+            "null or empty — cannot verify `documents`.\n"
             f"  execution_id={exec_id!r}\n"
             f"  workflow_lifecycle_id={wl_id!r}\n"
             f"  lifecycle row={lc!r}"
         )
 
-    analysis_rows = fetch_document_analysis_for_shipment(shipment_id=shipment_id)
-    ratecon_rows = [
-        r
-        for r in analysis_rows
-        if str(r.get("analysis_type") or "").strip() == _RATECON_ANALYSIS_TYPE
-    ]
-    page_counts: list[int] = []
-    for row in ratecon_rows:
-        meta = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-        raw = meta.get(DOCUMENT_ANALYSIS_PAGE_COUNT_KEY)
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if value >= 1:
-            page_counts.append(value)
+    docs = fetch_documents_for_shipment(shipment_id=shipment_id)
+    ratecon_docs = [d for d in docs if str(d.get("type") or "").strip() == _RATECON_DOC_TYPE]
 
     _report_check(
-        bool(ratecon_rows) and bool(page_counts),
-        "ratecon_extraction page_count cached",
-        f"ratecon_analysis_count={len(ratecon_rows)} page_counts={page_counts}",
+        bool(ratecon_docs),
+        "ratecon document exists",
+        f"ratecon_count={len(ratecon_docs)}",
     )
 
     print(
@@ -248,32 +232,23 @@ def assert_ratecon_post_webhook_db_state(*, execution_id: str) -> dict[str, Any]
         f"  workflow_lifecycle_id={wl_id!r}\n"
         f"  lifecycle_row={pformat(lc, width=120)}\n"
         f"  shipment_id={shipment_id!r}\n"
-        f"  document_analysis_count={len(analysis_rows)}\n"
-        f"  ratecon_analysis_ids={[d.get('id') for d in ratecon_rows]}\n"
-        f"  page_counts={page_counts}"
+        f"  shipment_document_count={len(docs)}\n"
+        f"  ratecon_document_ids={[d.get('id') for d in ratecon_docs]}"
     )
 
-    if not ratecon_rows or not page_counts:
-        types_found = sorted(
-            {
-                str(d.get("analysis_type") or "")
-                for d in analysis_rows
-                if d.get("analysis_type") is not None
-            }
-        )
+    if not ratecon_docs:
+        types_found = sorted({str(d.get("type") or "") for d in docs if d.get("type") is not None})
         _fail_ratecon_e2e(
-            "After snapshot failed (check 4): no `document_analysis` row with "
-            f"analysis_type={_RATECON_ANALYSIS_TYPE!r} and metadata.page_count>=1 "
-            "for this shipment after the workflow.\n"
+            "After snapshot failed (check 4): no `documents` row with "
+            f"type={_RATECON_DOC_TYPE!r} for this shipment after the workflow.\n"
             f"  execution_id={exec_id!r}\n"
             f"  shipment_id={shipment_id!r}\n"
-            f"  analysis rows for shipment: count={len(analysis_rows)} "
-            f"analysis_type_values_found={types_found!r}"
+            f"  document rows for shipment: count={len(docs)} type_values_found={types_found!r}"
         )
 
     print(
         f"\n[ratecon e2e DB checks OK] execution_id={exec_id!r} shipment_id={shipment_id!r} "
-        f"ratecon_page_counts={page_counts}\n"
+        f"ratecon_documents={len(ratecon_docs)}\n"
     )
     return run_row
 

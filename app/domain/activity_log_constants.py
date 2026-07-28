@@ -25,8 +25,8 @@ RATECON_RECEIVED_ACTION = "Ratecon email received"
 RATECON_SUPERSEDED_ACTION = (
     "Ratecon cancelled — superseded by new inbound ratecon email"
 )
-RATECON_PAGE_COUNT_CACHED_ACTION = "Ratecon page count cached"
-RATECON_PAGE_COUNT_FAILED_ACTION = "Ratecon page count cache failed"
+RATECON_DOCUMENT_UPLOADED_ACTION = "Ratecon document uploaded to S3"
+RATECON_DOCUMENT_UPLOAD_FAILED_ACTION = "Ratecon document upload failed"
 POD_ESCALATION_SENT_ACTION = "POD request escalated to internal recipients"
 POD_DOCUMENT_UPLOADED_ACTION = "POD document uploaded to S3"
 POD_UPLOADED_MANUALLY_INFO = "POD uploaded manually"

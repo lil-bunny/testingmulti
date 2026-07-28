@@ -9,6 +9,7 @@ from app.domain.state import WorkflowState
 TENANT_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 LIFECYCLE_UUID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 RUN_UUID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+COMM_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 
 def _base_state(*, data: dict | None = None) -> WorkflowState:
@@ -29,9 +30,6 @@ def _base_state(*, data: dict | None = None) -> WorkflowState:
     )
 
 
-COMM_UUID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-
-
 @patch("app.services.ratecon_activity_service.ActivityLogService")
 def test_record_ratecon_received_activity_includes_communication_id(
     mock_svc_cls: MagicMock,
@@ -43,9 +41,7 @@ def test_record_ratecon_received_activity_includes_communication_id(
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
 
-    record_ratecon_received_activity(
-        _base_state(data={"communication_id": COMM_UUID})
-    )
+    record_ratecon_received_activity(_base_state(data={"communication_id": COMM_UUID}))
 
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[0].communication_id == COMM_UUID
@@ -96,10 +92,74 @@ def test_record_ratecon_received_activity_skips_when_ids_missing(
 
 
 @patch("app.services.ratecon_activity_service.ActivityLogService")
+def test_record_ratecon_upload_activity_success(
+    mock_svc_cls: MagicMock,
+) -> None:
+    from app.models.activity_type import ActivityType
+    from app.models.status import StatusSubType
+    from app.workflows.nodes.record_ratecon_activity import record_ratecon_upload_activity
+
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+
+    state = _base_state(
+        data={
+            "ratecon_s3_upload": {
+                "all_succeeded": True,
+                "results": [
+                    {
+                        "success": True,
+                        "object_key": "ratecon_attachments/ratecon_SHIP-99.pdf",
+                        "document_persist": {"stored": True, "id": "doc-1"},
+                    }
+                ],
+            },
+            "communication_id": COMM_UUID,
+        }
+    )
+
+    record_ratecon_upload_activity(state)
+
+    mock_svc.record_sequence.assert_called_once()
+    sequence = mock_svc.record_sequence.call_args[0][0]
+    assert len(sequence.steps) == 2
+    assert sequence.steps[0].activity_type == ActivityType.ACTION
+    assert sequence.steps[0].description == "Ratecon document uploaded to S3"
+    assert sequence.steps[0].metadata["object_key"] == "ratecon_attachments/ratecon_SHIP-99.pdf"
+    assert sequence.steps[0].metadata["document_id"] == "doc-1"
+    assert sequence.steps[0].communication_id == COMM_UUID
+    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].to_sub_status == StatusSubType.DOCUMENT_UPLOADED
+    assert sequence.steps[1].from_sub_status == StatusSubType.RATECON_STARTED
+    assert sequence.steps[1].communication_id == COMM_UUID
+
+
+@patch("app.services.ratecon_activity_service.ActivityLogService")
+def test_record_ratecon_upload_activity_failure(
+    mock_svc_cls: MagicMock,
+) -> None:
+    from app.models.activity_type import ActivityType
+    from app.workflows.nodes.record_ratecon_activity import record_ratecon_upload_activity
+
+    mock_svc = MagicMock()
+    mock_svc_cls.return_value = mock_svc
+
+    state = _base_state(data={"ratecon_s3_upload": {"skipped": True, "reason": "missing_email_id"}})
+
+    record_ratecon_upload_activity(state)
+
+    mock_svc.record_sequence.assert_called_once()
+    sequence = mock_svc.record_sequence.call_args[0][0]
+    assert len(sequence.steps) == 1
+    assert sequence.steps[0].activity_type == ActivityType.EXCEPTION
+    assert sequence.steps[0].description == "Ratecon document upload failed"
+    assert sequence.steps[0].metadata["reason"] == "missing_email_id"
+
+
+@patch("app.services.ratecon_activity_service.ActivityLogService")
 def test_record_ratecon_processed_activity_success(
     mock_svc_cls: MagicMock,
 ) -> None:
-    """Page-count cache success → action + COMPLETED/RATECON_STARTED."""
     from app.models.activity_type import ActivityType
     from app.models.status import StatusSubType, StatusType
     from app.workflows.nodes.record_ratecon_activity import (
@@ -111,10 +171,15 @@ def test_record_ratecon_processed_activity_success(
 
     state = _base_state(
         data={
-            "ratecon_page_count_cache": {
-                "success": True,
-                "page_count": 4,
-                "document_analysis": {"stored": True, "id": "da-1"},
+            "ratecon_s3_upload": {
+                "all_succeeded": True,
+                "results": [
+                    {
+                        "success": True,
+                        "object_key": "ratecon_attachments/ratecon_SHIP-99.pdf",
+                        "document_persist": {"stored": True, "id": "doc-1"},
+                    }
+                ],
             },
             "communication_id": COMM_UUID,
         }
@@ -124,23 +189,18 @@ def test_record_ratecon_processed_activity_success(
 
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.ACTION
-    assert sequence.steps[0].description == "Ratecon page count cached"
+    assert len(sequence.steps) == 1
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.COMPLETED
+    assert sequence.steps[0].to_sub_status == StatusSubType.DOCUMENT_UPLOADED
+    assert sequence.steps[0].from_sub_status == StatusSubType.DOCUMENT_UPLOADED
     assert sequence.steps[0].communication_id == COMM_UUID
-    assert sequence.steps[0].metadata["page_count"] == 4
-    assert sequence.steps[0].metadata["document_analysis_id"] == "da-1"
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[1].to_status == StatusType.COMPLETED
-    assert sequence.steps[1].to_sub_status == StatusSubType.RATECON_STARTED
-    assert sequence.steps[1].from_sub_status == StatusSubType.RATECON_STARTED
 
 
 @patch("app.services.ratecon_activity_service.ActivityLogService")
-def test_record_ratecon_processed_activity_cache_failed(
+def test_record_ratecon_processed_activity_upload_failed(
     mock_svc_cls: MagicMock,
 ) -> None:
-    """Page-count failure → exception + still COMPLETED/RATECON_STARTED."""
     from app.models.activity_type import ActivityType
     from app.models.status import StatusSubType, StatusType
     from app.workflows.nodes.record_ratecon_activity import (
@@ -150,41 +210,30 @@ def test_record_ratecon_processed_activity_cache_failed(
     mock_svc = MagicMock()
     mock_svc_cls.return_value = mock_svc
 
-    state = _base_state(
-        data={
-            "ratecon_page_count_cache": {"skipped": True, "reason": "missing_email_id"},
-        }
-    )
+    state = _base_state(data={"ratecon_s3_upload": {"skipped": True, "reason": "missing_email_id"}})
 
     record_ratecon_processed_activity(state)
 
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
-    assert len(sequence.steps) == 2
-    assert sequence.steps[0].activity_type == ActivityType.EXCEPTION
-    assert sequence.steps[0].description == "Ratecon page count cache failed"
-    assert sequence.steps[0].metadata["reason"] == "missing_email_id"
-    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[1].to_status == StatusType.COMPLETED
-    assert sequence.steps[1].to_sub_status == StatusSubType.RATECON_STARTED
+    assert len(sequence.steps) == 1
+    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[0].to_status == StatusType.COMPLETED
+    assert sequence.steps[0].to_sub_status == StatusSubType.RATECON_STARTED
+    assert sequence.steps[0].from_sub_status == StatusSubType.RATECON_STARTED
 
 
 @patch("app.services.ratecon_activity_service.ActivityLogService")
-def test_record_ratecon_processed_activity_skips_when_shipments_row_id_missing(
+def test_record_ratecon_upload_activity_skips_when_ids_missing(
     mock_svc_cls: MagicMock,
 ) -> None:
-    from app.workflows.nodes.record_ratecon_activity import (
-        record_ratecon_processed_activity,
-    )
+    from app.workflows.nodes.record_ratecon_activity import record_ratecon_upload_activity
 
     state = WorkflowState(
         tenant_id=TENANT_UUID,
         tenant_slug="t3ra",
         execution_id=RUN_UUID,
-        data={
-            "workflow_lifecycle_id": LIFECYCLE_UUID,
-            "ratecon_page_count_cache": {"skipped": True, "reason": "missing_email_id"},
-        },
+        data={"ratecon_s3_upload": {"skipped": True, "reason": "missing_email_id"}},
     )
-    record_ratecon_processed_activity(state)
+    record_ratecon_upload_activity(state)
     mock_svc_cls.return_value.record_sequence.assert_not_called()

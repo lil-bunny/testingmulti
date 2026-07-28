@@ -16,8 +16,8 @@ from app.domain.activity_log_constants import (
     POD_EXTRACTION_PROCESSED_TEMPLATE,
     POD_UPLOADED_TO_TMS_ACTION,
     POD_UPLOAD_TO_TMS_FAILED_ACTION,
-    RATECON_PAGE_COUNT_CACHED_ACTION,
-    RATECON_PAGE_COUNT_FAILED_ACTION,
+    RATECON_DOCUMENT_UPLOADED_ACTION,
+    RATECON_DOCUMENT_UPLOAD_FAILED_ACTION,
     RATECON_RECEIVED_ACTION,
     RATECON_SUPERSEDED_ACTION,
     REMINDER_SENT_ACTION_TEMPLATE,
@@ -129,12 +129,12 @@ def format_ratecon_superseded_action() -> str:
     return RATECON_SUPERSEDED_ACTION
 
 
-def format_ratecon_page_count_cached_action() -> str:
-    return RATECON_PAGE_COUNT_CACHED_ACTION
+def format_ratecon_document_uploaded_action() -> str:
+    return RATECON_DOCUMENT_UPLOADED_ACTION
 
 
-def format_ratecon_page_count_failed_action() -> str:
-    return RATECON_PAGE_COUNT_FAILED_ACTION
+def format_ratecon_document_upload_failed_action() -> str:
+    return RATECON_DOCUMENT_UPLOAD_FAILED_ACTION
 
 
 def format_pod_escalation_sent_action() -> str:
