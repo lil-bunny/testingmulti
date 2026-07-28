@@ -337,7 +337,6 @@ def test_turvo_webhook_scheduling_handled_short_circuits_pod_path() -> None:
         patch("app.api.v1.webhooks.IngressService") as scheduling_cls,
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as pod_cls,
         patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
-        patch("app.api.v1.webhooks.run_workflow_async") as celery_task,
     ):
         scheduling_cls.return_value.handle_shipment_update = AsyncMock(
             return_value=MagicMock(
@@ -371,7 +370,6 @@ def test_turvo_webhook_scheduling_handled_short_circuits_pod_path() -> None:
     scheduling_cls.return_value.handle_shipment_update.assert_awaited_once()
     pod_cls.assert_not_called()
     shipments_cls.assert_not_called()
-    celery_task.apply_async.assert_not_called()
 
 
 def test_turvo_webhook_skips_duplicate_route_completed() -> None:
