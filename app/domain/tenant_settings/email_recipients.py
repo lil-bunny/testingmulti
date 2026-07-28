@@ -72,20 +72,19 @@ def unipile_recipients_from_addresses(addresses: list[str]) -> list[dict[str, st
 
 
 class EmailRecipients(BaseModel):
-    """Parsed TO / CC / BCC for one outbound email action."""
+    """Parsed TO / CC / BCC for one outbound email action.
 
-    to: list[str] = Field(min_length=1)
+    ``to`` may be omitted or empty (e.g. tenant CC-only overlays). Callers that
+    must send mail should check ``if not recipients.to`` before using Unipile.
+    """
+
+    to: list[str] = Field(default_factory=list)
     cc: list[str] = Field(default_factory=list)
     bcc: list[str] = Field(default_factory=list)
 
-    @field_validator("to", mode="before")
+    @field_validator("to", "cc", "bcc", mode="before")
     @classmethod
-    def _validate_to(cls, value: Any) -> list[str]:
-        return coerce_email_list(value, required=True)
-
-    @field_validator("cc", "bcc", mode="before")
-    @classmethod
-    def _validate_cc_bcc(cls, value: Any) -> list[str]:
+    def _validate_email_lists(cls, value: Any) -> list[str]:
         return coerce_email_list(value, required=False)
 
     def to_unipile_to(self) -> list[dict[str, str]]:
