@@ -77,7 +77,7 @@ def test_format_draft_ready_title_body_and_facts() -> None:
     )
     assert "62396" in format_draft_ready_body(None, fields=fields)
     facts = draft_ready_facts(fields)
-    assert facts[0] == ("Load ID", "62396")
+    assert facts[0] == ("Reference", "DIAMOND-1")
     assert facts[-1] == ("Proposed delivery", "07/04/2026")
     fact_labels = [label for label, _ in facts]
     assert "Draft subject" not in fact_labels
@@ -109,8 +109,8 @@ def test_display_fields_costco_includes_delivery_time_and_normalizes_iso_pickup(
     assert fields.pickup_time == "08:00"
     assert fields.delivery_time == "06:00"
     facts = draft_ready_facts(fields)
-    assert facts[3] == ("Proposed pickup", "06/02/2026 · 08:00")
-    assert facts[4] == ("Proposed delivery", "06/03/2026 · 06:00 (WEDNESDAY)")
+    assert facts[2] == ("Proposed pickup", "06/02/2026 · 08:00")
+    assert facts[3] == ("Proposed delivery", "06/03/2026 · 06:00 (WEDNESDAY)")
 
 
 def test_format_draft_ready_body_supports_delivery_display_placeholder() -> None:

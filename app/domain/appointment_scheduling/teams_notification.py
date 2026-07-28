@@ -154,7 +154,6 @@ def draft_ready_facts(
     fields: AppointmentSchedulingDraftDisplayFields,
 ) -> list[tuple[str, str]]:
     return [
-        ("Load ID", fields.load_id or "—"),
         ("Reference", fields.reference_number or "—"),
         ("Customer", fields.customer_name or "—"),
         ("Proposed pickup", _appt_display(fields.pickup_date, fields.pickup_time)),
