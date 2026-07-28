@@ -95,7 +95,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
     lifecycle.update_lifecycle_status.assert_not_called()
 
 
-def test_persist_draft_ready_patches_llm_appointment_decision():
+def test_persist_draft_ready_patches_weekend_shifted_on_shipment_not_lifecycle():
     lifecycle = MagicMock()
     activity = MagicMock()
     shipments = MagicMock()
@@ -130,8 +130,12 @@ def test_persist_draft_ready_patches_llm_appointment_decision():
         lifecycle_id="lifecycle-1",
         metadata_patch={
             EMAIL_DRAFT: email_draft,
-            LLM_APPOINTMENT_DECISION: decision,
         },
+    )
+    shipments.merge_metadata.assert_called_once_with(
+        tenant_id=_TENANT_UUID,
+        shipment_row_id=_SHIPMENT_ROW_ID,
+        metadata_patch={"weekend_shifted": True},
     )
 
 
@@ -466,11 +470,13 @@ def test_weekend_pickup_router_uses_canonical_llm_decision() -> None:
 
 
 def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_send_path():
-    decision = {
-        "weekend_shifted": True,
-        "selected_pickup_date": "2026-07-01",
-        "selected_pickup_time": "08:00",
-    }
+    from app.tools.appointment_scheduling.dates import proposed_wall_clock_to_utc
+
+    proposed_pickup = proposed_wall_clock_to_utc(
+        "2026-07-01",
+        time_raw="08:00",
+        timezone_name="America/Chicago",
+    )
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
@@ -480,13 +486,14 @@ def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
-            LLM_APPOINTMENT_DECISION: decision,
         },
     }
     shipments = MagicMock()
     shipments.get_by_id.return_value = {
         "shipment_number": "1000324895",
-        "metadata": {"reference_number": "DIAMOND-RPN1"},
+        "proposed_pickup": proposed_pickup,
+        "pickup_timezone": "America/Chicago",
+        "metadata": {"reference_number": "DIAMOND-RPN1", "weekend_shifted": True},
     }
     service = LifecycleService(
         lifecycle_service=lifecycle,
@@ -499,12 +506,16 @@ def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_
 
     service.hydrate_appointment_send_context(state)
 
-    assert state.data["llm_appointment_decision"] == decision
+    assert state.data["llm_appointment_decision"]["weekend_shifted"] is True
+    assert state.data["llm_appointment_decision"]["selected_pickup_date"] == "2026-07-01"
+    assert state.data["llm_appointment_decision"]["selected_pickup_time"] == "08:00"
     assert appointment_weekend_pickup_router(state) == "apply"
 
 
 def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
     """Intake persist → send hydrate → weekend router apply (§1.3 / §5.1)."""
+    from app.tools.appointment_scheduling.dates import proposed_wall_clock_to_utc
+
     email_draft = {
         "to": "a@example.com",
         "subject": "DEL APPT",
@@ -515,6 +526,11 @@ def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
         "selected_pickup_date": "2026-07-01",
         "selected_pickup_time": "08:00",
     }
+    proposed_pickup = proposed_wall_clock_to_utc(
+        "2026-07-01",
+        time_raw="08:00",
+        timezone_name="America/Chicago",
+    )
     lifecycle = MagicMock()
     activity = MagicMock()
     shipments = MagicMock()
@@ -523,7 +539,8 @@ def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
         "shipment_number": "1000324895",
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
-        "metadata": {"reference_number": "DIAMOND-RPN1"},
+        "proposed_pickup": proposed_pickup,
+        "metadata": {"reference_number": "DIAMOND-RPN1", "weekend_shifted": True},
     }
     service = LifecycleService(
         lifecycle_service=lifecycle,
@@ -542,13 +559,15 @@ def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
         llm_appointment_decision=decision,
     )
     metadata_patch = lifecycle.patch_metadata.call_args.kwargs["metadata_patch"]
-    assert metadata_patch[LLM_APPOINTMENT_DECISION]["weekend_shifted"] is True
+    assert EMAIL_DRAFT in metadata_patch
+    assert LLM_APPOINTMENT_DECISION not in metadata_patch
+    shipments.merge_metadata.assert_called_once()
+    assert shipments.merge_metadata.call_args.kwargs["metadata_patch"]["weekend_shifted"] is True
 
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: email_draft,
-            LLM_APPOINTMENT_DECISION: metadata_patch[LLM_APPOINTMENT_DECISION],
         },
     }
     send_state = _state(
@@ -673,11 +692,13 @@ def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metada
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: {"to": "a@example.com", "subject": "s", "full_html": "<p/>"},
-            LLM_APPOINTMENT_DECISION: {"weekend_shifted": False},
         },
     }
     shipments = MagicMock()
-    shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
+    shipments.get_by_id.return_value = {
+        "shipment_number": "1000324895",
+        "metadata": {"weekend_shifted": False},
+    }
     service = LifecycleService(
         lifecycle_service=lifecycle,
         shipments_service=shipments,
@@ -687,7 +708,7 @@ def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metada
     service.hydrate_appointment_send_context(state)
 
     assert "workflow_lifecycle_metadata" not in state.data
-    assert state.data["llm_appointment_decision"] == {"weekend_shifted": False}
+    assert "llm_appointment_decision" not in state.data
 
 
 def test_finalize_after_teams_notify_does_not_write_teams_outcome_to_state():

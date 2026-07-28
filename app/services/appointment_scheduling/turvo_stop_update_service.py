@@ -28,11 +28,12 @@ from app.integrations.turvo.shipments import (
     update_stop_appointment_time,
 )
 from app.integrations.turvo.webhook_mapping import TENDERED_STATUS_CODE_KEY
+from app.domain.appointment_scheduling.constants import APPOINTMENT_PAYLOAD
 from app.services.appointment_scheduling.activity_service import (
     ActivityService,
 )
 from app.services.shipments_service import ShipmentsService
-from app.tools.appointment_scheduling.dates import prepare_delivery_placeholder
+from app.tools.appointment_scheduling.dates import normalize_date_only, prepare_delivery_placeholder
 
 logger = get_logger(__name__)
 
@@ -123,6 +124,17 @@ async def _fetch_shipment_payload(
         )
 
 
+def proposed_delivery_date_from_state(data: dict[str, Any]) -> str | None:
+    """Portal-edited delivery date for Turvo placeholder (ISO or MM/DD/YYYY → YYYY-MM-DD)."""
+    payload = data.get(APPOINTMENT_PAYLOAD)
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("proposed_delivery_at")
+    if not raw:
+        return None
+    return normalize_date_only(raw)
+
+
 class TurvoStopUpdateService:
     def __init__(
         self,
@@ -147,6 +159,7 @@ class TurvoStopUpdateService:
             tenant_slug=ctx.tenant_slug,
             shipment_id=ctx.shipment_id,
             shipment_payload=ctx.shipment_payload,
+            delivery_date=proposed_delivery_date_from_state(state.data or {}),
         )
 
     async def apply_delivery_placeholder(
@@ -155,6 +168,7 @@ class TurvoStopUpdateService:
         tenant_slug: str,
         shipment_id: str,
         shipment_payload: dict[str, Any] | None = None,
+        delivery_date: str | None = None,
     ) -> TurvoConfirmResult:
         slug = tenant_slug
         sid = shipment_id
@@ -175,10 +189,12 @@ class TurvoStopUpdateService:
             )
 
         stop_name = str(delivery_stop_name_from_payload(payload or {}) or "").strip()
-        delivery_date = delivery_date_only_from_payload(payload or {})
+        proposed_date = normalize_date_only(delivery_date) if delivery_date else None
+        turvo_date = delivery_date_only_from_payload(payload or {})
+        effective_date = proposed_date or turvo_date
         placeholder = prepare_delivery_placeholder(
             stop_name=stop_name,
-            delivery_date=str(delivery_date or ""),
+            delivery_date=str(effective_date or ""),
         )
         if placeholder is None:
             err = BusinessError.MISSING_DELIVERY_STOP_OR_DATE

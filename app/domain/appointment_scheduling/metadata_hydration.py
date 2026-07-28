@@ -4,16 +4,35 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domain.appointment_scheduling.constants import (
-    APPOINTMENT_PAYLOAD,
-    EMAIL_DRAFT,
-    LLM_APPOINTMENT_DECISION,
-)
+from datetime import datetime, timezone
+
+from app.domain.appointment_scheduling.constants import APPOINTMENT_PAYLOAD, EMAIL_DRAFT
 from app.domain.appointment_scheduling.utils import iso_or_empty
+from app.tools.appointment_scheduling.dates import (
+    is_weekend_shifted_truthy,
+    utc_to_local_date_and_time,
+)
 
 
-def _lifecycle_metadata_value(metadata: dict[str, Any], canonical: str) -> Any:
-    return metadata.get(canonical)
+def _coerce_utc_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def apply_lifecycle_email_draft_to_state(
@@ -24,13 +43,53 @@ def apply_lifecycle_email_draft_to_state(
         state.data[EMAIL_DRAFT] = lifecycle_metadata[EMAIL_DRAFT]
 
 
-def apply_lifecycle_appointment_decision_to_state(
-    state,
-    lifecycle_metadata: dict[str, Any],
-) -> None:
-    decision = _lifecycle_metadata_value(lifecycle_metadata, LLM_APPOINTMENT_DECISION)
-    if isinstance(decision, dict) and decision:
-        state.data[LLM_APPOINTMENT_DECISION] = decision
+def rebuild_llm_appointment_decision_from_shipment_row(
+    shipment_row: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Rebuild ephemeral send-path decision view from durable shipment facts."""
+    if not shipment_row:
+        return {}
+
+    meta = shipment_row.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+
+    weekend_shifted = is_weekend_shifted_truthy(meta.get("weekend_shifted"))
+    proposed_pickup = _coerce_utc_datetime(shipment_row.get("proposed_pickup"))
+    proposed_delivery = _coerce_utc_datetime(shipment_row.get("proposed_delivery"))
+    pickup_tz = str(shipment_row.get("pickup_timezone") or "").strip() or None
+    delivery_tz = str(shipment_row.get("delivery_timezone") or "").strip() or None
+
+    if not proposed_pickup and not proposed_delivery and not weekend_shifted:
+        return {}
+
+    decision: dict[str, Any] = {"weekend_shifted": weekend_shifted}
+
+    if proposed_pickup:
+        pickup_date, pickup_time = utc_to_local_date_and_time(
+            proposed_pickup,
+            timezone_name=pickup_tz,
+        )
+        if pickup_date:
+            decision["selected_pickup_date"] = pickup_date
+        if pickup_time:
+            decision["selected_pickup_time"] = pickup_time
+
+    if proposed_delivery:
+        delivery_date, _ = utc_to_local_date_and_time(
+            proposed_delivery,
+            timezone_name=delivery_tz,
+        )
+        if delivery_date:
+            try:
+                local_delivery = datetime.strptime(delivery_date, "%Y-%m-%d")
+            except ValueError:
+                local_delivery = None
+            if local_delivery is not None:
+                decision["calculated_delivery_date"] = local_delivery.strftime("%m/%d/%Y")
+                decision["calculated_delivery_weekday"] = local_delivery.strftime("%A").upper()
+
+    return decision
 
 
 def rebuild_appointment_payload_from_shipment(

@@ -14,8 +14,8 @@ from app.domain.appointment_scheduling.constants import (
 )
 from app.domain.appointment_scheduling.metadata_hydration import (
     apply_lifecycle_email_draft_to_state,
-    apply_lifecycle_appointment_decision_to_state,
     hydrate_shipment_facts_into_state,
+    rebuild_llm_appointment_decision_from_shipment_row,
 )
 from app.domain.appointment_scheduling.state_hygiene import strip_intake_checkpoint_data
 from app.domain.appointment_scheduling.utils import is_costco_customer
@@ -84,6 +84,7 @@ class LifecycleService:
         appointment_payload: dict[str, Any],
         llm_appointment_decision: dict[str, Any] | None = None,
     ) -> None:
+        """Persist draft on lifecycle metadata; scheduling facts on shipment row only."""
         self._activity.record_draft_ready(
             state,
             email_draft=email_draft,
@@ -91,8 +92,6 @@ class LifecycleService:
         )
         decision = llm_appointment_decision if isinstance(llm_appointment_decision, dict) else {}
         metadata_patch: dict[str, Any] = {EMAIL_DRAFT: email_draft}
-        if decision:
-            metadata_patch[LLM_APPOINTMENT_DECISION] = decision
         self._lifecycle.patch_metadata(
             lifecycle_id=lifecycle_id,
             metadata_patch=metadata_patch,
@@ -135,6 +134,7 @@ class LifecycleService:
             shipment_meta_patch = self._shipment_metadata_patch(
                 state,
                 appointment_payload=appointment_payload,
+                llm_appointment_decision=decision,
             )
             if shipment_meta_patch:
                 self._shipments.merge_metadata(
@@ -148,8 +148,12 @@ class LifecycleService:
         state,
         *,
         appointment_payload: dict[str, Any],
+        llm_appointment_decision: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         patch: dict[str, Any] = {}
+        decision = llm_appointment_decision if isinstance(llm_appointment_decision, dict) else {}
+        if decision:
+            patch["weekend_shifted"] = bool(decision.get("weekend_shifted"))
         reference = str(appointment_payload.get("reference_number") or "").strip()
         if reference:
             patch["reference_number"] = reference
@@ -193,7 +197,6 @@ class LifecycleService:
         if not isinstance(meta, dict):
             meta = {}
         apply_lifecycle_email_draft_to_state(state, meta)
-        apply_lifecycle_appointment_decision_to_state(state, meta)
         self._hydrate_turvo_shipment_id(state, lifecycle_id=lifecycle_id, lifecycle_row=row)
 
         tenant_id = str(
@@ -210,6 +213,9 @@ class LifecycleService:
             )
             if shipment_row:
                 hydrate_shipment_facts_into_state(state, shipment_row=shipment_row)
+                decision = rebuild_llm_appointment_decision_from_shipment_row(shipment_row)
+                if decision:
+                    state.data[LLM_APPOINTMENT_DECISION] = decision
 
     def _hydrate_turvo_shipment_id(
         self,

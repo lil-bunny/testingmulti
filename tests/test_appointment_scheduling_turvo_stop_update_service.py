@@ -394,6 +394,58 @@ async def test_apply_delivery_placeholder_sets_0001() -> None:
 
 
 @pytest.mark.asyncio
+async def test_apply_delivery_placeholder_prefers_portal_proposed_delivery_date() -> None:
+    svc = TurvoStopUpdateService()
+    payload = _placeholder_shipment_payload(delivery_date="2026-06-03")
+    mock_update = AsyncMock(return_value={"ok": True, "updated": True})
+
+    with patch(
+        "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
+        new=mock_update,
+    ):
+        result = await svc.apply_delivery_placeholder(
+            tenant_slug="t3ra",
+            shipment_id="1000324895",
+            shipment_payload=payload,
+            delivery_date="2026-06-05",
+        )
+
+    assert result.ok is True
+    assert result.start_time == "2026-06-05 00:01:00"
+    assert mock_update.await_args.kwargs["start_time"] == "2026-06-05 00:01:00"
+
+
+@pytest.mark.asyncio
+async def test_apply_delivery_placeholder_from_state_uses_appointment_payload_date() -> None:
+    svc = TurvoStopUpdateService()
+    payload = _placeholder_shipment_payload(
+        route_stop="COSTCO #584 NW",
+        delivery_date="2026-06-03",
+    )
+    state = SimpleNamespace(
+        data={
+            "tenant_slug": "t3ra",
+            "shipment_id": "1000338217",
+            "shipment": payload,
+            "appointment_payload": {
+                "proposed_delivery_at": "2026-06-05T17:30:00+05:30",
+            },
+        }
+    )
+    mock_update = AsyncMock(return_value={"ok": True, "updated": True})
+
+    with patch(
+        "app.services.appointment_scheduling.turvo_stop_update_service.update_stop_appointment_time",
+        new=mock_update,
+    ):
+        result = await svc._apply_delivery_placeholder_from_state_async(state)
+
+    assert result.ok is True
+    assert result.start_time == "2026-06-05 00:01:00"
+    assert result.stop_name == "COSTCO #584 NW"
+
+
+@pytest.mark.asyncio
 async def test_apply_delivery_placeholder_missing_shipment_fields() -> None:
     svc = TurvoStopUpdateService()
     result = await svc.apply_delivery_placeholder(

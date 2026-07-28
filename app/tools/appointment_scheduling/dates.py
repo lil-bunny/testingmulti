@@ -85,6 +85,31 @@ def parse_proposed_appointment_date(raw: str | None) -> datetime | None:
     return proposed_wall_clock_to_utc(raw)
 
 
+def utc_to_local_date_and_time(
+    dt: datetime | None,
+    *,
+    timezone_name: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Convert a UTC instant to local ``YYYY-MM-DD`` and ``HH:MM`` in stop timezone."""
+    if dt is None:
+        return None, None
+    if dt.tzinfo is None:
+        utc_dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        utc_dt = dt.astimezone(timezone.utc)
+
+    tz_str = str(timezone_name or "").strip()
+    if tz_str:
+        try:
+            local_dt = utc_dt.astimezone(ZoneInfo(tz_str))
+        except ZoneInfoNotFoundError:
+            local_dt = utc_dt
+    else:
+        local_dt = utc_dt
+
+    return local_dt.strftime("%Y-%m-%d"), local_dt.strftime("%H:%M")
+
+
 @dataclass(frozen=True)
 class TurvoDeliveryPlaceholder:
     stop_name: str
