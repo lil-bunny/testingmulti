@@ -75,75 +75,23 @@ async def test_run_for_email_assess_stages_without_s3_merge(monkeypatch, tmp_pat
     assert kwargs["upload_merged"] is False
     assert kwargs["trace_metadata"]["execution_id"] == "exec-1"
     assert kwargs["trace_metadata"]["classify_context"] == "attachment_pipeline"
-    assert kwargs["ratecon_page_count"] is None
 
 
-@pytest.mark.asyncio
-async def test_run_for_email_passes_ratecon_page_count_from_document_analysis(
-    monkeypatch, tmp_path
-):
-    monkeypatch.setattr(
-        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_ATTACHMENT_STAGE_ROOT",
-        str(tmp_path),
-    )
-    staged = tmp_path / "sources" / "001_att1.pdf"
-    staged.parent.mkdir(parents=True)
-    staged.write_bytes(b"%PDF-1.4 x")
-    normalizer = MagicMock()
-    normalizer.normalize_from_bytes_async = AsyncMock(
-        return_value={
-            "success": True,
-            "assess_only": True,
-            "pod_merged_pdf_object_key": None,
-            "pod_merge_source_paths": [str(staged)],
-            "pod_vision_image_paths": [],
-            "source_attachments_cleanup": {
-                "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
-                "rejected": [],
-            },
-            "rejected": [],
-        }
-    )
-    monkeypatch.setattr(
-        "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
-        lambda **kwargs: b"%PDF-1.4 x",
-    )
-    monkeypatch.setattr(
-        "app.services.pod_lifecycle.attachment_pipeline_service.resolve_pod_sender_account_id",
-        lambda payload: "acct-1",
-    )
-    resolve = MagicMock(return_value=5)
-    monkeypatch.setattr(
-        "app.services.pod_lifecycle.attachment_pipeline_service.resolve_ratecon_page_count",
-        resolve,
-    )
-
-    svc = PodAttachmentPipelineService(normalizer=normalizer)
-    result = await svc.run_for_email_payload(
-        payload={
-            "tenant_id": "00000000-0000-4000-8000-0000000000e1",
-            "shipment_id": "S1",
-            "shipments_row_id": "11111111-1111-4111-8111-111111111111",
-            "email_id": "email-1",
-            "attachments": [{"id": "att-1"}],
-            "execution_id": "exec-1",
-        }
-    )
-
-    assert result.success is True
-    resolve.assert_called_once_with("11111111-1111-4111-8111-111111111111")
-    _, kwargs = normalizer.normalize_from_bytes_async.call_args
-    assert kwargs["ratecon_page_count"] == 5
-
-
-def test_merge_and_upload_from_state_persists(monkeypatch, tmp_path):
+def test_merge_local_then_upload_preferred_persists(monkeypatch, tmp_path):
     source = tmp_path / "001.pdf"
     source.write_bytes(b"%PDF-1.4 x")
+    local_merged = tmp_path / "pod_S1.pdf"
+    local_merged.write_bytes(b"%PDF-1.4 merged")
     normalizer = MagicMock()
-    normalizer.merge_and_upload_staged.return_value = {
+    normalizer.merge_staged_local.return_value = {
+        "success": True,
+        "pod_merged_pdf_object_key": None,
+        "pod_merged_local_path": str(local_merged),
+    }
+    normalizer.upload_local_pdf.return_value = {
         "success": True,
         "pod_merged_pdf_object_key": "pod_attachments/pod_S1.pdf",
-        "pod_merged_local_path": str(tmp_path / "pod_S1.pdf"),
+        "pod_merged_local_path": str(local_merged),
     }
     monkeypatch.setattr(
         "app.services.pod_lifecycle.attachment_pipeline_service.insert_document",
@@ -155,27 +103,30 @@ def test_merge_and_upload_from_state_persists(monkeypatch, tmp_path):
     )
 
     svc = PodAttachmentPipelineService(normalizer=normalizer)
-    result = svc.merge_and_upload_from_state(
-        {
-            "shipment_id": "S1",
-            "shipments_row_id": "row-1",
-            "pod_merge_source_paths": [str(source)],
-            "pod_attachment_stage_dir": str(tmp_path),
-            "attachment_normalization": {
-                "success": True,
-                "source_attachment_ids": ["att-1"],
-                "source_attachments_cleanup": {
-                    "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
-                    "rejected": [],
-                },
+    data = {
+        "shipment_id": "S1",
+        "shipments_row_id": "row-1",
+        "pod_merge_source_paths": [str(source)],
+        "pod_attachment_stage_dir": str(tmp_path),
+        "attachment_normalization": {
+            "success": True,
+            "source_attachment_ids": ["att-1"],
+            "source_attachments_cleanup": {
+                "valid_source": [{"attachment_ref": "pod_attachments/pod_att1_S1.bin"}],
+                "rejected": [],
             },
-        }
-    )
+        },
+    }
+    merged = svc.merge_local_from_state(data)
+    assert merged.success is True
+    patched = {**data, **(merged.state_patch or {})}
+    result = svc.upload_preferred_from_state(patched)
 
     assert result.success is True
     assert result.state_patch["pod_merged_pdf_object_key"] == "pod_attachments/pod_S1.pdf"
     assert result.state_patch["documents_pod"]["stored"] is True
-    normalizer.merge_and_upload_staged.assert_called_once()
+    normalizer.merge_staged_local.assert_called_once()
+    normalizer.upload_local_pdf.assert_called_once()
 
 
 def test_classifier_trace_metadata_minimal_fields():
@@ -314,3 +265,86 @@ async def test_run_for_object_keys_assesses(monkeypatch, tmp_path):
     assert kwargs["upload_merged"] is False
     assert kwargs["trace_metadata"]["execution_id"] == "exec-manual"
     assert kwargs["trace_metadata"]["classify_context"] == "attachment_pipeline"
+
+
+@pytest.mark.asyncio
+async def test_run_for_email_reuses_local_stage_when_flag_set(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_ATTACHMENT_STAGE_ROOT",
+        str(tmp_path),
+    )
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_DEV_REUSE_LOCAL_STAGE",
+        True,
+    )
+    stage = tmp_path / "pod_exec-reuse"
+    sources = stage / "sources"
+    sources.mkdir(parents=True)
+    src = sources / "001.pdf"
+    src.write_bytes(b"%PDF-1.4 src")
+    merged = stage / "pod_S1.pdf"
+    merged.write_bytes(b"%PDF-1.4 merged")
+    import json
+
+    (stage / ".freightx_pod_stage.json").write_text(
+        json.dumps(
+            {
+                "pod_merge_source_paths": [str(src)],
+                "source_attachment_ids": ["att-1"],
+                "pod_source_object_keys": [],
+                "email_id": "email-1",
+                "shipment_id": "S1",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    normalizer = MagicMock()
+    normalizer.normalize_from_bytes_async = AsyncMock()
+    fetch = MagicMock(side_effect=AssertionError("Unipile fetch must be skipped"))
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.fetch_email_attachment_bytes_with_retry",
+        fetch,
+    )
+
+    svc = PodAttachmentPipelineService(normalizer=normalizer)
+    result = await svc.run_for_email_payload(
+        payload={
+            "shipment_id": "S1",
+            "email_id": "email-1",
+            "attachments": [{"id": "att-1"}],
+            "execution_id": "exec-reuse",
+        }
+    )
+
+    assert result.success is True
+    assert result.state_patch is not None
+    assert result.state_patch["pod_merge_source_paths"] == [str(src)]
+    assert result.state_patch["pod_merged_local_path"] == str(merged)
+    assert result.state_patch["attachment_normalization"]["dev_reused_local_stage"] is True
+    normalizer.normalize_from_bytes_async.assert_not_called()
+    fetch.assert_not_called()
+
+
+def test_merge_local_reuses_existing_merged_pdf(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "app.services.pod_lifecycle.attachment_pipeline_service.settings.POD_DEV_REUSE_LOCAL_STAGE",
+        True,
+    )
+    source = tmp_path / "001.pdf"
+    source.write_bytes(b"%PDF-1.4 x")
+    local_merged = tmp_path / "pod_S1.pdf"
+    local_merged.write_bytes(b"%PDF-1.4 already-merged")
+    normalizer = MagicMock()
+    svc = PodAttachmentPipelineService(normalizer=normalizer)
+    result = svc.merge_local_from_state(
+        {
+            "shipment_id": "S1",
+            "pod_attachment_stage_dir": str(tmp_path),
+            "pod_merge_source_paths": [str(source)],
+            "attachment_normalization": {"success": True},
+        }
+    )
+    assert result.success is True
+    assert result.state_patch["pod_merged_local_path"] == str(local_merged)
+    normalizer.merge_staged_local.assert_not_called()

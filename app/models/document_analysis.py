@@ -3,7 +3,7 @@
 from __future__ import annotations
 from enum import StrEnum
 
-# document_analysis.metadata key: ratecon PDF page count (POD strip OCR bound).
+# document_analysis.metadata key for optional PDF page_count.
 DOCUMENT_ANALYSIS_PAGE_COUNT_KEY = "page_count"
 
 class DocumentAnalysisType(StrEnum):

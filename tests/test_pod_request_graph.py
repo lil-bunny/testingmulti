@@ -18,7 +18,9 @@ def test_pod_lifecycle_pod_request_graph():
     assert "record_pod_started_activity" in names
     assert "record_pod_reminder_activity" in names
     assert "record_pod_upload_activity" in names
-    assert "merge_and_upload_pod_attachments" in names
+    assert "merge_pod_attachments_local" in names
+    assert "trim_ratecon_pages_from_pod" in names
+    assert "upload_trimmed_pod_attachments" in names
     assert "record_pod_extraction_activity" in names
     assert "record_pod_processed_activity" in names
     assert "notify_pod_analysis_teams" in names
@@ -40,14 +42,18 @@ def test_pod_lifecycle_pod_request_graph():
     edges = [tuple(e) for e in graph["edges"]]
     assert "get_email_attachments" not in names
     assert "classify_attachments" not in names
-    assert routers["get_shipment"]["map"]["valid_shipment_status"] == "merge_and_upload_pod_attachments"
+    assert routers["get_shipment"]["map"]["valid_shipment_status"] == "merge_pod_attachments_local"
     assert routers["get_shipment"]["map"]["manual_pod_stored"] == "upload_to_turvo"
-    assert routers["get_shipment"]["map"]["manual_pod_process"] == "merge_and_upload_pod_attachments"
+    assert routers["get_shipment"]["map"]["manual_pod_process"] == "merge_pod_attachments_local"
     assert "load_ratecon_analysis" not in routers
-    assert ("merge_and_upload_pod_attachments", "record_pod_upload_activity") in edges
-    assert ("record_pod_upload_activity", "pod_analysis") in edges
+    assert ("merge_pod_attachments_local", "pod_analysis") in edges
     assert ("pod_analysis", "record_pod_extraction_activity") in edges
-    assert ("record_pod_extraction_activity", "capture_turvo_shipment_snapshot") in edges
+    assert ("record_pod_extraction_activity", "trim_ratecon_pages_from_pod") in edges
+    assert routers["trim_ratecon_pages_from_pod"]["router"] == "trim_ratecon_pages_router"
+    assert routers["trim_ratecon_pages_from_pod"]["map"]["continue"] == "upload_trimmed_pod_attachments"
+    assert routers["trim_ratecon_pages_from_pod"]["map"]["only_ratecon"] == "end"
+    assert ("upload_trimmed_pod_attachments", "record_pod_upload_activity") in edges
+    assert ("record_pod_upload_activity", "capture_turvo_shipment_snapshot") in edges
     assert ("capture_turvo_shipment_snapshot", "pod_scoring") in edges
     assert ("pod_scoring", "record_pod_processed_activity") in edges
     assert ("record_pod_processed_activity", "notify_pod_analysis_teams") in edges

@@ -27,7 +27,7 @@ def record_pod_escalation_activity(state):
 
 
 def record_pod_upload_activity(state):
-    """Log POD S3 upload outcome after in-graph merge_and_upload_pod_attachments."""
+    """Log POD S3 upload outcome after ``upload_trimmed_pod_attachments``."""
     PodUploadActivityService().record_from_state(state)
     return state
 

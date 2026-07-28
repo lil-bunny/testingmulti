@@ -1,8 +1,5 @@
 """
 Postgres write helpers for ``document_analysis`` rows (upsert-by-type).
-
-Ratecon page-count *reads* for the POD strip pipeline live in
-``app.services.pod_lifecycle.strip_ratecon_pages``.
 """
 
 from __future__ import annotations

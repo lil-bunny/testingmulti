@@ -1,6 +1,8 @@
 from app.workflows.nodes.ratecon import upload_ratecon_attachments
 from app.workflows.nodes.pod import (
-    merge_and_upload_pod_attachments,
+    merge_pod_attachments_local,
+    upload_trimmed_pod_attachments,
+    trim_ratecon_pages_from_pod,
     capture_turvo_shipment_snapshot,
     pod_analysis,
     pod_scoring,
@@ -135,7 +137,9 @@ NODE_REGISTRY = {
     "check_pod_reminder_eligibility": check_pod_reminder_eligibility,
     "complete_pod_found_in_tms": complete_pod_found_in_tms,
     "record_reminder_run": record_reminder_run,
-    "merge_and_upload_pod_attachments": merge_and_upload_pod_attachments,
+    "merge_pod_attachments_local": merge_pod_attachments_local,
+    "trim_ratecon_pages_from_pod": trim_ratecon_pages_from_pod,
+    "upload_trimmed_pod_attachments": upload_trimmed_pod_attachments,
     "pod_analysis": pod_analysis,
     "capture_turvo_shipment_snapshot": capture_turvo_shipment_snapshot,
     "pod_scoring": pod_scoring,

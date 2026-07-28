@@ -20,9 +20,9 @@ WORKDIR /code
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     libheif-dev \
-    libxcb1 \
-    libgl1 \
-    libglib2.0-0 \
+    # libxcb1 \
+    # libgl1 \
+    # libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy ONLY your dependency files first. 

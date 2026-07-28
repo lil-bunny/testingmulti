@@ -18,7 +18,6 @@ from app.domain.pod_lifecycle.activity_metadata import (
 from app.domain.pod_lifecycle.guards import (
     POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
     pod_reminder_skip_sub_statuses,
-    pod_upload_success_from_state,
     should_skip_idempotent_pod_activity_log,
 )
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
@@ -308,9 +307,6 @@ class PodPipelineActivityService:
                 bool(state.tenant_id or state.data.get("tenant_id")),
                 bool(state.execution_id),
             )
-            return
-
-        if not pod_upload_success_from_state(state.data):
             return
 
         if not _analysis_success(state):

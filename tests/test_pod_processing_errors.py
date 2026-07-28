@@ -44,11 +44,11 @@ def _assert_error(result, expected_code):
 
 
 # ---------------------------------------------------------------------------
-# pod_analysis stage cleanup
+# pod_analysis no longer cleans stage (deferred to upload / end)
 # ---------------------------------------------------------------------------
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
-def test_pod_analysis_cleans_stage_after_run(mock_tool, tmp_path):
+def test_pod_analysis_keeps_stage_after_run(mock_tool, tmp_path):
     mock_tool.return_value = {
         "success": True,
         "findings": {"pod_data": {"delivery_confirmed": True}},
@@ -70,9 +70,9 @@ def test_pod_analysis_cleans_stage_after_run(mock_tool, tmp_path):
     ):
         pod_analysis(state)
 
-    assert "pod_attachment_stage_dir" not in state.data
-    assert "pod_merged_local_path" not in state.data
-    assert not stage_dir.exists()
+    assert state.data["pod_attachment_stage_dir"] == str(stage_dir)
+    assert state.data["pod_merged_local_path"] == str(merged)
+    assert stage_dir.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ def test_pod_analysis_skipped_manual_soft_fail(mock_tool):
     mock_tool.return_value = {
         "success": True,
         "skipped": True,
-        "reason": "no_pod_object_key",
+        "reason": "no_pod_source",
     }
     state = _state(event_type="manual_pod_upload")
 
@@ -135,7 +135,23 @@ def test_pod_analysis_skipped_manual_soft_fail(mock_tool):
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
-def test_pod_analysis_skipped_sets_pod_extraction_empty(mock_tool):
+def test_pod_analysis_skipped_no_source_sets_attachment_upload_failed(mock_tool):
+    mock_tool.return_value = {
+        "success": True,
+        "skipped": True,
+        "reason": "no_pod_source",
+    }
+    state = _state()
+
+    result = pod_analysis(state)
+
+    _assert_error(result, BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_skipped_legacy_no_object_key_sets_attachment_upload_failed(
+    mock_tool,
+):
     mock_tool.return_value = {
         "success": True,
         "skipped": True,
@@ -145,7 +161,7 @@ def test_pod_analysis_skipped_sets_pod_extraction_empty(mock_tool):
 
     result = pod_analysis(state)
 
-    _assert_error(result, BusinessError.POD_EXTRACTION_EMPTY)
+    _assert_error(result, BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")

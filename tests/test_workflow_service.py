@@ -346,26 +346,55 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
         fake_read_workflow_lifecycle,
     )
 
-    def fake_merge_and_upload(state):
+    def fake_merge_local(state):
         stage = str(state.data.get("pod_attachment_stage_dir") or "").strip()
         merged = f"{stage}/pod_SHIP.pdf" if stage else "/tmp/pod_SHIP.pdf"
         if stage:
             with open(merged, "wb") as fh:
                 fh.write(b"%PDF-1.4 merged")
+        state.data["pod_merged_local_path"] = merged
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "merge_pod_attachments_local",
+        fake_merge_local,
+    )
+
+    def fake_trim(state):
+        state.data["pod_trim_outcome"] = "continue"
+        return state
+
+    monkeypatch.setitem(
+        workflow_registry.NODE_REGISTRY,
+        "trim_ratecon_pages_from_pod",
+        fake_trim,
+    )
+
+    def fake_upload_trimmed(state):
         state.data["pod_merged_pdf_object_key"] = "pod_attachments/pod_SHIP.pdf"
         state.data["pod_object_keys"] = ["pod_attachments/pod_SHIP.pdf"]
-        state.data["pod_merged_local_path"] = merged
         state.data["documents_pod"] = {"stored": True, "id": "doc-pipeline-1"}
         return state
 
     monkeypatch.setitem(
         workflow_registry.NODE_REGISTRY,
-        "merge_and_upload_pod_attachments",
-        fake_merge_and_upload,
+        "upload_trimmed_pod_attachments",
+        fake_upload_trimmed,
     )
 
     def fake_pod_analysis(state):
-        state.data["pod_analysis_results"] = {"success": True, "skipped": False}
+        state.data["pod_analysis_results"] = {
+            "success": True,
+            "skipped": False,
+            "findings": {
+                "pod_data": {"delivery_confirmed": True},
+                "llm_extraction": {
+                    "pages": [{"page_number": 1, "page_type": "BILL_OF_LADING"}]
+                },
+            },
+        }
+        state.data["document_analysis_pod"] = {"stored": True, "id": "da-1"}
         return state
 
     monkeypatch.setitem(

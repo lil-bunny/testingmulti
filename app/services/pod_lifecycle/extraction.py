@@ -2,9 +2,12 @@
 POD PDF → single-call direct-PDF extraction.
 
 Flow: size/page guard -> one ``chat_pdf_json`` call against the whole
-(stripped/merged) POD PDF using the Hub ``pod-pdf-extraction`` prompt -> map
+merged POD PDF using the Hub ``pod-pdf-extraction`` prompt -> map
 the LLM's own ``reconciled`` block into the flat ``pod_data`` shape downstream
 (``pod_scoring``, activity/notify services) already expects.
+
+RATE_CONFIRMATION pages may be present in the LLM response for audit;
+trimming for S3 upload happens after this extraction in the graph.
 
 No per-page vision fan-out, no Python page reconciliation: the LLM reasons
 across the whole document in one request and returns both per-page evidence

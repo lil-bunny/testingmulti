@@ -1,4 +1,4 @@
-"""POD attachment pipeline: pre-graph assess + in-graph merge/upload."""
+"""POD attachment pipeline: pre-graph assess + in-graph merge/trim/upload."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ from app.services.email_webhook_attachment_ingestion import (
     fetch_email_attachment_bytes_with_retry,
 )
 from app.services.pod_lifecycle.ingress_service import POD_EMAIL_SKIP_INVALID_ATTACHMENT
-from app.services.pod_lifecycle.strip_ratecon_pages import resolve_ratecon_page_count
 from app.tools.documents import insert_document
 
 logger = get_logger(__name__)
@@ -36,7 +35,7 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class PodAttachmentPipelineResult:
-    """Outcome of assess or merge/upload."""
+    """Outcome of assess, merge-local, or upload."""
 
     success: bool
     skip_reason: str | None = None
@@ -46,10 +45,11 @@ class PodAttachmentPipelineResult:
 
 class PodAttachmentPipelineService:
     """
-    POD attachments in two phases:
+    POD attachments in three phases:
 
-    1. Pre-graph assess: fetch → classify → stage local sources (no S3 merge upload).
-    2. In-graph merge/upload: merge staged files → S3 → ``documents`` row.
+    1. Pre-graph assess: fetch → classify images → stage local sources (no S3).
+    2. In-graph merge-local: merge staged files to a worker-local PDF.
+    3. In-graph upload: upload preferred local PDF (trimmed when present) → ``documents``.
     """
 
     def __init__(
@@ -73,13 +73,6 @@ class PodAttachmentPipelineService:
     def _build_stage_dir(self, payload: dict[str, Any]) -> Path:
         return Path(settings.POD_ATTACHMENT_STAGE_ROOT) / (
             f"pod_{self._stage_root_token(payload)}"
-        )
-
-    @staticmethod
-    def _resolve_ratecon_page_count(payload: dict[str, Any]) -> int | None:
-        """Read ratecon PDF page count from document_analysis.metadata.page_count."""
-        return resolve_ratecon_page_count(
-            str(payload.get("shipments_row_id") or "").strip() or None,
         )
 
     @staticmethod
@@ -154,11 +147,11 @@ class PodAttachmentPipelineService:
             stage_dir=str(stage_dir),
         )
 
-    def merge_and_upload_from_state(
+    def merge_local_from_state(
         self,
         data: dict[str, Any],
     ) -> PodAttachmentPipelineResult:
-        """In-graph: merge staged local sources, upload to S3, persist ``documents``."""
+        """In-graph: merge staged local sources to a worker-local PDF (no S3)."""
         merge_paths = [
             str(p).strip()
             for p in (data.get("pod_merge_source_paths") or [])
@@ -167,7 +160,6 @@ class PodAttachmentPipelineService:
         stage_dir_raw = str(data.get("pod_attachment_stage_dir") or "").strip()
         stage_dir = Path(stage_dir_raw) if stage_dir_raw else None
         shipment_number = str(data.get("shipment_id") or "").strip() or None
-        shipments_row_id = str(data.get("shipments_row_id") or "").strip() or None
 
         if not merge_paths:
             return PodAttachmentPipelineResult(
@@ -191,18 +183,18 @@ class PodAttachmentPipelineService:
         source_ids = list(normalization_prior.get("source_attachment_ids") or [])
 
         logger.info(
-            "attachment.pipeline.merge.start shipment_id=%s sources=%s",
+            "attachment.pipeline.merge_local.start shipment_id=%s sources=%s",
             shipment_number,
             len(merge_paths),
         )
-        merged = self._normalizer.merge_and_upload_staged(
+        merged = self._normalizer.merge_staged_local(
             merge_paths,
             shipment_number=shipment_number,
             local_merged_path=local_merged_path,
             source_attachment_ids=source_ids,
         )
-        object_key = str(merged.get("pod_merged_pdf_object_key") or "").strip()
-        if not merged.get("success") or not object_key:
+        local_merged = str(merged.get("pod_merged_local_path") or "").strip()
+        if not merged.get("success") or not local_merged:
             return PodAttachmentPipelineResult(
                 success=False,
                 skip_reason="attachment_normalization_failed",
@@ -215,8 +207,83 @@ class PodAttachmentPipelineService:
                 },
             )
 
+        patch: dict[str, Any] = {
+            "attachment_normalization": {
+                **normalization_prior,
+                "success": True,
+                "pod_merged_pdf_object_key": None,
+                "assess_only": False,
+                "error": None,
+            },
+            "has_attachments": True,
+            "pod_attachment_stage_dir": str(stage_dir),
+            "pod_merged_local_path": local_merged,
+            "pod_merge_source_paths": list(data.get("pod_merge_source_paths") or merge_paths),
+        }
+        logger.info(
+            "attachment.pipeline.merge_local.done success=true path=%s",
+            local_merged,
+        )
+        return PodAttachmentPipelineResult(
+            success=True,
+            state_patch=patch,
+            stage_dir=str(stage_dir),
+        )
+
+    def upload_preferred_from_state(
+        self,
+        data: dict[str, Any],
+    ) -> PodAttachmentPipelineResult:
+        """Upload trimmed local PDF when present, else merged local PDF; persist ``documents``."""
+        trimmed = str(data.get("pod_trimmed_local_path") or "").strip()
+        merged = str(data.get("pod_merged_local_path") or "").strip()
+        local_path = trimmed or merged
+        shipment_number = str(data.get("shipment_id") or "").strip() or None
+        shipments_row_id = str(data.get("shipments_row_id") or "").strip() or None
+        stage_dir_raw = str(data.get("pod_attachment_stage_dir") or "").strip()
+        normalization_prior = data.get("attachment_normalization") or {}
+        source_ids = list(normalization_prior.get("source_attachment_ids") or [])
+
+        if not local_path:
+            return PodAttachmentPipelineResult(
+                success=False,
+                skip_reason="attachment_normalization_failed",
+                state_patch={
+                    "attachment_normalization": {
+                        **normalization_prior,
+                        "success": False,
+                        "error": "No local POD PDF to upload",
+                    }
+                },
+            )
+
+        logger.info(
+            "attachment.pipeline.upload.start shipment_id=%s path=%s trimmed=%s",
+            shipment_number,
+            local_path,
+            bool(trimmed),
+        )
+        uploaded = self._normalizer.upload_local_pdf(
+            local_path,
+            shipment_number=shipment_number,
+            source_attachment_ids=source_ids,
+        )
+        object_key = str(uploaded.get("pod_merged_pdf_object_key") or "").strip()
+        if not uploaded.get("success") or not object_key:
+            return PodAttachmentPipelineResult(
+                success=False,
+                skip_reason="attachment_normalization_failed",
+                state_patch={
+                    "attachment_normalization": {
+                        **normalization_prior,
+                        "success": False,
+                        "error": uploaded.get("error") or "S3 upload failed",
+                    }
+                },
+            )
+
         source_keys = self._source_object_keys(normalization_prior) or [
-            str(p) for p in merge_paths
+            str(p) for p in (data.get("pod_merge_source_paths") or []) if str(p).strip()
         ]
         persist = insert_document(
             DocumentType.POD,
@@ -224,7 +291,6 @@ class PodAttachmentPipelineService:
             shipments_row_id=shipments_row_id,
             metadata={"source_object_keys": source_keys},
         )
-        local_merged = str(merged.get("pod_merged_local_path") or "").strip()
         patch: dict[str, Any] = {
             "attachment_normalization": {
                 **normalization_prior,
@@ -238,22 +304,23 @@ class PodAttachmentPipelineService:
             "pod_source_object_keys": source_keys,
             "has_attachments": True,
             "documents_pod": persist,
-            "pod_attachment_stage_dir": str(stage_dir),
         }
-        if local_merged:
-            patch["pod_merged_local_path"] = local_merged
-        if data.get("pod_merge_source_paths"):
-            patch["pod_merge_source_paths"] = list(data["pod_merge_source_paths"])
+        if stage_dir_raw:
+            patch["pod_attachment_stage_dir"] = stage_dir_raw
+        if merged:
+            patch["pod_merged_local_path"] = merged
+        if trimmed:
+            patch["pod_trimmed_local_path"] = trimmed
 
         logger.info(
-            "attachment.pipeline.merge.done success=true merged=%s documents_stored=%s",
+            "attachment.pipeline.upload.done success=true merged=%s documents_stored=%s",
             object_key,
             persist.get("stored"),
         )
         return PodAttachmentPipelineResult(
             success=True,
             state_patch=patch,
-            stage_dir=str(stage_dir),
+            stage_dir=stage_dir_raw or None,
         )
 
     async def run_for_email_payload(
@@ -335,14 +402,12 @@ class PodAttachmentPipelineService:
             shipment_number,
             len(bytes_by_id),
         )
-        ratecon_page_count = self._resolve_ratecon_page_count(payload)
         normalization = await self._normalizer.normalize_from_bytes_async(
             bytes_by_id,
             shipment_number=shipment_number,
             upload_merged=False,
             stage_dir=str(stage_dir),
             trace_metadata=self._classifier_trace_metadata(payload),
-            ratecon_page_count=ratecon_page_count,
         )
 
         if not pod_attachment_gate_eligible(normalization):
@@ -402,14 +467,12 @@ class PodAttachmentPipelineService:
             correlation["shipment_id"] = shipment_id
         if stage_token and not correlation.get("execution_id"):
             correlation["execution_id"] = stage_token
-        ratecon_page_count = self._resolve_ratecon_page_count(payload_for_stage)
         normalization = await self._normalizer.normalize_async(
             keys,
             shipment_number=shipment_id,
             upload_merged=False,
             stage_dir=str(stage_dir),
             trace_metadata=self._classifier_trace_metadata(correlation),
-            ratecon_page_count=ratecon_page_count,
         )
         if not pod_attachment_gate_eligible(normalization):
             shutil.rmtree(stage_dir, ignore_errors=True)

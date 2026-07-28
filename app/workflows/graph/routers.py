@@ -79,6 +79,14 @@ def post_pod_processing_router(state):
     return "email"
 
 
+def trim_ratecon_pages_router(state):
+    """After LLM trim: upload kept POD pages, or end when packet was ratecon-only."""
+    outcome = str(state.data.get("pod_trim_outcome") or "").strip()
+    if outcome == "only_ratecon":
+        return "only_ratecon"
+    return "continue"
+
+
 def read_workflow_lifecycle_router(state):
     event_type = event_type_router(state)
     if event_type in ("email_received", "manual_pod_upload"):

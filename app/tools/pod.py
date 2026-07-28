@@ -8,7 +8,7 @@ from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
 from app.services.pod_lifecycle.extraction import derive_pod_scoring_observations, pod_confidence_score
-from app.tools.pdf_to_images import PdfTooLargeError, PodPdfTooLargeError, make_temp_pdf
+from app.tools.pdf_to_images import PdfTooLargeError, make_temp_pdf
 from app.tools.documents import resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import resolve_shipment_id
 
@@ -40,40 +40,52 @@ def pod_analysis(data: dict) -> dict:
     """
     Run direct-PDF extraction on the merged POD PDF (one whole-document LLM call).
 
-    Prefers ``pod_merged_local_path``; otherwise downloads from S3. Never
-    expects PDF bytes in graph state.
+    Prefers ``pod_merged_local_path`` (post-merge, pre-S3). Falls back to S3 via
+    ``pod_merged_pdf_object_key`` / ``documents`` when no local file. Never expects
+    PDF bytes in graph state.
     """
     sid = resolve_shipment_id(data)
     if not sid:
         return {"success": False, "error": "missing_shipment_id"}
 
+    local_path = str(data.get("pod_merged_local_path") or "").strip()
+    has_local = bool(local_path and os.path.isfile(local_path))
+
     storage_ref, url_meta = resolve_merged_pod_object_key(data)
-    if not storage_ref:
+    object_key: str | None = None
+    if storage_ref:
+        try:
+            object_key = normalize_object_key(storage_ref)
+        except ValueError as exc:
+            if not has_local:
+                return {
+                    "success": False,
+                    "error": str(exc),
+                    "shipment_id": sid,
+                    "pod_object_key": storage_ref,
+                }
+            logger.warning(
+                "pod_analysis: ignoring invalid S3 ref; using local path shipment_id=%s",
+                sid,
+            )
+            url_meta = {}
+
+    if not has_local and not object_key:
         logger.info(
-            "pod_analysis: no POD object key in state or documents shipment_id=%s", sid
+            "pod_analysis: no local merged PDF and no S3 key shipment_id=%s", sid
         )
         return {
             "success": True,
             "skipped": True,
-            "reason": "no_pod_object_key",
+            "reason": "no_pod_source",
             "shipment_id": sid,
-        }
-
-    try:
-        object_key = normalize_object_key(storage_ref)
-    except ValueError as exc:
-        return {
-            "success": False,
-            "error": str(exc),
-            "shipment_id": sid,
-            "pod_object_key": storage_ref,
         }
 
     merged_doc = data.get("documents_pod") or {}
     document_id: str | None = None
     if url_meta.get("source") == "state":
         document_id = merged_doc.get("id")
-    else:
+    elif url_meta.get("source") == "documents":
         document_id = url_meta.get("document_id")
 
     broker_name = _carrier_name_from_shipment(data)
@@ -81,11 +93,10 @@ def pod_analysis(data: dict) -> dict:
     tmp_path: str | None = None
     owned_tmp = False
     try:
-        local_path = str(data.get("pod_merged_local_path") or "").strip()
         source = "s3"
         byte_len = 0
 
-        if local_path and os.path.isfile(local_path):
+        if has_local:
             tmp_path = local_path
             owned_tmp = False
             source = "local_stage"
@@ -94,6 +105,7 @@ def pod_analysis(data: dict) -> dict:
             except OSError:
                 byte_len = 0
         else:
+            assert object_key is not None
             dl = bucket.download_object_bytes(object_key)
             if not dl.get("success"):
                 return {
@@ -193,7 +205,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_status": pod_status,
             "delivery_confirmed": final_pod_data.get("delivery_confirmed"),
         }
-    except (PdfTooLargeError, PodPdfTooLargeError) as exc:
+    except PdfTooLargeError as exc:
         logger.warning(
             "pod_analysis: PDF too large to convert shipment_id=%s error=%s",
             sid,

@@ -14,6 +14,7 @@ from app.domain.activity_log_constants import (
     POD_UPLOADED_MANUALLY_INFO,
     POD_ESCALATION_SENT_ACTION,
     POD_EXTRACTION_PROCESSED_TEMPLATE,
+    POD_ONLY_RATECON_PAGES_FOUND_INFO,
     POD_UPLOADED_TO_TMS_ACTION,
     POD_UPLOAD_TO_TMS_FAILED_ACTION,
     RATECON_DOCUMENT_UPLOADED_ACTION,
@@ -169,6 +170,8 @@ def format_pod_extraction_processed_action(
     return POD_EXTRACTION_PROCESSED_TEMPLATE.format(confidence_suffix=conf)
 
 
+def format_pod_only_ratecon_pages_found_info() -> str:
+    return POD_ONLY_RATECON_PAGES_FOUND_INFO
 
 
 def format_pod_uploaded_to_tms_action() -> str:

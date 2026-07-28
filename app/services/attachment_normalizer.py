@@ -2,12 +2,12 @@
 POD attachment normalizer — port of old.services.attachment_normalizer.
 
 Downloads attachment refs (HTTPS/S3) or in-memory bytes, classifies by MIME.
-Assess-only mode stages accepted PDFs/images once under ``sources/`` in a
-worker-local directory (rate confirmation pages are stripped here) so
-``pod_merge_source_paths`` can be merged later without re-downloading.
-POD analysis reads the merged PDF directly (no staged-image reuse). Merge/
-upload of staged files (or full normalize with upload_merged=True) produces
-``pod_merged_pdf_object_key`` on S3.
+Assess-only mode stages accepted PDFs/images under ``sources/`` in a worker-local
+directory so ``pod_merge_source_paths`` can be merged later without re-downloading.
+Rate-confirmation pages are trimmed later via LLM page types
+(``RateconPageTrimService``), not during assess. POD analysis reads the merged
+local PDF before S3 upload; ``upload_local_pdf`` / ``upload_merged=True`` sets
+``pod_merged_pdf_object_key``.
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ from app.tools.llm_client import (
     achat_vision_json,
     build_async_llm_client,
 )
-from app.tools.pdf_to_images import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +132,6 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
-        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         """Sync facade over ``normalize_async`` (one-shot ``asyncio.run``)."""
         return self._run_coro(
@@ -144,7 +142,6 @@ class AttachmentNormalizerService:
                 local_merged_path=local_merged_path,
                 stage_dir=stage_dir,
                 trace_metadata=trace_metadata,
-                ratecon_page_count=ratecon_page_count,
             )
         )
 
@@ -157,7 +154,6 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
-        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         if trace_metadata:
             self._trace_metadata = dict(trace_metadata)
@@ -181,7 +177,6 @@ class AttachmentNormalizerService:
                     upload_merged=upload_merged,
                     local_merged_path=local_merged_path,
                     stage_dir=stage_dir,
-                    ratecon_page_count=ratecon_page_count,
                 ),
                 shipment_number,
             )
@@ -311,35 +306,6 @@ class AttachmentNormalizerService:
                         )
                     )
 
-        try:
-            valid_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
-                valid_pdfs,
-                shipment_number=shipment_number,
-                ratecon_page_count=ratecon_page_count,
-            )
-            rejected.extend(ratecon_rejected)
-        except PdfTooLargeError:
-            logger.warning(
-                "attachment_normalizer: PDF too large during ratecon page filter "
-                "shipment=%s",
-                shipment_number,
-            )
-            return self._with_classification_index(
-                {
-                    "success": False,
-                    "pod_merged_pdf_object_key": None,
-                    "source_attachment_ids": source_attachment_ids,
-                    "classification_results": classification_results,
-                    "rejected": rejected,
-                    "source_attachments_cleanup": {
-                        "rejected": rejected,
-                        "valid_source": [],
-                    },
-                    "error": PdfTooLargeError.error_key,
-                },
-                shipment_number,
-            )
-
         if not valid_pdfs and not valid_images:
             return self._with_classification_index(
                 {
@@ -358,7 +324,7 @@ class AttachmentNormalizerService:
             valid_source = [
                 self._valid_source_entry(ref) for ref, _ in valid_pdfs
             ] + [self._valid_source_entry(ref) for ref, _ in valid_images]
-            merge_paths, _vision_paths = self._stage_accepted_files(
+            merge_paths = self._stage_accepted_files(
                 valid_pdfs,
                 valid_images,
                 stage_dir=stage_dir,
@@ -458,7 +424,6 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
-        ratecon_page_count: int | None = None,
     ) -> dict[str, Any]:
         """Sync facade over ``normalize_from_bytes_async`` (one-shot ``asyncio.run``)."""
         return self._run_coro(
@@ -469,7 +434,6 @@ class AttachmentNormalizerService:
                 local_merged_path=local_merged_path,
                 stage_dir=stage_dir,
                 trace_metadata=trace_metadata,
-                ratecon_page_count=ratecon_page_count,
             )
         )
 
@@ -482,7 +446,6 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
         trace_metadata: dict[str, Any] | None = None,
-        ratecon_page_count: int | None = None,
     ) -> dict[str, Any]:
         if not attachment_bytes_by_id:
             return {
@@ -525,10 +488,9 @@ class AttachmentNormalizerService:
             upload_merged=upload_merged,
             local_merged_path=local_merged_path,
             stage_dir=stage_dir,
-            ratecon_page_count=ratecon_page_count,
         )
 
-    def merge_and_upload_staged(
+    def merge_staged_local(
         self,
         merge_source_paths: list[str],
         *,
@@ -536,7 +498,7 @@ class AttachmentNormalizerService:
         local_merged_path: str | None = None,
         source_attachment_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Merge worker-local staged files into one PDF and upload to S3."""
+        """Merge worker-local staged files into one PDF on disk (no S3 upload)."""
         paths = [str(p).strip() for p in merge_source_paths if str(p).strip()]
         if not paths:
             return {
@@ -586,7 +548,6 @@ class AttachmentNormalizerService:
                     "error": f"unsupported_type: {mime_type}",
                 }
 
-        # Ratecon pages are stripped during pre-graph assess; staged PDFs are already clean.
         if not pdf_bytes_list and not image_bytes_list:
             return {
                 "success": False,
@@ -609,14 +570,69 @@ class AttachmentNormalizerService:
             else f"pod_{self._deterministic_merged_id(ids or paths)}.pdf"
         )
         logger.info(
-            "attachments.merged_staged pdf_count=%s image_count=%s bytes=%s file=%s",
+            "attachments.merged_staged_local pdf_count=%s image_count=%s bytes=%s file=%s",
             len(pdf_bytes_list),
             len(image_bytes_list),
             len(merged_bytes),
             merged_filename,
         )
+        local_path = self._write_local_merged_pdf(merged_bytes, local_merged_path)
+        if not local_path:
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "local_merged_write_failed",
+            }
+        return {
+            "success": True,
+            "pod_merged_pdf_object_key": None,
+            "pod_merged_local_path": local_path,
+            "error": None,
+        }
+
+    def upload_local_pdf(
+        self,
+        local_pdf_path: str,
+        *,
+        shipment_number: str | None = None,
+        source_attachment_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Upload an existing local PDF to S3 (post-trim preferred path)."""
+        path = Path(str(local_pdf_path or "").strip())
+        if not path.is_file():
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "missing_local_pdf",
+            }
+        try:
+            pdf_bytes = path.read_bytes()
+        except OSError as exc:
+            logger.error(
+                "attachment_normalizer.local_upload_read_failed path=%s err=%s",
+                path,
+                exc,
+            )
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "local_pdf_read_failed",
+            }
+        if not pdf_bytes.startswith(b"%PDF"):
+            return {
+                "success": False,
+                "pod_merged_pdf_object_key": None,
+                "error": "downloaded_file_not_pdf",
+            }
+
+        ids = [str(x).strip() for x in (source_attachment_ids or []) if str(x).strip()]
+        merged_filename = (
+            pod_merged_filename(shipment_number)
+            if shipment_number
+            else f"pod_{self._deterministic_merged_id(ids or [str(path)])}.pdf"
+        )
         upload_result = bucket.upload_file(
-            file_content=merged_bytes,
+            file_content=pdf_bytes,
             filename=merged_filename,
             folder=settings.BUCKET_POD_ATTACHMENTS_FOLDER,
             content_type="application/pdf",
@@ -631,16 +647,12 @@ class AttachmentNormalizerService:
                 "error": upload_result.get("error_message")
                 or "Failed to upload merged PDF to S3",
             }
-
-        local_path = self._write_local_merged_pdf(merged_bytes, local_merged_path)
-        out: dict[str, Any] = {
+        return {
             "success": True,
             "pod_merged_pdf_object_key": object_key,
+            "pod_merged_local_path": str(path),
             "error": None,
         }
-        if local_path:
-            out["pod_merged_local_path"] = local_path
-        return out
 
     @staticmethod
     def _stage_accepted_files(
@@ -649,17 +661,11 @@ class AttachmentNormalizerService:
         *,
         stage_dir: str | None,
         shipment_number: Optional[str],
-    ) -> tuple[list[str], list[str]]:
-        """Write accepted PDFs/images under ``sources/`` once; return merge + image paths.
-
-        Images are written only under ``sources/``. ``vision_paths`` (image-only
-        subset of ``merge_paths``) is unused by current callers — kept for callers
-        that may need image-only paths later; POD analysis reads the merged PDF
-        directly (direct-PDF extraction only).
-        """
+    ) -> list[str]:
+        """Write accepted PDFs/images under ``sources/``; return merge source paths."""
         root = (stage_dir or "").strip()
         if not root:
-            return [], []
+            return []
         sources = Path(root) / "sources"
         try:
             sources.mkdir(parents=True, exist_ok=True)
@@ -669,10 +675,9 @@ class AttachmentNormalizerService:
                 root,
                 exc,
             )
-            return [], []
+            return []
 
         merge_paths: list[str] = []
-        vision_paths: list[str] = []
         index = 0
         for attachment_ref, pdf_bytes in valid_pdfs:
             index += 1
@@ -716,11 +721,9 @@ class AttachmentNormalizerService:
                     exc,
                 )
                 continue
-            path_str = str(path)
-            merge_paths.append(path_str)
-            vision_paths.append(path_str)
+            merge_paths.append(str(path))
 
-        return merge_paths, vision_paths
+        return merge_paths
 
     @staticmethod
     def _write_local_merged_pdf(
@@ -752,7 +755,6 @@ class AttachmentNormalizerService:
         upload_merged: bool = True,
         local_merged_path: str | None = None,
         stage_dir: str | None = None,
-        ratecon_page_count: int | None = None,
     ) -> Dict[str, Any]:
         """
         Business rules for exactly one attachment:
@@ -928,44 +930,6 @@ class AttachmentNormalizerService:
                 "single_attachment_short_circuit": True,
             }
 
-        if mime_type == "application/pdf":
-            try:
-                kept_pdfs, ratecon_rejected = self._strip_ratecon_pages_from_pdfs(
-                    [(attachment_ref, pdf_bytes)],
-                    shipment_number=shipment_number,
-                    ratecon_page_count=ratecon_page_count,
-                )
-                rejected.extend(ratecon_rejected)
-            except PdfTooLargeError:
-                return {
-                    "success": False,
-                    "pod_merged_pdf_object_key": None,
-                    "source_attachment_ids": source_attachment_ids,
-                    "classification_results": classification_results,
-                    "rejected": rejected,
-                    "source_attachments_cleanup": {
-                        "rejected": rejected,
-                        "valid_source": [],
-                    },
-                    "error": PdfTooLargeError.error_key,
-                    "single_attachment_short_circuit": True,
-                }
-            if not kept_pdfs:
-                return {
-                    "success": False,
-                    "pod_merged_pdf_object_key": None,
-                    "source_attachment_ids": source_attachment_ids,
-                    "classification_results": classification_results,
-                    "rejected": rejected,
-                    "source_attachments_cleanup": {
-                        "rejected": rejected,
-                        "valid_source": [],
-                    },
-                    "error": "all_pages_rate_confirmation",
-                    "single_attachment_short_circuit": True,
-                }
-            pdf_bytes = kept_pdfs[0][1]
-
         if not upload_merged:
             valid_pdfs: List[Tuple[str, bytes]] = []
             valid_images: List[Tuple[str, bytes]] = []
@@ -973,7 +937,7 @@ class AttachmentNormalizerService:
                 valid_pdfs = [(attachment_ref, pdf_bytes)]
             elif accepted_image_bytes is not None:
                 valid_images = [(attachment_ref, accepted_image_bytes)]
-            merge_paths, _vision_paths = self._stage_accepted_files(
+            merge_paths = self._stage_accepted_files(
                 valid_pdfs,
                 valid_images,
                 stage_dir=stage_dir,
@@ -1190,62 +1154,6 @@ class AttachmentNormalizerService:
                 e,
             )
             raise AttachmentClassifierFailed(str(e)) from e
-
-    def _strip_ratecon_pages_from_pdfs(
-        self,
-        valid_pdfs: List[Tuple[str, bytes]],
-        *,
-        shipment_number: Optional[str] = None,
-        ratecon_page_count: int | None = None,
-    ) -> Tuple[List[Tuple[str, bytes]], List[Dict[str, Any]]]:
-        """
-        Drop rate confirmation pages from each PDF during pre-graph assess.
-
-        Empty-after-strip attachments are rejected as ``all_pages_rate_confirmation``.
-        """
-        from app.services.pod_lifecycle.strip_ratecon_pages import (
-            StripRateconPagesService,
-        )
-
-        strip_ratecon_pages_service = StripRateconPagesService()
-        kept: List[Tuple[str, bytes]] = []
-        rejected: List[Dict[str, Any]] = []
-        ship = (shipment_number or "unknown").strip() or "unknown"
-
-        for attachment_ref, pdf_data in valid_pdfs:
-            result = strip_ratecon_pages_service.strip_pdf_bytes(
-                pdf_data,
-                doc_label=f"pod_{ship}",
-                ratecon_page_count=ratecon_page_count,
-            )
-            if result.skip_reason == "all_pages_rate_confirmation":
-                rejected.append(
-                    self._rejection_entry(
-                        attachment_ref,
-                        "all_pages_rate_confirmation",
-                        1.0,
-                    )
-                )
-                continue
-            if result.kept_pdf_bytes is None:
-                rejected.append(
-                    self._rejection_entry(
-                        attachment_ref,
-                        result.skip_reason or "strip_ratecon_pages_failed",
-                        1.0,
-                    )
-                )
-                continue
-            if result.excluded_page_numbers:
-                logger.info(
-                    "attachment_normalizer.ratecon_pages_stripped ref=%s "
-                    "excluded=%s kept=%s",
-                    (attachment_ref or "")[:80],
-                    result.excluded_page_numbers,
-                    result.kept_page_count,
-                )
-            kept.append((attachment_ref, result.kept_pdf_bytes))
-        return kept, rejected
 
     def _merge_attachments(
         self,
