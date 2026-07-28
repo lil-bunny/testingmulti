@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Security, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.api.security import turvo_webhook_bearer, unipile_webhook_bearer
+from app.api.security import unipile_webhook_bearer
 
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -150,16 +150,11 @@ async def webhook_email(
     summary="Turvo webhook",
     responses={
         400: {"description": "Bad request"},
-        401: {"description": "Unauthorized"},
         500: {"description": "Internal server error"},
     },
 )
 async def listen_turvo_status(
     request: Request,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Security(turvo_webhook_bearer),
-    ],
     x_workflow_tenant_id: Annotated[
         str | None,
         Header(
@@ -172,15 +167,6 @@ async def listen_turvo_status(
         body: dict[str, Any] = await request.json()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Request body must be valid JSON") from e
-
-    secret = (settings.TURVO_WEBHOOK_SECRET or "").strip()
-    if secret:
-        if (
-            credentials is None
-            or credentials.scheme.lower() != "bearer"
-            or credentials.credentials != secret
-        ):
-            raise HTTPException(status_code=401, detail="Unauthorized")
 
     override = x_workflow_tenant_id
     workflow_tenant = _resolve_workflow_tenant_id(override)

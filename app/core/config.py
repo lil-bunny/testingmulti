@@ -127,7 +127,6 @@ class Settings(BaseSettings):
 
     # Webhooks
     UNIPILE_WEBHOOK_SECRET: str
-    TURVO_WEBHOOK_SECRET: Optional[str] = None
 
     # freightx-api (portal auth delegation)
     FREIGHTX_API_BASE_URL: str = "http://localhost:8001"
