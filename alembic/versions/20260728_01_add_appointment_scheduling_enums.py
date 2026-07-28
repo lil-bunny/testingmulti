@@ -1,16 +1,16 @@
 """Add appointment scheduling enums, turvo_pickup_changed, and proposed appointment columns.
 
-Revision ID: 20260722_01
-Revises: 20260707_01
-Create Date: 2026-07-22
+Revision ID: 20260728_01
+Revises: 20260723_01
+Create Date: 2026-07-28
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision = "20260722_01"
-down_revision = "20260707_01"
+revision = "20260728_01"
+down_revision = "20260723_01"
 branch_labels = None
 depends_on = None
 
