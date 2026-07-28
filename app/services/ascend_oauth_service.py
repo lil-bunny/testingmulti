@@ -12,6 +12,7 @@ from app.core.service_db import run_with_repos
 from app.domain.tenant_settings.ascend import has_ascend_configured
 from app.integrations.ascend.auth import login_ascend_api
 from app.integrations.ascend.errors import AscendApiError
+from app.tools.jwt_tokens import expires_at_from_bearer_token
 
 if TYPE_CHECKING:
     from app.repositories.ascend_oauth_repository import AscendOAuthRepository
@@ -19,19 +20,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _REFRESH_SKEW = timedelta(seconds=60)
-_DEFAULT_TOKEN_TTL = timedelta(hours=1)
-
-
-def _expires_at_from_login_response(data: dict[str, Any]) -> datetime:
-    raw = data.get("expiresIn") or data.get("expires_in")
-    if raw is not None:
-        try:
-            sec = int(raw)
-            if sec > 0:
-                return datetime.now(timezone.utc) + timedelta(seconds=sec)
-        except (TypeError, ValueError):
-            pass
-    return datetime.now(timezone.utc) + _DEFAULT_TOKEN_TTL
 
 
 def _should_refresh(expires_at: Optional[datetime]) -> bool:
@@ -80,7 +68,7 @@ class AscendOAuthService:
             return None
 
         token = str(row.get("access_token") or "").strip()
-        if token and not _should_refresh(row.get("access_token_expires_at")):
+        if token and not _should_refresh(expires_at_from_bearer_token(token)):
             return token
 
         email = str(row.get("email") or "").strip()
@@ -107,7 +95,10 @@ class AscendOAuthService:
         if not access_token:
             return None
 
-        expires_at = _expires_at_from_login_response(data)
+        expires_at = expires_at_from_bearer_token(access_token)
+        if expires_at is None:
+            logger.warning("Ascend accessToken missing JWT exp tenant=%s", slug)
+
         ciphertext = encrypt_password(plain, key)
 
         def persist() -> None:
