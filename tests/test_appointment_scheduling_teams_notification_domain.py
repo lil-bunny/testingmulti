@@ -82,3 +82,52 @@ def test_format_draft_ready_title_body_and_facts() -> None:
     fact_labels = [label for label, _ in facts]
     assert "Draft subject" not in fact_labels
     assert "Lifecycle ID" not in fact_labels
+
+
+def test_display_fields_costco_includes_delivery_time_and_normalizes_iso_pickup() -> None:
+    fields = display_fields_from_data(
+        {
+            "load_id": "30394",
+            "reference_number": "DIAMOND-RPN00006732",
+            "customer_name": "COSTCO #584 NW",
+            "workflow_lifecycle_id": "wl-1",
+            "llm_appointment_decision": {
+                "selected_pickup_date": "2026-06-02",
+                "selected_pickup_time": "08:00",
+                "calculated_delivery_date": "06/03/2026",
+                "calculated_delivery_weekday": "WEDNESDAY",
+            },
+            "email_draft": {
+                "to": "wh@example.com",
+                "subject": 'DEL APPT REQ "30394"',
+                "full_html": "<p>draft</p>",
+            },
+        }
+    )
+    assert fields is not None
+    assert fields.pickup_date == "06/02/2026"
+    assert fields.pickup_time == "08:00"
+    assert fields.delivery_time == "06:00"
+    facts = draft_ready_facts(fields)
+    assert facts[3] == ("Proposed pickup", "06/02/2026 · 08:00")
+    assert facts[4] == ("Proposed delivery", "06/03/2026 · 06:00 (WEDNESDAY)")
+
+
+def test_format_draft_ready_body_supports_delivery_display_placeholder() -> None:
+    fields = AppointmentSchedulingDraftDisplayFields(
+        load_id="30394",
+        reference_number="REF",
+        customer_name="COSTCO #584 NW",
+        pickup_date="06/02/2026",
+        delivery_date="06/03/2026",
+        pickup_time="08:00",
+        delivery_time="06:00",
+        delivery_weekday="WEDNESDAY",
+        draft_subject="subj",
+        workflow_lifecycle_id="wl-1",
+    )
+    body = format_draft_ready_body(
+        "Review in portal. Delivery {delivery_display}.",
+        fields=fields,
+    )
+    assert body == "Review in portal. Delivery 06/03/2026 · 06:00 (WEDNESDAY)."
