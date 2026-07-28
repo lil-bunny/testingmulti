@@ -1,4 +1,4 @@
-"""Tests for T3raAppointmentSchedulingSettings recipient normalization."""
+"""Tests for T3raAppointmentSchedulingSettings."""
 
 from __future__ import annotations
 
@@ -20,22 +20,11 @@ def test_nested_emails_shape() -> None:
     assert cfg.emails.to == []
 
 
-def test_legacy_flat_to_cc_bcc_normalizes_to_emails() -> None:
+def test_cc_only_emails_without_to_key() -> None:
     cfg = T3raAppointmentSchedulingSettings.model_validate(
         {
-            "to": ["primary@example.com"],
-            "cc": ["ops@example.com"],
-            "bcc": ["bcc@example.com"],
+            "emails": {"cc": ["ops@example.com"]},
         }
     )
-    assert cfg.emails.to == ["primary@example.com"]
     assert cfg.emails.cc == ["ops@example.com"]
-    assert cfg.emails.bcc == ["bcc@example.com"]
-
-
-def test_legacy_email_cc_normalizes_to_emails_cc() -> None:
-    cfg = T3raAppointmentSchedulingSettings.model_validate(
-        {"email_cc": ["legacy@example.com"]}
-    )
-    assert cfg.emails.cc == ["legacy@example.com"]
     assert cfg.emails.to == []
