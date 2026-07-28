@@ -32,15 +32,51 @@ def test_build_email_draft_from_state_success():
             ).model_dump(mode="json"),
             "customer_contact": {"email": "customer@example.com"},
             "tenant_settings": {
-                "appointment_scheduling": {"email_cc": "ops@example.com, cc@example.com"}
+                "appointment_scheduling": {
+                    "to": ["primary@example.com"],
+                    "cc": ["ops@example.com", "cc@example.com"],
+                    "bcc": [],
+                }
             },
             "load_id": "63294",
             "customer_name": "Acme",
         }
     )
     result = IntakeService().build_email_draft_from_state(state)
-    assert result.email_draft["to"] == "customer@example.com"
+    assert result.email_draft["to"] == ["customer@example.com", "primary@example.com"]
+    assert result.email_draft["cc"] == ["ops@example.com", "cc@example.com"]
+    assert result.email_draft["bcc"] == []
     assert result.email_draft["subject"] == 'DEL APPT REQ "63294"'
     assert result.email_draft["full_html"]
     assert result.appointment_payload["reference_number"] == "DIAMOND-RPN-22"
     assert result.appointment_payload["proposed_delivery_at"] == "07/04/2026"
+
+
+def test_build_email_draft_from_state_merges_to_dedupes_customer():
+    state = SimpleNamespace(
+        data={
+            "pickup_dropoff_data": PickupDropoffData().model_dump(mode="json"),
+            "llm_appointment_decision": LlmAppointmentDecision(
+                calculated_delivery_date="07/04/2026",
+                calculated_delivery_weekday="SATURDAY",
+            ).model_dump(mode="json"),
+            "draft_static": DraftStatic(
+                reference_number="RPN-1",
+                name="T3RA",
+                email="mikey@t3ralogistics.com",
+            ).model_dump(mode="json"),
+            "customer_contact": {"email": "Customer@Example.com"},
+            "tenant_settings": {
+                "appointment_scheduling": {
+                    "to": ["customer@example.com", "primary@example.com"],
+                    "cc": [],
+                    "bcc": ["bcc@example.com"],
+                }
+            },
+            "load_id": "63294",
+            "customer_name": "Acme",
+        }
+    )
+    result = IntakeService().build_email_draft_from_state(state)
+    assert result.email_draft["to"] == ["Customer@Example.com", "primary@example.com"]
+    assert result.email_draft["bcc"] == ["bcc@example.com"]

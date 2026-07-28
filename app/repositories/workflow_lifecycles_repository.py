@@ -9,6 +9,7 @@ from typing import Any, TYPE_CHECKING
 from sqlalchemy import text
 
 from app.core.db import jsonb_param, parse_json
+from app.domain.tenant_settings.email_recipients import coerce_email_list
 from app.models.status import StatusSubType, StatusType
 
 if TYPE_CHECKING:
@@ -648,7 +649,7 @@ class WorkflowLifecyclesRepository:
 
         draft = meta.get(EMAIL_DRAFT)
         if not isinstance(draft, dict) or not (
-            str(draft.get("to") or "").strip()
+            coerce_email_list(draft.get("to"), required=False)
             and str(draft.get("subject") or "").strip()
             and str(draft.get("full_html") or "").strip()
         ):

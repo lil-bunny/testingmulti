@@ -47,8 +47,9 @@ class DraftStatic(BaseModel):
 class EmailDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    to: str
+    to: list[str] = Field(min_length=1)
     cc: list[str] = Field(default_factory=list)
+    bcc: list[str] = Field(default_factory=list)
     subject: str
     full_html: str
 

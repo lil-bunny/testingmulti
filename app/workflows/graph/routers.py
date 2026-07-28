@@ -4,6 +4,7 @@ from app.domain.appointment_scheduling.constants import (
     SCHEDULING_REPLY_TERMINAL_STATUSES,
     SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,
 )
+from app.domain.tenant_settings.email_recipients import coerce_email_list
 from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.domain.ingest_source_fields import pack_code_for_product_gap
 from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
@@ -304,7 +305,7 @@ def appointment_post_read_router(state):
             return "end"
         draft = _appointment_draft_from_state(state)
         if not (
-            str(draft.get("to") or "").strip()
+            coerce_email_list(draft.get("to"), required=False)
             and str(draft.get("subject") or "").strip()
             and str(draft.get("full_html") or "").strip()
         ):

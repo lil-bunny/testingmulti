@@ -116,7 +116,7 @@ def test_record_draft_ready_writes_action_only() -> None:
     transitions = MagicMock()
     lifecycle = MagicMock()
     svc = _svc(transitions=transitions, lifecycle=lifecycle)
-    email_draft = {"to": "wh@example.com", "subject": "DEL APPT REQ"}
+    email_draft = {"to": ["wh@example.com"], "subject": "DEL APPT REQ"}
     appointment_payload = {"reference_number": "DIAMOND-1"}
 
     svc.record_draft_ready(

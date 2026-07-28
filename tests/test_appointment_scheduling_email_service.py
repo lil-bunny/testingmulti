@@ -15,8 +15,9 @@ def _state(**overrides):
         "tenant_id": "00000000-0000-4000-8000-0000000000e1",
         "tenant_settings": {"mikey_account_id": "acc-1"},
         "email_draft": {
-            "to": "wh@example.com",
+            "to": ["wh@example.com"],
             "cc": ["cc@example.com"],
+            "bcc": [],
             "subject": "DEL APPT REQ",
             "full_html": "<p>Hello</p>",
         },
@@ -67,8 +68,33 @@ def test_send_from_state_records_communication_without_lifecycle_transitions(
     assert extra["source"] == "appointment_draft_send"
 
 
+@patch("app.services.appointment_scheduling.email_service.Unipile")
+def test_send_from_state_passes_bcc_to_unipile(mock_unipile_cls: MagicMock) -> None:
+    mock_unipile_cls.return_value.send_email.return_value = {"success": True}
+    communications = MagicMock()
+    communications.find_outbound_draft_communication_id.return_value = None
+    svc = EmailService(communications_service=communications)
+    state = _state(
+        email_draft={
+            "to": ["wh@example.com", "extra@example.com"],
+            "cc": ["cc@example.com"],
+            "bcc": ["bcc@example.com"],
+            "subject": "DEL APPT REQ",
+            "full_html": "<p>Hello</p>",
+        }
+    )
+
+    result = svc.send_draft_from_state(state)
+
+    assert result.sent is True
+    send_kwargs = mock_unipile_cls.return_value.send_email.call_args.kwargs
+    assert len(send_kwargs["to"]) == 2
+    bcc = send_kwargs.get("bcc") or []
+    assert any(r["identifier"] == "bcc@example.com" for r in bcc)
+
+
 def test_send_from_state_missing_draft() -> None:
-    state = _state(email_draft={"to": "a@b.com"})
+    state = _state(email_draft={"to": ["a@b.com"]})
     result = EmailService().send_draft_from_state(state)
     assert result.sent is False
     assert result.error == BusinessError.SCHEDULING_DRAFT_NOT_READY.value

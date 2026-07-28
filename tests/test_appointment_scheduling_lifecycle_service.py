@@ -47,7 +47,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
         activity_service=activity,
         shipments_service=shipments,
     )
-    email_draft = {"to": "a@example.com", "cc": [], "subject": "subj", "full_html": "<html/>"}
+    email_draft = {"to": ["a@example.com"], "cc": [], "subject": "subj", "full_html": "<html/>"}
     appointment_payload = {
         "reference_number": "DIAMOND-1",
         "shipment_details": "details",
@@ -110,7 +110,7 @@ def test_persist_draft_ready_patches_weekend_shifted_on_lifecycle_not_shipment()
         activity_service=activity,
         shipments_service=shipments,
     )
-    email_draft = {"to": "a@example.com", "cc": [], "subject": "subj", "full_html": "<html/>"}
+    email_draft = {"to": ["a@example.com"], "cc": [], "subject": "subj", "full_html": "<html/>"}
     appointment_payload = {"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"}
     decision = {
         "weekend_shifted": True,
@@ -160,7 +160,7 @@ def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
     service.persist_draft_ready(
         state,
         lifecycle_id="lifecycle-1",
-        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        email_draft={"to": ["a@example.com"], "cc": [], "subject": "s", "full_html": "<p/>"},
         appointment_payload=appointment_payload,
         llm_appointment_decision={"selected_pickup_time": "08:30"},
     )
@@ -212,7 +212,7 @@ def test_persist_draft_ready_merges_po_number_when_resolved():
     service.persist_draft_ready(
         state,
         lifecycle_id="lifecycle-1",
-        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        email_draft={"to": ["a@example.com"], "cc": [], "subject": "s", "full_html": "<p/>"},
         appointment_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
     )
 
@@ -245,7 +245,7 @@ def test_persist_draft_ready_skips_merge_when_po_empty():
     service.persist_draft_ready(
         state,
         lifecycle_id="lifecycle-1",
-        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        email_draft={"to": ["a@example.com"], "cc": [], "subject": "s", "full_html": "<p/>"},
         appointment_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
     )
 
@@ -274,7 +274,7 @@ def test_persist_draft_ready_non_costco_uses_ascend_pickup_po():
     service.persist_draft_ready(
         state,
         lifecycle_id="lifecycle-1",
-        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        email_draft={"to": ["a@example.com"], "cc": [], "subject": "s", "full_html": "<p/>"},
         appointment_payload={"proposed_pickup_at": "2026-07-30", "proposed_delivery_at": "08/04/2026"},
     )
 
@@ -309,7 +309,7 @@ def test_persist_draft_ready_merges_reference_number_to_shipment_metadata():
     service.persist_draft_ready(
         state,
         lifecycle_id="lifecycle-1",
-        email_draft={"to": "a@example.com", "cc": [], "subject": "s", "full_html": "<p/>"},
+        email_draft={"to": ["a@example.com"], "cc": [], "subject": "s", "full_html": "<p/>"},
         appointment_payload={
             "reference_number": "DIAMOND-RPN00008809",
             "proposed_pickup_at": "2026-07-30",
@@ -403,7 +403,7 @@ def test_hydrate_appointment_send_context_maps_portal_shipment_uuid_to_turvo_id(
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: {
-                "to": "a@example.com",
+                "to": ["a@example.com"],
                 "subject": "DEL APPT REQ \"30381\"",
                 "full_html": "<html/>",
             },
@@ -439,7 +439,7 @@ def test_hydrate_appointment_send_context_keeps_turvo_id_when_shipments_row_alre
     lifecycle = MagicMock()
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
-        "metadata": {EMAIL_DRAFT: {"to": "a@example.com", "subject": "s", "full_html": "<p/>"}},
+        "metadata": {EMAIL_DRAFT: {"to": ["a@example.com"], "subject": "s", "full_html": "<p/>"}},
     }
     shipments = MagicMock()
     shipments.get_by_id.return_value = {"shipment_number": "1000324895"}
@@ -480,7 +480,7 @@ def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: {
-                "to": "a@example.com",
+                "to": ["a@example.com"],
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
@@ -516,7 +516,7 @@ def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
     from app.tools.appointment_scheduling.dates import proposed_wall_clock_to_utc
 
     email_draft = {
-        "to": "a@example.com",
+        "to": ["a@example.com"],
         "subject": "DEL APPT",
         "full_html": "<html/>",
     }
@@ -593,7 +593,7 @@ def test_hydrate_appointment_send_context_weekend_router_skips_without_decision(
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: {
-                "to": "a@example.com",
+                "to": ["a@example.com"],
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
@@ -623,7 +623,7 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
         "sub_status": "appointment_draft_created",
         "metadata": {
             EMAIL_DRAFT: {
-                "to": "a@example.com",
+                "to": ["a@example.com"],
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
@@ -637,7 +637,7 @@ def test_hydrate_read_context_sets_status_and_draft_without_full_metadata():
 
     assert state.data["workflow_lifecycle_status"] == "pending_review"
     assert state.data["workflow_lifecycle_sub_status"] == "appointment_draft_created"
-    assert state.data["email_draft"]["to"] == "a@example.com"
+    assert state.data["email_draft"]["to"] == ["a@example.com"]
     assert "workflow_lifecycle_row" not in state.data
     assert "workflow_lifecycle_metadata" not in state.data
     assert "llm_appointment_decision" not in state.data
@@ -650,7 +650,7 @@ def test_hydrate_read_context_reply_skips_email_draft():
         "sub_status": "awaiting_customer_reply",
         "metadata": {
             EMAIL_DRAFT: {
-                "to": "a@example.com",
+                "to": ["a@example.com"],
                 "subject": "DEL APPT",
                 "full_html": "<html>" + ("x" * 5000) + "</html>",
             },
@@ -659,7 +659,7 @@ def test_hydrate_read_context_reply_skips_email_draft():
     service = LifecycleService(lifecycle_service=lifecycle)
     state = _state(
         event_type="appointment_customer_reply_received",
-        email_draft={"to": "stale@example.com", "full_html": "<p>stale</p>"},
+        email_draft={"to": ["stale@example.com"], "full_html": "<p>stale</p>"},
     )
 
     service.hydrate_read_context(state)
@@ -676,7 +676,7 @@ def test_hydrate_read_context_intake_event_skips_email_draft():
         "status": "processing",
         "sub_status": "appointment_scheduling_started",
         "metadata": {
-            EMAIL_DRAFT: {"to": "a@example.com", "full_html": "<html/>"},
+            EMAIL_DRAFT: {"to": ["a@example.com"], "full_html": "<html/>"},
         },
     }
     service = LifecycleService(lifecycle_service=lifecycle)
@@ -693,7 +693,7 @@ def test_hydrate_appointment_send_context_does_not_set_workflow_lifecycle_metada
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
         "metadata": {
-            EMAIL_DRAFT: {"to": "a@example.com", "subject": "s", "full_html": "<p/>"},
+            EMAIL_DRAFT: {"to": ["a@example.com"], "subject": "s", "full_html": "<p/>"},
         },
     }
     shipments = MagicMock()

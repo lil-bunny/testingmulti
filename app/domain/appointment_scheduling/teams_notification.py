@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.appointment_scheduling.constants import COSTCO_PROPOSED_DELIVERY_WALL_TIME
 from app.domain.appointment_scheduling.utils import is_costco_customer
+from app.domain.tenant_settings.email_recipients import coerce_email_list
 
 
 class AppointmentSchedulingTeamsNotificationSettings(BaseModel):
@@ -57,7 +58,7 @@ def _draft_ready(data: dict[str, Any]) -> bool:
     if not isinstance(draft, dict):
         return False
     return bool(
-        str(draft.get("to") or "").strip()
+        coerce_email_list(draft.get("to"), required=False)
         and str(draft.get("subject") or "").strip()
         and str(draft.get("full_html") or "").strip()
     )

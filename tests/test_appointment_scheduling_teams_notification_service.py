@@ -24,7 +24,7 @@ def _state(**data_overrides) -> WorkflowState:
             "calculated_delivery_date": "07/04/2026",
         },
         "email_draft": {
-            "to": "wh@example.com",
+            "to": ["wh@example.com"],
             "subject": 'DEL APPT REQ "62396"',
             "full_html": "<p>draft</p>",
         },

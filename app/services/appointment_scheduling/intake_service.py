@@ -15,6 +15,7 @@ from app.domain.appointment_scheduling.models import (
 )
 from app.domain.appointment_scheduling.scheduling_reference import ascend_office_code_from_reference
 from app.domain.error_catalog import BusinessError, ErrorCode, IntegrationError
+from app.domain.tenant_settings.email_recipients import coerce_email_list
 from app.domain.tenant_settings.t3ra import T3raAppointmentSchedulingSettings
 from app.integrations.ascend.appointments import get_loc_ref_for_ascend_slots
 from app.integrations.ascend.errors import AscendApiError, AscendError, is_ascend_timeout
@@ -312,19 +313,12 @@ class IntakeService:
             }
         return patch
 
-    @staticmethod
-    def _parse_cc(value: Any) -> list[str]:
-        if isinstance(value, list):
-            return [str(v).strip() for v in value if str(v).strip()]
-        text = str(value or "").strip()
-        if not text:
-            return []
-        return [part.strip() for part in text.split(",") if part.strip()]
-
     def build_email_draft_from_state(self, state) -> EmailDraftResult:
         data = state.data or {}
         contact = data.get("customer_contact") or {}
         settings = self._settings(data.get("tenant_settings") or {})
+        customer = str(contact.get("email") or "").strip()
+        to_emails = coerce_email_list([customer, *settings.to], required=False)
         email_draft, appointment_payload = build_email_draft(
             pickup_dropoff=PickupDropoffData.model_validate(
                 data.get("pickup_dropoff_data") or {}
@@ -333,8 +327,9 @@ class IntakeService:
                 data.get("llm_appointment_decision") or {}
             ),
             draft_static=DraftStatic.model_validate(data.get("draft_static") or {}),
-            to_email=str(contact.get("email") or ""),
-            cc=self._parse_cc(settings.email_cc),
+            to_emails=to_emails,
+            cc=settings.cc,
+            bcc=settings.bcc,
             load_id=str(data.get("load_id") or ""),
             customer_name=str(data.get("customer_name") or ""),
         )

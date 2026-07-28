@@ -14,7 +14,7 @@ _LIFECYCLE = "22222222-2222-2222-2222-222222222222"
 def _ready_draft_meta(**extra):
     return {
         EMAIL_DRAFT: {
-            "to": "wh@example.com",
+            "to": ["wh@example.com"],
             "subject": "DEL APPT",
             "full_html": "<p>Hi</p>",
         },

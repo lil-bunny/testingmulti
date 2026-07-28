@@ -53,15 +53,17 @@ class EmailService:
         return draft if isinstance(draft, dict) else {}
 
     @staticmethod
-    def _validate_draft(draft: dict[str, Any]) -> tuple[str, str, str, list[str]] | None:
-        to = str(draft.get("to") or "").strip()
+    def _validate_draft(
+        draft: dict[str, Any],
+    ) -> tuple[list[str], str, str, list[str], list[str]] | None:
+        to = coerce_email_list(draft.get("to"), required=False)
         subject = str(draft.get("subject") or "").strip()
         body = str(draft.get("full_html") or "").strip()
         if not to or not subject or not body:
             return None
-        cc_raw = draft.get("cc")
-        cc = coerce_email_list(cc_raw, required=False) if cc_raw is not None else []
-        return to, subject, body, cc
+        cc = coerce_email_list(draft.get("cc"), required=False)
+        bcc = coerce_email_list(draft.get("bcc"), required=False)
+        return to, subject, body, cc, bcc
 
     def send_draft_from_state(self, state) -> SendResult:
         data = state.data or {}
@@ -74,7 +76,7 @@ class EmailService:
             )
             return SendResult(sent=False, error=BusinessError.SCHEDULING_DRAFT_NOT_READY.value)
 
-        to, subject, body, cc = validated
+        to_addrs, subject, body, cc, bcc = validated
         tenant_raw = getattr(state, "tenant_id", None) or data.get("tenant_id")
         run_id = str(state.execution_id or "").strip() or None
 
@@ -98,8 +100,9 @@ class EmailService:
                 state.data["communication_id"] = existing
                 return SendResult(sent=True, communication_id=existing)
 
-        to_list = unipile_recipients_from_addresses([to])
+        to_list = unipile_recipients_from_addresses(to_addrs)
         cc_list = unipile_recipients_from_addresses(cc) if cc else None
+        bcc_list = unipile_recipients_from_addresses(bcc) if bcc else None
         from_recipient = mikey_unipile_from(mailbox)
 
         try:
@@ -109,6 +112,7 @@ class EmailService:
                 body=body,
                 account_id=mailbox.account_id,
                 cc=cc_list,
+                bcc=bcc_list,
                 from_recipient=from_recipient,
             )
         except UnipileException as exc:

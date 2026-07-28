@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from app.domain.driver_assignment.confirmation_email import (
     DriverAssignmentConfirmationEmailConfig,
@@ -22,7 +22,11 @@ from app.domain.appointment_scheduling.teams_notification import (
 from app.domain.driver_assignment.reminders_config import DriverAssignmentRemindersConfig
 from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
-from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
+from app.domain.tenant_settings.email_recipients import (
+    EmailRecipients,
+    InboundRoutingEmails,
+    coerce_email_list,
+)
 from app.domain.tenant_settings.ascend import AscendSettings
 from app.domain.tenant_settings.tms import TmsSettings
 
@@ -52,11 +56,18 @@ class T3raAppointmentSchedulingSettings(BaseModel):
 
     turvo_app_user_id: str | None = None
     appointment_data_source: str = ""
-    email_cc: list[str] | str = ""
+    to: list[str] = Field(default_factory=list)
+    cc: list[str] = Field(default_factory=list)
+    bcc: list[str] = Field(default_factory=list)
     # Ascend HTTP only; Turvo weekend/delivery writes still run when this is True.
     skip_ascend_writes: bool = True
     teams_notification: AppointmentSchedulingTeamsNotificationSettings | None = None
     confirmation_reply: AppointmentSchedulingConfirmationReplySettings | None = None
+
+    @field_validator("to", "cc", "bcc", mode="before")
+    @classmethod
+    def _coerce_recipients(cls, value: Any) -> list[str]:
+        return coerce_email_list(value, required=False)
 
 
 class T3raDriverAssignmentSettings(BaseModel):

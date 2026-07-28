@@ -22,7 +22,7 @@ def _state(**overrides):
         "shipment_id": "ship-1",
         "tenant_settings": {"mikey_account_id": "acc-1"},
         "email_draft": {
-            "to": "wh@example.com",
+            "to": ["wh@example.com"],
             "subject": "DEL APPT REQ",
             "full_html": "<p>Hello</p>",
         },

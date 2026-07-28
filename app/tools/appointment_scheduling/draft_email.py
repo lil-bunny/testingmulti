@@ -95,8 +95,9 @@ def build_email_draft(
     pickup_dropoff: PickupDropoffData | dict[str, Any],
     llm_decision: LlmAppointmentDecision | dict[str, Any],
     draft_static: DraftStatic | dict[str, Any],
-    to_email: str,
-    cc: list[str] | str,
+    to_emails: list[str],
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
     load_id: str,
     customer_name: str,
 ) -> tuple[EmailDraft, AppointmentPayload]:
@@ -113,7 +114,8 @@ def build_email_draft(
     reference_number = _e(static.get("reference_number"))
     shipment_details = _e(static.get("shipment_details"))
 
-    cc_list = cc if isinstance(cc, list) else [c.strip() for c in _e(cc).split(",") if c.strip()]
+    cc_list = list(cc or [])
+    bcc_list = list(bcc or [])
     costco = is_costco_customer(customer_name)
 
     if costco:
@@ -181,8 +183,9 @@ def build_email_draft(
     )
 
     email_draft = EmailDraft(
-        to=_e(to_email),
+        to=to_emails,
         cc=cc_list,
+        bcc=bcc_list,
         subject=subject,
         full_html=full_html,
     )

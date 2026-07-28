@@ -41,7 +41,7 @@ def test_display_fields_from_data() -> None:
                 "calculated_delivery_date": "07/04/2026",
             },
             "email_draft": {
-                "to": "wh@example.com",
+                "to": ["wh@example.com"],
                 "subject": 'DEL APPT REQ "62396"',
                 "full_html": "<p>draft</p>",
             },
@@ -59,7 +59,7 @@ def test_display_fields_from_data() -> None:
 
 
 def test_display_fields_from_data_returns_none_when_draft_incomplete() -> None:
-    assert display_fields_from_data({"load_id": "62396", "email_draft": {"to": "a@b.com"}}) is None
+    assert display_fields_from_data({"load_id": "62396", "email_draft": {"to": ["a@b.com"]}}) is None
 
 
 def test_format_draft_ready_title_body_and_facts() -> None:
@@ -98,7 +98,7 @@ def test_display_fields_costco_includes_delivery_time_and_normalizes_iso_pickup(
                 "calculated_delivery_weekday": "WEDNESDAY",
             },
             "email_draft": {
-                "to": "wh@example.com",
+                "to": ["wh@example.com"],
                 "subject": 'DEL APPT REQ "30394"',
                 "full_html": "<p>draft</p>",
             },
