@@ -320,6 +320,14 @@ def test_update_proposed_appointments_tx_persists_and_coalesces(
     assert stored_pickup == pickup_at
     assert stored_delivery == new_delivery
 
+    row = repo.get_by_tenant_and_id_tx(
+        tenant_id=_TENANT_UUID,
+        shipment_id=upsert.shipment_id,
+    )
+    assert row is not None
+    assert row["proposed_pickup"] == pickup_at
+    assert row["proposed_delivery"] == new_delivery
+
 
 def _any_two_location_ids() -> tuple[str, str] | None:
     try:

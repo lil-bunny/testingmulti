@@ -24,7 +24,9 @@ _SELECT_SHIPMENT_COLUMNS = """
     delivery_timezone,
     carrier_name,
     customer_name,
-    driver_details
+    driver_details,
+    proposed_pickup,
+    proposed_delivery
 """
 
 
@@ -96,6 +98,8 @@ class ShipmentsRepository:
             "carrier_name": row[8] or None,
             "customer_name": row[9] or None,
             "driver_details": driver_details,
+            "proposed_pickup": ShipmentsRepository._datetime_or_none(row[11]),
+            "proposed_delivery": ShipmentsRepository._datetime_or_none(row[12]),
         }
 
     def upsert_by_tenant_and_shipment_number_tx(

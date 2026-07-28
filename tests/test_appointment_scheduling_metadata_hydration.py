@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from app.domain.appointment_scheduling.metadata_hydration import (
     rebuild_llm_appointment_decision_from_shipment_row,
 )
@@ -48,11 +46,10 @@ def test_rebuild_llm_appointment_decision_from_shipment_row():
             "proposed_delivery": proposed_delivery,
             "pickup_timezone": "America/Chicago",
             "delivery_timezone": "America/Los_Angeles",
-            "metadata": {"weekend_shifted": True},
         }
     )
 
-    assert decision["weekend_shifted"] is True
+    assert "weekend_shifted" not in decision
     assert decision["selected_pickup_date"] == "2026-07-01"
     assert decision["selected_pickup_time"] == "08:00"
     assert decision["calculated_delivery_date"] == "07/04/2026"
@@ -71,9 +68,8 @@ def test_rebuild_accepts_iso_string_timestamps():
         {
             "proposed_pickup": "2026-07-01T13:00:00+00:00",
             "pickup_timezone": "America/Chicago",
-            "metadata": {"weekend_shifted": True},
         }
     )
-    assert decision["weekend_shifted"] is True
+    assert "weekend_shifted" not in decision
     assert decision["selected_pickup_date"] == "2026-07-01"
     assert decision["selected_pickup_time"] == "08:00"

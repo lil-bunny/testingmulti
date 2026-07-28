@@ -8,10 +8,7 @@ from datetime import datetime, timezone
 
 from app.domain.appointment_scheduling.constants import APPOINTMENT_PAYLOAD, EMAIL_DRAFT
 from app.domain.appointment_scheduling.utils import iso_or_empty
-from app.tools.appointment_scheduling.dates import (
-    is_weekend_shifted_truthy,
-    utc_to_local_date_and_time,
-)
+from app.tools.appointment_scheduling.dates import utc_to_local_date_and_time
 
 
 def _coerce_utc_datetime(value: Any) -> datetime | None:
@@ -46,24 +43,22 @@ def apply_lifecycle_email_draft_to_state(
 def rebuild_llm_appointment_decision_from_shipment_row(
     shipment_row: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Rebuild ephemeral send-path decision view from durable shipment facts."""
+    """Rebuild date fields for send-path decision from shipment columns only.
+
+    Caller merges ``weekend_shifted`` from lifecycle metadata.
+    """
     if not shipment_row:
         return {}
 
-    meta = shipment_row.get("metadata") or {}
-    if not isinstance(meta, dict):
-        meta = {}
-
-    weekend_shifted = is_weekend_shifted_truthy(meta.get("weekend_shifted"))
     proposed_pickup = _coerce_utc_datetime(shipment_row.get("proposed_pickup"))
     proposed_delivery = _coerce_utc_datetime(shipment_row.get("proposed_delivery"))
     pickup_tz = str(shipment_row.get("pickup_timezone") or "").strip() or None
     delivery_tz = str(shipment_row.get("delivery_timezone") or "").strip() or None
 
-    if not proposed_pickup and not proposed_delivery and not weekend_shifted:
+    if not proposed_pickup and not proposed_delivery:
         return {}
 
-    decision: dict[str, Any] = {"weekend_shifted": weekend_shifted}
+    decision: dict[str, Any] = {}
 
     if proposed_pickup:
         pickup_date, pickup_time = utc_to_local_date_and_time(

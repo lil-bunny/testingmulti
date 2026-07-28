@@ -9,6 +9,7 @@ EMAIL_DRAFT = "email_draft"
 EMAIL_SENT = "email_sent"
 APPOINTMENT_PAYLOAD = "appointment_payload"
 LLM_APPOINTMENT_DECISION = "llm_appointment_decision"
+WEEKEND_SHIFTED = "weekend_shifted"
 APPOINTMENT_FAILURE_REASON = "appointment_failure_reason"
 
 # Costco

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from app.domain.appointment_scheduling.constants import (
     EMAIL_DRAFT,
     LLM_APPOINTMENT_DECISION,
+    WEEKEND_SHIFTED,
 )
 from app.services.appointment_scheduling.lifecycle_service import LifecycleService
 from app.workflows.graph.routers import appointment_weekend_pickup_router
@@ -95,7 +96,7 @@ def test_persist_draft_ready_delegates_activity_patches_metadata_and_shipment():
     lifecycle.update_lifecycle_status.assert_not_called()
 
 
-def test_persist_draft_ready_patches_weekend_shifted_on_shipment_not_lifecycle():
+def test_persist_draft_ready_patches_weekend_shifted_on_lifecycle_not_shipment():
     lifecycle = MagicMock()
     activity = MagicMock()
     shipments = MagicMock()
@@ -130,13 +131,10 @@ def test_persist_draft_ready_patches_weekend_shifted_on_shipment_not_lifecycle()
         lifecycle_id="lifecycle-1",
         metadata_patch={
             EMAIL_DRAFT: email_draft,
+            WEEKEND_SHIFTED: True,
         },
     )
-    shipments.merge_metadata.assert_called_once_with(
-        tenant_id=_TENANT_UUID,
-        shipment_row_id=_SHIPMENT_ROW_ID,
-        metadata_patch={"weekend_shifted": True},
-    )
+    shipments.merge_metadata.assert_not_called()
 
 
 def test_persist_draft_ready_passes_llm_pickup_and_costco_delivery_time():
@@ -486,6 +484,7 @@ def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_
                 "subject": "DEL APPT",
                 "full_html": "<html/>",
             },
+            WEEKEND_SHIFTED: True,
         },
     }
     shipments = MagicMock()
@@ -493,7 +492,7 @@ def test_hydrate_appointment_send_context_restores_llm_appointment_decision_for_
         "shipment_number": "1000324895",
         "proposed_pickup": proposed_pickup,
         "pickup_timezone": "America/Chicago",
-        "metadata": {"reference_number": "DIAMOND-RPN1", "weekend_shifted": True},
+        "metadata": {"reference_number": "DIAMOND-RPN1"},
     }
     service = LifecycleService(
         lifecycle_service=lifecycle,
@@ -540,7 +539,7 @@ def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
         "pickup_timezone": "America/Chicago",
         "delivery_timezone": "America/Los_Angeles",
         "proposed_pickup": proposed_pickup,
-        "metadata": {"reference_number": "DIAMOND-RPN1", "weekend_shifted": True},
+        "metadata": {"reference_number": "DIAMOND-RPN1"},
     }
     service = LifecycleService(
         lifecycle_service=lifecycle,
@@ -555,19 +554,22 @@ def test_weekend_decision_survives_intake_persist_to_send_hydrate_router():
         appointment_payload={
             "proposed_pickup_at": "2026-07-01",
             "proposed_delivery_at": "07/04/2026",
+            "reference_number": "DIAMOND-RPN1",
         },
         llm_appointment_decision=decision,
     )
     metadata_patch = lifecycle.patch_metadata.call_args.kwargs["metadata_patch"]
     assert EMAIL_DRAFT in metadata_patch
+    assert metadata_patch[WEEKEND_SHIFTED] is True
     assert LLM_APPOINTMENT_DECISION not in metadata_patch
     shipments.merge_metadata.assert_called_once()
-    assert shipments.merge_metadata.call_args.kwargs["metadata_patch"]["weekend_shifted"] is True
+    assert "weekend_shifted" not in shipments.merge_metadata.call_args.kwargs["metadata_patch"]
 
     lifecycle.read_lifecycle_row_by_id.return_value = {
         "tenant_id": _TENANT_UUID,
         "metadata": {
             EMAIL_DRAFT: email_draft,
+            WEEKEND_SHIFTED: True,
         },
     }
     send_state = _state(
