@@ -1,0 +1,71 @@
+---
+description: >-
+  Workflow pre-merge hard constraints (tenant, secrets, state hygiene, races,
+  catalog errors, thin webhooks). Complements freightx.mdc; full checklist in
+  skill new-workflow-preflight.
+globs:
+  - "app/workflows/**/*.py"
+  - "app/services/**/*.py"
+  - "app/api/**/*.py"
+  - "app/domain/**/*.py"
+  - "app/tools/**/*.py"
+  - "app/tasks/**/*.py"
+  - "app/integrations/**/*.py"
+  - "tests/test_*workflow*.py"
+  - "tests/test_*appointment*.py"
+  - "tests/test_*ingress*.py"
+  - "alembic/versions/**/*.py"
+  - "scripts/tenant_settings/**/*"
+alwaysApply: false
+---
+
+# Workflow preflight (hard constraints)
+
+Derived from the appointment-scheduling pre-merge review. **Do not regress.**
+Full §1–§8 playbook: skill **`new-workflow-preflight`**.
+
+**Standing rule:** Do **not** write secrets / unused keys / full vendor dumps to LangGraph state “then pop later.” If a field is needed by a real downstream node **in that run**, it may stay; otherwise never write it.
+
+**Prefer existing patterns:** `WorkflowReviewService._load_owned_lifecycle` (or equivalent), short-lived sessions, thin nodes, `service = FooService()` then `service.method(...)`.
+
+## Blockers (§1)
+
+1. **Tenant ownership** — Portal/API actions that load a lifecycle by id must verify `lifecycle.tenant_id ==` caller tenant. Mismatch or missing → **404 / not found** (no existence leak). Mirror `_load_owned_lifecycle`.
+2. **No secrets on state** — Never put Ascend `access_token` / `ascend_access_token`, passwords, or TMS API keys on `state.data`. Keep tokens as locals; re-login in services when needed.
+3. **Persist + hydrate cross-event decisions** — If send/reply needs intake decisions (e.g. weekend_shifted), store durably (lifecycle metadata / shipment) and hydrate before the router. Do not rely on intake checkpoint alone.
+4. **PR / cutover** — Feature PRs need why, path, migrations, tenant settings, test plan, rollback (see skill §1.4 / §6).
+
+## High priority (§2)
+
+1. **Redact settings** — Do not put full `tenant_settings` with secrets on Celery/graph payloads. Use projected/redacted settings (`tenant_settings_for_workflow_state` pattern). Integrations load credentials via `TenantsService`, not checkpointed settings.
+2. **Loop-safe async** — Avoid nesting `asyncio.run` inside graph/Celery paths that may already have a loop. Use repo loop-safe helpers.
+3. **Thin webhooks** — Validate → idempotency/durable claim → enqueue. Heavy Turvo/sheet I/O in the worker when practical.
+4. **Enqueue failure** — Create-lifecycle-then-enqueue failure must not soft-lock the shipment; leave lifecycle retryable (fail/compensate/attach failure reason).
+5. **Flags mean what they say** — e.g. `skip_ascend_writes` must not silently skip Turvo unless documented as a single dry-run flag.
+6. **Honest dry-run** — Missing required vendor data → fail/skip with clear reason; never invent fake stop ids / fake success.
+7. **Double-send / double-action** — Claim in the same DB transaction as validate (e.g. metadata `email_sent`) **before** enqueue. Second concurrent call → **409**, no second side effect.
+8. **Graph errors** — `@safe_node` + `raise WorkflowException(<BusinessError|IntegrationError|SystemError enum>, optional_message)`. Never `RuntimeError` / bare `Exception` for expected failures. Never `WorkflowException(string_code, …)` (forces SYSTEM). `UNEXPECTED_NODE_FAILURE` only for true bugs.
+
+## State hygiene (§3)
+
+- Stop writing unused keys (`customer_id`, link echoes, reply subject used only at ingress, etc.).
+- No full Turvo/Ascend shipment dumps on state — derived DTOs/ids; re-fetch in services.
+- Vendor results on state: `ok` / `skipped` / `error` / ids only — not full `response` / polyline / statusHistory.
+- Prefer activity_log for LLM thread/raw classification; don’t also park them on durable state.
+- Update `workflow_template_contracts` when the state surface shrinks.
+
+## Structure (§4 — while editing)
+
+- Fold 1:1 pass-through modules; don’t invent helper packages for one-offs.
+- One naming prefix for nodes / `NODE_REGISTRY` / `workflow_configs` (keep in sync).
+- One normalizer at boundaries; don’t re-`str(x or "").strip()` every hop.
+- Layers: API → service → repo/integration; routers pure; no SQL in nodes/services; no vendor HTTP in repos.
+- One owner for status/sub_status transitions (`LifecycleTransitionService` where standard).
+- No legacy decision aliases (e.g. `sufficient`/`insufficient`) when product enum is fixed.
+
+## Tests / ship (§5–§6)
+
+- Tests for every §1/§2 blocker (wrong tenant 404, claim 409, hydrate→router, etc.).
+- Feature-level coverage for main ingress/send/reply paths + CI green.
+- One Alembic revision for the feature before staging (squash WIP); enum ADD VALUE not downgradeable.
+- Tenant settings fixtures under `scripts/tenant_settings/` when enabling a process.

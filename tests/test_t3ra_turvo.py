@@ -17,7 +17,10 @@ from app.integrations.turvo.load_to_shipment import (
     shipment_id_from_list_response,
 )
 from app.integrations.turvo.public_api_client import TurvoApiClient
-from app.integrations.turvo.webhook_mapping import map_turvo_status_webhook_to_payload
+from app.integrations.turvo.webhook_mapping import (
+    TENDER_ACCEPTED_STATUS_CODE_KEY,
+    map_turvo_status_webhook_to_payload,
+)
 from app.main import app
 from app.tools import turvo as turvo_tool
 from app.services.pod_lifecycle.ingress_service import (
@@ -275,12 +278,16 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
         patch("app.api.v1.webhooks.WorkflowLifecycleService") as lifecycle_cls,
         patch("app.api.v1.webhooks.CommunicationsService") as comm_cls,
         patch("app.api.v1.webhooks.PodLifecycleIngressService") as ingress_cls,
+        patch("app.api.v1.webhooks.IngressService") as scheduling_cls,
         patch("app.api.v1.webhooks.LifecycleRunSerializerService") as serializer_cls,
         patch(
             "app.api.v1.webhooks.resolve_graph_tenant_to_uuid",
             return_value="tenant-uuid-1",
         ),
     ):
+        scheduling_cls.return_value.handle_shipment_update = AsyncMock(
+            return_value=MagicMock(handled=False, enqueued=False, skip_reason=None)
+        )
         shipments_cls.return_value.get_by_shipment_number.return_value = {
             "id": _SHIPMENTS_ROW_UUID,
             "shipment_number": _TURVO_SHIPMENT,
@@ -322,6 +329,47 @@ def test_turvo_webhook_queues_pod_lifecycle_when_ratecon_lifecycle_found() -> No
     assert ser_kw["payload"]["shipment_id"] == _TURVO_SHIPMENT
     assert ser_kw["payload"]["event_type"] == "route_completed"
     assert ser_kw["payload"]["thread_id"] == "thread-from-comm"
+
+
+def test_turvo_webhook_scheduling_handled_short_circuits_pod_path() -> None:
+    """Appointment scheduling ingress handled=True must skip POD route_completed path."""
+    with (
+        patch("app.api.v1.webhooks.IngressService") as scheduling_cls,
+        patch("app.api.v1.webhooks.PodLifecycleIngressService") as pod_cls,
+        patch("app.api.v1.webhooks.ShipmentsService") as shipments_cls,
+    ):
+        scheduling_cls.return_value.handle_shipment_update = AsyncMock(
+            return_value=MagicMock(
+                handled=True,
+                enqueued=True,
+                execution_id="sched-exec-1",
+                skip_reason=None,
+            )
+        )
+
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v1/webhook/turvo",
+            json={
+                "eventName": "SHIPMENT_UPDATE",
+                "eventPayload": {
+                    "id": 1000324868,
+                    "load": {"id": 47361},
+                    "status": {
+                        "code": {
+                            "key": TENDER_ACCEPTED_STATUS_CODE_KEY,
+                            "value": "Tender - accepted",
+                        }
+                    },
+                },
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"execution_id": "sched-exec-1"}
+    scheduling_cls.return_value.handle_shipment_update.assert_awaited_once()
+    pod_cls.assert_not_called()
+    shipments_cls.assert_not_called()
 
 
 def test_turvo_webhook_skips_duplicate_route_completed() -> None:

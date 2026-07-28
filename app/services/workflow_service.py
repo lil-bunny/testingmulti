@@ -1,5 +1,6 @@
-from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
+from app.domain.tenant_settings.registry import tenant_settings_for_workflow_state
 from app.domain.tenant_settings.workflow_shadow_mode import workflow_shadow_active
+from app.core.logger import get_logger
 from app.services.execution_service import ExecutionService
 from app.services.tenants_service import TenantsService
 from app.services.ratecon_ingress_service import RateconIngressService
@@ -14,7 +15,7 @@ from app.services.pod_lifecycle.attachment_pipeline_service import (
     PodAttachmentPipelineService,
 )
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
-from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.services.workflow_lifecycle_service import LifecycleResolution, WorkflowLifecycleService
 from app.configs.workflow_template_contracts import WORKFLOW_TEMPLATE_CONTRACTS
 from app.workflows.graph.builder import build_graph
 from app.workflows.compiler.compiler import compile_graph
@@ -41,6 +42,10 @@ from app.workflows.graph.routers import (
     driver_details_router,
     tms_searchable_router,
     tms_driver_router,
+    appointment_intake_router,
+    appointment_post_read_router,
+    appointment_weekend_pickup_router,
+    customer_reply_router,
 )
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from typing import Optional
@@ -72,7 +77,14 @@ ROUTER_REGISTRY = {
     "driver_details_router": driver_details_router,
     "tms_searchable_router": tms_searchable_router,
     "tms_driver_router": tms_driver_router,
+    "appointment_intake_router": appointment_intake_router,
+    "appointment_post_read_router": appointment_post_read_router,
+    "appointment_weekend_pickup_router": appointment_weekend_pickup_router,
+    "customer_reply_router": customer_reply_router,
 }
+
+
+logger = get_logger(__name__)
 
 
 class WorkflowService:
@@ -159,6 +171,27 @@ class WorkflowService:
             "data": data,
         }
 
+    @staticmethod
+    def _skipped_pickup_ingress_result(
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict,
+        lifecycle_id: str | None,
+        reason: str,
+    ) -> dict:
+        execution_id = str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+        data = dict(payload)
+        data["pickup_ingress_skip_reason"] = reason
+        if lifecycle_id:
+            data["workflow_lifecycle_id"] = lifecycle_id
+        return {
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant_slug,
+            "execution_id": execution_id,
+            "data": data,
+        }
+
     def _stamp_pod_lifecycle_before_attachment_pipeline(
         self,
         *,
@@ -227,9 +260,10 @@ class WorkflowService:
 
         payload["tenant_id"] = tenant_id
         payload["tenant_slug"] = tenant_slug
-        payload["tenant_settings"] = normalize_tenant_settings_dict(
+        payload["tenant_settings"] = tenant_settings_for_workflow_state(
             tenant_slug,
             tenant_row.get("settings") or {},
+            workflow_name=workflow_name,
         )
         payload = await self._email_graph_task_prep(
             tenant_id=tenant_id,
@@ -404,10 +438,26 @@ class WorkflowService:
                 and payload.get("event_type")
                 == WorkflowRunEventType.RATECON_COMPLETED.value
             )
-            else self.lifecycle_service.resolve_or_create_lifecycle(
-                tenant_id=tenant_id,
-                workflow_name=workflow_name,
-                payload=payload,
+            else (
+                LifecycleResolution(
+                    workflow_lifecycle_id=str(payload["workflow_lifecycle_id"]).strip(),
+                    existed=True,
+                )
+                if (
+                    workflow_name == "appointment_scheduling"
+                    and payload.get("event_type")
+                    in (
+                        WorkflowRunEventType.TURVO_PICKUP_CHANGED.value,
+                        WorkflowRunEventType.APPOINTMENT_DRAFT_SEND.value,
+                        WorkflowRunEventType.APPOINTMENT_CUSTOMER_REPLY_RECEIVED.value,
+                    )
+                    and str(payload.get("workflow_lifecycle_id") or "").strip()
+                )
+                else self.lifecycle_service.resolve_or_create_lifecycle(
+                    tenant_id=tenant_id,
+                    workflow_name=workflow_name,
+                    payload=payload,
+                )
             )
         )
         workflow_lifecycle_id = lifecycle.workflow_lifecycle_id
@@ -421,6 +471,40 @@ class WorkflowService:
         )
         if shipments_row_id:
             payload["shipments_row_id"] = shipments_row_id
+
+        if (
+            workflow_name == "appointment_scheduling"
+            and payload.get("event_type")
+            == WorkflowRunEventType.TURVO_PICKUP_CHANGED.value
+        ):
+            from app.services.appointment_scheduling.ingress_prepare_service import (
+                IngressPrepareService,
+                merge_prepare_result_into_payload,
+            )
+
+            prepare_result = await IngressPrepareService().prepare_pickup_changed(
+                tenant_slug=tenant_slug,
+                tenant_id=str(tenant_id),
+                tenant_settings=payload.get("tenant_settings") or {},
+                payload=payload,
+            )
+            if not prepare_result.ok:
+                logger.info(
+                    "appointment_scheduling pickup prepare skipped tenant_slug=%s "
+                    "shipment_id=%s reason=%s lifecycle_id=%s",
+                    tenant_slug,
+                    payload.get("shipment_id"),
+                    prepare_result.skip_reason,
+                    workflow_lifecycle_id,
+                )
+                return self._skipped_pickup_ingress_result(
+                    tenant_id=tenant_id,
+                    tenant_slug=tenant_slug,
+                    payload=payload,
+                    lifecycle_id=workflow_lifecycle_id,
+                    reason=prepare_result.skip_reason or "unknown",
+                )
+            payload = merge_prepare_result_into_payload(payload, prepare_result)
 
         event_type = payload.get("event_type")
         traced = traceable(

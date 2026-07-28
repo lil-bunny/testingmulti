@@ -9,6 +9,7 @@ from typing import Any, TYPE_CHECKING
 from sqlalchemy import text
 
 from app.core.db import jsonb_param, parse_json
+from app.domain.tenant_settings.email_recipients import coerce_email_list
 from app.models.status import StatusSubType, StatusType
 
 if TYPE_CHECKING:
@@ -598,6 +599,83 @@ class WorkflowLifecyclesRepository:
         ).rowcount
         return rowcount > 0
 
+    def claim_appointment_draft_send_queued(
+        self,
+        *,
+        lifecycle_id: str,
+        expected_tenant_id: str,
+    ) -> str:
+        """Atomically claim portal draft send via ``metadata.email_sent``.
+
+        Returns one of: ``claimed``, ``not_found``, ``conflict``, ``invalid_status``,
+        ``scheduling_draft_not_ready``.
+        """
+        from app.domain.appointment_scheduling.constants import (
+            EMAIL_DRAFT,
+            EMAIL_SENT,
+        )
+        from app.domain.error_catalog import BusinessError
+
+        row = self._session.execute(
+            text(
+                f"""
+                SELECT status::text, sub_status::text, tenant_id::text, metadata
+                FROM {self.TABLE_NAME}
+                {_WHERE_LIFECYCLE_ID}
+                FOR UPDATE
+                """
+            ),
+            {"lifecycle_id": lifecycle_id},
+        ).first()
+        if not row:
+            return "not_found"
+
+        row_tenant = str(row[2] or "").strip()
+        if row_tenant != str(expected_tenant_id or "").strip():
+            return "not_found"
+
+        status = str(row[0] or "").strip()
+        sub_status = str(row[1] or "").strip()
+        if status != StatusType.PENDING_REVIEW.value:
+            return "invalid_status"
+        if sub_status != StatusSubType.APPOINTMENT_DRAFT_CREATED.value:
+            return "conflict"
+
+        meta = parse_json(row[3]) if row[3] is not None else {}
+        if not isinstance(meta, dict):
+            meta = {}
+        if meta.get(EMAIL_SENT) is True:
+            return "conflict"
+
+        draft = meta.get(EMAIL_DRAFT)
+        if not isinstance(draft, dict) or not (
+            coerce_email_list(draft.get("to"), required=False)
+            and str(draft.get("subject") or "").strip()
+            and str(draft.get("full_html") or "").strip()
+        ):
+            return BusinessError.SCHEDULING_DRAFT_NOT_READY.value
+
+        updated = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET metadata = COALESCE(metadata, '{{}}'::jsonb) || CAST(:metadata_patch AS jsonb),
+                    updated_at = NOW()
+                {_WHERE_LIFECYCLE_ID}
+                  AND status = CAST(:status AS lifecycle_status)
+                  AND sub_status = CAST(:sub_status AS lifecycle_sub_status)
+                  AND COALESCE((metadata->>'email_sent')::boolean, false) IS NOT TRUE
+                """
+            ),
+            {
+                "lifecycle_id": lifecycle_id,
+                "metadata_patch": jsonb_param({EMAIL_SENT: True}),
+                "status": StatusType.PENDING_REVIEW.value,
+                "sub_status": StatusSubType.APPOINTMENT_DRAFT_CREATED.value,
+            },
+        ).rowcount
+        return "claimed" if updated > 0 else "conflict"
+
     def insert_driver_assignment_lifecycle(
         self,
         *,
@@ -612,3 +690,155 @@ class WorkflowLifecyclesRepository:
             shipment_id=shipment_id,
         )
         return new_id
+
+    def find_blocking_appointment_scheduling_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_number: str,
+    ) -> str | None:
+        """Return lifecycle id when a non-restartable appointment_scheduling row exists."""
+        number = str(shipment_number or "").strip()
+        if not number:
+            return None
+        row = self._session.execute(
+            text(
+                """
+                SELECT wl.id::text
+                FROM workflow_lifecycles wl
+                INNER JOIN shipments s ON s.id = wl.shipment_id
+                WHERE wl.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wl.workflow_name = :workflow_name
+                  AND s.shipment_number = :shipment_number
+                  AND NOT (
+                      wl.status = CAST(:failed_status AS lifecycle_status)
+                      OR wl.sub_status = CAST(:resolved_manually AS lifecycle_sub_status)
+                      OR (
+                          wl.status = CAST(:pending_review_status AS lifecycle_status)
+                          AND NULLIF(wl.metadata->>'appointment_failure_reason', '') IS NOT NULL
+                      )
+                  )
+                ORDER BY wl.updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "shipment_number": number,
+                "failed_status": StatusType.FAILED.value,
+                "resolved_manually": StatusSubType.RESOLVED_MANUALLY.value,
+                "pending_review_status": StatusType.PENDING_REVIEW.value,
+            },
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+        return None
+
+    def insert_appointment_scheduling_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        workflow_name: str,
+        shipment_id: str,
+        lifecycle_id: str | None = None,
+    ) -> str:
+        """Insert lifecycle, or attach ``shipment_id`` to an existing deferred stub."""
+        new_id = str(lifecycle_id or "").strip() or str(uuid.uuid4())
+        existing = self._session.execute(
+            text(
+                f"""
+                SELECT 1
+                FROM {self.TABLE_NAME}
+                {_WHERE_LIFECYCLE_ID}
+                """
+            ),
+            {"lifecycle_id": new_id},
+        ).first()
+        if existing:
+            self.update_shipment_id(lifecycle_id=new_id, shipment_id=shipment_id)
+            return new_id
+        self.insert_lifecycle(
+            lifecycle_id=new_id,
+            tenant_id=tenant_id,
+            workflow_name=workflow_name,
+            shipment_id=shipment_id,
+        )
+        return new_id
+
+    def find_awaiting_customer_reply_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        shipment_id: str,
+        workflow_name: str = "appointment_scheduling",
+    ) -> str | None:
+        """Latest lifecycle awaiting customer reply for a shipment row."""
+        sid = str(shipment_id or "").strip()
+        if not sid:
+            return None
+        row = self._session.execute(
+            text(
+                """
+                SELECT wl.id::text
+                FROM workflow_lifecycles wl
+                WHERE wl.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wl.workflow_name = :workflow_name
+                  AND wl.shipment_id = CAST(:shipment_id AS uuid)
+                  AND wl.sub_status = CAST(:awaiting_reply AS lifecycle_sub_status)
+                ORDER BY wl.updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "shipment_id": sid,
+                "awaiting_reply": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+            },
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+        return None
+
+    def find_awaiting_customer_reply_by_appt_subject_token(
+        self,
+        *,
+        tenant_id: str,
+        subject_token: str,
+        workflow_name: str = "appointment_scheduling",
+    ) -> str | None:
+        """Latest awaiting-reply lifecycle matching subject token (RPN, load id, etc.)."""
+        token = str(subject_token or "").strip()
+        if not token:
+            return None
+        row = self._session.execute(
+            text(
+                """
+                SELECT wl.id::text
+                FROM workflow_lifecycles wl
+                JOIN shipments s ON s.id = wl.shipment_id
+                WHERE wl.tenant_id = CAST(:tenant_id AS uuid)
+                  AND wl.workflow_name = :workflow_name
+                  AND wl.sub_status = CAST(:awaiting_reply AS lifecycle_sub_status)
+                  AND (
+                    wl.metadata->>'reference_number' = :subject_token
+                    OR wl.metadata->'appointment_payload'->>'reference_number' = :subject_token
+                    OR s.metadata->>'reference_number' = :subject_token
+                    OR s.metadata->>'load_id' = :subject_token
+                  )
+                ORDER BY wl.updated_at DESC
+                LIMIT 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "workflow_name": workflow_name,
+                "awaiting_reply": StatusSubType.AWAITING_CUSTOMER_REPLY.value,
+                "subject_token": token,
+            },
+        ).first()
+        if row and row[0]:
+            return str(row[0])
+        return None

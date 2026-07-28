@@ -424,6 +424,52 @@ class WorkflowLifecycleService:
             )
         )
 
+    def patch_metadata(
+        self,
+        *,
+        lifecycle_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> bool:
+        lid = self._clean(lifecycle_id)
+        if not lid:
+            raise ValueError("lifecycle_id required")
+        if not metadata_patch:
+            return False
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.patch_metadata(
+                lifecycle_id=lid,
+                metadata_patch=metadata_patch,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).patch_metadata(
+                lifecycle_id=lid,
+                metadata_patch=metadata_patch,
+            )
+        )
+
+    def claim_appointment_draft_send_queued(
+        self,
+        *,
+        lifecycle_id: str,
+        expected_tenant_id: str,
+    ) -> str:
+        """Claim portal draft send (``metadata.email_sent``) in one transaction."""
+        lid = self._clean(lifecycle_id)
+        tenant_id = self._clean(expected_tenant_id)
+        if not lid or not tenant_id:
+            return "not_found"
+        if self._lifecycles_repo is not None:
+            return self._lifecycles_repo.claim_appointment_draft_send_queued(
+                lifecycle_id=lid,
+                expected_tenant_id=tenant_id,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).claim_appointment_draft_send_queued(
+                lifecycle_id=lid,
+                expected_tenant_id=tenant_id,
+            )
+        )
+
     def update_lifecycle_sub_status(
         self,
         *,
@@ -624,3 +670,133 @@ class WorkflowLifecycleService:
                 metadata_patch=patch,
             )
         )
+
+    def find_blocking_appointment_scheduling_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        turvo_shipment_number: str,
+        workflow_name: str,
+    ) -> str | None:
+        from app.domain.appointment_scheduling.constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        number = self._clean(turvo_shipment_number)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not number:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_blocking_appointment_scheduling_lifecycle_id(
+                tenant_id=tid,
+                workflow_name=wn,
+                shipment_number=number,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def create_appointment_scheduling_lifecycle(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str,
+        workflow_name: str,
+        lifecycle_id: str | None = None,
+    ) -> str:
+        from app.domain.appointment_scheduling.constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipments_row_id)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        lid = self._clean(lifecycle_id)
+        if not tid or not sid:
+            raise ValueError("tenant_id and shipments_row_id are required")
+
+        def _insert(repo: WorkflowLifecyclesRepository) -> str:
+            return repo.insert_appointment_scheduling_lifecycle(
+                tenant_id=tid,
+                workflow_name=wn,
+                shipment_id=sid,
+                lifecycle_id=lid,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _insert(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _insert(self._repo(repos)))
+
+    def deterministic_pickup_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        shipment_number: str,
+    ) -> str:
+        from app.domain.appointment_scheduling.constants import APPOINTMENT_SCHEDULING_WORKFLOW
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        number = self._clean(shipment_number)
+        if not tid or not number:
+            raise ValueError("tenant_id and shipment_number are required")
+        seed = f"{tid}:{APPOINTMENT_SCHEDULING_WORKFLOW}:{number}"
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
+
+    def find_awaiting_customer_reply_lifecycle_id(
+        self,
+        *,
+        tenant_id: str,
+        shipments_row_id: str,
+        workflow_name: str | None = None,
+    ) -> str | None:
+        from app.domain.appointment_scheduling.constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        sid = self._uuid_or_none(shipments_row_id)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not sid:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_awaiting_customer_reply_lifecycle_id(
+                tenant_id=tid,
+                shipment_id=sid,
+                workflow_name=wn,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))
+
+    def find_awaiting_customer_reply_by_appt_subject_token(
+        self,
+        *,
+        tenant_id: str,
+        subject_token: str,
+        workflow_name: str | None = None,
+    ) -> str | None:
+        from app.domain.appointment_scheduling.constants import (
+            APPOINTMENT_SCHEDULING_WORKFLOW,
+        )
+
+        tid = resolve_graph_tenant_to_uuid(self._clean(tenant_id))
+        token = self._clean(subject_token)
+        wn = self._clean(workflow_name) or APPOINTMENT_SCHEDULING_WORKFLOW
+        if not tid or not token:
+            return None
+
+        def _lookup(repo: WorkflowLifecyclesRepository) -> str | None:
+            return repo.find_awaiting_customer_reply_by_appt_subject_token(
+                tenant_id=tid,
+                subject_token=token,
+                workflow_name=wn,
+            )
+
+        if self._lifecycles_repo is not None:
+            return _lookup(self._lifecycles_repo)
+        return run_with_repos(lambda repos: _lookup(self._repo(repos)))

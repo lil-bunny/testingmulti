@@ -13,10 +13,20 @@ from app.domain.driver_assignment.escalation import DriverAssignmentEscalateSett
 from app.domain.driver_assignment.partial_follow_up_email import (
     DriverAssignmentPartialFollowUpEmailConfig,
 )
+from app.domain.appointment_scheduling.confirmation_reply import (
+    AppointmentSchedulingConfirmationReplySettings,
+)
+from app.domain.appointment_scheduling.teams_notification import (
+    AppointmentSchedulingTeamsNotificationSettings,
+)
 from app.domain.driver_assignment.reminders_config import DriverAssignmentRemindersConfig
 from app.domain.pod_lifecycle.teams_notification import PodLifecycleTeamsNotificationSettings
 from app.domain.reminder_schedule import WorkflowRemindersConfig
-from app.domain.tenant_settings.email_recipients import EmailRecipients, InboundRoutingEmails
+from app.domain.tenant_settings.email_recipients import (
+    EmailRecipients,
+    InboundRoutingEmails,
+)
+from app.domain.tenant_settings.ascend import AscendSettings
 from app.domain.tenant_settings.tms import TmsSettings
 
 
@@ -38,6 +48,18 @@ class T3raPodLifecycleSettings(BaseModel):
     )
     reminders: WorkflowRemindersConfig
     teams_notification: PodLifecycleTeamsNotificationSettings | None = None
+
+
+class T3raAppointmentSchedulingSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    turvo_app_user_id: str | None = None
+    appointment_data_source: str = ""
+    emails: EmailRecipients = Field(default_factory=EmailRecipients)
+    # Ascend HTTP only; Turvo weekend/delivery writes still run when this is True.
+    skip_ascend_writes: bool = True
+    teams_notification: AppointmentSchedulingTeamsNotificationSettings | None = None
+    confirmation_reply: AppointmentSchedulingConfirmationReplySettings | None = None
 
 
 class T3raDriverAssignmentSettings(BaseModel):
@@ -76,12 +98,20 @@ class T3raDriverAssignmentPrompts(BaseModel):
     driver_details: str
 
 
+class T3raAppointmentSchedulingPrompts(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    scheduling_optimization: str
+    customer_reply: str | None = None
+
+
 class T3raPrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     pod_lifecycle: T3raPodLifecyclePrompts
     ratecon: T3raRateconPrompts
     driver_assignment: T3raDriverAssignmentPrompts | None = None
+    appointment_scheduling: T3raAppointmentSchedulingPrompts | None = None
 
 
 class MikeyAccountSettings(BaseModel):
@@ -117,6 +147,8 @@ class T3raTenantSettings(BaseModel):
     inbound_routing_emails: InboundRoutingEmails
     mikey_account_id: MikeyAccountId
     tms: TmsSettings
+    ascend: AscendSettings | None = None
     prompts: T3raPrompts
     pod_lifecycle: T3raPodLifecycleSettings
     driver_assignment: T3raDriverAssignmentSettings | None = None
+    appointment_scheduling: T3raAppointmentSchedulingSettings | None = None

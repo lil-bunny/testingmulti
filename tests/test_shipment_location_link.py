@@ -347,6 +347,47 @@ class TestShipmentLocationLinkService:
         with pytest.raises(ShipmentLocationLinkError, match="missing shipments_row_id"):
             svc.link_from_route_stops(THREE_STOP_ROUTE, shipments_row_id=None)
 
+    def test_link_from_turvo_shipment_payload_delegates_to_route_stops(self) -> None:
+        svc = ShipmentLocationLinkService(
+            locations_repository=MagicMock(),
+            shipments_repository=MagicMock(),
+        )
+        turvo_payload = {"details": {"globalRoute": THREE_STOP_ROUTE}}
+        svc.link_from_route_stops = MagicMock(
+            return_value=ShipmentLocationLinkResult(
+                pickup_location_id="p-id",
+                delivery_location_id="d-id",
+                pickup=LocationLookup(city="Ripon", state_code="CA", country="US"),
+                delivery=LocationLookup(city="RENO", state_code="NV", country="US"),
+            )
+        )
+        result = svc.link_from_turvo_shipment_payload(
+            turvo_payload,
+            shipments_row_id="ship-row-1",
+        )
+        assert result.pickup_location_id == "p-id"
+        svc.link_from_route_stops.assert_called_once()
+        call_kw = svc.link_from_route_stops.call_args.kwargs
+        assert call_kw["shipments_row_id"] == "ship-row-1"
+        assert call_kw["delivery_address_builder"] is delivery_address_from_global_route_stop
+        assert call_kw["shipment_details"] == turvo_payload["details"]
+
+    def test_try_link_from_turvo_returns_none_on_link_error(self) -> None:
+        svc = ShipmentLocationLinkService(
+            locations_repository=MagicMock(),
+            shipments_repository=MagicMock(),
+        )
+        svc.link_from_turvo_shipment_payload = MagicMock(
+            side_effect=ShipmentLocationLinkError("missing shipments_row_id")
+        )
+        assert (
+            svc.try_link_from_turvo_shipment_payload(
+                {"details": {"globalRoute": THREE_STOP_ROUTE}},
+                shipments_row_id="ship-row-1",
+            )
+            is None
+        )
+
     def test_location_not_found_raises_when_insert_fails(self) -> None:
         locations = MagicMock()
         locations.find_id_by_city_state_country_tx.return_value = None
@@ -395,7 +436,7 @@ class TestLinkShipmentLocationsNode:
             }
         )
         mock_svc = MagicMock()
-        mock_svc.link_from_route_stops.side_effect = ShipmentLocationLinkError(
+        mock_svc.link_from_turvo_shipment_payload.side_effect = ShipmentLocationLinkError(
             "location not found"
         )
         monkeypatch.setattr(
@@ -414,7 +455,7 @@ class TestLinkShipmentLocationsNode:
             }
         )
         mock_svc = MagicMock()
-        mock_svc.link_from_route_stops.return_value = ShipmentLocationLinkResult(
+        mock_svc.link_from_turvo_shipment_payload.return_value = ShipmentLocationLinkResult(
             pickup_location_id="p-id",
             delivery_location_id="d-id",
             pickup=LocationLookup(city="Ripon", state_code="CA", country="US"),
@@ -428,10 +469,7 @@ class TestLinkShipmentLocationsNode:
         turvo_nodes.link_shipment_locations(state)
         assert state.data["shipment_location_link"]["success"] is True
         assert state.data["shipment_location_link"]["pickup_location_id"] == "p-id"
-        mock_svc.link_from_route_stops.assert_called_once()
-        call_kw = mock_svc.link_from_route_stops.call_args.kwargs
-        assert (
-            call_kw["delivery_address_builder"]
-            is turvo_nodes.delivery_address_from_global_route_stop
-        )
-        assert call_kw["shipment_details"] == {"globalRoute": THREE_STOP_ROUTE}
+        mock_svc.link_from_turvo_shipment_payload.assert_called_once()
+        call_args = mock_svc.link_from_turvo_shipment_payload.call_args
+        assert call_args.args[0] == {"details": {"globalRoute": THREE_STOP_ROUTE}}
+        assert call_args.kwargs["shipments_row_id"] == "ship-row-1"

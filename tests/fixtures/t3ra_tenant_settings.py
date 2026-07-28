@@ -17,6 +17,10 @@ T3RA_PROMPTS: dict[str, Any] = {
     "driver_assignment": {
         "driver_details": "driver-details-extract:staging",
     },
+    "appointment_scheduling": {
+        "scheduling_optimization": "appt-scheduling-optimization:staging",
+        "customer_reply": "appt-reply:staging",
+    },
 }
 
 
@@ -69,7 +73,31 @@ def minimal_t3ra_tenant_settings() -> dict[str, Any]:
                 "message_title": "POD analyzed — Load {load_id}",
             },
         },
-        "enabledProcesses": ["pod_lifecycle", "pod_collection", "driver_assignment"],
+        "enabledProcesses": [
+            "pod_lifecycle",
+            "pod_collection",
+            "driver_assignment",
+            "appointment_scheduling",
+        ],
+        "ascend": {
+            "email": "ascend@example.com",
+            "password_ciphertext": "plain:secret",
+        },
+        "appointment_scheduling": {
+            "appointment_data_source": "/tmp/appointments.xlsx",
+            "emails": {
+                "to": [],
+                "cc": ["ops@example.com"],
+                "bcc": [],
+            },
+            "teams_notification": {
+                "teams_webhook_url": "https://example.invalid/webhook",
+                "message_title": "Appointment draft ready — Load {load_id}",
+            },
+            "confirmation_reply": {
+                "template_html": "<html><body><p>Confirmed for load {load_id}. Thank you.</p></body></html>",
+            },
+        },
         "prompts": T3RA_PROMPTS,
         "mikey_account_id": {
             "account_id": "test-mikey-account-id",

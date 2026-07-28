@@ -1,5 +1,7 @@
 """v1 shipment endpoints."""
 
+from __future__ import annotations
+
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Security, UploadFile, status
