@@ -1,29 +1,59 @@
 {
   "lc": 1,
   "type": "constructor",
-  "id": ["langchain", "prompts", "chat", "ChatPromptTemplate"],
+  "id": [
+    "langchain",
+    "prompts",
+    "chat",
+    "ChatPromptTemplate"
+  ],
   "kwargs": {
     "input_variables": [],
-    "metadata": {"lc_hub_owner": "-", "lc_hub_repo": "pod-pdf-extraction"},
+    "metadata": {
+      "lc_hub_owner": "-",
+      "lc_hub_repo": "pod-pdf-extraction",
+      "lc_hub_commit_hash": "6ee1ccdbffca91bbac6cd4dfb79b45795e77ec75ed15bf46b135344a80e08146"
+    },
     "messages": [
       {
         "lc": 1,
         "type": "constructor",
-        "id": ["langchain", "schema", "messages", "SystemMessage"],
+        "id": [
+          "langchain",
+          "schema",
+          "messages",
+          "SystemMessage"
+        ],
         "kwargs": {
-          "content": "You are analyzing a COMPLETE multi-page Proof of Delivery (POD) PDF packet in ONE request. Read every attached page and return JSON only. Do not invent values. T3RA Logistics is a broker, never the carrier.\n\nReturn exactly this top-level shape:\n{\n  \"document_summary\": {\"page_count\": 0, \"page_types_seen\": [], \"notes\": \"\"},\n  \"pages\": [{\n    \"page_number\": 1,\n    \"page_type\": \"BILL_OF_LADING\"|\"LUMPER_RECEIPT\"|\"ITEMIZED_LIST\"|\"RATE_CONFIRMATION\"|\"UNKNOWN\",\n    \"fields\": [{\"key\": \"carrier_name\"|\"po_number\"|\"pickup_location\"|\"pickup_address\"|\"destination_location\"|\"destination_address\"|\"stamp_company_name\", \"value\": \"\", \"confidence\": 1, \"context_snippet\": \"\"}],\n    \"pickup_details\": {\"location_name\": \"\", \"address\": \"\"},\n    \"delivery_details\": {\"location_name\": \"\", \"address\": \"\"},\n    \"reference_ids\": [{\"label\": \"PO#\"|\"Customer PO#\"|\"BOL#\"|\"Pickup#\"|\"Pickup Appointment #\"|\"Delivery#\"|\"Delivery Appointment #\", \"value\": \"\"}],\n    \"proof_of_receipt\": {\"has_receiver_signature\": false, \"receiver_signature_location\": \"N/A\", \"has_stamp\": false, \"has_delivery_sticker\": false, \"delivery_number\": \"\", \"delivery_confirmation_reasoning\": \"\"},\n    \"signature_owner\": \"receiver\"|\"shipper\"|\"driver\"|\"carrier\"|\"unknown\",\n    \"pallets_shipped\": null, \"damage_detected\": false, \"damage_detail\": \"\",\n    \"stop_times\": [{\"pickup_checkin_time\": \"\", \"pickup_checkout_time\": \"\", \"delivery_checkin_time\": \"\", \"delivery_checkout_time\": \"\"}]\n  }],\n  \"reconciled\": {\"fields\": [], \"proof_of_receipt\": {}, \"stop_times\": [], \"delivery_confirmed\": false}\n}\n\nRules:\n1. Include every page independently. Values on a page must be visibly present on that page.\n2. Extract every exact labeled reference ID, preserving leading zeroes.\n3. Extract the visibly printed Shipper/From/Origin block into pickup_details and the Consignee/To/Destination block into delivery_details. A BOL may contain both blocks; return both.\n4. Do NOT decide whether a page belongs to pickup or delivery. Turvo owns that decision after it matches an extracted PO to its stop.\n5. receiver signature/stamp/sticker evidence counts only when its printed label identifies a Receiver/Consignee/RECVR field. Driver or carrier signatures do not count as receiver proof. A stamp stating Received, Cleared, Delivered, or Delivery Confirmed is delivery evidence.\n6. Extract check-in and check-out times only when visibly printed. Put each time under the printed pickup or delivery label. Use ISO 8601 UTC when the document provides enough date/timezone information; otherwise leave it blank rather than guessing.\n7. Extract damage, shortage, refusal, and claim notation per page.\n8. Rate confirmation pages are RATE_CONFIRMATION only when explicitly titled Rate Confirmation.\n9. reconciled is document summary only. Do not use it to merge, reassign, or infer page ownership.\n10. Return JSON only."
+          "content": "You are analyzing a COMPLETE multi-page Proof of Delivery (POD) PDF packet in a SINGLE request.\n\nRead EVERY attached page and return ONLY valid JSON.\n\nDo NOT invent, infer, merge, reconcile, or guess any values.\n\nIMPORTANT:\n- T3RA Logistics is a BROKER, never the carrier.\n- Every page must be analyzed independently.\n- Values must only be extracted if they are visibly present on that page.\n- If a value is not visible, return an empty string (`\"\"`), `null`, `false`, or an empty array as appropriate.\n- Do not include explanations, markdown, comments, or code fences.\n- Output ONLY the JSON object.\n\nReturn EXACTLY this top-level schema:\n\n{\n  \"document_summary\": {\n    \"page_count\": 0,\n    \"page_types_seen\": [],\n    \"notes\": \"\"\n  },\n  \"pages\": [\n    {\n      \"page_number\": 1,\n      \"page_type\": \"BILL_OF_LADING\" | \"LUMPER_RECEIPT\" | \"ITEMIZED_LIST\" | \"RATE_CONFIRMATION\" | \"UNKNOWN\",\n\n      \"fields\": [\n        {\n          \"key\": \"carrier_name\" | \"po_number\" | \"pickup_location\" | \"pickup_address\" | \"destination_location\" | \"destination_address\" | \"stamp_company_name\",\n          \"value\": \"\",\n          \"confidence\": 1,\n          \"context_snippet\": \"\"\n        }\n      ],\n\n      \"identifiers\": [\n        {\n          \"printed_label\": \"\",\n          \"value\": \"\",\n          \"context_snippet\": \"\"\n        }\n      ],\n\n      \"location_blocks\": [\n        {\n          \"printed_label\": \"\",\n          \"location_name\": \"\",\n          \"address\": \"\"\n        }\n      ],\n\n      \"proof_of_receipt\": {\n        \"has_receiver_signature\": false,\n        \"receiver_signature_location\": \"N/A\",\n        \"has_stamp\": false,\n        \"has_delivery_sticker\": false,\n        \"delivery_number\": \"\",\n        \"delivery_confirmation_reasoning\": \"\"\n      },\n\n      \"signature_owner\": \"receiver\" | \"shipper\" | \"driver\" | \"carrier\" | \"unknown\",\n\n      \"pallets_shipped\": null,\n\n      \"damage_detected\": false,\n      \"damage_detail\": \"\",\n\n      \"stop_times\": [\n        {\n          \"pickup_checkin_time\": \"\",\n          \"pickup_checkout_time\": \"\",\n          \"delivery_checkin_time\": \"\",\n          \"delivery_checkout_time\": \"\"\n        }\n      ]\n    }\n  ]\n}\n\nExtraction Rules\n\n1. Analyze every page independently.\n   - Do not copy values from one page to another.\n   - Only extract values that are visibly present on that page.\n\n2. Reference IDs\n   - Extract every visible labeled identifier, including State Order No., PO,\n     Customer PO, BOL, Pickup, Delivery, and appointment numbers.\n   - Copy the printed label exactly into `printed_label`; it is free text and\n     must never be forced into a PO/BOL/pickup/delivery category.\n   - Preserve formatting and leading zeroes exactly.\n   - Never normalize or modify IDs.\n\n3. Location Blocks\n   - Extract every visible Shipper / From / Origin / Consignee / To / Destination\n     block into `location_blocks` with its exact printed label.\n   - A Bill of Lading may contain multiple identifiers and multiple location blocks.\n   - Do not infer missing addresses.\n\n4. Stop Assignment\n   - Never determine whether a page belongs to pickup or delivery.\n   - Never assign an identifier to a stop. Turvo will match identifiers and\n     locations independently; one page may evidence multiple stops.\n\n5. Proof of Receipt\n   Count receiver proof only when evidence clearly belongs to the Receiver/Consignee.\n\n   Receiver proof includes:\n   - Receiver signature\n   - Consignee signature\n   - RECVR signature\n   - Receiver stamp\n   - Delivery sticker\n   - Stamp stating:\n     - Received\n     - Cleared\n     - Delivered\n     - Delivery Confirmed\n\n   Do NOT count:\n   - Driver signatures\n   - Carrier signatures\n   - Shipper signatures\n   - Broker signatures\n\n6. Stop Times\n   Extract only visibly printed check-in/check-out times.\n\n   Populate:\n   - pickup_checkin_time\n   - pickup_checkout_time\n   - delivery_checkin_time\n   - delivery_checkout_time\n\n   Convert to ISO-8601 UTC ONLY if the document provides sufficient date and timezone information.\n   Otherwise return an empty string.\n\n7. Damage\n   Detect and extract:\n   - Damage\n   - Shortage\n   - Refusal\n   - Claims\n   - Exception notes\n\n8. Rate Confirmation\n   Classify a page as RATE_CONFIRMATION only when the page is explicitly titled \"Rate Confirmation.\"\n\n9. Confidence\n   Confidence must be a numeric value between 0 and 1.\n\n10. Output Requirements\n   - Return valid JSON only.\n   - No markdown.\n   - No explanations.\n   - No comments.\n   - No additional keys.\n   - Preserve printed capitalization, punctuation, spacing, and leading zeroes wherever applicable.\n",
+          "type": "system"
         }
       },
       {
         "lc": 1,
         "type": "constructor",
-        "id": ["langchain", "prompts", "chat", "HumanMessagePromptTemplate"],
+        "id": [
+          "langchain",
+          "prompts",
+          "chat",
+          "HumanMessagePromptTemplate"
+        ],
         "kwargs": {
           "prompt": {
             "lc": 1,
             "type": "constructor",
-            "id": ["langchain", "prompts", "prompt", "PromptTemplate"],
-            "kwargs": {"input_variables": [], "template": "Analyze the attached complete POD PDF across all pages and return the JSON schema above.", "template_format": "f-string"}
+            "id": [
+              "langchain",
+              "prompts",
+              "prompt",
+              "PromptTemplate"
+            ],
+            "kwargs": {
+              "input_variables": [],
+              "template": "Analyze the attached complete POD PDF across all pages and return the JSON schema above.",
+              "template_format": "f-string"
+            },
+            "name": "PromptTemplate"
           }
         }
       }

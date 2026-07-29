@@ -26,8 +26,7 @@ def build_stop_aware_observations(
         for page in page_list:
             if _normalize(po.po_number) not in {_normalize(value) for value in _reference_values(page)}:
                 continue
-            evidence = _stop_evidence(page, po.stop_type)
-            match = _evidence_matches_stop(evidence, po.stop_id, turvo_inputs)
+            evidence, match = _stop_evidence(page, po.stop_id, turvo_inputs)
             status = "matched" if match else ("location_mismatch" if _has_evidence(evidence) else "unconfirmed")
             comparison = {
                 "page_number": _page_number(page),
@@ -73,7 +72,54 @@ def build_stop_aware_observations(
     }
 
 
-def _stop_evidence(page: dict[str, Any], stop_type: str) -> dict[str, str]:
+def _stop_evidence(
+    page: dict[str, Any],
+    stop_id: str,
+    turvo_inputs: TurvoShipmentPodInputs,
+) -> tuple[dict[str, str], bool]:
+    """Find the page location block that belongs to this Turvo stop.
+
+    A page is deliberately not classified as pickup or delivery: one BOL can
+    contain several identifiers and both stop locations.
+    """
+    blocks = _location_blocks(page)
+    for block in blocks:
+        if _evidence_matches_stop(block, stop_id, turvo_inputs):
+            return block, True
+    return (blocks[0] if blocks else {"location_name": "", "address": ""}), False
+
+
+def _location_blocks(page: dict[str, Any]) -> list[dict[str, str]]:
+    blocks: list[dict[str, str]] = []
+    for block in page.get("location_blocks") or []:
+        if isinstance(block, dict):
+            blocks.append(
+                {
+                    "location_name": str(block.get("location_name") or "").strip(),
+                    "address": str(block.get("address") or "").strip(),
+                }
+            )
+    if blocks:
+        return blocks
+
+    # Existing stored packets remain readable during schema rollout.
+    for stop_type in ("pickup", "delivery"):
+        details = page.get(f"{stop_type}_details")
+        if isinstance(details, dict):
+            blocks.append(
+                {
+                    "location_name": str(details.get("location_name") or "").strip(),
+                    "address": str(details.get("address") or "").strip(),
+                }
+            )
+        else:
+            legacy = _legacy_stop_evidence(page, stop_type)
+            if _has_evidence(legacy):
+                blocks.append(legacy)
+    return blocks
+
+
+def _legacy_stop_evidence(page: dict[str, Any], stop_type: str) -> dict[str, str]:
     details = page.get(f"{stop_type}_details")
     if isinstance(details, dict):
         return {
@@ -121,6 +167,9 @@ def _has_evidence(evidence: dict[str, str]) -> bool:
 
 def _reference_values(page: dict[str, Any]) -> list[str]:
     values = []
+    for item in page.get("identifiers") or []:
+        if isinstance(item, dict) and str(item.get("value") or "").strip():
+            values.append(str(item["value"]))
     for item in page.get("reference_ids") or []:
         if isinstance(item, dict) and str(item.get("value") or "").strip():
             values.append(str(item["value"]))
