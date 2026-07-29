@@ -9,6 +9,7 @@ Shipment-scoped POD checks use ``GET /v1/documents/list`` — see
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -31,6 +32,55 @@ from app.integrations.turvo.public_api_client import TurvoApiClient
 TRACKING_METHOD_NONE = {"key": "31300", "value": "none"}
 TRACKING_METHOD_TURVO_APP = {"key": "31301", "value": "Turvo Driver app"}
 DRIVER_TYPE_SINGLE = {"key": "20020", "value": "Single driver"}
+
+_WORKFLOW_SHIPMENT_TOP_LEVEL_KEYS = frozenset(
+    {
+        "id",
+        "shipmentId",
+        "shipment_id",
+        "convoy",
+        "error",
+        "turvo_connection_timed_out",
+    }
+)
+_WORKFLOW_SHIPMENT_DETAIL_KEYS = frozenset(
+    {
+        "id",
+        "shipmentId",
+        "customId",
+        "status",
+        "transportation",
+        "carrierOrder",
+        "customerOrder",
+        "globalRoute",
+        "global_route",
+        "startDate",
+        "endDate",
+    }
+)
+
+
+def shipment_workflow_state_projection(payload: dict[str, Any]) -> dict[str, Any]:
+    """Project a Turvo shipment to fields consumed by workflow decisions.
+
+    The full vendor response can contain large status-history, tracking, and
+    geometry trees. Those fields must not enter LangGraph checkpoints.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    projected = {
+        key: deepcopy(payload[key])
+        for key in _WORKFLOW_SHIPMENT_TOP_LEVEL_KEYS
+        if key in payload
+    }
+    details = payload.get("details")
+    if isinstance(details, dict):
+        projected["details"] = {
+            key: deepcopy(details[key])
+            for key in _WORKFLOW_SHIPMENT_DETAIL_KEYS
+            if key in details
+        }
+    return projected
 
 
 def global_route_stops_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -823,7 +873,7 @@ def carrier_from_order(order: dict[str, Any]) -> tuple[int | None, str | None]:
     except (TypeError, ValueError):
         carrier_id = None
     name = carrier.get("name")
-    carrier_name = str(name).strip() if name else None
+    carrier_name = (str(name).strip() if name else "") or None
     return carrier_id, carrier_name
 
 

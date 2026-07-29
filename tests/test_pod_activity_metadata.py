@@ -75,9 +75,7 @@ def test_processed_failure_action_metadata() -> None:
 
 
 def test_extraction_action_metadata_id_only() -> None:
-    meta = extraction_action_metadata(
-        {"stored": True, "id": "analysis-1"},
-    )
+    meta = extraction_action_metadata("analysis-1")
     assert meta == {"document_analysis_id": "analysis-1"}
     assert_no_forbidden_keys(meta)
 

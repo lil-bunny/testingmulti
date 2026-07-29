@@ -25,7 +25,8 @@ _BASE_DATA = {
     "tenant_settings": _TENANT_SETTINGS,
     "documents_pod": {"stored": True, "id": "doc-1"},
     "pod_merged_pdf_object_key": "pod_attachments/pod.pdf",
-    "document_analysis_pod": {"stored": True, "id": "analysis-1"},
+    "pod_analysis_stored": True,
+    "pod_analysis_id": "analysis-1",
     "pod_scoring_results": {
         "success": True,
         "score": {
@@ -61,7 +62,7 @@ def test_notify_skipped_when_no_settings() -> None:
 
 def test_notify_skipped_when_analysis_not_stored() -> None:
     result = PodLifecycleTeamsNotificationService().notify_from_state(
-        _state(data={"document_analysis_pod": {"stored": False}})
+        _state(data={"pod_analysis_stored": False})
     )
     assert result.skipped is True
     assert result.skip_reason == "pod_analysis_not_stored"
@@ -80,7 +81,7 @@ def test_notify_posts_teams_on_success() -> None:
     assert _url == "https://example.webhook.office.com/test"
     assert kwargs["title"] == "POD analyzed — Load 30389"
     facts = dict(kwargs["facts"])
-    assert list(facts) == ["Load ID", "POD Score", "Status", "Summary"]
+    assert list(facts) == ["Load ID", "POD Score", "Status", "Review summary"]
     assert facts["POD Score"] == "87/100"
 
 

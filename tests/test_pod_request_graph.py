@@ -53,8 +53,7 @@ def test_pod_lifecycle_pod_request_graph():
     assert routers["trim_ratecon_pages_from_pod"]["map"]["continue"] == "upload_trimmed_pod_attachments"
     assert routers["trim_ratecon_pages_from_pod"]["map"]["only_ratecon"] == "end"
     assert ("upload_trimmed_pod_attachments", "record_pod_upload_activity") in edges
-    assert ("record_pod_upload_activity", "capture_turvo_shipment_snapshot") in edges
-    assert ("capture_turvo_shipment_snapshot", "pod_scoring") in edges
+    assert ("record_pod_upload_activity", "pod_scoring") in edges
     assert ("pod_scoring", "record_pod_processed_activity") in edges
     assert ("record_pod_processed_activity", "notify_pod_analysis_teams") in edges
     assert ("record_pod_processed_activity", "update_shipment") not in edges

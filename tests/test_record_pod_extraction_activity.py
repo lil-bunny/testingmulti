@@ -62,7 +62,8 @@ def test_record_pod_extraction_activity_success(
 
     state = _base_state(
         data={
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-pod-1",
             "pod_analysis_results": {
                 "success": True,
                 "confidence_score": 0.82,
@@ -124,7 +125,8 @@ def test_record_pod_extraction_activity_idempotent_skip(
     state = _base_state(
         data={
             "event_type": "email_received",
-            "document_analysis_pod": {"stored": True, "id": "analysis-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-1",
         }
     )
 
@@ -154,7 +156,8 @@ def test_record_pod_extraction_activity_manual_reupload_logs_when_already_proces
         data={
             "event_type": "manual_pod_upload",
             "manual_pod_upload_source": "upload",
-            "document_analysis_pod": {"stored": True, "id": "analysis-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-1",
             "pod_analysis_results": {"success": True, "confidence_score": 0.9},
         }
     )

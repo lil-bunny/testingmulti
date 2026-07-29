@@ -8,6 +8,7 @@ from app.integrations.turvo.shipments import (
     appointment_scheduling_display_fields_from_payload,
     delivery_appointment_from_payload,
     shipment_display_fields_from_payload,
+    shipment_workflow_state_projection,
 )
 
 SHIPMENT_1000324895_FIXTURE: dict = {
@@ -51,6 +52,29 @@ SHIPMENT_1000324895_FIXTURE: dict = {
         ],
     }
 }
+
+
+def test_workflow_state_projection_keeps_decision_fields_and_drops_vendor_dump() -> None:
+    payload = {
+        **SHIPMENT_1000324895_FIXTURE,
+        "details": {
+            **SHIPMENT_1000324895_FIXTURE["details"],
+            "unrelatedVendorBlock": {"large": True},
+        },
+        "id": 123,
+        "statusHistory": [{"status": "large history"}],
+        "tracking": {"polyline": "large geometry"},
+    }
+
+    projected = shipment_workflow_state_projection(payload)
+
+    assert projected["id"] == 123
+    assert projected["details"]["globalRoute"]
+    assert projected["details"]["carrierOrder"]
+    assert projected["details"]["customerOrder"]
+    assert "statusHistory" not in projected
+    assert "tracking" not in projected
+    assert "unrelatedVendorBlock" not in projected["details"]
 
 
 def test_shipment_display_fields_from_payload_full_fixture() -> None:

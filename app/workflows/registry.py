@@ -3,7 +3,6 @@ from app.workflows.nodes.pod import (
     merge_pod_attachments_local,
     upload_trimmed_pod_attachments,
     trim_ratecon_pages_from_pod,
-    capture_turvo_shipment_snapshot,
     pod_analysis,
     pod_scoring,
 )
@@ -141,7 +140,6 @@ NODE_REGISTRY = {
     "trim_ratecon_pages_from_pod": trim_ratecon_pages_from_pod,
     "upload_trimmed_pod_attachments": upload_trimmed_pod_attachments,
     "pod_analysis": pod_analysis,
-    "capture_turvo_shipment_snapshot": capture_turvo_shipment_snapshot,
     "pod_scoring": pod_scoring,
     "read_workflow_lifecycle": read_workflow_lifecycle,
     "check_ratecon_workflow_lifecycle": check_ratecon_workflow_lifecycle,

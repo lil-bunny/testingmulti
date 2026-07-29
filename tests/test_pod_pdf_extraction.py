@@ -136,8 +136,8 @@ def test_extract_from_pdf_path_raises_when_too_many_pages(monkeypatch, tmp_path)
         pod_extraction.extract_from_pdf_path(str(pdf_path))
 
 
-def test_wrap_pages_as_page_details_ignores_non_dict_entries():
-    wrapped = pod_extraction.wrap_pages_as_page_details(
+def test_build_page_results_ignores_non_dict_entries():
+    wrapped = pod_extraction.build_page_results(
         [{"page_number": 1}, "not-a-dict", None], "load-1"
     )
     assert len(wrapped) == 1

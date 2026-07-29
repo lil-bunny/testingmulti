@@ -20,6 +20,8 @@ CARRIER_ACK_CLASSIFY_PROMPT = "carrier-ack-classify"
 DRIVER_DETAILS_EXTRACT_PROMPT = "driver-details-extract"
 POD_PDF_EXTRACTION_PROMPT = "pod-pdf-extraction"
 POD_ATTACHMENT_CLASSIFIER_PROMPT = "pod-attachment-classifier"
+APPOINTMENT_SCHEDULING_OPTIMIZATION_PROMPT = "appt-scheduling-optimization"
+APPOINTMENT_SCHEDULING_CUSTOMER_REPLY_PROMPT = "appt-reply"
 
 
 def hub_prompt_id(prompt_name: str, *, owner: str | None = None) -> str:

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle.guards import pod_upload_success_from_state
+from app.domain.pod_lifecycle.guards import (
+    pod_analysis_stored_from_state,
+    pod_upload_success_from_state,
+)
 from app.domain.pod_lifecycle.teams_notification import (
     format_pod_analysis_body,
     format_pod_analysis_title,
@@ -81,9 +84,9 @@ class PodLifecycleTeamsNotificationService:
         facts = pod_analysis_facts(fields)
 
         wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
-        # ponytail: Teams stays live in workflow shadow_mode (email/Turvo are gated elsewhere)
+        # Teams stays live in shadow mode so operators can review scoring output.
         try:
-            asyncio.run(
+            run_sync(
                 post_message_card(
                     settings.teams_webhook_url,
                     title=title,
@@ -108,8 +111,7 @@ class PodLifecycleTeamsNotificationService:
 
 
 def _analysis_success(data: dict[str, Any]) -> bool:
-    persist = data.get("document_analysis_pod")
-    return isinstance(persist, dict) and persist.get("stored") is True
+    return pod_analysis_stored_from_state(data)
 
 
 def _display_fields_skip_reason(data: dict[str, Any], scoring_results: dict[str, Any]) -> str:

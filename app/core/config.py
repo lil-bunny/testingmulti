@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     ENV: str = "dev"
 
     # LLM / observability
-    OPENAI_API_KEY: Optional[str] = None
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROMPT_OWNER: Optional[str] = None
     LANGSMITH_PROJECT: Optional[str] = None
@@ -46,10 +45,6 @@ class Settings(BaseSettings):
     REDIS_URL: str
     DEFAULT_WORK_QUEUE: str = "celery"
     T3RA_WORK_QUEUE: str = "t3ra"
-
-    # Unipile (required for POD reminder replies in thread)
-    UNIPILE_API_KEY: str
-    UNIPILE_BASE_URL: str = "https://api16.unipile.com:14674"
 
     # Default workflow tenant when a webhook does not pass ?tenant_id= (must match app/configs/tenant_configs.py)
     STUDIO_TENANT_SLUG: str = TenantSlug.T3RA

@@ -20,6 +20,8 @@ from app.domain.pod_lifecycle.guards import (
 
     is_manual_pod_upload,
 
+    pod_analysis_stored_from_state,
+
     pod_upload_success_from_state,
 
     should_skip_idempotent_pod_activity_log,
@@ -69,9 +71,7 @@ def _scope_ids(state: WorkflowState) -> tuple[str, str, str] | None:
 
 def _analysis_success(state: WorkflowState) -> bool:
 
-    persist = state.data.get("document_analysis_pod")
-
-    return isinstance(persist, dict) and persist.get("stored") is True
+    return pod_analysis_stored_from_state(state.data)
 
 
 

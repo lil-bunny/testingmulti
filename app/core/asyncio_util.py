@@ -15,6 +15,7 @@ def run_sync(coro: Coroutine[object, object, _T]) -> _T:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
+    coro.close()
     raise RuntimeError(
         "run_sync cannot be called under a running event loop; use the async API"
     )

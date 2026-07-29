@@ -9,6 +9,11 @@ from app.tools.pdf_to_images import PdfTooLargeError
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.services.shipments_service import ShipmentsService
 from app.services.pod_lifecycle.tms_upload_service import PodTmsUploadService
+from app.integrations.turvo.shipments import (
+    carrier_from_order,
+    first_active_carrier_order,
+    shipment_workflow_state_projection,
+)
 from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool
@@ -39,12 +44,9 @@ def _merge_pod_exists_from_turvo(state) -> None:
 
 def _apply_shipment_side_effects(state, shipment: dict[str, Any]) -> None:
     """Set convoy flag and enrich display columns from an in-memory Turvo payload."""
-    details = shipment.get("details") or {}
-    carrier_order = details.get("carrierOrder") or []
-    carrier_name = ""
-    if carrier_order and isinstance(carrier_order[0], dict):
-        carrier = carrier_order[0].get("carrier") or {}
-        carrier_name = str(carrier.get("name") or "")
+    _carrier_id, carrier_name = carrier_from_order(
+        first_active_carrier_order(shipment) or {}
+    )
 
     state.data["is_convoy"] = (
         "convoy" in carrier_name.lower()
@@ -73,14 +75,15 @@ def _apply_shipment_side_effects(state, shipment: dict[str, Any]) -> None:
 
 def get_shipment(state):
     """
-    Ensure ``state.data["shipment"]`` is a Turvo payload and apply display side effects.
+    Ensure ``state.data["shipment"]`` is a checkpoint-safe Turvo projection.
 
-    Reuses a stashed payload from ratecon prepare when ``details`` is already present.
+    Reuses a stashed projection from ratecon prepare when ``details`` is present.
     """
     existing = state.data.get("shipment")
     if isinstance(existing, dict) and existing.get("details") is not None:
         # Guard: prepare already fetched Turvo — skip a second get-by-id.
         _apply_shipment_side_effects(state, existing)
+        state.data["shipment"] = shipment_workflow_state_projection(existing)
         return state
 
     sid_state = resolve_shipment_id(state.data)
@@ -89,9 +92,11 @@ def get_shipment(state):
         **turvo_call_kwargs(state),
     )
 
-    state.data["shipment"] = shipment
     if isinstance(shipment, dict):
         _apply_shipment_side_effects(state, shipment)
+        state.data["shipment"] = shipment_workflow_state_projection(shipment)
+    else:
+        state.data["shipment"] = {}
 
     return state
 

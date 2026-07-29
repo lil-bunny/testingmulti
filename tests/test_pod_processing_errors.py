@@ -188,10 +188,8 @@ def test_pod_analysis_success_does_not_set_error(mock_row, mock_upsert, mock_too
     mock_tool.return_value = {
         "success": True,
         "findings": {
-            "pod_data": {"delivery_confirmed": True},
-            "llm_extraction": {"pages": []},
+            "pages": [{"page_number": 1, "page_type": "BILL_OF_LADING"}],
             "metadata": {"model": "pdf"},
-            "page_details": [],
             "pod_observations": {"delivery_signature_present": True},
         },
         "confidence_score": 0.9,
@@ -207,9 +205,10 @@ def test_pod_analysis_success_does_not_set_error(mock_row, mock_upsert, mock_too
     args, kwargs = mock_upsert.call_args
     assert args[1] == DocumentAnalysisType.POD_EXTRACTION
     assert kwargs["results"] == {
-        "pod_data": {"delivery_confirmed": True},
-        "llm_extraction": {"pages": []},
+        "page_evidence": [{"page_number": 1, "page_type": "BILL_OF_LADING"}]
     }
+    assert state.data["pod_analysis_stored"] is True
+    assert state.data["pod_analysis_id"] == "da-1"
     from app.core.config import settings
 
     assert kwargs["llm_model"] == {"model": settings.LLM_PDF_MODEL}

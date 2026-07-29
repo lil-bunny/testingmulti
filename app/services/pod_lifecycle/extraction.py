@@ -125,7 +125,6 @@ def _first_stop_time(stop_times: list[Any], keys: tuple[str, str]) -> str | None
 
 def derive_pod_scoring_observations(
     pages: Any,
-    _unused_legacy_pod_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Build raw POD observations from LLM ``pages[]`` only.
@@ -187,8 +186,8 @@ def derive_pod_scoring_observations(
     }
 
 
-def wrap_pages_as_page_details(pages: Any, load_id: str) -> list[dict[str, Any]]:
-    """Wrap Hub ``pages[]`` items as the legacy ``{page_number, extracted_data, load_id}`` shape."""
+def build_page_results(pages: Any, load_id: str) -> list[dict[str, Any]]:
+    """Build the extractor result envelope for each Hub ``pages[]`` item."""
     if not isinstance(pages, list):
         return []
     wrapped = []
@@ -216,7 +215,7 @@ def extract_from_pdf_path(
     """
     Single-call PDF extraction: size/page guard -> ``chat_pdf_json`` -> pages.
 
-    Returns ``(page_details, {}, [], {}, raw_llm_response)`` while callers
+    Returns ``(page_results, {}, [], {}, raw_llm_response)`` while callers
     migrate to the page-evidence-only return contract.
     Raises ``PdfTooLargeError`` when the PDF exceeds ``POD_PDF_MAX_BYTES`` /
     ``POD_PDF_MAX_PAGES`` (fail closed — no compression fallback here).
@@ -270,14 +269,14 @@ def extract_from_pdf_path(
     if not isinstance(raw_response, dict):
         raw_response = {}
     pages = raw_response.get("pages")
-    page_details = wrap_pages_as_page_details(pages, load_id)
+    page_results = build_page_results(pages, load_id)
 
-    if not page_details:
+    if not page_results:
         logger.warning(
             "pod_extraction: PDF response missing usable page evidence load_id=%s",
             load_id,
         )
-        page_details = [
+        page_results = [
             {
                 "page_number": 1,
                 "timestamp": datetime.now().isoformat(),
@@ -286,14 +285,14 @@ def extract_from_pdf_path(
                 "error_category": "empty_response",
             }
         ]
-        return page_details, {}, [], {}, raw_response
+        return page_results, {}, [], {}, raw_response
 
     logger.info(
         "pod_extraction: PDF extraction complete load_id=%s pages=%s model=%s",
         load_id,
-        len(page_details),
+        len(page_results),
         model_label,
     )
-    return page_details, {}, [], {}, raw_response
+    return page_results, {}, [], {}, raw_response
 
 

@@ -95,7 +95,7 @@ def _manual_pod_analysis_soft_fail(out: dict) -> bool:
         return True
     if not out.get("success"):
         return str(out.get("error") or "").strip() == "extraction_empty"
-    return not (out.get("findings") or {}).get("page_details")
+    return not (out.get("findings") or {}).get("pages")
 
 
 @safe_node
@@ -128,7 +128,7 @@ def pod_analysis(state):
             raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
         raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
 
-    if out.get("success") and not (out.get("findings") or {}).get("page_details"):
+    if out.get("success") and not (out.get("findings") or {}).get("pages"):
         raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
@@ -136,19 +136,22 @@ def pod_analysis(state):
     if (
         out.get("success")
         and not out.get("skipped")
-        and findings.get("page_details")
+        and findings.get("pages")
         and shipments_row_id
     ):
-        # Persist extract-only shape; scoring/observations stay in state findings.
+        # Persist the canonical page evidence once; observations stay in state for scoring.
         persist = upsert_document_analysis(
             shipments_row_id,
             DocumentAnalysisType.POD_EXTRACTION,
-            results={"page_evidence": findings.get("page_details")},
+            results={"page_evidence": findings.get("pages")},
             confidence_score=out.get("confidence_score"),
             llm_model={"model": settings.LLM_PDF_MODEL},
             document_id=out.get("document_id"),
         )
-        state.data["document_analysis_pod"] = persist
+        state.data["pod_analysis_stored"] = persist.get("stored") is True
+        analysis_id = str(persist.get("id") or "").strip()
+        if analysis_id:
+            state.data["pod_analysis_id"] = analysis_id
         logger.info(
             "pod_analysis: document_analysis stored=%s id=%s",
             persist.get("stored"),
@@ -162,9 +165,7 @@ def _llm_pages_from_state(data: dict) -> object:
     results = results if isinstance(results, dict) else {}
     findings = results.get("findings")
     findings = findings if isinstance(findings, dict) else {}
-    llm_extraction = findings.get("llm_extraction")
-    llm_extraction = llm_extraction if isinstance(llm_extraction, dict) else {}
-    return llm_extraction.get("pages")
+    return findings.get("pages")
 
 
 def _record_only_ratecon_info(state) -> None:
@@ -262,20 +263,6 @@ def upload_trimmed_pod_attachments(state):
         raise
 
 
-@safe_node
-def capture_turvo_shipment_snapshot(state):
-    """
-    Store a dict snapshot of Turvo PoD-scoring inputs on state for audit/debug.
-
-    ``pod_scoring`` re-extracts from ``state.data["shipment"]`` itself (cheap, pure)
-    rather than reconstructing dataclasses from this dict.
-    """
-    shipment = state.data.get("shipment") or {}
-    pod_inputs = extract_pod_inputs_from_shipment(shipment)
-    state.data["turvo_shipment_snapshot"] = asdict(pod_inputs)
-    return state
-
-
 def _pod_analysis_findings(state) -> dict:
     pod_results = state.data.get("pod_analysis_results")
     pod_results = pod_results if isinstance(pod_results, dict) else {}
@@ -284,8 +271,7 @@ def _pod_analysis_findings(state) -> dict:
 
 
 def _pod_extraction_persisted(state) -> bool:
-    persist = state.data.get("document_analysis_pod")
-    return isinstance(persist, dict) and persist.get("stored") is True
+    return state.data.get("pod_analysis_stored") is True
 
 
 @safe_node
@@ -302,13 +288,12 @@ def pod_scoring(state):
     findings = _pod_analysis_findings(state)
     pod_observations = findings.get("pod_observations")
     pod_observations = pod_observations if isinstance(pod_observations, dict) else {}
-    llm_extraction = findings.get("llm_extraction")
-    llm_extraction = llm_extraction if isinstance(llm_extraction, dict) else {}
+    pages = findings.get("pages")
     stop_observations = build_stop_aware_observations(
-        llm_extraction.get("pages"),
+        pages,
         pod_inputs,
     )
-    if isinstance(llm_extraction.get("pages"), list):
+    if isinstance(pages, list):
         pod_observations = {**pod_observations, **stop_observations}
 
     score = score_pod(pod_observations, pod_inputs)
@@ -325,7 +310,6 @@ def pod_scoring(state):
             confidence_score=score.final_score / 100,
             document_id=pod_results.get("document_id"),
         )
-        state.data["document_analysis_pod_scoring"] = persist
         logger.info(
             "pod_scoring: document_analysis stored=%s id=%s type=%s "
             "final_score=%s needs_action=%s",

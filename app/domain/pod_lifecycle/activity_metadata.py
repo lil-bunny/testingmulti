@@ -117,11 +117,8 @@ def processed_failure_action_metadata(data: dict[str, Any]) -> dict[str, Any] | 
     return compact(error="pod_analysis_not_stored")
 
 
-def extraction_action_metadata(document_analysis_pod: dict[str, Any] | None) -> dict[str, Any] | None:
+def extraction_action_metadata(analysis_id: Any) -> dict[str, Any] | None:
     """LLM extraction ACTION: ``document_analysis_id`` pointer only."""
-    if not isinstance(document_analysis_pod, dict):
-        return None
-    analysis_id = document_analysis_pod.get("id")
     if analysis_id is None or not str(analysis_id).strip():
         return None
     return compact(document_analysis_id=str(analysis_id).strip())

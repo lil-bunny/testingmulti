@@ -17,6 +17,7 @@ from app.domain.pod_lifecycle.activity_metadata import (
 )
 from app.domain.pod_lifecycle.guards import (
     POD_PROCESSED_ACTIVITY_DONE_SUB_STATUSES,
+    pod_analysis_stored_from_state,
     pod_reminder_skip_sub_statuses,
     should_skip_idempotent_pod_activity_log,
 )
@@ -51,8 +52,7 @@ def _communication_id(state: WorkflowState) -> str | None:
 
 
 def _analysis_success(state: WorkflowState) -> bool:
-    persist = state.data.get("document_analysis_pod")
-    return isinstance(persist, dict) and persist.get("stored") is True
+    return pod_analysis_stored_from_state(state.data)
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -329,9 +329,7 @@ class PodPipelineActivityService:
         if not isinstance(pod_results, dict):
             pod_results = {}
         confidence = _float_or_none(pod_results.get("confidence_score"))
-        pod_persist = state.data.get("document_analysis_pod")
-        pod_persist_dict = pod_persist if isinstance(pod_persist, dict) else None
-        action_meta = extraction_action_metadata(pod_persist_dict)
+        action_meta = extraction_action_metadata(state.data.get("pod_analysis_id"))
 
         self._activity_log_service.record_sequence(
             ActivityLogSequence(

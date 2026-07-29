@@ -113,13 +113,17 @@ def _location_blocks(page: dict[str, Any]) -> list[dict[str, str]]:
                 }
             )
         else:
-            legacy = _legacy_stop_evidence(page, stop_type)
-            if _has_evidence(legacy):
-                blocks.append(legacy)
+            stored_packet = _stored_packet_stop_evidence(page, stop_type)
+            if _has_evidence(stored_packet):
+                blocks.append(stored_packet)
     return blocks
 
 
-def _legacy_stop_evidence(page: dict[str, Any], stop_type: str) -> dict[str, str]:
+def _stored_packet_stop_evidence(
+    page: dict[str, Any],
+    stop_type: str,
+) -> dict[str, str]:
+    """Read the pre-rollout field layout from already-persisted extraction rows."""
     details = page.get(f"{stop_type}_details")
     if isinstance(details, dict):
         return {

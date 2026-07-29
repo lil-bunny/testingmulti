@@ -12,5 +12,5 @@ class DocumentAnalysisType(StrEnum):
     RATECON_EXTRACTION = "ratecon_extraction"
     POD_EXTRACTION = "pod_extraction"
     POD_VS_TMS_ANALYSIS = "pod_vs_tms_analysis"
-    # Legacy DB label only — currently not being used anywhere, kept for future use
+    # Schema compatibility only: PostgreSQL enum values cannot be removed safely.
     POD_VS_RATECON_COMPARISON = "pod_vs_ratecon_comparison"

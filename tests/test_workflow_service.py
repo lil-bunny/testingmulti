@@ -388,13 +388,12 @@ async def test_pod_lifecycle_email_received_routes_to_processing(
             "success": True,
             "skipped": False,
             "findings": {
-                "pod_data": {"delivery_confirmed": True},
-                "llm_extraction": {
-                    "pages": [{"page_number": 1, "page_type": "BILL_OF_LADING"}]
-                },
+                "pages": [{"page_number": 1, "page_type": "BILL_OF_LADING"}],
+                "pod_observations": {"delivery_signature_present": True},
             },
         }
-        state.data["document_analysis_pod"] = {"stored": True, "id": "da-1"}
+        state.data["pod_analysis_stored"] = True
+        state.data["pod_analysis_id"] = "da-1"
         return state
 
     monkeypatch.setitem(

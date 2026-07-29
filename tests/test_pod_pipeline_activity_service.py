@@ -48,7 +48,8 @@ def test_extraction_metadata_id_only() -> None:
     )
     state = _base_state(
         data={
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-pod-1",
             "pod_analysis_results": {
                 "success": True,
                 "confidence_score": 0.82,

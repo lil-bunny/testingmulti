@@ -8,6 +8,7 @@ from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
 from app.services.pod_lifecycle.extraction import derive_pod_scoring_observations
+from app.integrations.turvo.shipments import carrier_from_order, first_active_carrier_order
 from app.tools.pdf_to_images import PdfTooLargeError, make_temp_pdf
 from app.tools.documents import resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import resolve_shipment_id
@@ -16,24 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 def _carrier_name_from_shipment(data: dict) -> str | None:
-    """
-    Assigned carrier name from Turvo ``details.carrierOrder[0].carrier.name``.
-
-    Passed to PDF extraction as ``broker_name`` so the LLM excludes the carrier's
-    own letterhead when picking a carrier-name candidate off the POD.
-    """
+    """Assigned carrier name used to exclude carrier letterhead during extraction."""
     shipment = data.get("shipment")
-    details = shipment.get("details") if isinstance(shipment, dict) else None
-    orders = details.get("carrierOrder") if isinstance(details, dict) else None
-    if not isinstance(orders, list) or not orders:
+    if not isinstance(shipment, dict):
         return None
-    first = orders[0]
-    carrier = first.get("carrier") if isinstance(first, dict) else None
-    name = carrier.get("name") if isinstance(carrier, dict) else None
-    if name is None:
-        return None
-    s = str(name).strip()
-    return s or None
+    _carrier_id, carrier_name = carrier_from_order(
+        first_active_carrier_order(shipment) or {}
+    )
+    return carrier_name
 
 
 def pod_analysis(data: dict) -> dict:
@@ -158,11 +149,11 @@ def pod_analysis(data: dict) -> dict:
                 "error": "extraction_empty",
                 "shipment_id": sid,
                 "pod_object_key": object_key,
-                "page_results": page_results,
-                "page_evidence": page_results,
             }
 
-        pod_observations = derive_pod_scoring_observations((raw_llm_response or {}).get("pages"))
+        pages = (raw_llm_response or {}).get("pages")
+        pages = pages if isinstance(pages, list) else []
+        pod_observations = derive_pod_scoring_observations(pages)
 
         findings = {
             "metadata": {
@@ -174,8 +165,7 @@ def pod_analysis(data: dict) -> dict:
                 "pod_object_key_source": url_meta.get("source"),
                 "pod_bytes_source": source,
             },
-            "page_details": page_results,
-            "llm_extraction": raw_llm_response,
+            "pages": pages,
             "pod_observations": pod_observations,
         }
         return {

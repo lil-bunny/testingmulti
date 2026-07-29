@@ -1,8 +1,8 @@
 """OpenAI-compatible LLM client (Agentic / any chat-completions endpoint).
 
 Async core (``achat_json``, ``achat_vision_json``, ``achat_pdf_json``) uses a shared
-``AsyncOpenAI`` client per fan-out batch. Sync facades call ``asyncio.run`` for
-one-shot sync callers (nodes, services, tools).
+``AsyncOpenAI`` client per fan-out batch. Sync facades use the repository's
+loop-safe bridge for one-shot sync callers (nodes, services, tools).
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from openai import (
 )
 
 from app.core.config import settings
+from app.core.asyncio_util import run_sync
 
 if TYPE_CHECKING:
     from app.integrations.langsmith.types import PromptTraceMetadata
@@ -543,8 +544,8 @@ def chat_json(
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """Sync facade over ``achat_json`` (one-shot ``asyncio.run`` per call)."""
-    return asyncio.run(
+    """Sync facade over ``achat_json`` for callers without a running event loop."""
+    return run_sync(
         achat_json(
             system_prompt,
             user_prompt,
@@ -576,8 +577,8 @@ def chat_vision_json(
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """Sync facade over ``achat_vision_json`` (one-shot ``asyncio.run`` per call)."""
-    return asyncio.run(
+    """Sync facade over ``achat_vision_json`` for callers without a running event loop."""
+    return run_sync(
         achat_vision_json(
             system_prompt,
             user_prompt,
@@ -612,8 +613,8 @@ def chat_pdf_json(
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """Sync facade over ``achat_pdf_json`` (one-shot ``asyncio.run`` per call)."""
-    return asyncio.run(
+    """Sync facade over ``achat_pdf_json`` for callers without a running event loop."""
+    return run_sync(
         achat_pdf_json(
             system_prompt,
             user_prompt,

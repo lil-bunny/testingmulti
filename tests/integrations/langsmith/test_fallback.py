@@ -78,7 +78,9 @@ def test_load_pod_pdf_extraction_fallback_renders_schema() -> None:
     rendered = render_system_user(template, {})
     assert "Proof of Delivery" in rendered.system
     assert "document_summary" in rendered.system
-    assert "reconciled" in rendered.system
+    assert "location_blocks" in rendered.system
+    assert "Never determine whether a page belongs to pickup or delivery" in rendered.system
+    assert "Do NOT invent, infer, merge, reconcile, or guess" in rendered.system
     assert "Analyze the attached complete POD PDF" in rendered.user
 
 

@@ -47,7 +47,8 @@ def test_manual_success_moves_to_pending_review() -> None:
     state = _base_state(
         data={
             "event_type": "manual_pod_upload",
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-pod-1",
         }
     )
 
@@ -66,7 +67,8 @@ def test_manual_stop_mismatch_moves_to_pending_review() -> None:
     state = _base_state(
         data={
             "event_type": "manual_pod_upload",
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-pod-1",
             "pod_scoring_results": {
                 "success": True,
                 "score": {"needs_action": True, "review_reasons": ["PO A mismatched pickup"]},
@@ -97,7 +99,8 @@ def test_email_success_sets_pending_review() -> None:
     state = _base_state(
         data={
             "event_type": "email_received",
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-pod-1",
         }
     )
 
@@ -174,7 +177,8 @@ def test_manual_fresh_reupload_records_review_transition_when_already_processed(
         data={
             "event_type": "manual_pod_upload",
             "manual_pod_upload_source": "upload",
-            "document_analysis_pod": {"stored": True, "id": "analysis-pod-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-pod-1",
         }
     )
 
@@ -196,7 +200,8 @@ def test_email_idempotent_skip_when_already_processed() -> None:
     state = _base_state(
         data={
             "event_type": "email_received",
-            "document_analysis_pod": {"stored": True, "id": "analysis-1"},
+            "pod_analysis_stored": True,
+            "pod_analysis_id": "analysis-1",
         }
     )
 

@@ -1,6 +1,6 @@
 """In-process PoD scoring chain against the sample Turvo shipment fixture.
 
-Drives ``pod_analysis`` → ``capture_turvo_shipment_snapshot`` → ``pod_scoring`` with
+Drives ``pod_analysis`` → ``pod_scoring`` with
 stubbed LLM output against ``scripts/pod-scoring-model-v2/shipments.json``
 (guards Turvo schema drift). Live webhook/Celery e2e lives under ``tests/e2e/``.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.domain.state import WorkflowState
-from app.workflows.nodes.pod import capture_turvo_shipment_snapshot, pod_scoring
+from app.workflows.nodes.pod import pod_scoring
 
 _FIXTURE_PATH = (
     Path(__file__).resolve().parent.parent
@@ -128,13 +128,9 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
     state = _state(
         shipment=shipment_payload,
         pod_analysis_results=pod_analysis_results,
-        document_analysis_pod={"stored": True, "id": "da-1"},
+        pod_analysis_stored=True,
+        pod_analysis_id="da-1",
     )
-
-    capture_turvo_shipment_snapshot(state)
-    snapshot = state.data["turvo_shipment_snapshot"]
-    assert snapshot["is_single_stop"] is True
-    assert {po["po_number"] for po in snapshot["purchase_orders"]} == {_PICKUP_PO, _DELIVERY_PO}
 
     pod_scoring(state)
 
@@ -154,7 +150,7 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
     assert "pod_scoring" not in kwargs["results"]
     assert kwargs["confidence_score"] == 1.0
     assert kwargs.get("llm_model") is None
-    assert state.data["document_analysis_pod_scoring"] == {"stored": True, "id": "da-1"}
+    assert "document_analysis_pod_scoring" not in state.data
 
 
 @patch("app.workflows.nodes.pod.resolve_shipments_row_id_for_db", return_value="row-1")
@@ -197,10 +193,10 @@ def test_pod_lifecycle_scoring_fails_without_delivery_signature(
     state = _state(
         shipment=shipment_payload,
         pod_analysis_results=pod_analysis_results,
-        document_analysis_pod={"stored": True, "id": "da-1"},
+        pod_analysis_stored=True,
+        pod_analysis_id="da-1",
     )
 
-    capture_turvo_shipment_snapshot(state)
     pod_scoring(state)
 
     score = state.data["pod_scoring_results"]["score"]

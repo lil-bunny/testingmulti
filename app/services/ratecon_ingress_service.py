@@ -12,6 +12,7 @@ from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
 from app.integrations.turvo.shipments import (
     get_shipment as get_turvo_shipment_async,
     is_multi_stop_shipment,
+    shipment_workflow_state_projection,
 )
 from app.services.shipments_service import ShipmentsService
 from app.services.ratecon_supersede_service import RateconSupersedeService
@@ -155,11 +156,11 @@ class RateconIngressService:
         payload: dict[str, Any],
     ) -> RateconIngressResult:
         """
-        Resolve Turvo shipment, gate multi-stop, upsert ``shipments``, stash for the graph.
+        Resolve Turvo shipment, gate multi-stop, upsert, then project for graph state.
 
-        Flow: reuse stashed ``shipment.details`` when present → else fetch →
+        Flow: reuse projected ``shipment.details`` when present → else fetch →
         skip multi-stop → upsert + supersede when no ``shipments_row_id``.
-        Outcomes: ``ok`` with ``shipment_id`` / ``shipments_row_id`` / ``shipment``,
+        Outcomes: ``ok`` with ids and a checkpoint-safe ``shipment`` projection,
         or ``ok=False`` with ``skip_reason`` (no lifecycle enqueue).
         """
         load_id = self._clean(payload.get("load_id"))
@@ -196,7 +197,7 @@ class RateconIngressService:
             skipped["shipment_id"] = turvo_shipment_id
             if load_id:
                 skipped["load_id"] = load_id
-            skipped["shipment"] = turvo_payload
+            skipped["shipment"] = shipment_workflow_state_projection(turvo_payload)
             return RateconIngressResult(
                 ok=False,
                 payload=skipped,
@@ -251,6 +252,6 @@ class RateconIngressService:
         out["shipment_id"] = out_shipment_id
         out["shipments_row_id"] = shipments_row_id
         out["load_id"] = load_id
-        out["shipment"] = turvo_payload
+        out["shipment"] = shipment_workflow_state_projection(turvo_payload)
 
         return RateconIngressResult(ok=True, payload=out)
