@@ -10,6 +10,7 @@ from app.configs.gelita_delivery_locations_columns import (
 )
 from app.configs.load_tendering_import_projection import LOAD_TENDERING_ROW_PROJECTION
 from app.core.logger import get_logger
+from app.domain.unipile_email import omit_unipile_workflow_noise_keys
 from app.models.data_import import DataImportDataType, DataImportSourceType
 from app.services.delivery_locations_data_import import (
     load_delivery_location_rows_from_data_import,
@@ -46,7 +47,9 @@ def enqueue_load_tendering_workflow(
     from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
 
     execution_id = str(uuid.uuid4())
-    body = {**payload, "event_type": event_type, "execution_id": execution_id}
+    body = omit_unipile_workflow_noise_keys(
+        {**payload, "event_type": event_type, "execution_id": execution_id}
+    )
     tenant_id = str(body.get("tenant_id") or graph_slug).strip()
     lifecycle_run_serializer_service = LifecycleRunSerializerService()
     result = lifecycle_run_serializer_service.resolve_then_enqueue(

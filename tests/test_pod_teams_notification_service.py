@@ -25,12 +25,17 @@ _BASE_DATA = {
     "tenant_settings": _TENANT_SETTINGS,
     "documents_pod": {"stored": True, "id": "doc-1"},
     "pod_merged_pdf_object_key": "pod_attachments/pod.pdf",
-    "document_analysis_pod": {"stored": True, "id": "analysis-1"},
-    "pod_vs_ratecon_analysis_results": {
+    "pod_analysis_stored": True,
+    "pod_analysis_id": "analysis-1",
+    "pod_scoring_results": {
         "success": True,
-        "confidence_score": 0.87,
-        "validation_summary": "Fields matched. Delivery confirmed.",
-        "overall_status": "PASS",
+        "score": {
+            "final_score": 87,
+            "overall_status": "PASS",
+            "po_scores": [{"po_number": "A1176371", "po_total": 87}],
+            "exceptions": [],
+            "remarks": [],
+        },
     },
 }
 
@@ -57,7 +62,7 @@ def test_notify_skipped_when_no_settings() -> None:
 
 def test_notify_skipped_when_analysis_not_stored() -> None:
     result = PodLifecycleTeamsNotificationService().notify_from_state(
-        _state(data={"document_analysis_pod": {"stored": False}})
+        _state(data={"pod_analysis_stored": False})
     )
     assert result.skipped is True
     assert result.skip_reason == "pod_analysis_not_stored"
@@ -75,8 +80,9 @@ def test_notify_posts_teams_on_success() -> None:
     _url, kwargs = post_mock.await_args.args[0], post_mock.await_args.kwargs
     assert _url == "https://example.webhook.office.com/test"
     assert kwargs["title"] == "POD analyzed — Load 30389"
-    fact_labels = [label for label, _ in kwargs["facts"]]
-    assert fact_labels == ["Load ID", "POD Score", "Status", "Summary"]
+    facts = dict(kwargs["facts"])
+    assert list(facts) == ["Load ID", "POD Score", "Status", "Review summary"]
+    assert facts["POD Score"] == "87/100"
 
 
 def test_notify_posts_teams_without_load_id_uses_shipment_custom_id() -> None:

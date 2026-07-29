@@ -9,6 +9,7 @@ from app.domain.appointment_scheduling.models import LlmAppointmentDecision
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.tools.appointment_scheduling.scheduling_fallback import fallback_scheduling_decision
 from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
+from app.tools.llm_credentials import resolve_llm_credentials
 from app.tools.llm_client import LLMClientError, chat_json
 
 
@@ -36,10 +37,12 @@ def run_appointment_decision_optimization(
     location_input: dict[str, Any],
     prompt_trace: PromptTraceMetadata | None = None,
 ) -> LlmAppointmentDecision:
+    credentials = resolve_llm_credentials(workflow_name="appointment_scheduling")
     try:
         raw = chat_json(
             system_prompt,
             user_prompt,
+            credentials=credentials,
             temperature=0.2,
             prompt_trace=prompt_trace,
         )

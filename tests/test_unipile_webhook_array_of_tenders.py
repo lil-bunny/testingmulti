@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.lifecycle_run_serializer_service import SerializeEnqueueResult
+from app.services.ratecon_ingress_service import RateconIngressResult
 from app.services.unipile_tenant_resolution import UnipileTenantContext
 
 
@@ -161,13 +162,16 @@ async def test_t3ra_ratecon_carries_event_type_email_received(
         patch(
             "app.services.ratecon_ingress_service.RateconIngressService.prepare_payload",
             new_callable=AsyncMock,
-            return_value={
-                **RATECON_WEBHOOK_PAYLOAD,
-                "workflow_name": "ratecon",
-                "load_id": "30389",
-                "shipment_id": "1000324895",
-                "shipments_row_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            },
+            return_value=RateconIngressResult(
+                ok=True,
+                payload={
+                    **RATECON_WEBHOOK_PAYLOAD,
+                    "workflow_name": "ratecon",
+                    "load_id": "30389",
+                    "shipment_id": "1000324895",
+                    "shipments_row_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                },
+            ),
         ),
         _patch_serializer(serialize_capture),
     ):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from app.domain.workflow_cancel_trigger import RATECON_SUPERSEDED_TRIGGER
 from app.services.ratecon_supersede_service import RateconSupersedeService
@@ -103,11 +103,42 @@ def test_supersede_before_run_logs_driver_assignment_cancelled() -> None:
     assert results["driver_assignment"].lifecycle_id == "da-old"
 
 
-def test_ratecon_ingress_prepare_payload_calls_supersede() -> None:
+def _two_stop_turvo_payload(*, shipment_id: str = "1000324895", custom_id: str = "30389") -> dict:
+    return {
+        "Status": "SUCCESS",
+        "details": {
+            "id": int(shipment_id) if shipment_id.isdigit() else shipment_id,
+            "customId": custom_id,
+            "globalRoute": [
+                {"deleted": False, "name": "Pickup"},
+                {"deleted": False, "name": "Delivery"},
+            ],
+        },
+    }
+
+
+def test_ratecon_ingress_prepare_payload_calls_supersede(monkeypatch) -> None:
+    import asyncio
+
     from app.services.ratecon_ingress_service import RateconIngressService
 
+    async def fake_resolve(slug, load_id, **kwargs):
+        return "1000324895"
+
+    async def fake_get(slug, shipment_id, client=None):
+        return _two_stop_turvo_payload()
+
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.load_id_to_shipment_id_async",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.get_turvo_shipment_async",
+        fake_get,
+    )
+
     shipments = MagicMock()
-    shipments.upsert_from_load_id = AsyncMock(
+    shipments.upsert_from_turvo = MagicMock(
         return_value={
             "success": True,
             "shipments_row_id": _SHIPMENTS_ROW_ID,
@@ -120,9 +151,7 @@ def test_ratecon_ingress_prepare_payload_calls_supersede() -> None:
         supersede_service=supersede,
     )
 
-    import asyncio
-
-    out = asyncio.run(
+    result = asyncio.run(
         ingress.prepare_payload(
             tenant_id=_TENANT_ID,
             tenant_slug="t3ra",
@@ -130,7 +159,10 @@ def test_ratecon_ingress_prepare_payload_calls_supersede() -> None:
         )
     )
 
-    assert out["shipments_row_id"] == _SHIPMENTS_ROW_ID
+    assert result.ok is True
+    assert result.payload is not None
+    assert result.payload["shipments_row_id"] == _SHIPMENTS_ROW_ID
+    assert result.payload["shipment"]["details"]["customId"] == "30389"
     supersede.supersede_before_run.assert_called_once_with(
         tenant_id=_TENANT_ID,
         tenant_slug="t3ra",
@@ -141,7 +173,9 @@ def test_ratecon_ingress_prepare_payload_calls_supersede() -> None:
     )
 
 
-def test_ratecon_ingress_prepare_payload_raises_shipment_not_found_in_tms() -> None:
+def test_ratecon_ingress_prepare_payload_raises_shipment_not_found_in_tms(
+    monkeypatch,
+) -> None:
     import asyncio
 
     import pytest
@@ -150,12 +184,16 @@ def test_ratecon_ingress_prepare_payload_raises_shipment_not_found_in_tms() -> N
     from app.exceptions import WorkflowException
     from app.services.ratecon_ingress_service import RateconIngressService
 
-    shipments = MagicMock()
-    shipments.upsert_from_load_id = AsyncMock(
-        return_value={"success": False, "message": "turvo_shipment_not_found"}
+    async def fake_resolve(slug, load_id, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.load_id_to_shipment_id_async",
+        fake_resolve,
     )
+
     ingress = RateconIngressService(
-        shipments_service=shipments,
+        shipments_service=MagicMock(),
         supersede_service=MagicMock(),
     )
 
@@ -172,3 +210,50 @@ def test_ratecon_ingress_prepare_payload_raises_shipment_not_found_in_tms() -> N
     assert err.error_code == BusinessError.SHIPMENT_NOT_FOUND_IN_TMS.value
     assert err.error_category == BusinessError.CATEGORY
     assert err.message == BusinessError.SHIPMENT_NOT_FOUND_IN_TMS.description
+
+
+def test_ratecon_ingress_prepare_payload_skips_multi_stop(monkeypatch) -> None:
+    import asyncio
+
+    from app.services.ratecon_ingress_service import (
+        RATECON_SKIP_MULTI_STOP,
+        RateconIngressService,
+    )
+
+    async def fake_get(slug, shipment_id, client=None):
+        return {
+            "details": {
+                "id": 99,
+                "customId": "30389",
+                "globalRoute": [
+                    {"deleted": False},
+                    {"deleted": False},
+                    {"deleted": False},
+                ],
+            }
+        }
+
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.get_turvo_shipment_async",
+        fake_get,
+    )
+
+    shipments = MagicMock()
+    supersede = MagicMock()
+    ingress = RateconIngressService(
+        shipments_service=shipments,
+        supersede_service=supersede,
+    )
+
+    result = asyncio.run(
+        ingress.prepare_payload(
+            tenant_id=_TENANT_ID,
+            tenant_slug="t3ra",
+            payload={"shipment_id": "99", "load_id": "30389"},
+        )
+    )
+
+    assert result.ok is False
+    assert result.skip_reason == RATECON_SKIP_MULTI_STOP
+    shipments.upsert_from_turvo.assert_not_called()
+    supersede.supersede_before_run.assert_not_called()

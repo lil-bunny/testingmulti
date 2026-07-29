@@ -72,24 +72,19 @@ def shipment_router(state):
     return "convoy" if state.data.get("is_convoy") else "non_convoy"
 
 
-def ratecon_cache_router(state):
-    """Route POD processing only when cached ratecon extraction is available."""
-    rc = state.data.get("ratecon_analysis_results") or {}
-    if rc.get("success") and not rc.get("skipped"):
-        findings = rc.get("findings") or {}
-        extracted = findings.get("extracted_fields") or {}
-        if extracted:
-            return "ready"
-    if state.data.get("event_type") == "manual_pod_upload":
-        return "manual_skip"
-    return "missing"
-
-
 def post_pod_processing_router(state):
     """After LLM pipeline: manual portal uploads to TMS; email updates shipment."""
     if state.data.get("event_type") == "manual_pod_upload":
         return "manual"
     return "email"
+
+
+def trim_ratecon_pages_router(state):
+    """After LLM trim: upload kept POD pages, or end when packet was ratecon-only."""
+    outcome = str(state.data.get("pod_trim_outcome") or "").strip()
+    if outcome == "only_ratecon":
+        return "only_ratecon"
+    return "continue"
 
 
 def read_workflow_lifecycle_router(state):

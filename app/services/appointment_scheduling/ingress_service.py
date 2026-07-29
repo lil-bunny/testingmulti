@@ -21,9 +21,9 @@ from app.services.lifecycle_run_serializer_service import LifecycleRunSerializer
 from app.services.shipments_service import ShipmentsService
 from app.services.tenants_service import TenantsService
 from app.services.workflow_lifecycle_service import WorkflowLifecycleService
+from app.integrations.turvo.shipments import is_multi_stop_shipment
 from app.tools.appointment_scheduling.ingress import (
     ParsedShipmentUpdateWebhook,
-    is_multi_stop_shipment,
     load_id_from_turvo_shipment,
     parse_shipment_update_webhook,
     pickup_changed_in_activity_delta,

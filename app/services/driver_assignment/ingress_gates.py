@@ -10,6 +10,7 @@ from app.integrations.turvo.shipments import (
     driver_assigned_from_payload,
     driver_request_eligible_from_payload,
     pickup_appointment_from_payload,
+    shipment_workflow_state_projection,
 )
 from app.models.status import StatusType
 from app.services.driver_assignment.ingress_types import (
@@ -80,7 +81,7 @@ class IngressGatesMixin:
 
             "pickup_appointment_source": pickup.source,
 
-            "shipment": turvo_payload,
+            "shipment": shipment_workflow_state_projection(turvo_payload),
 
         }
 

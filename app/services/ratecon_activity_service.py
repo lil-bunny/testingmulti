@@ -1,4 +1,4 @@
-"""Ratecon workflow activity logging (received, upload, processed / soft-complete)."""
+"""Ratecon workflow activity logging (received, upload, completed)."""
 
 from __future__ import annotations
 
@@ -6,17 +6,14 @@ from typing import Any, TYPE_CHECKING
 
 from app.core.logger import get_logger
 from app.domain.activity_log_descriptions import (
-    format_ratecon_document_processed_with_llm_action,
-    format_ratecon_document_processing_failed_action,
-    format_ratecon_document_upload_failed_action,
     format_ratecon_document_uploaded_action,
+    format_ratecon_document_upload_failed_action,
     format_ratecon_received_action,
 )
 from app.domain.activity_log_write import ActivityLogSequence, ActivityLogStep
 from app.models.activity_type import ActivityType
 from app.models.status import StatusSubType, StatusType
 from app.services.activity_log_service import ActivityLogService
-from app.workflows.shipment_resolver import resolve_shipments_row_id_for_db
 
 if TYPE_CHECKING:
     from app.domain.state import WorkflowState
@@ -108,65 +105,6 @@ def _upload_success_metadata(upload_result: dict[str, Any]) -> dict[str, Any]:
     return meta
 
 
-def analysis_success(state: WorkflowState) -> bool:
-    persist = state.data.get("document_analysis_ratecon")
-    return isinstance(persist, dict) and persist.get("stored") is True
-
-
-def _processed_success_metadata(state: WorkflowState) -> dict[str, Any]:
-    meta: dict[str, Any] = {"source": "ratecon_analysis"}
-    persist = state.data.get("document_analysis_ratecon")
-    if isinstance(persist, dict):
-        analysis_id = persist.get("id")
-        if analysis_id is not None and str(analysis_id).strip():
-            meta["document_analysis_id"] = str(analysis_id).strip()
-    results = state.data.get("ratecon_analysis_results")
-    if isinstance(results, dict):
-        meta["output"] = results
-        if results.get("confidence_score") is not None:
-            meta["confidence_score"] = results.get("confidence_score")
-        document_id = results.get("document_id")
-        if document_id is not None and str(document_id).strip():
-            meta["document_id"] = str(document_id).strip()
-    for key in ("shipment_id", "shipments_row_id"):
-        raw = state.data.get(key)
-        if raw is not None and str(raw).strip():
-            meta["shipment_id"] = str(raw).strip()
-            break
-    return meta
-
-
-def _processed_failure_metadata(state: WorkflowState) -> dict[str, Any]:
-    meta: dict[str, Any] = {}
-    results = state.data.get("ratecon_analysis_results")
-    if isinstance(results, dict):
-        meta["ratecon_analysis_results"] = results
-        reason = results.get("reason") or results.get("error")
-        if reason is not None and str(reason).strip():
-            meta["reason"] = str(reason).strip()
-            return meta
-    persist = state.data.get("document_analysis_ratecon")
-    if isinstance(persist, dict):
-        meta["document_analysis_ratecon"] = persist
-    meta["reason"] = "ratecon_analysis_not_stored"
-    return meta
-
-
-def _soft_complete_metadata(state: WorkflowState) -> dict[str, Any]:
-    meta: dict[str, Any] = {"source": "ratecon_soft_complete"}
-    upload_result = state.data.get("ratecon_s3_upload")
-    if isinstance(upload_result, dict):
-        meta["ratecon_s3_upload"] = upload_result
-    results = state.data.get("ratecon_analysis_results")
-    if isinstance(results, dict):
-        meta["ratecon_analysis_results"] = results
-    for key in ("shipment_id", "shipments_row_id", "load_id"):
-        raw = state.data.get(key)
-        if raw is not None and str(raw).strip():
-            meta[key] = str(raw).strip()
-    return meta
-
-
 class RateconActivityService:
     """Record ratecon lifecycle activity steps."""
 
@@ -231,10 +169,15 @@ class RateconActivityService:
             return
 
         wl_id, tenant_id, run_id = scope
-        upload_result = state.data.get("ratecon_s3_upload")
+        upload_result = (
+            state.data.get("ratecon_s3_upload")
+            if isinstance(state.data.get("ratecon_s3_upload"), dict)
+            else None
+        )
+        comm_id = _communication_id(state)
 
-        if upload_success(upload_result if isinstance(upload_result, dict) else None):
-            meta = _upload_success_metadata(upload_result)
+        if upload_success(upload_result):
+            meta = _upload_success_metadata(upload_result or {})
             self._activity_log_service.record_sequence(
                 ActivityLogSequence(
                     tenant_id=tenant_id,
@@ -245,21 +188,21 @@ class RateconActivityService:
                             activity_type=ActivityType.ACTION,
                             description=format_ratecon_document_uploaded_action(),
                             metadata=meta,
+                            communication_id=comm_id,
                         ),
                         ActivityLogStep(
                             activity_type=ActivityType.SUB_STATUS_CHANGE,
                             to_sub_status=StatusSubType.DOCUMENT_UPLOADED,
                             from_sub_status=StatusSubType.RATECON_STARTED,
                             metadata=meta,
+                            communication_id=comm_id,
                         ),
                     ),
                 )
             )
             return
 
-        fail_meta = _upload_failure_metadata(
-            upload_result if isinstance(upload_result, dict) else None
-        )
+        fail_meta = _upload_failure_metadata(upload_result)
         self._activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -267,9 +210,10 @@ class RateconActivityService:
                 workflow_run_id=run_id,
                 steps=(
                     ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
+                        activity_type=ActivityType.EXCEPTION,
                         description=format_ratecon_document_upload_failed_action(),
                         metadata=fail_meta,
+                        communication_id=comm_id,
                     ),
                 ),
             )
@@ -287,89 +231,20 @@ class RateconActivityService:
             )
             return
 
-        shipments_row_id = resolve_shipments_row_id_for_db(state.data)
-        if not shipments_row_id:
-            logger.warning(
-                "RateconActivityService.record_processed skipped missing shipments_row_id"
-            )
-            return
-
         wl_id, tenant_id, run_id = scope
-        upload_ok = upload_success(
+        upload_result = (
             state.data.get("ratecon_s3_upload")
             if isinstance(state.data.get("ratecon_s3_upload"), dict)
             else None
         )
-        analysis_ok = analysis_success(state)
+        upload_ok = upload_success(upload_result)
+        comm_id = _communication_id(state)
+        meta = (
+            _upload_success_metadata(upload_result or {})
+            if upload_ok
+            else _upload_failure_metadata(upload_result)
+        )
 
-        if analysis_ok:
-            meta = _processed_success_metadata(state)
-            results = state.data.get("ratecon_analysis_results")
-            if not isinstance(results, dict):
-                results = {}
-            try:
-                confidence = float(results.get("confidence_score"))
-            except (TypeError, ValueError):
-                confidence = None
-            comm_id = _communication_id(state)
-            self._activity_log_service.record_sequence(
-                ActivityLogSequence(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl_id,
-                    workflow_run_id=run_id,
-                    steps=(
-                        ActivityLogStep(
-                            activity_type=ActivityType.ACTION,
-                            description=format_ratecon_document_processed_with_llm_action(
-                                confidence=confidence,
-                            ),
-                            metadata=meta,
-                            communication_id=comm_id,
-                        ),
-                        ActivityLogStep(
-                            activity_type=ActivityType.STATUS_CHANGE,
-                            to_status=StatusType.COMPLETED,
-                            to_sub_status=StatusSubType.DOCUMENT_PROCESSED,
-                            from_status=StatusType.PROCESSING,
-                            from_sub_status=StatusSubType.DOCUMENT_UPLOADED,
-                            metadata=meta,
-                        ),
-                    ),
-                )
-            )
-            return
-
-        if upload_ok:
-            fail_meta = _processed_failure_metadata(state)
-            self._activity_log_service.record_sequence(
-                ActivityLogSequence(
-                    tenant_id=tenant_id,
-                    workflow_lifecycle_id=wl_id,
-                    workflow_run_id=run_id,
-                    steps=(
-                        ActivityLogStep(
-                            activity_type=ActivityType.ACTION,
-                            description=format_ratecon_document_processing_failed_action(),
-                            metadata=fail_meta,
-                        ),
-                        ActivityLogStep(
-                            activity_type=ActivityType.STATUS_CHANGE,
-                            to_status=StatusType.COMPLETED,
-                            to_sub_status=StatusSubType.DOCUMENT_UPLOADED,
-                            from_status=StatusType.PROCESSING,
-                            from_sub_status=StatusSubType.DOCUMENT_UPLOADED,
-                            metadata=fail_meta,
-                        ),
-                    ),
-                )
-            )
-            return
-
-        soft_meta = _soft_complete_metadata(state)
-        if not upload_ok:
-            soft_meta["document_upload"] = "failed_or_skipped"
-        if not analysis_ok:
-            soft_meta["document_analysis"] = "failed_or_skipped"
         self._activity_log_service.record_sequence(
             ActivityLogSequence(
                 tenant_id=tenant_id,
@@ -377,17 +252,21 @@ class RateconActivityService:
                 workflow_run_id=run_id,
                 steps=(
                     ActivityLogStep(
-                        activity_type=ActivityType.ACTION,
-                        description=format_ratecon_document_processing_failed_action(),
-                        metadata=soft_meta,
-                    ),
-                    ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         to_status=StatusType.COMPLETED,
-                        to_sub_status=StatusSubType.RATECON_STARTED,
+                        to_sub_status=(
+                            StatusSubType.DOCUMENT_UPLOADED
+                            if upload_ok
+                            else StatusSubType.RATECON_STARTED
+                        ),
                         from_status=StatusType.PROCESSING,
-                        from_sub_status=StatusSubType.RATECON_STARTED,
-                        metadata=soft_meta,
+                        from_sub_status=(
+                            StatusSubType.DOCUMENT_UPLOADED
+                            if upload_ok
+                            else StatusSubType.RATECON_STARTED
+                        ),
+                        metadata=meta,
+                        communication_id=comm_id,
                     ),
                 ),
             )

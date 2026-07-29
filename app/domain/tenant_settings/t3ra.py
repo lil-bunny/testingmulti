@@ -80,16 +80,8 @@ class T3raDriverAssignmentSettings(BaseModel):
 class T3raPodLifecyclePrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    page_extraction: str
-    vs_ratecon_summary: str
-    vs_ratecon_semantic_match: str
+    pdf_extraction: str
     attachment_classifier: str
-
-
-class T3raRateconPrompts(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    page_extraction: str
 
 
 class T3raDriverAssignmentPrompts(BaseModel):
@@ -109,7 +101,6 @@ class T3raPrompts(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     pod_lifecycle: T3raPodLifecyclePrompts
-    ratecon: T3raRateconPrompts
     driver_assignment: T3raDriverAssignmentPrompts | None = None
     appointment_scheduling: T3raAppointmentSchedulingPrompts | None = None
 

@@ -1,10 +1,10 @@
 from app.workflows.nodes.ratecon import upload_ratecon_attachments
 from app.workflows.nodes.pod import (
-    load_ratecon_analysis,
-    merge_and_upload_pod_attachments,
+    merge_pod_attachments_local,
+    upload_trimmed_pod_attachments,
+    trim_ratecon_pages_from_pod,
     pod_analysis,
-    pod_vs_ratecon_analysis,
-    ratecon_analysis,
+    pod_scoring,
 )
 from app.workflows.nodes.email import send_email
 from app.workflows.nodes.pod_request import (
@@ -86,7 +86,6 @@ from app.workflows.nodes.record_pod_activity import (
     record_pod_reminder_activity,
     record_pod_started_activity,
     record_pod_upload_activity,
-    record_pod_vs_ratecon_activity,
 )
 from app.workflows.nodes.record_pod_tms_upload_activity import (
     record_pod_tms_upload_activity,
@@ -137,11 +136,11 @@ NODE_REGISTRY = {
     "check_pod_reminder_eligibility": check_pod_reminder_eligibility,
     "complete_pod_found_in_tms": complete_pod_found_in_tms,
     "record_reminder_run": record_reminder_run,
-    "load_ratecon_analysis": load_ratecon_analysis,
-    "ratecon_analysis": ratecon_analysis,
-    "merge_and_upload_pod_attachments": merge_and_upload_pod_attachments,
+    "merge_pod_attachments_local": merge_pod_attachments_local,
+    "trim_ratecon_pages_from_pod": trim_ratecon_pages_from_pod,
+    "upload_trimmed_pod_attachments": upload_trimmed_pod_attachments,
     "pod_analysis": pod_analysis,
-    "pod_vs_ratecon_analysis": pod_vs_ratecon_analysis,
+    "pod_scoring": pod_scoring,
     "read_workflow_lifecycle": read_workflow_lifecycle,
     "check_ratecon_workflow_lifecycle": check_ratecon_workflow_lifecycle,
     "upload_ratecon_attachments": upload_ratecon_attachments,
@@ -188,7 +187,6 @@ NODE_REGISTRY = {
     "record_pod_escalation_activity": record_pod_escalation_activity,
     "record_pod_upload_activity": record_pod_upload_activity,
     "record_pod_extraction_activity": record_pod_extraction_activity,
-    "record_pod_vs_ratecon_activity": record_pod_vs_ratecon_activity,
     "record_pod_processed_activity": record_pod_processed_activity,
     "notify_pod_analysis_teams": notify_pod_analysis_teams,
     "record_pod_tms_upload_activity": record_pod_tms_upload_activity,

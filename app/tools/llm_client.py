@@ -1,8 +1,8 @@
 """OpenAI-compatible LLM client (Agentic / any chat-completions endpoint).
 
-Async core (``achat_json``, ``achat_vision_json``) uses a shared ``AsyncOpenAI``
-client per fan-out batch. Sync facades (``chat_json``, ``chat_vision_json``) call
-``asyncio.run`` for one-shot sync callers (nodes, services, tools).
+Async core (``achat_json``, ``achat_vision_json``, ``achat_pdf_json``) uses a shared
+``AsyncOpenAI`` client per fan-out batch. Sync facades use the repository's
+loop-safe bridge for one-shot sync callers (nodes, services, tools).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import base64
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from langsmith import traceable
@@ -27,7 +27,11 @@ from openai import (
 )
 
 from app.core.config import settings
-from app.integrations.langsmith.types import PromptTraceMetadata
+from app.core.asyncio_util import run_sync
+
+if TYPE_CHECKING:
+    from app.integrations.langsmith.types import PromptTraceMetadata
+    from app.tools.llm_credentials import LLMCredentials
 
 
 class LLMClientError(Exception):
@@ -45,20 +49,35 @@ def _extract_json(content: str) -> dict:
     return json.loads(text)
 
 
-def _resolve_model(model: str | None) -> str:
-    resolved = (model or settings.LLM_MODEL or "").strip()
+LLMModality = Literal["chat", "vision", "pdf"]
+
+
+def _modality_setting(modality: LLMModality) -> str | None:
+    if modality == "pdf":
+        return settings.LLM_PDF_MODEL
+    if modality == "vision":
+        return settings.LLM_VISION_MODEL
+    return settings.LLM_CHAT_MODEL
+
+
+def _resolve_model(model: str | None, *, modality: LLMModality) -> str:
+    """Resolve model for one modality. Explicit ``model=`` wins; else the modality setting."""
+    if model and model.strip():
+        return model.strip()
+    resolved = (_modality_setting(modality) or "").strip()
     if not resolved:
-        raise LLMClientError("LLM config missing (model)")
+        raise LLMClientError(f"LLM config missing (model for {modality})")
     return resolved
 
 
-def _require_llm_config() -> None:
-    if not settings.LLM_BASE_URL or not settings.LLM_API_KEY:
+def _require_llm_config(credentials: LLMCredentials) -> None:
+    if not credentials.base_url or not credentials.api_key:
         raise LLMClientError("LLM config missing (base_url/api_key)")
 
 
 def build_async_llm_client(
     *,
+    credentials: LLMCredentials,
     timeout_s: float | None = None,
     max_connections: int = 1,
 ) -> AsyncOpenAI:
@@ -67,14 +86,14 @@ def build_async_llm_client(
     Caller owns lifecycle: use ``async with`` or ``await client.close()``.
     Pool ``max_connections`` should match the intended concurrency cap.
     """
-    _require_llm_config()
+    _require_llm_config(credentials)
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
     pool_size = max(1, max_connections)
     return AsyncOpenAI(
-        base_url=settings.LLM_BASE_URL,
-        api_key=settings.LLM_API_KEY,
+        base_url=credentials.base_url,
+        api_key=credentials.api_key,
         max_retries=0,
         timeout=effective_timeout_s,
         http_client=DefaultAsyncHttpxClient(
@@ -90,6 +109,7 @@ def build_async_llm_client(
 async def _async_llm_client(
     client: AsyncOpenAI | None,
     *,
+    credentials: LLMCredentials | None,
     timeout_s: float,
     max_connections: int = 1,
 ) -> AsyncIterator[AsyncOpenAI]:
@@ -97,7 +117,10 @@ async def _async_llm_client(
     if client is not None:
         yield client
         return
+    if credentials is None:
+        raise LLMClientError("LLM credentials required when client is not provided")
     async with build_async_llm_client(
+        credentials=credentials,
         timeout_s=timeout_s,
         max_connections=max_connections,
     ) as owned:
@@ -115,7 +138,7 @@ def _llm_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
         ],
         "temperature": inputs.get("temperature"),
         "timeout_s": inputs.get("timeout_s"),
-        "model": inputs.get("model") or settings.LLM_MODEL,
+        "model": inputs.get("model") or _resolve_model(None, modality="chat"),
     }
     if "max_tokens" in inputs:
         traced["max_tokens"] = inputs["max_tokens"]
@@ -138,6 +161,32 @@ def _llm_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
                         "image_url": {
                             "url": f"data:{mime};base64,<omitted {len(image)} bytes>",
                             "detail": "low",
+                        },
+                    },
+                ],
+            },
+        ]
+    pdf_bytes = inputs.get("pdf_bytes")
+    if isinstance(pdf_bytes, (bytes, bytearray)):
+        filename = inputs.get("pdf_filename") or "document.pdf"
+        traced["pdf"] = {
+            "filename": filename,
+            "bytes": len(pdf_bytes),
+            "present": True,
+        }
+        traced["messages"] = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": (
+                                f"data:application/pdf;base64,"
+                                f"<omitted {len(pdf_bytes)} bytes>"
+                            ),
                         },
                     },
                 ],
@@ -211,10 +260,11 @@ async def _achat_json_impl(
     temperature: float,
     timeout_s: float,
     model: str | None = None,
+    json_response_mode: bool = True,
     client: AsyncOpenAI,
 ) -> dict:
     """Call chat completions and parse JSON; raise ``LLMClientError`` on API/parse failure."""
-    resolved_model = _resolve_model(model)
+    resolved_model = _resolve_model(model, modality="chat")
     kwargs: dict[str, Any] = {
         "model": resolved_model,
         "messages": [
@@ -224,7 +274,7 @@ async def _achat_json_impl(
         "temperature": temperature,
         "timeout": timeout_s,
     }
-    if settings.LLM_JSON_RESPONSE_MODE:
+    if json_response_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
     try:
@@ -253,10 +303,11 @@ async def _achat_vision_json_impl(
     max_tokens: int | None = None,
     model: str | None = None,
     image_mime_type: str = "image/jpeg",
+    json_response_mode: bool = True,
     client: AsyncOpenAI,
 ) -> dict:
     """Call vision chat completions and parse JSON; raise ``LLMClientError`` on failure."""
-    resolved_model = _resolve_model(model)
+    resolved_model = _resolve_model(model, modality="vision")
     mime = (image_mime_type or "image/jpeg").strip() or "image/jpeg"
     b64 = base64.b64encode(image_jpeg_bytes).decode("ascii")
     data_url = f"data:{mime};base64,{b64}"
@@ -278,7 +329,7 @@ async def _achat_vision_json_impl(
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    if settings.LLM_JSON_RESPONSE_MODE:
+    if json_response_mode:
         kwargs["response_format"] = {"type": "json_object"}
 
     try:
@@ -291,13 +342,75 @@ async def _achat_vision_json_impl(
         raise LLMClientError("Failed LLM chat_vision_json call") from exc
 
 
+@traceable(
+    run_type="llm",
+    name="chat_pdf_json",
+    process_inputs=_llm_trace_inputs,
+    process_outputs=_llm_trace_outputs,
+)
+async def _achat_pdf_json_impl(
+    system_prompt: str,
+    user_prompt: str,
+    pdf_bytes: bytes,
+    *,
+    filename: str,
+    temperature: float,
+    timeout_s: float,
+    max_tokens: int | None = None,
+    model: str | None = None,
+    json_response_mode: bool = True,
+    client: AsyncOpenAI,
+) -> dict:
+    """Call PDF chat completions and parse JSON; raise ``LLMClientError`` on failure.
+
+    LiteLLM Admin UI / Gemini-compatible gateways expect PDF as ``image_url`` with
+    ``data:application/pdf;base64,...`` (not OpenAI ``type: file``).
+    """
+    resolved_model = _resolve_model(model, modality="pdf")
+    # ``filename`` reserved for tracing/callers; gateway PDF path uses image_url only.
+    _ = filename
+    b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    data_url = f"data:application/pdf;base64,{b64}"
+
+    kwargs: dict[str, Any] = {
+        "model": resolved_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            },
+        ],
+        "temperature": temperature,
+        "timeout": timeout_s,
+    }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if json_response_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    try:
+        response = await client.chat.completions.create(**kwargs)
+        content = response.choices[0].message.content or ""
+        parsed = _extract_json(content)
+        _record_raw_llm_output(content=content)
+        return parsed
+    except _OPENAI_ERRORS as exc:
+        raise LLMClientError("Failed LLM chat_pdf_json call") from exc
+
+
 async def achat_json(
     system_prompt: str,
     user_prompt: str,
     *,
+    credentials: LLMCredentials | None = None,
     temperature: float = 0.2,
     timeout_s: float | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -307,13 +420,18 @@ async def achat_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
+    async with _async_llm_client(
+        client,
+        credentials=credentials,
+        timeout_s=effective_timeout_s,
+    ) as resolved:
         return await _achat_json_impl(
             system_prompt,
             user_prompt,
             temperature=temperature,
             timeout_s=effective_timeout_s,
             model=model,
+            json_response_mode=json_response_mode,
             client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
@@ -328,11 +446,13 @@ async def achat_vision_json(
     user_prompt: str,
     image_jpeg_bytes: bytes,
     *,
+    credentials: LLMCredentials | None = None,
     timeout_s: float | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = None,
     model: str | None = None,
     image_mime_type: str = "image/jpeg",
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
@@ -342,7 +462,11 @@ async def achat_vision_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
+    async with _async_llm_client(
+        client,
+        credentials=credentials,
+        timeout_s=effective_timeout_s,
+    ) as resolved:
         return await _achat_vision_json_impl(
             system_prompt,
             user_prompt,
@@ -352,6 +476,52 @@ async def achat_vision_json(
             max_tokens=max_tokens,
             model=model,
             image_mime_type=image_mime_type,
+            json_response_mode=json_response_mode,
+            client=resolved,
+            langsmith_extra=_merge_langsmith_extra(
+                prompt_trace=prompt_trace,
+                metadata=metadata,
+                tags=tags,
+            ),
+        )
+
+
+async def achat_pdf_json(
+    system_prompt: str,
+    user_prompt: str,
+    pdf_bytes: bytes,
+    *,
+    credentials: LLMCredentials | None = None,
+    filename: str = "document.pdf",
+    timeout_s: float | None = None,
+    temperature: float = 0.2,
+    max_tokens: int | None = None,
+    model: str | None = None,
+    json_response_mode: bool = True,
+    prompt_trace: PromptTraceMetadata | None = None,
+    metadata: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
+    client: AsyncOpenAI | None = None,
+) -> dict:
+    """Async PDF chat completion; inject ``client`` for fan-out batches."""
+    effective_timeout_s = (
+        settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
+    )
+    async with _async_llm_client(
+        client,
+        credentials=credentials,
+        timeout_s=effective_timeout_s,
+    ) as resolved:
+        return await _achat_pdf_json_impl(
+            system_prompt,
+            user_prompt,
+            pdf_bytes,
+            filename=filename,
+            temperature=temperature,
+            timeout_s=effective_timeout_s,
+            max_tokens=max_tokens,
+            model=model,
+            json_response_mode=json_response_mode,
             client=resolved,
             langsmith_extra=_merge_langsmith_extra(
                 prompt_trace=prompt_trace,
@@ -365,21 +535,25 @@ def chat_json(
     system_prompt: str,
     user_prompt: str,
     *,
+    credentials: LLMCredentials,
     temperature: float = 0.2,
     timeout_s: float | None = None,
     model: str | None = None,
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """Sync facade over ``achat_json`` (one-shot ``asyncio.run`` per call)."""
-    return asyncio.run(
+    """Sync facade over ``achat_json`` for callers without a running event loop."""
+    return run_sync(
         achat_json(
             system_prompt,
             user_prompt,
+            credentials=credentials,
             temperature=temperature,
             timeout_s=timeout_s,
             model=model,
+            json_response_mode=json_response_mode,
             prompt_trace=prompt_trace,
             metadata=metadata,
             tags=tags,
@@ -392,26 +566,66 @@ def chat_vision_json(
     user_prompt: str,
     image_jpeg_bytes: bytes,
     *,
+    credentials: LLMCredentials,
     timeout_s: float | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = None,
     model: str | None = None,
     image_mime_type: str = "image/jpeg",
+    json_response_mode: bool = True,
     prompt_trace: PromptTraceMetadata | None = None,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """Sync facade over ``achat_vision_json`` (one-shot ``asyncio.run`` per call)."""
-    return asyncio.run(
+    """Sync facade over ``achat_vision_json`` for callers without a running event loop."""
+    return run_sync(
         achat_vision_json(
             system_prompt,
             user_prompt,
             image_jpeg_bytes,
+            credentials=credentials,
             timeout_s=timeout_s,
             temperature=temperature,
             max_tokens=max_tokens,
             model=model,
             image_mime_type=image_mime_type,
+            json_response_mode=json_response_mode,
+            prompt_trace=prompt_trace,
+            metadata=metadata,
+            tags=tags,
+        )
+    )
+
+
+def chat_pdf_json(
+    system_prompt: str,
+    user_prompt: str,
+    pdf_bytes: bytes,
+    *,
+    credentials: LLMCredentials,
+    filename: str = "document.pdf",
+    timeout_s: float | None = None,
+    temperature: float = 0.2,
+    max_tokens: int | None = None,
+    model: str | None = None,
+    json_response_mode: bool = True,
+    prompt_trace: PromptTraceMetadata | None = None,
+    metadata: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
+) -> dict:
+    """Sync facade over ``achat_pdf_json`` for callers without a running event loop."""
+    return run_sync(
+        achat_pdf_json(
+            system_prompt,
+            user_prompt,
+            pdf_bytes,
+            credentials=credentials,
+            filename=filename,
+            timeout_s=timeout_s,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            model=model,
+            json_response_mode=json_response_mode,
             prompt_trace=prompt_trace,
             metadata=metadata,
             tags=tags,

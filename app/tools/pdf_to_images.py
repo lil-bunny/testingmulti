@@ -41,10 +41,6 @@ class PdfTooLargeError(Exception):
         self.message = message
 
 
-# Alias kept for POD extraction / tools that still import the old name.
-PodPdfTooLargeError = PdfTooLargeError
-
-
 def _safe_temp_prefix(prefix: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", (prefix or "pdf").strip())
     cleaned = (cleaned or "pdf")[:100]
@@ -621,7 +617,6 @@ def render_pdf_page_image(
 __all__ = (
     "PdfRasterOptions",
     "PdfTooLargeError",
-    "PodPdfTooLargeError",
     "_effective_raster_dpi",
     "_try_extract_embedded_page_images",
     "freightx_stage_dir",

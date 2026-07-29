@@ -83,9 +83,14 @@ def _ratecon_success_state_data(**overrides) -> dict:
         "shipment": _turvo_shipment_fixture(),
         "ratecon_s3_upload": {
             "all_succeeded": True,
-            "results": [{"document_persist": {"stored": True}}],
+            "results": [
+                {
+                    "success": True,
+                    "object_key": "ratecon_attachments/ratecon_1000324895.pdf",
+                    "document_persist": {"stored": True, "id": "doc-1"},
+                }
+            ],
         },
-        "document_analysis_ratecon": {"stored": True},
     }
     data.update(overrides)
     return data
@@ -144,13 +149,24 @@ def _service(**gate_overrides) -> DriverAssignmentIngressService:
     )
 
 
-def test_try_enqueue_proceeds_when_ratecon_analysis_not_stored():
-    """Soft-complete: DA still enqueues when ratecon analysis failed to store."""
+def test_try_enqueue_proceeds_when_ratecon_upload_not_stored():
+    """Soft-complete: DA still enqueues when ratecon upload did not persist a document row."""
     svc = _service(duplicate=False)
     svc._blocks_restart_for_shipment = MagicMock(return_value=False)  # type: ignore[method-assign]
     state = SimpleNamespace(
         tenant_id=_TENANT_ID,
-        data=_ratecon_success_state_data(document_analysis_ratecon={"stored": False}),
+        data=_ratecon_success_state_data(
+            ratecon_s3_upload={
+                "all_succeeded": False,
+                "results": [
+                    {
+                        "success": False,
+                        "object_key": None,
+                        "document_persist": {"stored": False},
+                    }
+                ],
+            }
+        ),
     )
     celery_task = MagicMock(id="celery-1")
     patch_ctx, ser = _patch_run_workflow_async(return_value=celery_task)
@@ -962,11 +978,23 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
         resp = svc.try_driver_details_email_received(
             payload={
                 "thread_id": "thread-1",
+                "email_id": "unipile-email-driver-1",
                 "in_reply_to": {
                     "message_id": "<parent@example.com>",
                     "id": "mail-parent-1",
                 },
+                "from_attendee": {
+                    "identifier": "carrier@example.com",
+                    "identifier_type": "EMAIL_ADDRESS",
+                },
+                "to_attendees": [
+                    {
+                        "identifier": "ops@example.com",
+                        "identifier_type": "EMAIL_ADDRESS",
+                    }
+                ],
                 "body": "Driver John 555-0100",
+                "subject": "Re: Rate confirmation for shipment: #30389",
             },
             tenant=tenant,
             communication_id="comm-1",
@@ -974,7 +1002,13 @@ def test_try_driver_details_email_received_enqueues_with_object_in_reply_to():
 
     assert resp is not None
     ser.enqueue.assert_called_once()
-
+    enqueued = ser.enqueue.call_args.kwargs["payload"]
+    assert enqueued["email_id"] == "unipile-email-driver-1"
+    assert enqueued["from_attendee"]["identifier"] == "carrier@example.com"
+    assert enqueued["body"] == "Driver John 555-0100"
+    assert enqueued["event_type"] == "driver_details_email_received"
+    assert enqueued["communication_id"] == "comm-1"
+    assert enqueued["shipment_id"] == "1000324895"
 
 def test_try_driver_details_email_received_re_subject_fallback_enqueues():
     from app.services.unipile_tenant_resolution import UnipileTenantContext

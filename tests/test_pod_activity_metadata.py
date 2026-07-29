@@ -14,7 +14,6 @@ from app.domain.pod_lifecycle.activity_metadata import (
     tms_action_metadata,
     upload_action_metadata,
     upload_failure_action_metadata,
-    vs_ratecon_action_metadata,
 )
 
 
@@ -76,42 +75,8 @@ def test_processed_failure_action_metadata() -> None:
 
 
 def test_extraction_action_metadata_id_only() -> None:
-    meta = extraction_action_metadata(
-        {"stored": True, "id": "analysis-1"},
-    )
+    meta = extraction_action_metadata("analysis-1")
     assert meta == {"document_analysis_id": "analysis-1"}
-    assert_no_forbidden_keys(meta)
-
-
-def test_vs_ratecon_action_metadata_success_id_only() -> None:
-    meta = vs_ratecon_action_metadata(
-        vs_persist={"stored": True, "id": "vs-1"},
-        vs_results={
-            "success": True,
-            "confidence_score": 0.91,
-            "overall_status": "PASS",
-            "validation_summary": "All fields match.",
-        },
-    )
-    assert meta == {"document_analysis_id": "vs-1"}
-    assert_no_forbidden_keys(meta)
-
-
-def test_vs_ratecon_action_metadata_skipped_reason_only() -> None:
-    meta = vs_ratecon_action_metadata(
-        vs_persist=None,
-        vs_results={"skipped": True, "reason": "comparison_skipped"},
-    )
-    assert meta == {"validation_skip_reason": "comparison_skipped"}
-    assert_no_forbidden_keys(meta)
-
-
-def test_vs_ratecon_action_metadata_failed_error_only() -> None:
-    meta = vs_ratecon_action_metadata(
-        vs_persist=None,
-        vs_results={"success": False, "error": "cross validation failed"},
-    )
-    assert meta == {"error": "cross validation failed"}
     assert_no_forbidden_keys(meta)
 
 

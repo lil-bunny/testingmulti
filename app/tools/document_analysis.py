@@ -1,4 +1,6 @@
-"""Postgres persistence for ``document_analysis`` (ratecon / POD extraction rows)."""
+"""
+Postgres write helpers for ``document_analysis`` rows (upsert-by-type).
+"""
 
 from __future__ import annotations
 
@@ -16,23 +18,7 @@ from app.tools.documents import _uuid_or_none
 logger = logging.getLogger(__name__)
 
 
-def page_count_from_analysis_row(row: dict[str, Any] | None) -> int | None:
-    """Parse ``metadata.page_count`` from a ``document_analysis`` row."""
-    if not row:
-        return None
-    metadata = row.get("metadata")
-    if not isinstance(metadata, dict):
-        return None
-    raw = metadata.get(DOCUMENT_ANALYSIS_PAGE_COUNT_KEY)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        return None
-    return value if value >= 1 else None
-
-
 def normalize_page_count(value: Any) -> int | None:
-    """Return a positive int page count, or ``None``."""
     if value is None:
         return None
     try:
@@ -103,61 +89,3 @@ def upsert_document_analysis(
             analysis_type.value,
         )
         return {"stored": False, "id": None, "error": str(exc)}
-
-
-def read_ratecon_extraction(shipments_row_id: str | None) -> dict[str, Any]:
-    """Load cached ``ratecon_extraction`` row for ``shipments_row_id``. Returns ``{found, row?, error?}``."""
-
-    row_shipment_id = _uuid_or_none(shipments_row_id)
-    if shipments_row_id and not row_shipment_id:
-        return {"found": False, "error": "invalid_shipments_row_id"}
-    if not row_shipment_id:
-        return {"found": False, "error": "missing_shipments_row_id"}
-
-    try:
-        with db_scope() as repos:
-            row = repos.document_analysis.get_by_shipment_and_type(
-                shipment_id=row_shipment_id,
-                analysis_type=DocumentAnalysisType.RATECON_EXTRACTION.value,
-            )
-        if not row:
-            return {"found": False}
-        if row.get("document_id") is not None:
-            row["document_id"] = str(row["document_id"])
-        return {"found": True, "row": row}
-    except Exception as exc:
-        logger.exception(
-            "read_ratecon_extraction failed shipment_id=%s",
-            row_shipment_id,
-        )
-        return {"found": False, "error": str(exc)}
-
-
-def resolve_ratecon_page_count(shipments_row_id: str | None) -> int | None:
-    """``metadata.page_count`` from the ratecon ``document_analysis`` row, if present."""
-    out = read_ratecon_extraction(shipments_row_id)
-    if not out.get("found"):
-        return None
-    return page_count_from_analysis_row(out.get("row"))
-
-
-def upsert_ratecon_extraction(
-    shipments_row_id: str | None,
-    *,
-    results: dict[str, Any],
-    confidence_score: Optional[float] = None,
-    llm_model: Optional[dict[str, Any]] = None,
-    document_id: str | None = None,
-    page_count: Any = None,
-) -> dict[str, Any]:
-    """Upsert ``ratecon_extraction`` for ``shipments_row_id``. Returns ``{stored, id?, error?}``."""
-
-    return upsert_document_analysis(
-        shipments_row_id,
-        DocumentAnalysisType.RATECON_EXTRACTION,
-        results=results,
-        confidence_score=confidence_score,
-        llm_model=llm_model,
-        document_id=document_id,
-        page_count=page_count,
-    )

@@ -7,6 +7,7 @@ from typing import Any, TYPE_CHECKING
 from app.core.logger import get_logger
 from app.models.status import StatusSubType
 from app.services.communications._mapper import normalize_email_body_for_llm
+from app.tools.llm_credentials import resolve_llm_credentials
 from app.tools.llm_client import LLMClientError, chat_json
 
 if TYPE_CHECKING:
@@ -67,10 +68,12 @@ def classify_carrier_acknowledgment(
             "reason": "missing_tenant_prompt_configuration",
         }
 
+    credentials = resolve_llm_credentials(workflow_name="load_tendering")
     try:
         raw = chat_json(
             prompt,
             user_content,
+            credentials=credentials,
             temperature=0.1,
             prompt_trace=prompt_trace,
         )
