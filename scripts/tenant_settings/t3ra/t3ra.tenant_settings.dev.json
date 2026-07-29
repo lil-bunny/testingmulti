@@ -1,77 +1,151 @@
 {
-  "enabledProcesses": [
-    "pod_collection",
-    "driver_assignment",
-    "spot_bidding",
-    "appointment_scheduling"
-  ],
+  "tms": {
+    "provider": "turvo",
+    "client_id": "",
+    "user_name": "",
+    "x_api_key": "",
+    "token_type": "Bearer",
+    "ui_base_url": "https://my-sandbox.turvo.com",
+    "access_token": "",
+    "client_secret": "secret",
+    "refresh_token": "",
+    "public_api_url": "https://my-sandbox-publicapi.turvo.com",
+    "token_updated_at": "",
+    "password_ciphertext": "",
+    "pod_document_lookup_id": "20271627",
+    "access_token_expires_at": ""
+  },
+  "ascend": {
+    "email": "",
+    "access_token": "",
+    "token_updated_at": "2026-07-29T10:36:00.785814+00:00",
+    "password_ciphertext": "",
+    "access_token_expires_at": "2026-07-29T20:36:00+00:00"
+  },
   "prompts": {
-    "ratecon": {
-      "page_extraction": "ratecon-page-extraction:staging"
-    },
     "pod_lifecycle": {
-      "page_extraction": "pod-page-extraction:staging",
-      "vs_ratecon_summary": "pod-vs-ratecon-summary:staging",
-      "vs_ratecon_semantic_match": "pod-vs-ratecon-semantic-match:staging"
+      "pdf_extraction": "pod-pdf-extraction:staging",
+      "attachment_classifier": "pod-attachment-classifier:staging"
     },
     "driver_assignment": {
       "driver_details": "driver-details-extract:staging"
     },
     "appointment_scheduling": {
-      "scheduling_optimization": "appt-scheduling-optimization:staging",
-      "customer_reply": "appt-reply:staging"
-    }
-  },
-  "appointment_scheduling": {
-    "appointment_data_source": "https://docs.google.com/spreadsheets/d/1PqAPAFxGYNSiHUYzLtCNh-ezvpGPpq4W1C8D0PjComk/edit?usp=sharing",
-    "emails": {
-      "to": [],
-      "cc": [],
-      "bcc": []
-    },
-    "skip_ascend_writes": true,
-    "teams_notification": {
-      "teams_webhook_url": "https://example.invalid/teams-webhook",
-      "message_title": "Appointment draft ready — Load {load_id}"
-    },
-    "confirmation_reply": {
-      "template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Confirmed for load {load_id}.</p><p>Reference: {reference_number}<br>Customer: {customer_name}<br>Delivery: {confirmed_delivery_at}</p><p>Thank you.</p></body></html>",
-      "body_text": "Confirmed, Thank You"
+      "customer_reply": "appt-reply:staging",
+      "scheduling_optimization": "appt-scheduling-optimization:staging"
     }
   },
   "pod_lifecycle": {
-    "shadow_mode": false,
-    "shadow_emails": {
-      "to": ["getrichfunway@gmail.com", "sahil@freightx.ai"]
-    },
     "reminders": {
-      "expire_grace_hours": 2,
       "steps": [
-        {"step": 1, "event_type": "reminder_due", "delay_hours": 3},
-        {"step": 2, "event_type": "reminder_due", "delay_hours": 27},
-        {"step": 3, "event_type": "reminder_due", "delay_hours": 75}
+        {
+          "step": 1,
+          "event_type": "reminder_due",
+          "delay_hours": 0.05
+        }
       ],
+      "expire_grace_hours": 2,
       "email_template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Hi there,</p><p><strong>Please provide the POD and all lumper receipts (if applicable) combined into one PDF within 48 hours.</strong><br>Images (JPEG, PNG, etc.) are not accepted.</p><p>Also, include <strong>check-in and check-out times</strong> for all stops.<br>As noted in the rate confirmation, <strong>missing documents may result in a rate reduction.</strong></p><p>If already submitted, please disregard.</p><br><p style=\"font-size:13px; color:#666;\"> Kindly note that this email is <strong>not monitored</strong>. Please always make sure to click <strong>“Reply All”</strong> when replying. </p><br><p>Best,<br><strong>T3RA Logistics Team</strong></p><br><div id=\"x_Signature\"><table style=\"color:black;text-align:left;width:435pt;font-size:14px;\"><tbody><tr><td style=\"padding-right:10px;\"><img alt=\"Company Logo\" src=\"https://i.imgur.com/6074vKi.png\" width=\"80\"></td><td style=\"border-right:1.5pt solid #C2272D;padding:0 10px;\"><p style=\"margin:0;\"><b>Mikey</b></p><p style=\"margin:0;color:#28556A;\">Operations Specialist</p><br><a href=\"https://www.linkedin.com/company/t3ra-logistics/posts/?feedView=all\"><img alt=\"LinkedIn\" src=\"https://i.imgur.com/VFxXRbI.png\" width=\"20\"></a></td><td style=\"padding-left:10px;\"><p style=\"margin:0;\">📧 mikey@t3ralogistics.com</p><p style=\"margin:0;\">📞 (916) 458-5833</p><p style=\"margin:0;\">🌐 <a href=\"https://t3ralogistics.com/\">https://t3ralogistics.com/</a></p></td></tr></tbody></table></div></body></html>"
-    }
+    },
+    "shadow_mode": true,
+    "shadow_emails": {
+      "to": [
+        "getrichfunway@gmail.com",
+        "sahil@freightx.ai"
+      ]
+    },
+    "teams_notification": {
+      "message_title": "POD analyzed — Load {load_id}",
+      "teams_webhook_url": "https://example.invalid/teams-webhook"
+    },
+    "shadow_bypass_loads": [
+      {
+        "load_id": "30389"
+      }
+    ]
+  },
+  "enabledProcesses": [
+    "pod_collection",
+    "driver_assignment",
+    "spot_bid",
+    "appointment_scheduling"
+  ],
+  "mikey_account_id": {
+    "account_id": "sdasd",
+    "email_alias": "alias@mail.com"
   },
   "driver_assignment": {
-    "shadow_mode": false,
-    "shadow_emails": {
-      "to": ["getrichfunway@gmail.com", "sahil@freightx.ai"]
-    },
     "reminders": {
       "steps": [
-        {"step": 1, "event_type": "reminder_due", "delay_hours": 48},
-        {"step": 2, "event_type": "reminder_due", "delay_hours": 24},
-        {"step": 3, "event_type": "reminder_due", "delay_hours": 12},
-        {"step": 4, "event_type": "reminder_due", "delay_hours": 6}
+        {
+          "step": 1,
+          "event_type": "reminder_due",
+          "delay_hours": 0.05
+        },
+        {
+          "step": 2,
+          "event_type": "reminder_due",
+          "delay_hours": 0.05
+        },
+        {
+          "step": 3,
+          "event_type": "reminder_due",
+          "delay_hours": 0.05
+        },
+        {
+          "step": 4,
+          "event_type": "reminder_due",
+          "delay_hours": 0.05
+        }
       ],
       "email_template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Hi,</p><p>Kindly requesting you to please provide the driver's tracking details at the earliest to avoid the $100 tracking fee mentioned in the rate confirmation.</p><p>Please note that if we do not receive the driver details at least <strong>3 hours prior to pickup</strong>, we will be forced to recover the load, and in such a case, <strong>TONU will not be applicable.</strong></p><p>Additionally, if you still proceed to pick up the load after we've removed you from it, the <strong>TONU paid to the other carrier will be deducted from your rate confirmation.</strong></p><p>Appreciate your prompt attention to this.</p><br><p style=\"font-size:13px; color:#666;\"> Kindly note that this email is <strong>not monitored</strong>. Please always make sure to click <strong>“Reply All”</strong> when replying. </p><br><p>Best Regards,<br><strong>T3RA Logistics Team</strong></p><br><div id=\"x_Signature\"><table style=\"color:black;text-align:left;width:435pt;font-size:14px;\"><tbody><tr><td style=\"padding-right:10px;\"><img alt=\"Company Logo\" src=\"https://i.imgur.com/6074vKi.png\" width=\"80\"></td><td style=\"border-right:1.5pt solid #C2272D;padding:0 10px;\"><p style=\"margin:0;\"><b>Mikey</b></p><p style=\"margin:0;color:#28556A;\">Operations Specialist</p><br><a href=\"https://www.linkedin.com/company/t3ra-logistics/posts/?feedView=all\"><img alt=\"LinkedIn\" src=\"https://i.imgur.com/VFxXRbI.png\" width=\"20\"></a></td><td style=\"padding-left:10px;\"><p style=\"margin:0;\">📧 mikey@t3ralogistics.com</p><p style=\"margin:0;\">📞 (916) 458-5833</p><p style=\"margin:0;\">🌐 <a href=\"https://t3ralogistics.com/\">https://t3ralogistics.com/</a></p></td></tr></tbody></table></div></body></html>"
     },
+    "shadow_mode": true,
+    "shadow_emails": {
+      "to": [
+        "",
+        ""
+      ]
+    },
     "escalate_driver": {
-      "message_title": "Driver details missing — Load {load_id}",
       "message_body": "Carrier {carrier_name} has not responded for load {load_id}.Follow up manually",
-      "teams_webhook_url": ""
-    }
-  }
+      "message_title": "Driver details missing — Load {load_id}",
+      "teams_webhook_url": "https://example.invalid/teams-webhook"
+    },
+    "confirmation_email": {
+      "default_template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Hi,</p><p>Thanks for the driver details.</p><p>We have sent the <strong>TURVO APP</strong> link to the driver, please advise him to download the app and accept the tracking <strong>2 hours before pickup.</strong></p><p><strong>Driver name:</strong><br>{driver_name}</p><p><strong>Driver phone:</strong><br>{driver_phone}</p><br><p style=\"font-size:13px; color:#666;\"> Kindly note that this email is <strong>not monitored</strong>. Please always make sure to click <strong>“Reply All”</strong> when replying. </p><br><p>Best Regards,<br><strong>T3RA Logistics Team</strong></p><br><div id=\"x_Signature\"><table style=\"color:black;text-align:left;width:435pt;font-size:14px;\"><tbody><tr><td style=\"padding-right:10px;\"><img alt=\"Company Logo\" src=\"https://i.imgur.com/6074vKi.png\" width=\"80\"></td><td style=\"border-right:1.5pt solid #C2272D;padding:0 10px;\"><p style=\"margin:0;\"><b>Mikey</b></p><p style=\"margin:0;color:#28556A;\">Operations Specialist</p><br><a href=\"https://www.linkedin.com/company/t3ra-logistics/posts/?feedView=all\"><img alt=\"LinkedIn\" src=\"https://i.imgur.com/VFxXRbI.png\" width=\"20\"></a></td><td style=\"padding-left:10px;\"><p style=\"margin:0;\">📧 mikey@t3ralogistics.com</p><p style=\"margin:0;\">📞 (916) 458-5833</p><p style=\"margin:0;\">🌐 <a href=\"https://t3ralogistics.com/\">t3ralogistics.com</a></p></td></tr></tbody></table></div></body></html>",
+      "tracking_template_html": "<html><body style=\"font-family: Arial, sans-serif; color:#333;\"><p>Hi,</p><p>Thanks for the driver's details.</p><p>We have sent the <strong>FOUR KITE APP</strong> link to the driver, please advise him to download the app and accept the tracking <strong>2 hours before pickup.</strong></p><p><strong>Driver name:</strong><br>{driver_name}</p><p><strong>Driver phone:</strong><br>{driver_phone}</p><br><p style=\"font-size:13px; color:#666;\"> Kindly note that this email is <strong>not monitored</strong>. Please always make sure to click <strong>“Reply All”</strong> when replying. </p><br><p>Best Regards,<br><strong>T3RA Logistics Team</strong></p><br><div id=\"x_Signature\"><table style=\"color:black;text-align:left;width:435pt;font-size:14px;\"><tbody><tr><td style=\"padding-right:10px;\"><img alt=\"Company Logo\" src=\"https://i.imgur.com/6074vKi.png\" width=\"80\"></td><td style=\"border-right:1.5pt solid #C2272D;padding:0 10px;\"><p style=\"margin:0;\"><b>Mikey</b></p><p style=\"margin:0;color:#28556A;\">Operations Specialist</p><br><a href=\"https://www.linkedin.com/company/t3ra-logistics/posts/?feedView=all\"><img alt=\"LinkedIn\" src=\"https://i.imgur.com/VFxXRbI.png\" width=\"20\"></a></td><td style=\"padding-left:10px;\"><p style=\"margin:0;\">📧 mikey@t3ralogistics.com</p><p style=\"margin:0;\">📞 (916) 458-5833</p><p style=\"margin:0;\">🌐 <a href=\"https://t3ralogistics.com/\">t3ralogistics.com</a></p></td></tr></tbody></table></div></body></html>",
+      "send_invite_for_default": true,
+      "tracking_customer_names": [
+        "USCS CSC"
+      ],
+      "send_invite_for_tracking": false
+    },
+    "shadow_bypass_loads": [
+      {
+        "load_id": "30389",
+        "shipment_id": "1000324895"
+      }
+    ]
+  },
+  "appointment_scheduling": {
+    "emails": {
+      "cc": [
+        "example@mail.com"
+      ]
+    },
+    "confirmation_reply": {
+      "template_html": "<html><body><p>Confirmed. Thank you.</p></body></html>"
+    },
+    "skip_ascend_writes": false,
+    "teams_notification": {
+      "message_body": "\"Review and confirm in portal. Delivery {delivery_date}.\"",
+      "message_title": "Appointment draft ready — Load {load_id}",
+      "teams_webhook_url": "https://example.invalid/teams-webhook"
+    },
+    "appointment_data_source": "https://docs.google.com/*"
+  },
+  "inbound_routing_emails": [
+    "example@mail.com"
+  ]
 }
