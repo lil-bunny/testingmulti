@@ -52,7 +52,10 @@ def _fake_raw_llm_response() -> dict:
                     "has_delivery_sticker": False,
                 },
                 "signature_owner": "receiver",
-                "page_stop_attribution": "delivery",
+                "fields": [
+                    {"key": "pickup_address", "value": "250 East Roth Road, Lathrop, CA, US"},
+                    {"key": "destination_address", "value": "25900 HEATHER PLACE, WILSONVILLE, OR, US"},
+                ],
                 "reference_ids": [
                     {"label": "PO#", "value": _PICKUP_PO},
                     {"label": "Customer PO#", "value": _DELIVERY_PO},
@@ -114,7 +117,7 @@ def _run_pod_analysis(mock_resolve, mock_extract, *, shipment_payload: dict, tmp
 def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
     mock_upsert, mock_row_id, tmp_path
 ) -> None:
-    """Both PO numbers on the sample shipment are covered by POD ref-ids -> PASS/100."""
+    """Both PO numbers resolve to and match their own Turvo stops -> 100."""
     mock_upsert.return_value = {"stored": True, "id": "da-1"}
     shipment_payload = _load_sample_shipment()
 
@@ -137,8 +140,8 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
 
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 100
-    assert score["result"] == "PASS"
-    assert score["needs_action"] is False
+    assert score["needs_action"] is True
+    assert score["overall_status"] == "PASS"
     assert len(score["po_scores"]) == 2
 
     mock_upsert.assert_called_once()
@@ -147,7 +150,7 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
 
     assert args[1] == DocumentAnalysisType.POD_VS_TMS_ANALYSIS
     assert kwargs["results"]["final_score"] == 100
-    assert kwargs["results"]["result"] == "PASS"
+    assert "result" not in kwargs["results"]
     assert "pod_scoring" not in kwargs["results"]
     assert kwargs["confidence_score"] == 1.0
     assert kwargs.get("llm_model") is None
@@ -159,7 +162,7 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
 def test_pod_lifecycle_scoring_fails_without_delivery_signature(
     mock_upsert, mock_row_id, tmp_path
 ) -> None:
-    """No delivery signature evidence -> hard-gate FAIL regardless of ref-id matches."""
+    """No delivery signature evidence leaves the numeric score at zero."""
     mock_upsert.return_value = {"stored": True, "id": "da-1"}
     shipment_payload = _load_sample_shipment()
 
@@ -202,6 +205,6 @@ def test_pod_lifecycle_scoring_fails_without_delivery_signature(
 
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 0
-    assert score["result"] == "FAIL"
     assert score["needs_action"] is True
+    assert score["overall_status"] == "FAIL"
     mock_upsert.assert_called_once()

@@ -21,8 +21,8 @@ class PodLifecycleTeamsNotificationSettings(BaseModel):
 @dataclass(frozen=True)
 class PodAnalysisDisplayFields:
     load_id: str
-    confidence_score: str
-    validation_summary: str
+    score: str
+    review_summary: str
     overall_status: str
 
 
@@ -80,6 +80,10 @@ def resolve_pod_scoring_summary(score: dict[str, Any]) -> str:
     if exception_types:
         summary += f". Exceptions: {', '.join(exception_types)}."
 
+    review_reasons = score.get("review_reasons") if isinstance(score.get("review_reasons"), list) else []
+    if review_reasons:
+        summary += " Review required: " + " ".join(str(reason) for reason in review_reasons)
+
     remarks = score.get("remarks") if isinstance(score.get("remarks"), list) else []
     if remarks:
         summary += " " + " ".join(str(r) for r in remarks)
@@ -114,18 +118,18 @@ def pod_analysis_display_fields_from_data(
     if final_score is None:
         return None
     try:
-        confidence_score = f"{round(float(final_score))}/100"
+        score_display = f"{round(float(final_score))}/100"
     except (TypeError, ValueError):
         return None
 
-    overall = str(score.get("result") or "UNKNOWN").strip().upper()
+    overall = str(score.get("overall_status") or "UNKNOWN").strip().upper()
     if overall not in ("PASS", "FAIL", "UNKNOWN"):
         overall = "UNKNOWN"
 
     return PodAnalysisDisplayFields(
         load_id=load_id,
-        confidence_score=confidence_score,
-        validation_summary=resolve_pod_scoring_summary(score),
+        score=score_display,
+        review_summary=resolve_pod_scoring_summary(score),
         overall_status=overall,
     )
 
@@ -154,25 +158,28 @@ def format_pod_analysis_body(
         except KeyError:
             return str(template).strip().format_map(_SafeFormatMap(ctx))
     return (
-        f"Load {fields.load_id} POD score {fields.confidence_score} "
-        f"({fields.overall_status}). {fields.validation_summary}"
+        f"Load {fields.load_id} POD score {fields.score} "
+        f"({fields.overall_status}). {fields.review_summary}"
     )
 
 
 def pod_analysis_facts(fields: PodAnalysisDisplayFields) -> list[tuple[str, str]]:
     return [
         ("Load ID", fields.load_id or "—"),
-        ("POD Score", fields.confidence_score or "—"),
+        ("POD Score", fields.score or "—"),
         ("Status", fields.overall_status or "—"),
-        ("Summary", fields.validation_summary or "—"),
+        ("Review summary", fields.review_summary or "—"),
     ]
 
 
 def _template_context(fields: PodAnalysisDisplayFields) -> dict[str, str]:
     return {
         "load_id": fields.load_id,
-        "confidence_score": fields.confidence_score,
-        "validation_summary": fields.validation_summary,
+        "score": fields.score,
+        "review_summary": fields.review_summary,
+        # Keep tenant-authored templates working during rollout.
+        "confidence_score": fields.score,
+        "validation_summary": fields.review_summary,
         "overall_status": fields.overall_status,
     }
 

@@ -15,6 +15,7 @@ from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.activity_log_service import ActivityLogService
 from app.services.pod_lifecycle.pod_scoring import score_pod
 from app.services.pod_lifecycle.ratecon_page_trim import RateconPageTrimService
+from app.services.pod_lifecycle.stop_matching import build_stop_aware_observations
 from app.tools.document_analysis import upsert_document_analysis
 from app.tools.pod import pod_analysis as get_pod_analysis
 from app.workflows.shipment_resolver import resolve_shipment_id, resolve_shipments_row_id_for_db
@@ -94,7 +95,7 @@ def _manual_pod_analysis_soft_fail(out: dict) -> bool:
         return True
     if not out.get("success"):
         return str(out.get("error") or "").strip() == "extraction_empty"
-    return not (out.get("findings") or {}).get("pod_data")
+    return not (out.get("findings") or {}).get("page_details")
 
 
 @safe_node
@@ -127,7 +128,7 @@ def pod_analysis(state):
             raise WorkflowException(BusinessError.POD_ATTACHMENT_UPLOAD_FAILED)
         raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
 
-    if out.get("success") and not (out.get("findings") or {}).get("pod_data"):
+    if out.get("success") and not (out.get("findings") or {}).get("page_details"):
         raise WorkflowException(BusinessError.POD_EXTRACTION_EMPTY)
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)
@@ -135,17 +136,14 @@ def pod_analysis(state):
     if (
         out.get("success")
         and not out.get("skipped")
-        and findings.get("pod_data")
+        and findings.get("page_details")
         and shipments_row_id
     ):
         # Persist extract-only shape; scoring/observations stay in state findings.
         persist = upsert_document_analysis(
             shipments_row_id,
             DocumentAnalysisType.POD_EXTRACTION,
-            results={
-                "pod_data": findings.get("pod_data"),
-                "llm_extraction": findings.get("llm_extraction"),
-            },
+            results={"page_evidence": findings.get("page_details")},
             confidence_score=out.get("confidence_score"),
             llm_model={"model": settings.LLM_PDF_MODEL},
             document_id=out.get("document_id"),
@@ -295,23 +293,23 @@ def pod_scoring(state):
     """
     Score the PoD against Turvo inputs and persist a ``pod_vs_tms_analysis`` row.
 
-    Skips multi-stop shipments. Uses in-memory ``pod_analysis`` findings
-    (``pod_observations``); does not overwrite the ``pod_extraction`` row.
+    Uses all Turvo stops and in-memory page evidence; does not overwrite the
+    ``pod_extraction`` row.
     """
     shipment = state.data.get("shipment") or {}
     pod_inputs = extract_pod_inputs_from_shipment(shipment)
 
-    if not pod_inputs.is_single_stop:
-        state.data["pod_scoring_results"] = {
-            "success": True,
-            "skipped": True,
-            "reason": "multi_stop_not_supported",
-        }
-        return state
-
     findings = _pod_analysis_findings(state)
     pod_observations = findings.get("pod_observations")
     pod_observations = pod_observations if isinstance(pod_observations, dict) else {}
+    llm_extraction = findings.get("llm_extraction")
+    llm_extraction = llm_extraction if isinstance(llm_extraction, dict) else {}
+    stop_observations = build_stop_aware_observations(
+        llm_extraction.get("pages"),
+        pod_inputs,
+    )
+    if isinstance(llm_extraction.get("pages"), list):
+        pod_observations = {**pod_observations, **stop_observations}
 
     score = score_pod(pod_observations, pod_inputs)
     score_dict = asdict(score)
@@ -330,11 +328,11 @@ def pod_scoring(state):
         state.data["document_analysis_pod_scoring"] = persist
         logger.info(
             "pod_scoring: document_analysis stored=%s id=%s type=%s "
-            "final_score=%s result=%s",
+            "final_score=%s needs_action=%s",
             persist.get("stored"),
             persist.get("id"),
             DocumentAnalysisType.POD_VS_TMS_ANALYSIS.value,
             score.final_score,
-            score.result,
+            score.needs_action,
         )
     return state

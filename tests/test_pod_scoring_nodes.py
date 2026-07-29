@@ -75,16 +75,13 @@ def test_capture_turvo_shipment_snapshot_writes_dict_to_state() -> None:
     assert "error" not in state.data
 
 
-def test_pod_scoring_multi_stop_bails_to_skip() -> None:
+def test_pod_scoring_supports_multi_stop_shipments() -> None:
     state = _state(shipment=_MULTI_STOP_SHIPMENT)
 
     pod_scoring(state)
 
-    assert state.data["pod_scoring_results"] == {
-        "success": True,
-        "skipped": True,
-        "reason": "multi_stop_not_supported",
-    }
+    assert state.data["pod_scoring_results"]["success"] is True
+    assert state.data["pod_scoring_results"]["score"]["final_score"] == 0
     assert "error" not in state.data
 
 
@@ -112,14 +109,15 @@ def test_pod_scoring_persists_pod_vs_tms_analysis_row(mock_row, mock_upsert) -> 
     assert state.data["pod_scoring_results"]["success"] is True
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 100
-    assert score["result"] == "PASS"
+    assert score["needs_action"] is True
+    assert score["overall_status"] == "PASS"
 
     mock_upsert.assert_called_once()
     args, kwargs = mock_upsert.call_args
     assert args[0] == "row-1"
     assert args[1] == DocumentAnalysisType.POD_VS_TMS_ANALYSIS
     assert kwargs["results"]["final_score"] == 100
-    assert kwargs["results"]["result"] == "PASS"
+    assert "result" not in kwargs["results"]
     assert "pod_data" not in kwargs["results"]
     assert "pod_scoring" not in kwargs["results"]
     assert kwargs["confidence_score"] == 1.0
@@ -152,5 +150,6 @@ def test_pod_scoring_no_pod_observations_scores_zero_and_does_not_crash() -> Non
 
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 0
-    assert score["result"] == "FAIL"
+    assert score["needs_action"] is True
+    assert score["overall_status"] == "FAIL"
     assert "error" not in state.data

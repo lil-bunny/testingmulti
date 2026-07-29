@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
+from app.integrations.turvo.pod_inputs import (
+    TurvoPurchaseOrder,
+    TurvoShipmentPodInputs,
+    TurvoStop,
+)
+from app.services.pod_lifecycle.pod_scoring import score_pod
+
 from app.domain.pod_lifecycle.teams_notification import (
     PodAnalysisDisplayFields,
     format_pod_analysis_body,
@@ -34,7 +43,7 @@ def _scoring_results(*, final_score: float, result: str, po_scores: list | None 
         "success": True,
         "score": {
             "final_score": final_score,
-            "result": result,
+            "overall_status": result,
             "po_scores": po_scores if po_scores is not None else [],
             "exceptions": [],
             "remarks": [],
@@ -55,10 +64,39 @@ def test_pod_analysis_display_fields_from_data() -> None:
     )
     assert fields == PodAnalysisDisplayFields(
         load_id="30389",
-        confidence_score="88/100",
-        validation_summary="A1176371: 88/100",
+        score="88/100",
+        review_summary="A1176371: 88/100",
         overall_status="PASS",
     )
+
+
+def test_display_fields_read_real_score_pod_output() -> None:
+    """Guard the ``PodScoreResult`` field names the Teams card reads."""
+    pod_inputs = TurvoShipmentPodInputs(
+        is_single_stop=True,
+        pickup=TurvoStop(name="Shipper", address="1 A St, Lathrop, CA, US"),
+        delivery=TurvoStop(name="Consignee", address="2 B St, Wilsonville, OR, US"),
+        purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")],
+        pickup_date="2026-07-20T15:00:00Z",
+        delivery_date="2026-07-21T13:00:00Z",
+        ordered_pallet_qty=37,
+        custom_id="30397",
+    )
+    score = score_pod(
+        {"delivery_signature_present": True, "extracted_reference_numbers": ["A1176371"]},
+        pod_inputs,
+    )
+
+    fields = pod_analysis_display_fields_from_data(
+        {
+            "load_id": "30397",
+            "pod_scoring_results": {"success": True, "score": asdict(score)},
+        }
+    )
+
+    assert fields is not None
+    assert fields.score == "100/100"
+    assert fields.overall_status == "PASS"
 
 
 def test_pod_analysis_display_fields_from_shipment_custom_id() -> None:
@@ -98,8 +136,8 @@ def test_pod_analysis_display_fields_none_when_skipped() -> None:
 def test_format_pod_analysis_title_and_facts() -> None:
     fields = PodAnalysisDisplayFields(
         load_id="30389",
-        confidence_score="87/100",
-        validation_summary="All fields matched.",
+        score="87/100",
+        review_summary="All fields matched.",
         overall_status="PASS",
     )
     assert format_pod_analysis_title("POD analyzed — Load {load_id}", fields=fields) == (
@@ -110,4 +148,4 @@ def test_format_pod_analysis_title_and_facts() -> None:
     assert facts[0] == ("Load ID", "30389")
     assert facts[1] == ("POD Score", "87/100")
     assert facts[2] == ("Status", "PASS")
-    assert facts[3] == ("Summary", "All fields matched.")
+    assert facts[3] == ("Review summary", "All fields matched.")

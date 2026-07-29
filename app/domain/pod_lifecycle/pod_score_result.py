@@ -9,9 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-ExceptionType = Literal["damage", "short_shipment", "over_shipment"]
-ScoreResult = Literal["PASS", "FAIL"]
-
+ExceptionType = Literal[
+    "damage",
+    "short_shipment",
+    "over_shipment",
+    "refused_delivery",
+]
+OverallStatus = Literal["PASS", "FAIL"]
 PASS_THRESHOLD = 90
 
 
@@ -34,6 +38,7 @@ class PodPurchaseOrderScore:
     pass1: list[PodFieldResult]
     pass2: list[PodFieldResult] | None
     po_total: int
+    page_comparisons: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -46,12 +51,14 @@ class PodException:
 
 @dataclass(frozen=True)
 class PodScoreResult:
-    """Final PoD-vs-Turvo scoring outcome for one shipment."""
+    """Numeric PoD-vs-Turvo score and evidence for an Ops review decision."""
 
     po_scores: list[PodPurchaseOrderScore]
     final_score: int
-    result: ScoreResult
+    overall_status: OverallStatus
     exceptions: list[PodException] = field(default_factory=list)
     needs_action: bool = False
     pickup_signature_present: bool = True
     remarks: list[str] = field(default_factory=list)
+    review_reasons: list[str] = field(default_factory=list)
+    stop_times: list[dict] = field(default_factory=list)

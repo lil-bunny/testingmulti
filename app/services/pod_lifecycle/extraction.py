@@ -2,18 +2,14 @@
 POD PDF → single-call direct-PDF extraction.
 
 Flow: size/page guard -> one ``chat_pdf_json`` call against the whole
-merged POD PDF using the Hub ``pod-pdf-extraction`` prompt -> map
-the LLM's own ``reconciled`` block into the flat ``pod_data`` shape downstream
-(``pod_scoring``, activity/notify services) already expects.
+merged POD PDF using the Hub ``pod-pdf-extraction`` prompt -> preserve
+page-level evidence for the Turvo-aware scoring stage.
 
 RATE_CONFIRMATION pages may be present in the LLM response for audit;
 trimming for S3 upload happens after this extraction in the graph.
 
-No per-page vision fan-out, no Python page reconciliation: the LLM reasons
-across the whole document in one request and returns both per-page evidence
-(``pages``) and a document-level ``reconciled`` object; we trust ``reconciled``
-for field values and recompute only the ``delivery_confirmed`` boolean in code
-so it stays a deterministic business rule.
+No flat document-level LLM reconciliation is used for PoD decisions. The
+Turvo-aware scoring stage owns PO, stop, and delivery-proof reconciliation.
 """
 
 from __future__ import annotations
@@ -31,17 +27,6 @@ from app.tools.pdf_page_text_extractor import pdf_page_count
 from app.tools.pdf_to_images import PdfTooLargeError
 
 logger = logging.getLogger(__name__)
-
-_MAPPED_FIELD_KEYS = (
-    "carrier_name",
-    "po_number",
-    "pickup_location",
-    "pickup_address",
-    "destination_location",
-    "destination_address",
-    "stamp_company_name",
-)
-
 
 def _str_or_empty(val: Any) -> str:
     if val is None:
@@ -88,130 +73,6 @@ def _normalize_stop_time_to_iso(val: str) -> str:
         except (ValueError, TypeError):
             continue
     return s
-
-
-def is_valid_delivery_confirmation(data: dict[str, Any]) -> bool:
-    """A delivery is confirmed if there is a valid receiver signature OR a stamp."""
-    return bool(data.get("signature_present", False) or data.get("stamp_present", False))
-
-
-def validate_pod_consistency(final_data: dict[str, Any]) -> list[str]:
-    """Validates the final reconciled data for logical issues."""
-    issues = []
-    if not is_valid_delivery_confirmation(final_data):
-        issues.append("No concrete proof of delivery (receiver signature or stamp required).")
-    return issues
-
-
-def map_reconciled_to_pod_data(
-    reconciled: dict[str, Any],
-    broker_name: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """
-    Map the Hub ``reconciled`` block to the flat ``pod_data`` shape.
-
-    ``po_number``: join all distinct values with ``", "`` (multiple ``fields``
-    entries with the same key are expected). Other mapped keys: highest
-    ``confidence`` entry wins (first one on a tie). ``delivery_confirmed`` is
-    recomputed from the mapped signature/stamp flags, never trusted from the
-    LLM's own ``reconciled.delivery_confirmed``.
-    """
-    final_data: dict[str, Any] = {}
-    reconciliation_log: dict[str, Any] = {}
-
-    fields = reconciled.get("fields") if isinstance(reconciled.get("fields"), list) else []
-    by_key: dict[str, list[dict[str, Any]]] = {}
-    for field in fields:
-        if not isinstance(field, dict):
-            continue
-        key = field.get("key")
-        if key not in _MAPPED_FIELD_KEYS:
-            continue
-        by_key.setdefault(key, []).append(field)
-
-    broker_lower = (broker_name or "").strip().lower()
-
-    po_entries = by_key.get("po_number", [])
-    if po_entries:
-        all_pos: set[str] = set()
-        for entry in po_entries:
-            for po in str(entry.get("value") or "").split(","):
-                po = po.strip()
-                if po and len(po) >= 2 and po.lower() not in ("null", "none", "n/a"):
-                    all_pos.add(po)
-        if all_pos:
-            final_data["po_number"] = ", ".join(sorted(all_pos))
-            reconciliation_log["po_number"] = (
-                f"Aggregated {len(all_pos)} unique PO number(s) from reconciled.fields."
-            )
-
-    for key in ("carrier_name", "pickup_location", "pickup_address", "destination_location", "destination_address", "stamp_company_name"):
-        entries = [e for e in by_key.get(key, []) if _str_or_empty(e.get("value"))]
-        if key == "carrier_name" and broker_lower:
-            filtered = [e for e in entries if broker_lower not in str(e.get("value")).lower()]
-            if len(filtered) < len(entries):
-                logger.info(
-                    "pod_extraction: filtered broker from carrier candidates broker=%s",
-                    broker_name,
-                )
-            entries = filtered
-        if not entries:
-            if key == "carrier_name":
-                final_data["carrier_name"] = None
-                broker_note = (
-                    f" (Note: Broker '{broker_name}' was excluded from carrier selection)"
-                    if broker_lower
-                    else ""
-                )
-                reconciliation_log["carrier_name"] = f"No valid carrier found by LLM{broker_note}."
-            continue
-        winner = max(entries, key=lambda e: e.get("confidence") or 0)
-        final_data[key] = _str_or_empty(winner.get("value"))
-        reconciliation_log[key] = (
-            f"Selected '{final_data[key]}' (confidence={winner.get('confidence')})."
-        )
-
-    proof = reconciled.get("proof_of_receipt") if isinstance(reconciled.get("proof_of_receipt"), dict) else {}
-    final_data["signature_present"] = bool(proof.get("has_receiver_signature"))
-    final_data["stamp_present"] = bool(proof.get("has_stamp"))
-    reconciliation_log["signature_present"] = (
-        f"Receiver signature evidence: {proof.get('receiver_signature_location') or 'N/A'}"
-        if final_data["signature_present"]
-        else "No valid receiver signature/acceptance found."
-    )
-    reconciliation_log["stamp_present"] = (
-        "Company stamp evidence present." if final_data["stamp_present"] else "No stamp found."
-    )
-
-    # Deterministic business rule (Q4) — never trust the LLM's own
-    # ``reconciled.delivery_confirmed`` flag.
-    final_data["delivery_confirmed"] = is_valid_delivery_confirmation(final_data)
-    final_data["delivery_confirmation_reasoning"] = (
-        str(proof.get("delivery_confirmation_reasoning") or "").strip()
-        or "No delivery confirmation evidence found by LLM"
-    )
-
-    stop_times_agg = []
-    raw_stop_times = reconciled.get("stop_times")
-    if isinstance(raw_stop_times, list):
-        for obj in raw_stop_times:
-            if not isinstance(obj, dict):
-                continue
-            normalized = {}
-            for k in (
-                "pickup_checkin_time",
-                "pickup_checkout_time",
-                "delivery_checkin_time",
-                "delivery_checkout_time",
-            ):
-                s = _str_or_empty(obj.get(k))
-                normalized[k] = _normalize_stop_time_to_iso(s) if s else ""
-            stop_times_agg.append(normalized)
-    final_data["stop_times"] = stop_times_agg
-    if stop_times_agg:
-        reconciliation_log["stop_times"] = f"Mapped {len(stop_times_agg)} stop(s) from reconciled.stop_times."
-
-    return final_data, reconciliation_log
 
 
 def _page_proof(page: dict[str, Any]) -> dict[str, Any]:
@@ -263,13 +124,13 @@ def _first_stop_time(stop_times: list[Any], keys: tuple[str, str]) -> str | None
 
 def derive_pod_scoring_observations(
     pages: Any,
-    final_pod_data: dict[str, Any],
+    _unused_legacy_pod_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Build ``pod_observations`` for ``score_pod`` from LLM ``pages[]`` + ``pod_data``.
+    Build raw POD observations from LLM ``pages[]`` only.
 
-    Delivery/pickup signature flags are a deterministic OR over stop-attributed
-    pages (never a document-level LLM opinion), matching ``delivery_confirmed``.
+    Stop-aware reconciliation is intentionally deferred until Turvo inputs are
+    available in the scoring node.
     """
     page_list = [p for p in pages if isinstance(p, dict)] if isinstance(pages, list) else []
 
@@ -278,6 +139,7 @@ def derive_pod_scoring_observations(
     reference_values: set[str] = set()
     damage_detected = False
     damage_detail = ""
+    refused_delivery = False
 
     for page in page_list:
         proof = _page_proof(page)
@@ -299,14 +161,15 @@ def derive_pod_scoring_observations(
         if page.get("damage_detected") and not damage_detected:
             damage_detected = True
             damage_detail = _str_or_empty(page.get("damage_detail"))
+        if page.get("refused_delivery"):
+            refused_delivery = True
 
-    for po in str(final_pod_data.get("po_number") or "").split(","):
-        po = po.strip()
-        if po:
-            reference_values.add(po)
-
-    raw_stop_times = final_pod_data.get("stop_times")
-    stop_times = raw_stop_times if isinstance(raw_stop_times, list) else []
+    stop_times = [
+        entry
+        for page in page_list
+        for entry in (page.get("stop_times") or [])
+        if isinstance(entry, dict)
+    ]
     pickup_date = _first_stop_time(stop_times, ("pickup_checkin_time", "pickup_checkout_time"))
     delivery_date = _first_stop_time(stop_times, ("delivery_checkin_time", "delivery_checkout_time"))
 
@@ -316,13 +179,10 @@ def derive_pod_scoring_observations(
         "extracted_reference_numbers": sorted(reference_values),
         "pickup_date": pickup_date,
         "delivery_date": delivery_date,
-        "shipper_name": final_pod_data.get("pickup_location"),
-        "shipper_address": final_pod_data.get("pickup_address"),
-        "consignee_name": final_pod_data.get("destination_location"),
-        "consignee_address": final_pod_data.get("destination_address"),
         "pallets_shipped": _pallets_shipped_from_pages(page_list),
         "damage_detected": damage_detected,
         "damage_detail": damage_detail or None,
+        "refused_delivery": refused_delivery,
     }
 
 
@@ -345,47 +205,6 @@ def wrap_pages_as_page_details(pages: Any, load_id: str) -> list[dict[str, Any]]
     return wrapped
 
 
-def pdf_document_confidence_score(
-    pod_data: dict[str, Any],
-    validation_issues: list[str],
-    reconciled: dict[str, Any],
-) -> float:
-    """
-    Document-level heuristic confidence (0..1).
-
-    Placeholder for commit 1 only — no business-logic change intended. Blends
-    delivery confirmation, mapped-field completeness, and average LLM field
-    confidence from ``reconciled.fields``; penalized by validation issues.
-    Commit 2 (POD-vs-Turvo scoring) replaces this with PO-level scoring.
-    """
-    completeness_keys = (
-        "carrier_name",
-        "po_number",
-        "pickup_location",
-        "pickup_address",
-        "destination_location",
-        "destination_address",
-    )
-    present = sum(1 for k in completeness_keys if pod_data.get(k))
-    completeness_ratio = present / len(completeness_keys)
-
-    fields = reconciled.get("fields") if isinstance(reconciled.get("fields"), list) else []
-    confidences = [
-        float(f.get("confidence"))
-        for f in fields
-        if isinstance(f, dict) and isinstance(f.get("confidence"), (int, float))
-    ]
-    avg_field_confidence = (sum(confidences) / len(confidences) / 100.0) if confidences else 0.5
-
-    if pod_data.get("delivery_confirmed"):
-        base = 0.35 + 0.35 * completeness_ratio + 0.20 * avg_field_confidence
-    else:
-        base = 0.20 + 0.25 * completeness_ratio + 0.15 * avg_field_confidence
-    if validation_issues:
-        base *= 0.85
-    return max(0.0, min(1.0, round(base, 4)))
-
-
 def extract_from_pdf_path(
     pdf_path: str,
     *,
@@ -394,10 +213,10 @@ def extract_from_pdf_path(
     model_label: str | None = None,
 ) -> tuple[list[Any], dict[str, Any], list[str], dict[str, Any], dict[str, Any]]:
     """
-    Single-call PDF extraction: size/page guard -> ``chat_pdf_json`` -> map
-    ``reconciled`` -> flat ``pod_data`` -> validate.
+    Single-call PDF extraction: size/page guard -> ``chat_pdf_json`` -> pages.
 
-    Returns ``(page_details, pod_data, validation_issues, reconciliation_log, raw_llm_response)``.
+    Returns ``(page_details, {}, [], {}, raw_llm_response)`` while callers
+    migrate to the page-evidence-only return contract.
     Raises ``PdfTooLargeError`` when the PDF exceeds ``POD_PDF_MAX_BYTES`` /
     ``POD_PDF_MAX_PAGES`` (fail closed — no compression fallback here).
     """
@@ -443,43 +262,28 @@ def extract_from_pdf_path(
                 "error_category": "api_error",
             }
         ]
-        final_pod_data, reconciliation_log = map_reconciled_to_pod_data({}, broker_name)
-        validation_issues = validate_pod_consistency(final_pod_data)
-        return error_row, final_pod_data, validation_issues, reconciliation_log, {}
+        return error_row, {}, [], {}, {}
 
     if not isinstance(raw_response, dict):
         raw_response = {}
-    reconciled = raw_response.get("reconciled")
-    reconciled = reconciled if isinstance(reconciled, dict) else {}
-    has_usable_reconciled = bool(reconciled.get("fields")) or bool(reconciled.get("proof_of_receipt"))
-
     pages = raw_response.get("pages")
     page_details = wrap_pages_as_page_details(pages, load_id)
 
-    if not has_usable_reconciled:
+    if not page_details:
         logger.warning(
-            "pod_extraction: PDF response missing usable reconciled block load_id=%s",
+            "pod_extraction: PDF response missing usable page evidence load_id=%s",
             load_id,
         )
-        if not page_details:
-            page_details = [
-                {
-                    "page_number": 1,
-                    "timestamp": datetime.now().isoformat(),
-                    "error": "LLM response missing usable 'reconciled' data",
-                    "load_id": load_id,
-                    "error_category": "empty_response",
-                }
-            ]
-        final_pod_data, reconciliation_log = map_reconciled_to_pod_data({}, broker_name)
-        validation_issues = validate_pod_consistency(final_pod_data)
-        return page_details, final_pod_data, validation_issues, reconciliation_log, raw_response
-
-    final_pod_data, reconciliation_log = map_reconciled_to_pod_data(reconciled, broker_name)
-    document_summary = raw_response.get("document_summary")
-    if isinstance(document_summary, dict) and document_summary.get("notes"):
-        reconciliation_log["document_summary_notes"] = str(document_summary["notes"])
-    validation_issues = validate_pod_consistency(final_pod_data)
+        page_details = [
+            {
+                "page_number": 1,
+                "timestamp": datetime.now().isoformat(),
+                "error": "LLM response missing usable page evidence",
+                "load_id": load_id,
+                "error_category": "empty_response",
+            }
+        ]
+        return page_details, {}, [], {}, raw_response
 
     logger.info(
         "pod_extraction: PDF extraction complete load_id=%s pages=%s model=%s",
@@ -487,24 +291,6 @@ def extract_from_pdf_path(
         len(page_details),
         model_label,
     )
-    if validation_issues:
-        logger.warning(
-            "pod_extraction: validation issues load_id=%s issues=%s",
-            load_id,
-            validation_issues,
-        )
-
-    return page_details, final_pod_data, validation_issues, reconciliation_log, raw_response
+    return page_details, {}, [], {}, raw_response
 
 
-def pod_confidence_score(
-    page_results: list[Any],
-    final_pod_data: dict[str, Any],
-    validation_issues: list[str],
-    raw_llm_response: dict[str, Any] | None = None,
-) -> float:
-    """Document-level confidence — see ``pdf_document_confidence_score``."""
-    _ = page_results
-    reconciled = (raw_llm_response or {}).get("reconciled")
-    reconciled = reconciled if isinstance(reconciled, dict) else {}
-    return pdf_document_confidence_score(final_pod_data, validation_issues, reconciled)

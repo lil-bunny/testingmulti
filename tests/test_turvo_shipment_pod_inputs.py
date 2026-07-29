@@ -71,8 +71,8 @@ def test_purchase_orders_are_flattened_and_stop_tagged() -> None:
     pod_inputs = extract_pod_inputs_from_shipment(_SHIPMENT_62762_FIXTURE)
 
     assert pod_inputs.purchase_orders == [
-        TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup"),
-        TurvoPurchaseOrder(po_number="007660706282", stop_type="delivery"),
+        TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup", stop_id="292991470"),
+        TurvoPurchaseOrder(po_number="007660706282", stop_type="delivery", stop_id="292991471"),
     ]
     assert pod_inputs.pickup.po_numbers == ["A1176371"]
     assert pod_inputs.delivery.po_numbers == ["007660706282"]

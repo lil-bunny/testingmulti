@@ -30,7 +30,7 @@ _BASE_DATA = {
         "success": True,
         "score": {
             "final_score": 87,
-            "result": "PASS",
+            "overall_status": "PASS",
             "po_scores": [{"po_number": "A1176371", "po_total": 87}],
             "exceptions": [],
             "remarks": [],

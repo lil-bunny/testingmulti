@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.services.s3bucket_service import bucket, normalize_object_key
 from app.services.attachment_normalizer import _sanitize_path_segment
 from app.services.pod_lifecycle.extraction import extract_from_pdf_path as extract_pod_from_pdf_path
-from app.services.pod_lifecycle.extraction import derive_pod_scoring_observations, pod_confidence_score
+from app.services.pod_lifecycle.extraction import derive_pod_scoring_observations
 from app.tools.pdf_to_images import PdfTooLargeError, make_temp_pdf
 from app.tools.documents import resolve_merged_pod_object_key
 from app.workflows.shipment_resolver import resolve_shipment_id
@@ -140,7 +140,7 @@ def pod_analysis(data: dict) -> dict:
             source,
         )
 
-        page_results, final_pod_data, validation_issues, reconciliation_log, raw_llm_response = (
+        page_results, _, _, _, raw_llm_response = (
             extract_pod_from_pdf_path(
                 tmp_path,
                 broker_name=broker_name,
@@ -159,12 +159,10 @@ def pod_analysis(data: dict) -> dict:
                 "shipment_id": sid,
                 "pod_object_key": object_key,
                 "page_results": page_results,
-                "pod_data": final_pod_data,
+                "page_evidence": page_results,
             }
 
-        pod_observations = derive_pod_scoring_observations(
-            (raw_llm_response or {}).get("pages"), final_pod_data
-        )
+        pod_observations = derive_pod_scoring_observations((raw_llm_response or {}).get("pages"))
 
         findings = {
             "metadata": {
@@ -176,24 +174,10 @@ def pod_analysis(data: dict) -> dict:
                 "pod_object_key_source": url_meta.get("source"),
                 "pod_bytes_source": source,
             },
-            "pod_data": final_pod_data,
-            "validation_issues": validation_issues,
-            "reconciliation_log": reconciliation_log,
             "page_details": page_results,
             "llm_extraction": raw_llm_response,
             "pod_observations": pod_observations,
         }
-        confidence = pod_confidence_score(
-            page_results, final_pod_data, validation_issues, raw_llm_response
-        )
-
-        if final_pod_data.get("delivery_confirmed") and not validation_issues:
-            pod_status = "PASS"
-        elif ok_pages:
-            pod_status = "UNKNOWN"
-        else:
-            pod_status = "FAIL"
-
         return {
             "success": True,
             "shipment_id": sid,
@@ -201,9 +185,7 @@ def pod_analysis(data: dict) -> dict:
             "pod_document_id": document_id,
             "findings": findings,
             "document_id": document_id,
-            "confidence_score": confidence,
-            "pod_status": pod_status,
-            "delivery_confirmed": final_pod_data.get("delivery_confirmed"),
+            "confidence_score": None,
         }
     except PdfTooLargeError as exc:
         logger.warning(

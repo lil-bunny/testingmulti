@@ -3,7 +3,7 @@
 LLM supplies ``pod_observations``; this module applies the deterministic score.
 Flow per PO: delivery-signature gate (60) → ref-id match (40) → else Pass 2
 (dates + shipper/consignee text). Final score is the mean of PO totals;
-exceptions (damage/short/over) set ``needs_action`` but never change points.
+exceptions never change points. Phase 1 always routes the result to manual review.
 """
 
 from __future__ import annotations
@@ -19,13 +19,16 @@ from app.domain.pod_lifecycle.pod_score_result import (
     PodFieldResult,
     PodPurchaseOrderScore,
     PodScoreResult,
-    ScoreResult,
 )
-from app.integrations.turvo.pod_inputs import TurvoPurchaseOrder, TurvoShipmentPodInputs
+from app.integrations.turvo.pod_inputs import (  # noqa: TC001
+    TurvoPurchaseOrder,
+    TurvoShipmentPodInputs,
+)
 
 _PASS2_DATE_POINTS = 10
 _PASS2_TEXT_POINTS = 5
 _IDENTIFIABLE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
+_REFUSED_DELIVERY_PATTERN = re.compile(r"\brefus(?:e|ed|al)\b", re.IGNORECASE)
 
 
 def score_pod(
@@ -35,8 +38,8 @@ def score_pod(
     """
     Score a PoD against Turvo shipment inputs. Pure and deterministic.
 
-    Outcomes: mean PO total → PASS/FAIL at ``PASS_THRESHOLD``; missing Turvo POs
-    or a FAIL (or any exception) sets ``needs_action``.
+    The numeric score has an informational PASS/FAIL status at the 90-point
+    threshold. Phase 1 still sends every POD to manual review.
     """
     exceptions = _exceptions_from_observations(pod_observations, turvo_inputs)
     pickup_signature_present = bool(pod_observations.get("pickup_signature_present", True))
@@ -47,11 +50,12 @@ def score_pod(
         return PodScoreResult(
             po_scores=[],
             final_score=0,
-            result="FAIL",
+            overall_status="FAIL",
             exceptions=exceptions,
             needs_action=True,
             pickup_signature_present=pickup_signature_present,
             remarks=remarks,
+            review_reasons=["No Turvo PO found for this shipment; cannot score."],
         )
 
     delivery_signature_present = bool(pod_observations.get("delivery_signature_present"))
@@ -62,17 +66,22 @@ def score_pod(
     # Pro-rated sum of each field-PO combination reduces to the mean PO total,
     # since each PO's total is itself the sum of its field scores.
     final_score = round(sum(po.po_total for po in po_scores) / len(po_scores))
-    result: ScoreResult = "PASS" if final_score >= PASS_THRESHOLD else "FAIL"
-    needs_action = bool(exceptions) or result == "FAIL"
+    review_reasons = list(pod_observations.get("review_reasons") or [])
+    # Phase 1 routes every scored POD to Ops review. The concrete reasons remain
+    # separately visible in exceptions and review_reasons.
+    needs_action = True
+    overall_status = "PASS" if final_score >= PASS_THRESHOLD else "FAIL"
 
     return PodScoreResult(
         po_scores=po_scores,
         final_score=final_score,
-        result=result,
+        overall_status=overall_status,
         exceptions=exceptions,
         needs_action=needs_action,
         pickup_signature_present=pickup_signature_present,
         remarks=remarks,
+        review_reasons=review_reasons,
+        stop_times=list(pod_observations.get("stop_times") or []),
     )
 
 
@@ -104,7 +113,12 @@ def _score_purchase_order(
             ),
         ]
         return PodPurchaseOrderScore(
-            po_number=po.po_number, stop_type=po.stop_type, pass1=pass1, pass2=None, po_total=0
+            po_number=po.po_number,
+            stop_type=po.stop_type,
+            pass1=pass1,
+            pass2=None,
+            po_total=0,
+            page_comparisons=list(_po_stop_match(po.po_number, pod_observations).get("page_comparisons") or []),
         )
 
     signature_field = PodFieldResult(
@@ -114,12 +128,13 @@ def _score_purchase_order(
         remark="Receiver signature, delivery stamp, or delivery sticker present.",
     )
 
-    if _reference_id_matches(po.po_number, pod_observations):
+    po_match = _po_stop_match(po.po_number, pod_observations)
+    if po_match.get("reference_and_stop_match"):
         reference_field = PodFieldResult(
             label="reference_id",
             points_awarded=40,
             points_possible=40,
-            remark=f"POD reference number matches Turvo PO {po.po_number}.",
+            remark=f"POD reference number and expected Turvo stop match for PO {po.po_number}.",
         )
         return PodPurchaseOrderScore(
             po_number=po.po_number,
@@ -127,13 +142,14 @@ def _score_purchase_order(
             pass1=[signature_field, reference_field],
             pass2=None,
             po_total=100,
+            page_comparisons=list(po_match.get("page_comparisons") or []),
         )
 
     reference_field = PodFieldResult(
         label="reference_id",
         points_awarded=0,
         points_possible=40,
-        remark=f"No POD reference number matches Turvo PO {po.po_number}; running Pass 2.",
+        remark=f"No POD PO + expected-stop match for Turvo PO {po.po_number}; running Pass 2.",
     )
     pass2 = _score_pass2(turvo_inputs, pod_observations)
     po_total = signature_field.points_awarded + sum(field.points_awarded for field in pass2)
@@ -143,6 +159,7 @@ def _score_purchase_order(
         pass1=[signature_field, reference_field],
         pass2=pass2,
         po_total=po_total,
+        page_comparisons=list(po_match.get("page_comparisons") or []),
     )
 
 
@@ -180,17 +197,23 @@ def _score_pass2(
     ]
 
 
-def _normalize_reference(value: Any) -> str:
-    return str(value or "").strip().casefold()
+def _po_stop_match(po_number: str, pod_observations: dict[str, Any]) -> dict[str, Any]:
+    """Return the accumulated page evidence for a PO's Turvo-owned stop."""
+    matches = pod_observations.get("po_matches")
+    if isinstance(matches, dict):
+        value = matches.get(po_number)
+        if isinstance(value, dict):
+            return value
 
-
-def _reference_id_matches(po_number: str, pod_observations: dict[str, Any]) -> bool:
-    """Per-PO any-match: any POD-extracted number equals this PO's exact string (trim + casefold)."""
-    extracted = pod_observations.get("extracted_reference_numbers") or []
-    if not isinstance(extracted, list):
-        return False
-    target = _normalize_reference(po_number)
-    return any(_normalize_reference(value) == target for value in extracted)
+    # Compatibility for pre-stop-aware extracts. New POD analyses always use the
+    # page-level match above; historical/unit callers may only have a flat list.
+    references = pod_observations.get("extracted_reference_numbers")
+    if isinstance(references, list) and any(
+        str(value or "").strip().casefold() == po_number.strip().casefold()
+        for value in references
+    ):
+        return {"reference_and_stop_match": True}
+    return {}
 
 
 def _calendar_date_in_zone(iso_value: Any, time_zone: str | None) -> date | None:
@@ -283,7 +306,12 @@ def _exceptions_from_observations(
     exceptions: list[PodException] = []
     if pod_observations.get("damage_detected"):
         detail = str(pod_observations.get("damage_detail") or "").strip() or "Damage detected on POD."
-        exceptions.append(PodException(exception_type="damage", detail=detail))
+        exception_type = (
+            "refused_delivery"
+            if pod_observations.get("refused_delivery") or _REFUSED_DELIVERY_PATTERN.search(detail)
+            else "damage"
+        )
+        exceptions.append(PodException(exception_type=exception_type, detail=detail))
 
     pallets_shipped = pod_observations.get("pallets_shipped")
     ordered_qty = turvo_inputs.ordered_pallet_qty

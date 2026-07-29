@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from app.integrations.langsmith import RenderedPrompt
 from app.integrations.langsmith.types import PromptLoadMetadata
 from app.services.pod_lifecycle import extraction as pod_extraction
@@ -16,7 +14,7 @@ def _fake_pdf_prompts(tenant_settings=None):
     )
 
 
-def test_extract_from_pdf_path_maps_reconciled_and_wraps_pages(monkeypatch, tmp_path):
+def test_extract_from_pdf_path_uses_page_evidence_and_ignores_reconciled(monkeypatch, tmp_path):
     pdf_path = tmp_path / "pod.pdf"
     pdf_path.write_bytes(b"%PDF-1.4")
 
@@ -61,18 +59,13 @@ def test_extract_from_pdf_path_maps_reconciled_and_wraps_pages(monkeypatch, tmp_
     assert len(page_details) == 2
     assert [p["page_number"] for p in page_details] == [1, 2]
     assert page_details[0]["extracted_data"]["page_type"] == "BILL_OF_LADING"
-    assert final_pod_data["carrier_name"] == "Bajwa Truckers"
-    assert final_pod_data["po_number"] == "PO1, PO2"
-    assert final_pod_data["signature_present"] is True
-    assert final_pod_data["stamp_present"] is False
-    assert final_pod_data["delivery_confirmed"] is True
-    assert final_pod_data["stop_times"][0]["pickup_checkin_time"] == "2026-02-06T07:34:49Z"
+    assert final_pod_data == {}
     assert validation_issues == []
-    assert isinstance(reconciliation_log, dict)
+    assert reconciliation_log == {}
     assert raw_response == llm_response
 
 
-def test_extract_from_pdf_path_filters_broker_name_from_carrier(monkeypatch, tmp_path):
+def test_extract_from_pdf_path_requires_page_evidence(monkeypatch, tmp_path):
     pdf_path = tmp_path / "pod.pdf"
     pdf_path.write_bytes(b"%PDF-1.4")
 
@@ -95,12 +88,11 @@ def test_extract_from_pdf_path_filters_broker_name_from_carrier(monkeypatch, tmp
         pod_extraction.extract_from_pdf_path(str(pdf_path), broker_name="T3RA Logistics")
     )
 
-    assert final_pod_data.get("carrier_name") is None
-    assert final_pod_data["delivery_confirmed"] is False
-    assert validation_issues
+    assert final_pod_data == {}
+    assert validation_issues == []
 
 
-def test_extract_from_pdf_path_handles_missing_reconciled_block(monkeypatch, tmp_path):
+def test_extract_from_pdf_path_handles_missing_page_evidence(monkeypatch, tmp_path):
     pdf_path = tmp_path / "pod.pdf"
     pdf_path.write_bytes(b"%PDF-1.4")
 
@@ -114,8 +106,8 @@ def test_extract_from_pdf_path_handles_missing_reconciled_block(monkeypatch, tmp
 
     assert len(page_details) == 1
     assert page_details[0].get("error")
-    assert final_pod_data["delivery_confirmed"] is False
-    assert validation_issues
+    assert final_pod_data == {}
+    assert validation_issues == []
     assert raw_response == {"pages": []}
 
 
@@ -144,25 +136,6 @@ def test_extract_from_pdf_path_raises_when_too_many_pages(monkeypatch, tmp_path)
         pod_extraction.extract_from_pdf_path(str(pdf_path))
 
 
-def test_map_reconciled_to_pod_data_joins_po_numbers_and_recomputes_delivery():
-    reconciled = {
-        "fields": [
-            {"key": "po_number", "value": "B1"},
-            {"key": "po_number", "value": "A1, B1"},
-            {"key": "pickup_address", "value": "123 Main St", "confidence": 80},
-        ],
-        "proof_of_receipt": {"has_receiver_signature": False, "has_stamp": True},
-        "delivery_confirmed": False,  # LLM's own flag must be ignored.
-        "stop_times": [],
-    }
-    pod_data, log = pod_extraction.map_reconciled_to_pod_data(reconciled)
-    assert pod_data["po_number"] == "A1, B1"
-    assert pod_data["pickup_address"] == "123 Main St"
-    assert pod_data["stamp_present"] is True
-    assert pod_data["delivery_confirmed"] is True  # stamp_present -> recomputed True
-    assert "po_number" in log
-
-
 def test_wrap_pages_as_page_details_ignores_non_dict_entries():
     wrapped = pod_extraction.wrap_pages_as_page_details(
         [{"page_number": 1}, "not-a-dict", None], "load-1"
@@ -171,24 +144,3 @@ def test_wrap_pages_as_page_details_ignores_non_dict_entries():
     assert wrapped[0]["load_id"] == "load-1"
 
 
-def test_pdf_document_confidence_score_bounds():
-    score_confirmed = pod_extraction.pdf_document_confidence_score(
-        {"delivery_confirmed": True, "carrier_name": "X", "po_number": "1"},
-        [],
-        {"fields": [{"confidence": 90}]},
-    )
-    score_unconfirmed = pod_extraction.pdf_document_confidence_score(
-        {"delivery_confirmed": False}, ["issue"], {}
-    )
-    assert 0.0 <= score_unconfirmed < score_confirmed <= 1.0
-
-
-def test_pod_confidence_score_reads_reconciled_from_raw_response():
-    final_pod_data = {"delivery_confirmed": True, "carrier_name": "X", "po_number": "1"}
-    raw_response = {"reconciled": {"fields": [{"confidence": 80}]}}
-    with patch.object(
-        pod_extraction, "pdf_document_confidence_score", wraps=pod_extraction.pdf_document_confidence_score
-    ) as spy:
-        score = pod_extraction.pod_confidence_score([], final_pod_data, [], raw_response)
-    spy.assert_called_once()
-    assert 0.0 <= score <= 1.0

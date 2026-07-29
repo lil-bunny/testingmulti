@@ -26,6 +26,7 @@ class TurvoPurchaseOrder:
 
     po_number: str
     stop_type: StopType
+    stop_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,8 @@ class TurvoStop:
     address: str
     po_numbers: list[str] = field(default_factory=list)
     time_zone: str | None = None
+    stop_id: str = ""
+    stop_type: StopType | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,7 @@ class TurvoShipmentPodInputs:
     delivery_date: str | None
     ordered_pallet_qty: int | None
     custom_id: str | None
+    stops: list[TurvoStop] = field(default_factory=list)
 
 
 _EMPTY_STOP = TurvoStop(name="", address="", po_numbers=[], time_zone=None)
@@ -91,21 +95,30 @@ def _po_numbers_from_stop(stop: dict[str, Any]) -> list[str]:
     return [str(v).strip() for v in raw if str(v or "").strip()]
 
 
-def _turvo_stop_from_global_route(stop: dict[str, Any]) -> TurvoStop:
+def _turvo_stop_from_global_route(
+    stop: dict[str, Any],
+    stop_type: StopType | None = None,
+) -> TurvoStop:
     address = stop.get("address")
     return TurvoStop(
         name=str(stop.get("name") or "").strip(),
         address=_address_line(address if isinstance(address, dict) else {}),
         po_numbers=_po_numbers_from_stop(stop),
         time_zone=_clean_str(stop.get("timezone") or stop.get("timeZone")),
+        stop_id=_clean_str(stop.get("id") or stop.get("globalRouteStopId")) or "",
+        stop_type=stop_type,
     )
 
 
-def _purchase_orders_from_stops(pickup: TurvoStop, delivery: TurvoStop) -> list[TurvoPurchaseOrder]:
-    """Flatten both stops' ``poNumbers[]`` into independent, stop-tagged POs (no de-dup)."""
-    pickup_pos = [TurvoPurchaseOrder(po_number=po, stop_type="pickup") for po in pickup.po_numbers]
-    delivery_pos = [TurvoPurchaseOrder(po_number=po, stop_type="delivery") for po in delivery.po_numbers]
-    return pickup_pos + delivery_pos
+def _purchase_orders_from_stops(
+    stops: list[tuple[StopType, TurvoStop]],
+) -> list[TurvoPurchaseOrder]:
+    """Flatten all active stop POs while retaining their unique Turvo stop identity."""
+    return [
+        TurvoPurchaseOrder(po_number=po, stop_type=stop_type, stop_id=stop.stop_id)
+        for stop_type, stop in stops
+        for po in stop.po_numbers
+    ]
 
 
 def _ordered_pallet_qty_from_stop(stop: dict[str, Any]) -> int | None:
@@ -125,8 +138,13 @@ def extract_pod_inputs_from_shipment(payload: dict[str, Any]) -> TurvoShipmentPo
     pickup_stops = [s for s in stops if _stop_type(s) == "pickup"]
     delivery_stops = [s for s in stops if _stop_type(s) == "delivery"]
 
-    pickup = _turvo_stop_from_global_route(pickup_stops[0]) if pickup_stops else _EMPTY_STOP
-    delivery = _turvo_stop_from_global_route(delivery_stops[0]) if delivery_stops else _EMPTY_STOP
+    pickup = _turvo_stop_from_global_route(pickup_stops[0], "pickup") if pickup_stops else _EMPTY_STOP
+    delivery = _turvo_stop_from_global_route(delivery_stops[0], "delivery") if delivery_stops else _EMPTY_STOP
+    typed_stops = [
+        (stop_type, _turvo_stop_from_global_route(stop, stop_type))
+        for stop_type, stops_for_type in (("pickup", pickup_stops), ("delivery", delivery_stops))
+        for stop in stops_for_type
+    ]
 
     details = payload.get("details") if isinstance(payload, dict) else None
     details = details if isinstance(details, dict) else {}
@@ -137,9 +155,10 @@ def extract_pod_inputs_from_shipment(payload: dict[str, Any]) -> TurvoShipmentPo
         is_single_stop=len(pickup_stops) == 1 and len(delivery_stops) == 1,
         pickup=pickup,
         delivery=delivery,
-        purchase_orders=_purchase_orders_from_stops(pickup, delivery),
+        purchase_orders=_purchase_orders_from_stops(typed_stops),
         pickup_date=_clean_str(start_date.get("date")) if isinstance(start_date, dict) else None,
         delivery_date=_clean_str(end_date.get("date")) if isinstance(end_date, dict) else None,
         ordered_pallet_qty=_ordered_pallet_qty_from_stop(pickup_stops[0]) if pickup_stops else None,
         custom_id=_clean_str(details.get("customId")),
+        stops=[stop for _, stop in typed_stops],
     )

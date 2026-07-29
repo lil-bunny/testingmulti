@@ -75,8 +75,6 @@ def _analysis_success(state: WorkflowState) -> bool:
 
 
 
-
-
 def _build_reminder_transition_step(
 
     *,
@@ -121,7 +119,7 @@ def _build_reminder_transition_step(
 
 class PodProcessedActivityService:
 
-    """Record POD processed-step lifecycle transitions (email only; manual defers to TMS)."""
+    """Record POD processed-step lifecycle transitions to phase-1 manual review."""
 
 
 
@@ -153,7 +151,8 @@ class PodProcessedActivityService:
 
         Email: ``pending_review`` + ``document_processed`` on success; ``failed`` on extraction miss.
 
-        Manual: no status row on success; skip on LLM miss (TMS completes lifecycle next).
+        Both email and manual POD uploads transition to ``pending_review`` after
+        successful analysis in phase 1. The score's PASS/FAIL is informational.
 
         """
 
@@ -212,20 +211,6 @@ class PodProcessedActivityService:
 
 
         if _analysis_success(state):
-
-            if is_manual_pod_upload(state.data):
-
-                logger.info(
-
-                    "PodProcessedActivityService manual: no status row; TMS completes lifecycle_id=%s",
-
-                    wl_id,
-
-                )
-
-                return
-
-
 
             current_status = status_type_from_db(row.get("status")) if row else None
 

@@ -34,16 +34,52 @@ DRIVER_TYPE_SINGLE = {"key": "20020", "value": "Single driver"}
 
 
 def global_route_stops_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return ``details.globalRoute`` from a Turvo shipment API payload."""
+    """Return normalized route stops from camelCase or export-style Turvo payloads."""
     if not isinstance(payload, dict):
         return []
     details = payload.get("details")
     if not isinstance(details, dict):
         return []
     route = details.get("globalRoute")
-    if not isinstance(route, list):
+    if isinstance(route, list):
+        return [s for s in route if isinstance(s, dict)]
+
+    exported_route = details.get("global_route")
+    exported_stops = (
+        exported_route.get("ship_locations") if isinstance(exported_route, dict) else None
+    )
+    if not isinstance(exported_stops, list):
         return []
-    return [s for s in route if isinstance(s, dict)]
+
+    normalized: list[dict[str, Any]] = []
+    for stop in exported_stops:
+        if not isinstance(stop, dict):
+            continue
+        stop_type = stop.get("type") if isinstance(stop.get("type"), dict) else {}
+        address = stop.get("address") if isinstance(stop.get("address"), dict) else {}
+        city = address.get("city")
+        state = address.get("state")
+        country = address.get("country")
+        normalized.append(
+            {
+                "id": stop.get("globalRouteStopId") or stop.get("global_ship_location_id"),
+                "name": stop.get("name"),
+                "stopType": {"key": stop_type.get("key"), "value": stop_type.get("value")},
+                "timezone": stop.get("timezone"),
+                "address": {
+                    "line1": address.get("line1"),
+                    "city": city.get("name") if isinstance(city, dict) else city,
+                    "state": state.get("name") if isinstance(state, dict) else state,
+                    "countryCode": (
+                        country.get("code") if isinstance(country, dict) else address.get("countryISO")
+                    ),
+                },
+                "poNumbers": stop.get("purchase_orders"),
+                "notes": stop.get("instructions"),
+                "deleted": stop.get("deleted"),
+            }
+        )
+    return normalized
 
 
 def is_multi_stop_shipment(payload: dict[str, Any]) -> bool:

@@ -55,7 +55,8 @@ def test_delivery_signature_absent_fails_all_pos_without_running_pass2() -> None
     result = score_pod(observations, pod_inputs)
 
     assert result.final_score == 0
-    assert result.result == "FAIL"
+    assert result.needs_action is True
+    assert result.overall_status == "FAIL"
     for po_score in result.po_scores:
         assert po_score.po_total == 0
         assert po_score.pass2 is None
@@ -71,7 +72,8 @@ def test_signature_present_and_reference_id_match_scores_100() -> None:
     result = score_pod(observations, pod_inputs)
 
     assert result.final_score == 100
-    assert result.result == "PASS"
+    assert result.needs_action is True
+    assert result.overall_status == "PASS"
     assert result.po_scores[0].po_total == 100
     assert result.po_scores[0].pass2 is None
 
@@ -93,7 +95,8 @@ def test_reference_id_fails_full_pass2_recovers_to_100() -> None:
 
     assert result.po_scores[0].po_total == 100
     assert result.final_score == 100
-    assert result.result == "PASS"
+    assert result.needs_action is True
+    assert result.overall_status == "PASS"
     assert result.po_scores[0].pass2 is not None
 
 
@@ -111,7 +114,8 @@ def test_reference_id_fails_partial_pass2_dates_only_scores_80() -> None:
 
     assert result.po_scores[0].po_total == 80
     assert result.final_score == 80
-    assert result.result == "FAIL"
+    assert result.needs_action is True
+    assert result.overall_status == "FAIL"
 
 
 def test_blank_address_in_pass2_scores_zero_for_that_field() -> None:
@@ -152,7 +156,8 @@ def test_multi_po_pro_rating_matches_real_sample_shape() -> None:
     result = score_pod(observations, pod_inputs)
 
     assert result.final_score == 90
-    assert result.result == "PASS"
+    assert result.needs_action is True
+    assert result.overall_status == "PASS"
 
 
 def test_classic_doc_example_two_pos_one_signature_fails() -> None:
@@ -225,6 +230,24 @@ def test_over_shipment_exception_detected() -> None:
     assert result.exceptions[0].exception_type == "over_shipment"
 
 
+def test_refused_delivery_is_prominently_classified() -> None:
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("A1176371", "pickup")])
+    result = score_pod(
+        {
+            "delivery_signature_present": True,
+            "extracted_reference_numbers": ["A1176371"],
+            "damage_detected": True,
+            "damage_detail": "Receiver refused delivery due to a broken pallet.",
+        },
+        pod_inputs,
+    )
+
+    assert result.final_score == 100
+    assert result.overall_status == "PASS"
+    assert result.needs_action is True
+    assert result.exceptions[0].exception_type == "refused_delivery"
+
+
 def test_pickup_signature_missing_adds_remark_without_affecting_score() -> None:
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("A1176371", "pickup")])
     observations = {
@@ -241,7 +264,6 @@ def test_no_purchase_orders_fails_closed() -> None:
     pod_inputs = _inputs(purchase_orders=[])
     result = score_pod({"delivery_signature_present": True}, pod_inputs)
     assert result.final_score == 0
-    assert result.result == "FAIL"
     assert result.needs_action is True
 
 
