@@ -11,7 +11,10 @@ from app.domain.t3ra.email_classification import (
     T3raInboundEmailClassification,
     classify_t3ra_inbound_email,
 )
-from app.domain.unipile_email import extract_recipient_emails
+from app.domain.unipile_email import (
+    extract_recipient_emails,
+    omit_unipile_workflow_noise_keys,
+)
 from app.models.tenants import TenantSlug
 from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
@@ -41,7 +44,7 @@ def enqueue_t3ra_workflow(
     """
     from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
 
-    enriched_workflow_payload = dict(workflow_payload)
+    enriched_workflow_payload = omit_unipile_workflow_noise_keys(dict(workflow_payload))
     enriched_workflow_payload["event_type"] = event_type
     if communication_id:
         enriched_workflow_payload["communication_id"] = communication_id

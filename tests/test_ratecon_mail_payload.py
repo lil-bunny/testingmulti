@@ -34,18 +34,10 @@ def test_extract_ratecon_metadata_positive_unipile_shapes() -> None:
     """Sample and production-like ``mail_received`` bodies (no attachment URL)."""
     sample = _sample_unipile_payload()
     out_sample = extract_ratecon_metadata_from_payload(sample)
-    assert out_sample["is_ratecon_mail"] is True
     assert out_sample["load_id"] == "56368"
     assert out_sample["thread_id"] == "sample-thread-id"
-    assert out_sample["ratecon_attachment_name"] == "Carrier_rate_confirmation_-__56368.pdf"
-    assert out_sample["ratecon_attachment_uri"] is None
-    assert out_sample["ratecon_attachment_id"] == "att1"
-    assert out_sample["ratecon_attachment_mime"] == "application/pdf"
-    assert out_sample["ratecon_unipile_attachment_fetch"] == {
-        "email_id": "YPNSu5tsW32vaasFc4Rv_Q",
-        "account_id": "FqA0zzsTQJ-5naFro793wQ",
-        "attachment_id": "att1",
-    }
+    assert out_sample["subject"] == sample["subject"]
+    assert set(out_sample) == {"load_id", "subject", "thread_id"}
 
     realistic = {
         "email_id": "w3M0L_3pW7us8vCCqCzz6w",
@@ -63,10 +55,8 @@ def test_extract_ratecon_metadata_positive_unipile_shapes() -> None:
         "thread_id": "AAQkADY3YzkyMzZmLWM0MWMtNGJjNy05OGNhLTVlYjY1NmU4MWJjNQAQAMDQltZQqi1JrTLP7avn8rE=",
     }
     out_real = extract_ratecon_metadata_from_payload(realistic)
-    assert out_real["is_ratecon_mail"] is True
     assert out_real["load_id"] == "30381"
-    assert out_real["ratecon_attachment_uri"] is None
-    assert out_real["ratecon_attachment_unipile"]["size"] == 48124
+    assert out_real["thread_id"] == realistic["thread_id"]
 
 
 def test_unipile_ratecon_pdf_attachment_selection() -> None:
@@ -91,13 +81,7 @@ def test_unipile_ratecon_pdf_attachment_selection() -> None:
     ) is None
 
 
-def test_extract_ratecon_metadata_attachment_uri_and_filename_keys() -> None:
-    payload = _sample_unipile_payload()
-    payload["attachments"][0]["url"] = "https://example.com/file.pdf"
-    assert extract_ratecon_metadata_from_payload(payload)["ratecon_attachment_uri"] == (
-        "https://example.com/file.pdf"
-    )
-
+def test_extract_ratecon_metadata_filename_keys() -> None:
     payload_with_file_name = _sample_unipile_payload()
     attachment = payload_with_file_name["attachments"][0]
     del attachment["name"]
@@ -108,22 +92,22 @@ def test_extract_ratecon_metadata_attachment_uri_and_filename_keys() -> None:
 def test_extract_ratecon_metadata_rejects_invalid_attachments() -> None:
     payload = _sample_unipile_payload()
     payload["attachments"][0]["name"] = "other.pdf"
-    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(payload)["load_id"] is None
 
     payload = _sample_unipile_payload()
     payload["attachments"][0]["name"] = "Carrier_rate_confirmation_-__56368.jpg"
     payload["attachments"][0]["mime"] = "image/jpeg"
-    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(payload)["load_id"] is None
 
     payload = _sample_unipile_payload()
     payload["attachments"][0]["name"] = "Carrier_rate_confirmation.pdf"
-    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(payload)["load_id"] is None
 
     payload = _sample_unipile_payload()
     payload["attachments"] = {}
-    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(payload)["load_id"] is None
 
-    assert extract_ratecon_metadata_from_payload({"attachments": []})["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload({"attachments": []})["load_id"] is None
 
 
 def test_has_rate_confirmation_subject() -> None:
@@ -139,7 +123,7 @@ def test_has_rate_confirmation_subject() -> None:
 def test_extract_ratecon_metadata_rejects_tonu_subject() -> None:
     payload = _sample_unipile_payload()
     payload["subject"] = "Rate confirmation TONU for shipment: #59683"
-    assert extract_ratecon_metadata_from_payload(payload)["is_ratecon_mail"] is False
+    assert extract_ratecon_metadata_from_payload(payload)["load_id"] is None
 
 
 def test_classify_workflow_type_rejects_tonu_subject() -> None:

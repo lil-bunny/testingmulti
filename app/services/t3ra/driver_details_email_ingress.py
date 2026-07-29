@@ -9,7 +9,10 @@ from app.core.logger import get_logger
 from app.domain.ingress_result import IngressResult
 from app.domain.status_parsing import sub_status_type_from_db
 from app.domain.tenant_settings.enabled_processes import enabled_processes_from_settings
-from app.domain.unipile_email import is_unipile_email_reply
+from app.domain.unipile_email import (
+    is_unipile_email_reply,
+    omit_unipile_workflow_noise_keys,
+)
 from app.models.workflow_run_event_type import WorkflowRunEventType
 from app.services.communications.service import CommunicationsService
 from app.services.driver_assignment.ingress_types import (
@@ -147,18 +150,20 @@ class DriverDetailsEmailIngressService:
 
         # Keep Unipile fields (email_id, attendees, attachments, …) so graph prep
         # can persist communications via record_or_resolve_inbound.
-        workflow_payload: dict[str, Any] = {
-            **payload,
-            "event_type": WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
-            "tenant_id": tenant_uuid,
-            "tenant_slug": tenant_slug,
-            "workflow_lifecycle_id": lifecycle_id,
-            "thread_id": thread_id,
-            "shipments_row_id": shipments_row_id,
-            "shipment_id": turvo_shipment_id,
-            "load_id": load_id,
-            "ratecon_workflow_lifecycle_id": ratecon_workflow_lifecycle_id,
-        }
+        workflow_payload: dict[str, Any] = omit_unipile_workflow_noise_keys(
+            {
+                **payload,
+                "event_type": WorkflowRunEventType.DRIVER_DETAILS_EMAIL_RECEIVED.value,
+                "tenant_id": tenant_uuid,
+                "tenant_slug": tenant_slug,
+                "workflow_lifecycle_id": lifecycle_id,
+                "thread_id": thread_id,
+                "shipments_row_id": shipments_row_id,
+                "shipment_id": turvo_shipment_id,
+                "load_id": load_id,
+                "ratecon_workflow_lifecycle_id": ratecon_workflow_lifecycle_id,
+            }
+        )
         if communication_id:
             workflow_payload["communication_id"] = communication_id
         return workflow_payload

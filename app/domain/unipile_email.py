@@ -10,6 +10,25 @@ from app.domain.tenant_settings.email_recipients import normalize_emails_for_mat
 _RECIPIENT_ATTENDEE_KEYS = ("to_attendees", "cc_attendees", "bcc_attendees")
 _RE_REPLY_SUBJECT = re.compile(r"^Re:\s", re.IGNORECASE)
 
+# Unipile webhook fields that must not enter LangGraph workflow state.
+UNIPILE_WORKFLOW_STATE_OMIT_KEYS = frozenset(
+    {
+        "body_plain",
+        "is_complete",
+        "read_date",
+        "reply_to_attendees",
+    }
+)
+
+
+def omit_unipile_workflow_noise_keys(payload: dict[str, Any]) -> dict[str, Any]:
+    """Copy ``payload`` without Unipile fields unused by any workflow node."""
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in UNIPILE_WORKFLOW_STATE_OMIT_KEYS
+    }
+
 
 def _has_in_reply_to_value(val: Any) -> bool:
     if val is None:

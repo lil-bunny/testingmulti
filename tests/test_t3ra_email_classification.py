@@ -62,8 +62,8 @@ def test_classify_workflow_type_rejects_tonu_subject() -> None:
 def test_extract_ratecon_metadata_positive_unipile_shapes() -> None:
     sample = _sample_unipile_payload()
     metadata = extract_ratecon_metadata_from_payload(sample)
-    assert metadata["is_ratecon_mail"] is True
     assert metadata["load_id"] == "56368"
+    assert set(metadata) == {"load_id", "subject", "thread_id"}
 
 
 def test_has_rate_confirmation_subject() -> None:

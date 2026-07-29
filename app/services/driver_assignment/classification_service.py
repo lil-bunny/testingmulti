@@ -41,19 +41,15 @@ class DriverDetailsClassificationResult:
     llm_activity_log_id: str | None = None
 
     def to_state_patch(self) -> dict[str, Any]:
+        """State keys consumed by routers / TMS; LLM audit lives on activity_logs."""
         patch: dict[str, Any] = {
             "driver_details_decision": self.decision,
-            "driver_details_reason": self.reason,
             "driver_details_extraction": {
                 "decision": self.decision,
                 "confidence": self.confidence,
                 "reason": self.reason,
                 "driver": self.driver,
             },
-            "driver_details_llm": self.llm_raw,
-            "driver_details_normalized_reply": self.normalized_reply,
-            "driver_details_thread_llm_input": self.thread_llm_input,
-            "driver_details_thread_message_count": self.thread_message_count,
         }
         if self.llm_activity_log_id:
             patch["driver_details_llm_activity_log_id"] = self.llm_activity_log_id
