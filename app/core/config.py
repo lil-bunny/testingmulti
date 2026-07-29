@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+    REDIS_URL: str
     DEFAULT_WORK_QUEUE: str = "celery"
     T3RA_WORK_QUEUE: str = "t3ra"
 
@@ -68,7 +69,7 @@ class Settings(BaseSettings):
     TURVO_POD_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024
     TURVO_POD_UPLOAD_TIMEOUT_S: float = 180.0
     TURVO_POD_UPLOAD_MAX_ATTEMPTS: int = 3
-    TURVO_HTTP_MAX_ATTEMPTS: int = 1  # 1 initial try + 4 retries
+    TURVO_HTTP_MAX_ATTEMPTS: int = 5  # 1 initial try + 4 retries
     TURVO_HTTP_RETRY_DELAY_S: float = 15.0
     TURVO_POD_OPTIMIZE_DPI: int = 150
     TURVO_POD_OPTIMIZE_JPEG_QUALITY: int = 75
