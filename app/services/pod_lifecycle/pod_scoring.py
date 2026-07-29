@@ -20,13 +20,33 @@ from app.domain.pod_lifecycle.pod_score_result import (
     PodPurchaseOrderScore,
     PodScoreResult,
 )
+from app.domain.pod_lifecycle.scoring_constants import (
+    EXCEPTION_DAMAGE_DEFAULT_DETAIL,
+    EXCEPTION_PALLET_QTY_TEMPLATE,
+    LABEL_REFERENCE_ID,
+    LABEL_SIGNATURE,
+    PASS1_REFERENCE_ID_POINTS,
+    PASS1_SIGNATURE_POINTS,
+    PASS2_DATE_POINTS,
+    PASS2_TEXT_POINTS,
+    REMARK_DATE_MATCH_TEMPLATE,
+    REMARK_DATE_NO_MATCH_TEMPLATE,
+    REMARK_NO_TURVO_PO,
+    REMARK_PICKUP_SIGNATURE_MISSING,
+    REMARK_REFERENCE_ID_MATCH_TEMPLATE,
+    REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE,
+    REMARK_REFERENCE_ID_SKIPPED_SIGNATURE_FAILED,
+    REMARK_SIGNATURE_ABSENT,
+    REMARK_SIGNATURE_PRESENT,
+    REMARK_TEXT_IDENTIFIABLE_TEMPLATE,
+    REMARK_TEXT_MISSING_TEMPLATE,
+    REMARK_TEXT_NO_MATCH_TEMPLATE,
+)
 from app.integrations.turvo.pod_inputs import (  # noqa: TC001
     TurvoPurchaseOrder,
     TurvoShipmentPodInputs,
 )
 
-_PASS2_DATE_POINTS = 10
-_PASS2_TEXT_POINTS = 5
 _IDENTIFIABLE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
 _REFUSED_DELIVERY_PATTERN = re.compile(r"\brefus(?:e|ed|al)\b", re.IGNORECASE)
 
@@ -43,10 +63,10 @@ def score_pod(
     """
     exceptions = _exceptions_from_observations(pod_observations, turvo_inputs)
     pickup_signature_present = bool(pod_observations.get("pickup_signature_present", True))
-    remarks = [] if pickup_signature_present else ["Pickup signature not present."]
+    remarks = [] if pickup_signature_present else [REMARK_PICKUP_SIGNATURE_MISSING]
 
     if not turvo_inputs.purchase_orders:
-        remarks.append("No Turvo PO found for this shipment; cannot score.")
+        remarks.append(REMARK_NO_TURVO_PO)
         return PodScoreResult(
             po_scores=[],
             final_score=0,
@@ -55,7 +75,7 @@ def score_pod(
             needs_action=True,
             pickup_signature_present=pickup_signature_present,
             remarks=remarks,
-            review_reasons=["No Turvo PO found for this shipment; cannot score."],
+            review_reasons=[REMARK_NO_TURVO_PO],
         )
 
     delivery_signature_present = bool(pod_observations.get("delivery_signature_present"))
@@ -100,16 +120,16 @@ def _score_purchase_order(
     if not delivery_signature_present:
         pass1 = [
             PodFieldResult(
-                label="signature",
-                points_awarded=0,
-                points_possible=60,
-                remark="No receiver signature, delivery stamp, or delivery sticker detected.",
+                label=LABEL_SIGNATURE,
+                score=0,
+                max_score=PASS1_SIGNATURE_POINTS,
+                remark=REMARK_SIGNATURE_ABSENT,
             ),
             PodFieldResult(
-                label="reference_id",
-                points_awarded=0,
-                points_possible=40,
-                remark="Not evaluated: Pass 1 signature check failed.",
+                label=LABEL_REFERENCE_ID,
+                score=0,
+                max_score=PASS1_REFERENCE_ID_POINTS,
+                remark=REMARK_REFERENCE_ID_SKIPPED_SIGNATURE_FAILED,
             ),
         ]
         return PodPurchaseOrderScore(
@@ -122,37 +142,37 @@ def _score_purchase_order(
         )
 
     signature_field = PodFieldResult(
-        label="signature",
-        points_awarded=60,
-        points_possible=60,
-        remark="Receiver signature, delivery stamp, or delivery sticker present.",
+        label=LABEL_SIGNATURE,
+        score=PASS1_SIGNATURE_POINTS,
+        max_score=PASS1_SIGNATURE_POINTS,
+        remark=REMARK_SIGNATURE_PRESENT,
     )
 
     po_match = _po_stop_match(po.po_number, pod_observations)
     if po_match.get("reference_and_stop_match"):
         reference_field = PodFieldResult(
-            label="reference_id",
-            points_awarded=40,
-            points_possible=40,
-            remark=f"POD reference number and expected Turvo stop match for PO {po.po_number}.",
+            label=LABEL_REFERENCE_ID,
+            score=PASS1_REFERENCE_ID_POINTS,
+            max_score=PASS1_REFERENCE_ID_POINTS,
+            remark=REMARK_REFERENCE_ID_MATCH_TEMPLATE.format(po_number=po.po_number),
         )
         return PodPurchaseOrderScore(
             po_number=po.po_number,
             stop_type=po.stop_type,
             pass1=[signature_field, reference_field],
             pass2=None,
-            po_total=100,
+            po_total=PASS1_SIGNATURE_POINTS + PASS1_REFERENCE_ID_POINTS,
             page_comparisons=list(po_match.get("page_comparisons") or []),
         )
 
     reference_field = PodFieldResult(
-        label="reference_id",
-        points_awarded=0,
-        points_possible=40,
-        remark=f"No POD PO + expected-stop match for Turvo PO {po.po_number}; running Pass 2.",
+        label=LABEL_REFERENCE_ID,
+        score=0,
+        max_score=PASS1_REFERENCE_ID_POINTS,
+        remark=REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE.format(po_number=po.po_number),
     )
     pass2 = _score_pass2(turvo_inputs, pod_observations)
-    po_total = signature_field.points_awarded + sum(field.points_awarded for field in pass2)
+    po_total = signature_field.score + sum(field.score for field in pass2)
     return PodPurchaseOrderScore(
         po_number=po.po_number,
         stop_type=po.stop_type,
@@ -246,15 +266,17 @@ def _date_field(
     if turvo_date is not None and turvo_date == pod_date:
         return PodFieldResult(
             label=label,
-            points_awarded=_PASS2_DATE_POINTS,
-            points_possible=_PASS2_DATE_POINTS,
-            remark=f"{label} matches Turvo ({turvo_date.isoformat()}).",
+            score=PASS2_DATE_POINTS,
+            max_score=PASS2_DATE_POINTS,
+            remark=REMARK_DATE_MATCH_TEMPLATE.format(
+                label=label, turvo_date=turvo_date.isoformat()
+            ),
         )
     return PodFieldResult(
         label=label,
-        points_awarded=0,
-        points_possible=_PASS2_DATE_POINTS,
-        remark=f"{label} does not match Turvo or is missing on POD.",
+        score=0,
+        max_score=PASS2_DATE_POINTS,
+        remark=REMARK_DATE_NO_MATCH_TEMPLATE.format(label=label),
     )
 
 
@@ -277,9 +299,9 @@ def _identifiable_text_field(
     if not pod_text:
         return PodFieldResult(
             label=label,
-            points_awarded=0,
-            points_possible=_PASS2_TEXT_POINTS,
-            remark=f"{label} missing or blank on POD.",
+            score=0,
+            max_score=PASS2_TEXT_POINTS,
+            remark=REMARK_TEXT_MISSING_TEMPLATE.format(label=label),
         )
     turvo_tokens = _tokens(turvo_value or "")
     pod_tokens = _tokens(pod_text)
@@ -287,15 +309,17 @@ def _identifiable_text_field(
     if identifiable:
         return PodFieldResult(
             label=label,
-            points_awarded=_PASS2_TEXT_POINTS,
-            points_possible=_PASS2_TEXT_POINTS,
-            remark=f"{label} present and identifiable on POD: '{pod_text}'.",
+            score=PASS2_TEXT_POINTS,
+            max_score=PASS2_TEXT_POINTS,
+            remark=REMARK_TEXT_IDENTIFIABLE_TEMPLATE.format(label=label, pod_text=pod_text),
         )
     return PodFieldResult(
         label=label,
-        points_awarded=0,
-        points_possible=_PASS2_TEXT_POINTS,
-        remark=f"{label} on POD ('{pod_text}') does not match Turvo ('{turvo_value}').",
+        score=0,
+        max_score=PASS2_TEXT_POINTS,
+        remark=REMARK_TEXT_NO_MATCH_TEMPLATE.format(
+            label=label, pod_text=pod_text, turvo_value=turvo_value
+        ),
     )
 
 
@@ -305,7 +329,10 @@ def _exceptions_from_observations(
 ) -> list[PodException]:
     exceptions: list[PodException] = []
     if pod_observations.get("damage_detected"):
-        detail = str(pod_observations.get("damage_detail") or "").strip() or "Damage detected on POD."
+        detail = (
+            str(pod_observations.get("damage_detail") or "").strip()
+            or EXCEPTION_DAMAGE_DEFAULT_DETAIL
+        )
         exception_type = (
             "refused_delivery"
             if pod_observations.get("refused_delivery") or _REFUSED_DELIVERY_PATTERN.search(detail)
@@ -320,14 +347,18 @@ def _exceptions_from_observations(
             exceptions.append(
                 PodException(
                     exception_type="short_shipment",
-                    detail=f"Expected {ordered_qty} pallets, received {pallets_shipped}.",
+                    detail=EXCEPTION_PALLET_QTY_TEMPLATE.format(
+                        ordered_qty=ordered_qty, pallets_shipped=pallets_shipped
+                    ),
                 )
             )
         elif pallets_shipped > ordered_qty:
             exceptions.append(
                 PodException(
                     exception_type="over_shipment",
-                    detail=f"Expected {ordered_qty} pallets, received {pallets_shipped}.",
+                    detail=EXCEPTION_PALLET_QTY_TEMPLATE.format(
+                        ordered_qty=ordered_qty, pallets_shipped=pallets_shipped
+                    ),
                 )
             )
     return exceptions

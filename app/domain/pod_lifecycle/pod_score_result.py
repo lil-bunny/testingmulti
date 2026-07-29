@@ -24,8 +24,8 @@ class PodFieldResult:
     """One scored field within Pass 1 or Pass 2 for a single PO."""
 
     label: str
-    points_awarded: int
-    points_possible: int
+    score: int
+    max_score: int
     remark: str
 
 

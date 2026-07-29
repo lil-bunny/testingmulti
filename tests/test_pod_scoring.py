@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.domain.pod_lifecycle.scoring_constants import REMARK_PICKUP_SIGNATURE_MISSING
 from app.integrations.turvo.pod_inputs import TurvoPurchaseOrder, TurvoShipmentPodInputs, TurvoStop
 from app.services.pod_lifecycle.pod_scoring import score_pod
 
@@ -127,7 +128,7 @@ def test_blank_address_in_pass2_scores_zero_for_that_field() -> None:
     }
     result = score_pod(observations, pod_inputs)
     shipper_address_field = next(f for f in result.po_scores[0].pass2 if f.label == "shipper_address")
-    assert shipper_address_field.points_awarded == 0
+    assert shipper_address_field.score == 0
 
 
 def test_spelling_variation_in_pass2_still_passes_via_token_overlap() -> None:
@@ -139,7 +140,7 @@ def test_spelling_variation_in_pass2_still_passes_via_token_overlap() -> None:
     }
     result = score_pod(observations, pod_inputs)
     consignee_name_field = next(f for f in result.po_scores[0].pass2 if f.label == "consignee_name")
-    assert consignee_name_field.points_awarded == 5
+    assert consignee_name_field.score == 5
 
 
 def test_multi_po_pro_rating_matches_real_sample_shape() -> None:
@@ -257,7 +258,7 @@ def test_pickup_signature_missing_adds_remark_without_affecting_score() -> None:
     }
     result = score_pod(observations, pod_inputs)
     assert result.final_score == 100
-    assert "Pickup signature not present." in result.remarks
+    assert REMARK_PICKUP_SIGNATURE_MISSING in result.remarks
 
 
 def test_no_purchase_orders_fails_closed() -> None:
