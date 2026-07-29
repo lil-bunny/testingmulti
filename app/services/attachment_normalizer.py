@@ -36,6 +36,7 @@ from app.domain.prompt_step_keys import POD_ATTACHMENT_CLASSIFIER
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_attachment_classifier_prompts
 from app.services.s3bucket_service import bucket, normalize_object_key
+from app.tools.llm_credentials import resolve_llm_credentials
 from app.tools.llm_client import (
     LLMClientError,
     achat_vision_json,
@@ -1013,7 +1014,12 @@ class AttachmentNormalizerService:
         if not items:
             return []
 
-        if not settings.LITELLM_API_KEY:
+        trace_metadata = dict(getattr(self, "_trace_metadata", {}) or {})
+        credentials = resolve_llm_credentials(
+            workflow_name="pod_lifecycle",
+            tenant_slug=str(trace_metadata.get("tenant_slug") or "").strip() or None,
+        )
+        if not credentials.api_key:
             results: List[Dict[str, Any]] = []
             for attachment_ref, image_bytes, attachment_id in items:
                 result = await self._aclassify_image(
@@ -1033,7 +1039,10 @@ class AttachmentNormalizerService:
             concurrency,
         )
 
-        async with build_async_llm_client(max_connections=concurrency) as client:
+        async with build_async_llm_client(
+            credentials=credentials,
+            max_connections=concurrency,
+        ) as client:
             sem = asyncio.Semaphore(concurrency)
 
             async def _one(
@@ -1064,8 +1073,12 @@ class AttachmentNormalizerService:
         client: AsyncOpenAI | None = None,
     ) -> Dict[str, Any]:
         """Classify image via traced ``achat_vision_json`` on the current event loop."""
-        api_key = settings.LITELLM_API_KEY
-        if not api_key:
+        base_meta = dict(getattr(self, "_trace_metadata", {}) or {})
+        credentials = resolve_llm_credentials(
+            workflow_name="pod_lifecycle",
+            tenant_slug=str(base_meta.get("tenant_slug") or "").strip() or None,
+        )
+        if not credentials.api_key:
             logger.warning(
                 "attachment.classify_llm_skip attachment_id=%s reason=no_api_key",
                 attachment_id or "-",
@@ -1091,7 +1104,6 @@ class AttachmentNormalizerService:
         )
         started = time.monotonic()
 
-        base_meta = dict(getattr(self, "_trace_metadata", {}) or {})
         tenant_settings = base_meta.pop("tenant_settings", None)
         if not isinstance(tenant_settings, dict):
             tenant_settings = None
@@ -1117,6 +1129,7 @@ class AttachmentNormalizerService:
                 rendered.system,
                 rendered.user,
                 image_bytes,
+                credentials=credentials,
                 temperature=0.1,
                 max_tokens=150,
                 image_mime_type=mime,

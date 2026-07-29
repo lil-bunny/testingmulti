@@ -8,12 +8,13 @@ import pytest
 from openai import APITimeoutError
 
 from app.tools import llm_client
+from app.tools.llm_credentials import LLMCredentials
 from app.tools.llm_client import LLMClientError
+
+_CREDENTIALS = LLMCredentials(base_url="https://llm.example", api_key="k")
 
 
 def _patch_llm_settings(monkeypatch) -> None:
-    monkeypatch.setattr(llm_client.settings, "LITELLM_PROXY_BASE_URL", "https://llm.example")
-    monkeypatch.setattr(llm_client.settings, "LITELLM_API_KEY", "k")
     monkeypatch.setattr(llm_client.settings, "LLM_CHAT_MODEL", "chat")
     monkeypatch.setattr(llm_client.settings, "LLM_VISION_MODEL", "vision")
     monkeypatch.setattr(llm_client.settings, "LLM_PDF_MODEL", "pdf")
@@ -69,17 +70,21 @@ def _install_fake_openai(monkeypatch, *, create_side_effect=None):
         (
             "chat",
             "chat",
-            lambda: llm_client.chat_json("sys", "user"),
+            lambda: llm_client.chat_json("sys", "user", credentials=_CREDENTIALS),
         ),
         (
             "vision",
             "vision",
-            lambda: llm_client.chat_vision_json("sys", "user", b"\xff\xd8\xfffake"),
+            lambda: llm_client.chat_vision_json(
+                "sys", "user", b"\xff\xd8\xfffake", credentials=_CREDENTIALS
+            ),
         ),
         (
             "pdf",
             "pdf",
-            lambda: llm_client.chat_pdf_json("sys", "user", b"%PDF-1.4"),
+            lambda: llm_client.chat_pdf_json(
+                "sys", "user", b"%PDF-1.4", credentials=_CREDENTIALS
+            ),
         ),
     ],
 )
@@ -102,7 +107,9 @@ def test_explicit_model_override(monkeypatch):
     _patch_llm_settings(monkeypatch)
     seen = _install_fake_openai(monkeypatch)
 
-    llm_client.chat_json("sys", "user", model="custom-model")
+    llm_client.chat_json(
+        "sys", "user", credentials=_CREDENTIALS, model="custom-model"
+    )
 
     assert seen["kwargs"]["model"] == "custom-model"
 
@@ -123,6 +130,7 @@ def test_chat_pdf_json_sends_image_url_pdf_data_url(monkeypatch):
         "sys",
         "extract fields",
         pdf_bytes,
+        credentials=_CREDENTIALS,
         filename="pod.pdf",
     )
 
@@ -159,4 +167,4 @@ def test_chat_json_raises_llm_client_error_on_timeout(monkeypatch):
     _install_fake_openai(monkeypatch, create_side_effect=APITimeoutError("timed out"))
 
     with pytest.raises(LLMClientError, match="Failed LLM chat_json call"):
-        llm_client.chat_json("sys", "user")
+        llm_client.chat_json("sys", "user", credentials=_CREDENTIALS)

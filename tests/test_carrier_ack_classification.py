@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -243,6 +243,7 @@ def test_classify_carrier_acknowledgment_parses_decision(mock_chat: MagicMock):
     mock_chat.assert_called_once_with(
         TEST_SYSTEM_PROMPT,
         "email 1\nWe cannot cover this load.",
+        credentials=ANY,
         temperature=0.1,
         prompt_trace=None,
     )

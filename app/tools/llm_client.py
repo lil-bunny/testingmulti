@@ -12,7 +12,7 @@ import base64
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from langsmith import traceable
@@ -27,7 +27,10 @@ from openai import (
 )
 
 from app.core.config import settings
-from app.integrations.langsmith.types import PromptTraceMetadata
+
+if TYPE_CHECKING:
+    from app.integrations.langsmith.types import PromptTraceMetadata
+    from app.tools.llm_credentials import LLMCredentials
 
 
 class LLMClientError(Exception):
@@ -66,13 +69,14 @@ def _resolve_model(model: str | None, *, modality: LLMModality) -> str:
     return resolved
 
 
-def _require_llm_config() -> None:
-    if not settings.LITELLM_PROXY_BASE_URL or not settings.LITELLM_API_KEY:
+def _require_llm_config(credentials: LLMCredentials) -> None:
+    if not credentials.base_url or not credentials.api_key:
         raise LLMClientError("LLM config missing (base_url/api_key)")
 
 
 def build_async_llm_client(
     *,
+    credentials: LLMCredentials,
     timeout_s: float | None = None,
     max_connections: int = 1,
 ) -> AsyncOpenAI:
@@ -81,14 +85,14 @@ def build_async_llm_client(
     Caller owns lifecycle: use ``async with`` or ``await client.close()``.
     Pool ``max_connections`` should match the intended concurrency cap.
     """
-    _require_llm_config()
+    _require_llm_config(credentials)
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
     pool_size = max(1, max_connections)
     return AsyncOpenAI(
-        base_url=settings.LITELLM_PROXY_BASE_URL,
-        api_key=settings.LITELLM_API_KEY,
+        base_url=credentials.base_url,
+        api_key=credentials.api_key,
         max_retries=0,
         timeout=effective_timeout_s,
         http_client=DefaultAsyncHttpxClient(
@@ -104,6 +108,7 @@ def build_async_llm_client(
 async def _async_llm_client(
     client: AsyncOpenAI | None,
     *,
+    credentials: LLMCredentials | None,
     timeout_s: float,
     max_connections: int = 1,
 ) -> AsyncIterator[AsyncOpenAI]:
@@ -111,7 +116,10 @@ async def _async_llm_client(
     if client is not None:
         yield client
         return
+    if credentials is None:
+        raise LLMClientError("LLM credentials required when client is not provided")
     async with build_async_llm_client(
+        credentials=credentials,
         timeout_s=timeout_s,
         max_connections=max_connections,
     ) as owned:
@@ -397,6 +405,7 @@ async def achat_json(
     system_prompt: str,
     user_prompt: str,
     *,
+    credentials: LLMCredentials | None = None,
     temperature: float = 0.2,
     timeout_s: float | None = None,
     model: str | None = None,
@@ -410,7 +419,11 @@ async def achat_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
+    async with _async_llm_client(
+        client,
+        credentials=credentials,
+        timeout_s=effective_timeout_s,
+    ) as resolved:
         return await _achat_json_impl(
             system_prompt,
             user_prompt,
@@ -432,6 +445,7 @@ async def achat_vision_json(
     user_prompt: str,
     image_jpeg_bytes: bytes,
     *,
+    credentials: LLMCredentials | None = None,
     timeout_s: float | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = None,
@@ -447,7 +461,11 @@ async def achat_vision_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
+    async with _async_llm_client(
+        client,
+        credentials=credentials,
+        timeout_s=effective_timeout_s,
+    ) as resolved:
         return await _achat_vision_json_impl(
             system_prompt,
             user_prompt,
@@ -472,6 +490,7 @@ async def achat_pdf_json(
     user_prompt: str,
     pdf_bytes: bytes,
     *,
+    credentials: LLMCredentials | None = None,
     filename: str = "document.pdf",
     timeout_s: float | None = None,
     temperature: float = 0.2,
@@ -487,7 +506,11 @@ async def achat_pdf_json(
     effective_timeout_s = (
         settings.LLM_REQUEST_TIMEOUT if timeout_s is None else timeout_s
     )
-    async with _async_llm_client(client, timeout_s=effective_timeout_s) as resolved:
+    async with _async_llm_client(
+        client,
+        credentials=credentials,
+        timeout_s=effective_timeout_s,
+    ) as resolved:
         return await _achat_pdf_json_impl(
             system_prompt,
             user_prompt,
@@ -511,6 +534,7 @@ def chat_json(
     system_prompt: str,
     user_prompt: str,
     *,
+    credentials: LLMCredentials,
     temperature: float = 0.2,
     timeout_s: float | None = None,
     model: str | None = None,
@@ -524,6 +548,7 @@ def chat_json(
         achat_json(
             system_prompt,
             user_prompt,
+            credentials=credentials,
             temperature=temperature,
             timeout_s=timeout_s,
             model=model,
@@ -540,6 +565,7 @@ def chat_vision_json(
     user_prompt: str,
     image_jpeg_bytes: bytes,
     *,
+    credentials: LLMCredentials,
     timeout_s: float | None = None,
     temperature: float = 0.2,
     max_tokens: int | None = None,
@@ -556,6 +582,7 @@ def chat_vision_json(
             system_prompt,
             user_prompt,
             image_jpeg_bytes,
+            credentials=credentials,
             timeout_s=timeout_s,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -574,6 +601,7 @@ def chat_pdf_json(
     user_prompt: str,
     pdf_bytes: bytes,
     *,
+    credentials: LLMCredentials,
     filename: str = "document.pdf",
     timeout_s: float | None = None,
     temperature: float = 0.2,
@@ -590,6 +618,7 @@ def chat_pdf_json(
             system_prompt,
             user_prompt,
             pdf_bytes,
+            credentials=credentials,
             filename=filename,
             timeout_s=timeout_s,
             temperature=temperature,

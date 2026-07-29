@@ -22,6 +22,7 @@ from app.tools.driver_details import (
     build_driver_details_result,
     normalize_driver_reply_body,
 )
+from app.tools.llm_credentials import resolve_llm_credentials
 from app.tools.llm_client import LLMClientError, chat_json
 
 logger = get_logger(__name__)
@@ -159,10 +160,12 @@ class DriverDetailsClassificationService:
             DRIVER_ASSIGNMENT_DRIVER_DETAILS,
             prompt_metadata,
         )
+        credentials = resolve_llm_credentials(workflow_name="driver_assignment")
         try:
             raw = chat_json(
                 rendered.system,
                 rendered.user or reply_text,
+                credentials=credentials,
                 temperature=0.1,
                 prompt_trace=prompt_trace,
             )

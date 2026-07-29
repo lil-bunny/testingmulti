@@ -19,8 +19,11 @@ class Settings(BaseSettings):
     LANGSMITH_ENDPOINT: Optional[str] = "https://api.smith.langchain.com"
     LANGSMITH_TRACING: bool = True
     LANGSMITH_TRACING_V2: bool = True
-    LITELLM_PROXY_BASE_URL: str
-    LITELLM_API_KEY: str
+    LLM_BASE_URL: str
+    LLM_POD_LIFECYCLE_API_KEY: str
+    LLM_DRIVER_ASSIGNMENT_API_KEY: str
+    LLM_APPOINTMENT_SCHEDULING_API_KEY: str
+    LLM_LOAD_TENDERING_API_KEY: str
     LLM_CHAT_MODEL: str = "text"
     LLM_VISION_MODEL: str = "doc_processing"
     LLM_PDF_MODEL: str = "doc_processing"

@@ -22,6 +22,7 @@ from typing import Any
 from app.core.config import settings
 from app.integrations.langsmith.types import PromptTraceMetadata
 from app.services.prompt_service import resolve_pod_pdf_prompts
+from app.tools.llm_credentials import resolve_llm_credentials
 from app.tools.llm_client import LLMClientError, chat_pdf_json
 from app.tools.pdf_page_text_extractor import pdf_page_count
 from app.tools.pdf_to_images import PdfTooLargeError
@@ -242,12 +243,14 @@ def extract_from_pdf_path(
 
     pdf_prompts, prompt_metadata = resolve_pod_pdf_prompts(tenant_settings)
     prompt_trace = PromptTraceMetadata.from_load(POD_PDF_EXTRACTION, prompt_metadata)
+    credentials = resolve_llm_credentials(workflow_name="pod_lifecycle")
 
     try:
         raw_response = chat_pdf_json(
             pdf_prompts.system,
             pdf_prompts.user or " ",
             pdf_bytes,
+            credentials=credentials,
             filename=f"{load_id or 'document'}.pdf",
             prompt_trace=prompt_trace,
         )
