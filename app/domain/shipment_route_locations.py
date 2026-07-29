@@ -54,6 +54,10 @@ def active_route_stops(stops: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [s for s in stops if isinstance(s, dict) and not _is_deleted(s)]
 
 
+def is_multi_stop_route(stops: list[dict[str, Any]]) -> bool:
+    return len(active_route_stops(stops)) > 2
+
+
 def last_active_route_stop(stops: list[dict[str, Any]]) -> dict[str, Any]:
     """Last non-deleted stop (delivery endpoint for structured address builders)."""
     active = active_route_stops(stops)

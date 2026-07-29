@@ -10,8 +10,7 @@ from app.domain.appointment_scheduling.constants import (
     SHIPMENT_UPDATE_EVENT_NAME,
     TURVO_SYSTEM_BOT_NAMES,
 )
-from app.domain.shipment_route_locations import active_route_stops
-from app.integrations.turvo.shipments import global_route_stops_from_payload
+from app.integrations.turvo.shipments import is_multi_stop_shipment
 from app.integrations.turvo.webhook_mapping import (
     TENDER_ACCEPTED_STATUS_CODE_KEY,
     extract_shipment_and_load_ids,
@@ -52,11 +51,6 @@ def parse_shipment_update_webhook(body: dict[str, Any]) -> ParsedShipmentUpdateW
         load_id=_clean(load_id),
         tender_accepted=status_key == TENDER_ACCEPTED_STATUS_CODE_KEY,
     )
-
-
-def is_multi_stop_shipment(payload: dict[str, Any]) -> bool:
-    """True when shipment ``globalRoute`` has more than pickup + one delivery."""
-    return len(active_route_stops(global_route_stops_from_payload(payload))) > 2
 
 
 def pickup_changed_in_activity_delta(activity_json: dict[str, Any]) -> bool:

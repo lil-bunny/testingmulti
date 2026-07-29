@@ -49,17 +49,51 @@ def ratecon_lifecycle_stubs(monkeypatch):
 def ratecon_ingress_mocks(monkeypatch):
     """Pre-graph Turvo resolve + shipment upsert (RateconIngressService)."""
 
-    async def fake_upsert_from_load_id(self, **kwargs):
+    async def fake_resolve(slug, load_id, **kwargs):
+        return "SHIP-99"
+
+    async def fake_get(slug, shipment_id, client=None):
+        return {
+            "details": {
+                "id": "SHIP-99",
+                "customId": "L42",
+                "globalRoute": [
+                    {
+                        "deleted": False,
+                        "address": {"city": "Ripon", "state": "CA", "countryCode": "US"},
+                    },
+                    {
+                        "deleted": False,
+                        "address": {"city": "RENO", "state": "NV", "countryCode": "US"},
+                    },
+                ],
+                "carrierOrder": [],
+            }
+        }
+
+    def fake_upsert_from_turvo(self, **kwargs):
         return {
             "success": True,
             "shipments_row_id": _RATECON_ROW_UUID,
             "created": True,
-            "shipment_number": "SHIP-99",
+            "shipment_number": kwargs.get("turvo_shipment_id") or "SHIP-99",
         }
 
     monkeypatch.setattr(
-        "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_load_id",
-        fake_upsert_from_load_id,
+        "app.services.ratecon_ingress_service.load_id_to_shipment_id_async",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.get_turvo_shipment_async",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_turvo",
+        fake_upsert_from_turvo,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.RateconSupersedeService.supersede_before_run",
+        lambda *a, **k: None,
     )
 
 
@@ -178,7 +212,7 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_ratecon_requires_load_id():
+async def test_ratecon_requires_load_id_or_shipment_id():
     service = WorkflowService(WorkflowRepository(), TenantRepository())
     with pytest.raises(Exception, match="load_id"):
         await service.run(
@@ -217,8 +251,9 @@ async def test_ratecon_workflow_happy_path_mocked(
     )
     assert result["data"]["load_id_to_shipment"]["shipment_id"] == "SHIP-99"
     assert result["data"]["load_id_to_shipment"]["success"] is True
-    assert result["data"]["shipment_persist"]["success"] is True
+    assert result["data"]["load_id_to_shipment"].get("reused") is True
     assert result["data"]["shipments_row_id"] == _RATECON_ROW_UUID
+    assert result["data"]["shipment"]["details"]["globalRoute"]
     assert result["data"]["shipment_location_link"]["success"] is True
     assert result["data"]["shipment_location_link"]["pickup_location_id"] == (
         "11111111-1111-1111-1111-111111111111"

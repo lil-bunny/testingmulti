@@ -1,8 +1,8 @@
 """Add pod_vs_tms_analysis to document_analysis_type (PoD-vs-TMS scoring).
 
-Revision ID: 20260727_01
-Revises: 20260723_01
-Create Date: 2026-07-27
+Revision ID: 20260729_01
+Revises: 20260728_01
+Create Date: 2026-07-29
 
 Additive enum widen only — ``pod_vs_ratecon_comparison`` remains on the type
 for historical rows. New PoD scoring persists under ``pod_vs_tms_analysis``.
@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from alembic import op
 
-revision = "20260727_01"
-down_revision = "20260723_01"
+revision = "20260729_01"
+down_revision = "20260728_01"
 branch_labels = None
 depends_on = None
 

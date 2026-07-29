@@ -16,6 +16,7 @@ from typing import Any, Optional
 from app.domain.shipment_display import ShipmentDisplayFields
 from app.domain.shipment_route_locations import (
     active_route_stops,
+    is_multi_stop_route,
     last_active_route_stop,
 )
 from app.domain.spreadsheet_cells import clean_cell_value
@@ -43,6 +44,10 @@ def global_route_stops_from_payload(payload: dict[str, Any]) -> list[dict[str, A
     if not isinstance(route, list):
         return []
     return [s for s in route if isinstance(s, dict)]
+
+
+def is_multi_stop_shipment(payload: dict[str, Any]) -> bool:
+    return is_multi_stop_route(global_route_stops_from_payload(payload))
 
 
 def _required_str(val: Any) -> str:

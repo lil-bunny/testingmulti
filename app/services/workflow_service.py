@@ -122,6 +122,28 @@ class WorkflowService:
         }
 
     @staticmethod
+    def _skipped_ratecon_ingress_result(
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict,
+        reason: str,
+    ) -> dict:
+        """Return a no-graph run result when ratecon prepare intentionally skips."""
+        execution_id = (
+            str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+        )
+        data = dict(payload)
+        data["skipped_ratecon_ingress"] = True
+        data["ratecon_ingress_skip_reason"] = reason
+        return {
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant_slug,
+            "execution_id": execution_id,
+            "data": data,
+        }
+
+    @staticmethod
     def _skipped_route_completed_result(
         *,
         tenant_id: str,
@@ -282,13 +304,29 @@ class WorkflowService:
             payload["workflow_shadow_mode"] = True
 
         if workflow_name == "ratecon":
-            # Guard: Ingress may already have upserted the shipment.
-            if not str(payload.get("shipments_row_id") or "").strip():
-                payload = await self._ratecon_ingress.prepare_payload(
+            # Always prepare: multi-stop gate + Turvo fetch; upsert is idempotent.
+            prepared = await self._ratecon_ingress.prepare_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if not prepared.ok:
+                reason = prepared.skip_reason or "unknown"
+                logger.info(
+                    "ratecon ingress skipped tenant_slug=%s shipment_id=%s "
+                    "load_id=%s reason=%s",
+                    tenant_slug,
+                    (prepared.payload or payload).get("shipment_id"),
+                    (prepared.payload or payload).get("load_id"),
+                    reason,
+                )
+                return self._skipped_ratecon_ingress_result(
                     tenant_id=tenant_id,
                     tenant_slug=tenant_slug,
-                    payload=payload,
+                    payload=prepared.payload or payload,
+                    reason=reason,
                 )
+            payload = prepared.payload or payload
 
         if (
             workflow_name == "driver_assignment"
