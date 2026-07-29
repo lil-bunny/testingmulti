@@ -55,7 +55,7 @@ def test_pod_analysis_display_fields_from_data() -> None:
     )
     assert fields == PodAnalysisDisplayFields(
         load_id="30389",
-        confidence_score="0.88",
+        confidence_score="88/100",
         validation_summary="A1176371: 88/100",
         overall_status="PASS",
     )
@@ -98,16 +98,16 @@ def test_pod_analysis_display_fields_none_when_skipped() -> None:
 def test_format_pod_analysis_title_and_facts() -> None:
     fields = PodAnalysisDisplayFields(
         load_id="30389",
-        confidence_score="0.87",
+        confidence_score="87/100",
         validation_summary="All fields matched.",
         overall_status="PASS",
     )
     assert format_pod_analysis_title("POD analyzed — Load {load_id}", fields=fields) == (
         "POD analyzed — Load 30389"
     )
-    assert format_pod_analysis_body(None, fields=fields).startswith("Load 30389 POD score 0.87")
+    assert format_pod_analysis_body(None, fields=fields).startswith("Load 30389 POD score 87/100")
     facts = pod_analysis_facts(fields)
     assert facts[0] == ("Load ID", "30389")
-    assert facts[1] == ("POD Score", "0.87")
+    assert facts[1] == ("POD Score", "87/100")
     assert facts[2] == ("Status", "PASS")
     assert facts[3] == ("Summary", "All fields matched.")

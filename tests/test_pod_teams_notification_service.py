@@ -79,8 +79,9 @@ def test_notify_posts_teams_on_success() -> None:
     _url, kwargs = post_mock.await_args.args[0], post_mock.await_args.kwargs
     assert _url == "https://example.webhook.office.com/test"
     assert kwargs["title"] == "POD analyzed — Load 30389"
-    fact_labels = [label for label, _ in kwargs["facts"]]
-    assert fact_labels == ["Load ID", "POD Score", "Status", "Summary"]
+    facts = dict(kwargs["facts"])
+    assert list(facts) == ["Load ID", "POD Score", "Status", "Summary"]
+    assert facts["POD Score"] == "87/100"
 
 
 def test_notify_posts_teams_without_load_id_uses_shipment_custom_id() -> None:

@@ -114,7 +114,7 @@ def pod_analysis_display_fields_from_data(
     if final_score is None:
         return None
     try:
-        confidence_score = f"{float(final_score) / 100:.2f}"
+        confidence_score = f"{round(float(final_score))}/100"
     except (TypeError, ValueError):
         return None
 
