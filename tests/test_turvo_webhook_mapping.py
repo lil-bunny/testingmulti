@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.integrations.turvo.webhook_mapping import (
     ROUTE_COMPLETED_STATUS_CODE_KEY,
     TENDERED_STATUS_CODE_KEY,
+    TENDER_ACCEPTED_STATUS_CODE_KEY,
     map_turvo_status_webhook,
     map_turvo_status_webhook_to_payload,
 )
@@ -18,6 +19,13 @@ def _status_body(*, status_key: str, shipment_id: str = "1000324895", load_id: s
             "status": {"code": {"key": status_key, "value": "ignored"}},
         }
     }
+
+
+def test_map_turvo_status_webhook_tender_accepted() -> None:
+    event = map_turvo_status_webhook(
+        _status_body(status_key=TENDER_ACCEPTED_STATUS_CODE_KEY)
+    )
+    assert event is None
 
 
 def test_map_turvo_status_webhook_tendered() -> None:

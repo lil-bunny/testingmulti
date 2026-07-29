@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
 from app.core.service_db import run_with_repos
 from app.integrations.turvo.load_to_shipment import load_id_to_shipment_id_async
@@ -165,6 +167,70 @@ class ShipmentsService:
             "created": result.created,
             "shipment_number": number,
         }
+
+    async def refresh_display_from_turvo(
+        self,
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        turvo_shipment_id: str,
+        load_id: str,
+        customer_name_override: str | None = None,
+    ) -> dict[str, Any]:
+        """Re-fetch Turvo shipment and upsert display columns (pickup/delivery dates)."""
+        tid = self._uuid_or_none(tenant_id)
+        slug = self._clean(tenant_slug)
+        number = self._clean(turvo_shipment_id)
+        load = self._clean(load_id)
+        if not tid or not slug or not number or not load:
+            return {"success": False, "message": "missing_refresh_fields"}
+
+        try:
+            turvo_payload = await get_turvo_shipment_async(slug, number)
+        except Exception:
+            logger.warning(
+                "Turvo get_shipment failed during display refresh tenant_slug=%s shipment_number=%s",
+                slug,
+                number,
+                exc_info=True,
+            )
+            return {"success": False, "message": "turvo_get_shipment_failed"}
+
+        if not isinstance(turvo_payload, dict):
+            return {"success": False, "message": "invalid_turvo_payload"}
+
+        fields = shipment_display_fields_from_payload(turvo_payload)
+        override = self._clean(customer_name_override) if customer_name_override else ""
+        if override:
+            fields = replace(fields, customer_name=override)
+
+        return self.upsert_from_turvo(
+            tenant_id=tid,
+            turvo_shipment_id=number,
+            load_id=load,
+            turvo_payload=turvo_payload,
+            display_fields=fields,
+        )
+
+    def refresh_display_from_turvo_sync(
+        self,
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        turvo_shipment_id: str,
+        load_id: str,
+        customer_name_override: str | None = None,
+    ) -> dict[str, Any]:
+        """Sync facade for graph nodes and sync services."""
+        return run_sync(
+            self.refresh_display_from_turvo(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                turvo_shipment_id=turvo_shipment_id,
+                load_id=load_id,
+                customer_name_override=customer_name_override,
+            )
+        )
 
     async def upsert_from_load_id(
         self,
@@ -396,6 +462,67 @@ class ShipmentsService:
                 )
             )
         return True
+
+    def update_proposed_appointments(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        proposed_pickup_at: str | None = None,
+        proposed_delivery_at: str | None = None,
+        proposed_pickup_time: str | None = None,
+        proposed_delivery_time: str | None = None,
+        pickup_timezone: str | None = None,
+        delivery_timezone: str | None = None,
+    ) -> bool:
+        """Persist scheduling dates on ``shipments.proposed_*`` as UTC; no-op when unparseable."""
+        from app.tools.appointment_scheduling.dates import (
+            proposed_wall_clock_to_utc,
+        )
+
+        tid = self._uuid_or_none(tenant_id)
+        sid = self._uuid_or_none(shipment_row_id)
+        if not tid or not sid:
+            return False
+
+        pickup_tz = str(pickup_timezone or "").strip() or None
+        delivery_tz = str(delivery_timezone or "").strip() or None
+        if (proposed_pickup_at and not pickup_tz) or (proposed_delivery_at and not delivery_tz):
+            row = self.get_by_id(tenant_id=tenant_id, shipment_id=shipment_row_id)
+            if row:
+                if proposed_pickup_at and not pickup_tz:
+                    pickup_tz = str(row.get("pickup_timezone") or "").strip() or None
+                if proposed_delivery_at and not delivery_tz:
+                    delivery_tz = str(row.get("delivery_timezone") or "").strip() or None
+
+        proposed_pickup = proposed_wall_clock_to_utc(
+            proposed_pickup_at,
+            time_raw=proposed_pickup_time,
+            timezone_name=pickup_tz,
+        )
+        proposed_delivery = proposed_wall_clock_to_utc(
+            proposed_delivery_at,
+            time_raw=proposed_delivery_time,
+            timezone_name=delivery_tz,
+        )
+        if proposed_pickup is None and proposed_delivery is None:
+            return False
+
+        if self._shipments is not None:
+            return self._shipments.update_proposed_appointments_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                proposed_pickup=proposed_pickup,
+                proposed_delivery=proposed_delivery,
+            )
+        return run_with_repos(
+            lambda repos: self._repo(repos).update_proposed_appointments_tx(
+                tenant_id=tid,
+                shipment_row_id=sid,
+                proposed_pickup=proposed_pickup,
+                proposed_delivery=proposed_delivery,
+            )
+        )
 
     def clear_driver_details(
         self,

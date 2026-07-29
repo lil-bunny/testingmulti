@@ -124,6 +124,67 @@ class BusinessError(_CatalogError):
         "missing_routing_guide_carrier_email",
         "Carrier email is missing for route guide plan {plan_carrier}.",
     )
+    # Appointment scheduling
+    ASCEND_NOT_CONFIGURED = (
+        "ascend_not_configured",
+        "Ascend credentials are not configured for this tenant.",
+    )
+    MISSING_APPOINTMENT_DATA_SOURCE = (
+        "missing_appointment_data_source",
+        "Appointment customer sheet URL is not configured.",
+    )
+    APPOINTMENT_SHEET_UNREADABLE = (
+        "appointment_sheet_unreadable",
+        "Appointment customer sheet could not be loaded.",
+    )
+    MISSING_RECIPIENT_EMAIL = (
+        "missing_recipient_email",
+        "Recipient email is missing for customer {customer_name}.",
+    )
+    APPOINTMENT_MODE_NOT_EMAIL = (
+        "appointment_mode_not_email",
+        "Customer {customer_name} is not configured for email appointments.",
+    )
+    ASCEND_PICKUP_DROPOFF_EXTRACT_FAILED = (
+        "ascend_pickup_dropoff_extract_failed",
+        "Could not extract pickup/dropoff from Ascend shipment {reference_number}.",
+    )
+    ASCEND_INVALID_PAYLOAD = (
+        "ascend_invalid_payload",
+        "Ascend update payload is invalid for {reference_number}.",
+    )
+    ASCEND_MISSING_REFERENCE = (
+        "ascend_missing_reference",
+        "Reference number is required for Ascend API calls.",
+    )
+    SCHEDULING_MISSING_SHIPMENT_ID = (
+        "scheduling_missing_shipment_id",
+        "Shipment id is missing for scheduling intake.",
+    )
+    MISSING_MIKEY_ACCOUNT_ID = (
+        "missing_mikey_account_id",
+        "Unipile mailbox (mikey) is not configured for this tenant.",
+    )
+    SCHEDULING_DRAFT_NOT_READY = (
+        "scheduling_draft_not_ready",
+        "Appointment email draft is missing or incomplete.",
+    )
+    MISSING_TURVO_UPDATE_FIELDS = (
+        "missing_turvo_update_fields",
+        "Turvo stop update is missing required shipment, stop, or time fields.",
+    )
+    MISSING_DELIVERY_STOP_OR_DATE = (
+        "missing_delivery_stop_or_date",
+        "Delivery placeholder is missing stop name or delivery date.",
+    )
+    MISSING_TURVO_TENDER_FIELDS = (
+        "missing_turvo_tender_fields",
+        "Turvo tender status update is missing tenant or shipment id.",
+    )
+    MISSING_TURVO_FRAGMENT_ID = (
+        "missing_turvo_fragment_id",
+        "Turvo shipment payload is missing fragment id for tender status.",
+    )
 
 
 class IntegrationError(_CatalogError):
@@ -146,6 +207,18 @@ class IntegrationError(_CatalogError):
     TMS_CONNECTION_TIMED_OUT = (
         "tms_connection_timed_out",
         "TMS connection timed out.",
+    )
+    TURVO_SHIPMENT_FETCH_FAILED = (
+        "turvo_shipment_fetch_failed",
+        "Turvo shipment fetch failed.",
+    )
+    TURVO_STOP_UPDATE_FAILED = (
+        "turvo_stop_update_failed",
+        "Turvo stop appointment update failed.",
+    )
+    TURVO_TENDER_STATUS_FAILED = (
+        "turvo_tender_status_failed",
+        "Turvo tender status update failed.",
     )
 
 

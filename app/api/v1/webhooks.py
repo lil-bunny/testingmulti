@@ -20,6 +20,7 @@ from app.integrations.turvo.webhook_mapping import (
 )
 from app.repositories.tenants_db_repository import resolve_graph_tenant_to_uuid
 from app.services.communications.service import CommunicationsService
+from app.services.appointment_scheduling.ingress_service import IngressService
 from app.services.pod_lifecycle.ingress_service import (
     ROUTE_COMPLETED_SKIP_CONVOY_LOAD,
     ROUTE_COMPLETED_SKIP_POD_ALREADY_EXISTS,
@@ -169,6 +170,21 @@ async def listen_turvo_status(
 
     override = x_workflow_tenant_id
     workflow_tenant = _resolve_workflow_tenant_id(override)
+
+    ingress = IngressService()
+    scheduling_result = await ingress.handle_shipment_update(
+        body,
+        workflow_tenant,
+    )
+    if scheduling_result.handled:
+        if scheduling_result.enqueued:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"execution_id": scheduling_result.execution_id},
+            )
+        content: dict[str, Any] = {"skipped": scheduling_result.skip_reason}
+        return JSONResponse(status_code=status.HTTP_200_OK, content=content)
+
     event = map_turvo_status_webhook(body)
     if event is None:
         logger.info("Turvo webhook skipped: unsupported status or shipment/load id missing")

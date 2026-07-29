@@ -1,4 +1,11 @@
 from app.core.logger import get_logger
+from app.domain.appointment_scheduling.constants import (
+    LLM_APPOINTMENT_DECISION,
+    SCHEDULING_REPLY_TERMINAL_STATUSES,
+    SCHEDULING_REPLY_TERMINAL_SUB_STATUSES,
+)
+from app.domain.tenant_settings.email_recipients import coerce_email_list
+from app.domain.status_parsing import status_type_from_db, sub_status_type_from_db
 from app.domain.ingest_source_fields import pack_code_for_product_gap
 from app.domain.gelita.routing_guide_lifecycle import routing_guide_attempt_from_state
 from app.domain.load_tendering_settings import (
@@ -15,6 +22,11 @@ from app.tools.driver_details import (
     INSUFFICIENT,
     has_partial_driver_fields,
     has_tms_searchable_fields,
+)
+from app.tools.appointment_scheduling.customer_reply import (
+    ACCEPTED as APPT_REPLY_ACCEPTED,
+    DO_NOTHING as APPT_REPLY_DO_NOTHING,
+    REJECTED as APPT_REPLY_REJECTED,
 )
 from app.tools.tender_reminder_delivery_cutoff import is_past_delivery_cutoff
 
@@ -112,6 +124,12 @@ def event_type_router(state):
         return "ratecon_completed"
     if event_type == "driver_details_email_received":
         return "driver_details_email_received"
+    if event_type == "turvo_pickup_changed":
+        return "turvo_pickup_changed"
+    if event_type == "appointment_draft_send":
+        return "appointment_draft_send"
+    if event_type == "appointment_customer_reply_received":
+        return "appointment_customer_reply_received"
     return "route_completed"
 
 
@@ -244,6 +262,73 @@ def tms_driver_router(state):
     if outcome == "error":
         return "error"
     return "error"
+
+
+def appointment_intake_router(state):
+    return "continue"
+
+
+def _appointment_draft_from_state(state) -> dict:
+    draft = state.data.get("email_draft")
+    return draft if isinstance(draft, dict) else {}
+
+
+def _lifecycle_status_from_state(state) -> tuple[str, str]:
+    status = str(state.data.get("workflow_lifecycle_status") or "").strip()
+    sub_status = str(state.data.get("workflow_lifecycle_sub_status") or "").strip()
+    if status and sub_status:
+        return status, sub_status
+    row = state.data.get("workflow_lifecycle_row") or {}
+    if isinstance(row, dict):
+        return str(row.get("status") or "").strip(), str(row.get("sub_status") or "").strip()
+    return status, sub_status
+
+
+def appointment_post_read_router(state):
+    event_type = str(state.data.get("event_type") or "").strip()
+    if event_type == "appointment_customer_reply_received":
+        status_raw, sub_status_raw = _lifecycle_status_from_state(state)
+        status = status_type_from_db(status_raw)
+        sub_status = sub_status_type_from_db(sub_status_raw)
+        if status in SCHEDULING_REPLY_TERMINAL_STATUSES:
+            return "end"
+        if sub_status in SCHEDULING_REPLY_TERMINAL_SUB_STATUSES:
+            return "end"
+        if sub_status != StatusSubType.AWAITING_CUSTOMER_REPLY:
+            return "end"
+        return "reply"
+    if event_type == "appointment_draft_send":
+        status, sub_status = _lifecycle_status_from_state(state)
+        if status != "pending_review":
+            return "end"
+        if sub_status != "appointment_draft_created":
+            return "end"
+        draft = _appointment_draft_from_state(state)
+        if not (
+            coerce_email_list(draft.get("to"), required=False)
+            and str(draft.get("subject") or "").strip()
+            and str(draft.get("full_html") or "").strip()
+        ):
+            return "end"
+        return "send"
+    return "intake"
+
+
+def appointment_weekend_pickup_router(state):
+    from app.tools.appointment_scheduling.dates import is_weekend_shifted_truthy
+
+    decision = state.data.get(LLM_APPOINTMENT_DECISION) or {}
+    if not isinstance(decision, dict):
+        decision = {}
+    return "apply" if is_weekend_shifted_truthy(decision.get("weekend_shifted")) else "skip"
+
+
+def customer_reply_router(state):
+    """Route appointment customer-reply LLM decision to graph branch keys."""
+    decision = str(state.data.get("customer_reply_decision") or APPT_REPLY_DO_NOTHING).strip()
+    if decision in (APPT_REPLY_ACCEPTED, APPT_REPLY_REJECTED, APPT_REPLY_DO_NOTHING):
+        return decision
+    return APPT_REPLY_DO_NOTHING
 
 
 def post_read_tender_router(state):

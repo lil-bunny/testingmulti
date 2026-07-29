@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from app.domain.tenant_settings import parse_tenant_settings
-from app.domain.tenant_settings.registry import normalize_tenant_settings_dict
+from app.domain.tenant_settings.registry import (
+    normalize_tenant_settings_dict,
+    tenant_settings_for_workflow_state,
+)
 from app.domain.tenant_settings.t3ra import T3raTenantSettings
 from tests.fixtures.t3ra_tenant_settings import minimal_t3ra_tenant_settings
 
@@ -16,7 +19,11 @@ def test_t3ra_fixture_validates() -> None:
     assert model.mikey_account_id.account_id == "test-mikey-account-id"
     assert model.mikey_account_id.email_alias == "ops@example.com"
     assert "driver_assignment" in model.enabledProcesses
+    assert "appointment_scheduling" in model.enabledProcesses
     assert model.driver_assignment is not None
+    assert model.appointment_scheduling is not None
+    assert model.appointment_scheduling.skip_ascend_writes is True
+
     da_steps = model.driver_assignment.reminders.steps
     assert len(da_steps) == 5
     assert da_steps[-1].event_type == "escalation_due"
@@ -37,6 +44,14 @@ def test_t3ra_fixture_validates() -> None:
     )
     assert model.prompts.driver_assignment is not None
     assert model.prompts.driver_assignment.driver_details == "driver-details-extract:staging"
+    assert model.prompts.appointment_scheduling is not None
+    assert (
+        model.prompts.appointment_scheduling.scheduling_optimization
+        == "appt-scheduling-optimization:staging"
+    )
+    assert model.appointment_scheduling is not None
+    assert model.appointment_scheduling.confirmation_reply is not None
+    assert model.appointment_scheduling.confirmation_reply.template_html
     parsed = parse_tenant_settings("t3ra", _T3RA_SETTINGS)
     assert isinstance(parsed, T3raTenantSettings)
 
@@ -52,3 +67,34 @@ def test_normalize_preserves_driver_assignment_settings() -> None:
     assert conf["tracking_customer_names"] == ["USCS CSC"]
     assert conf["tracking_template_html"]
     assert conf["default_template_html"]
+
+
+def test_tenant_settings_for_workflow_state_strips_secrets() -> None:
+    projected = tenant_settings_for_workflow_state("t3ra", _T3RA_SETTINGS)
+    assert projected["tms"]["client_id"] == "test-client-id"
+    assert "client_secret" not in projected["tms"]
+    assert "x_api_key" not in projected["tms"]
+    assert projected["ascend"]["email"] == "ascend@example.com"
+    assert "password_ciphertext" not in projected["ascend"]
+    assert "access_token" not in projected["ascend"]
+    assert projected["prompts"]["pod_lifecycle"]["page_extraction"] == "pod-page-extraction:staging"
+
+
+def test_tenant_settings_for_workflow_state_projects_appointment_scheduling() -> None:
+    projected = tenant_settings_for_workflow_state(
+        "t3ra",
+        _T3RA_SETTINGS,
+        workflow_name="appointment_scheduling",
+    )
+    assert projected["mikey_account_id"]["account_id"] == "test-mikey-account-id"
+    assert "ascend" not in projected
+    assert (
+        projected["prompts"]["appointment_scheduling"]["scheduling_optimization"]
+        == "appt-scheduling-optimization:staging"
+    )
+    assert "pod_lifecycle" not in projected
+    assert "driver_assignment" not in projected
+    assert "tms" not in projected
+    assert "enabledProcesses" not in projected
+    assert "prompts" in projected
+    assert "pod_lifecycle" not in projected["prompts"]

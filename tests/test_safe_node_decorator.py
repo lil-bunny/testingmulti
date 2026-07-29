@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 
 from app.domain.error_catalog import BusinessError, SystemError
 from app.domain.state import WorkflowState
 from app.exceptions import WorkflowException
 from app.workflows.utils.decorators import safe_node
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _state() -> WorkflowState:

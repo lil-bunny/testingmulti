@@ -24,7 +24,9 @@ _SELECT_SHIPMENT_COLUMNS = """
     delivery_timezone,
     carrier_name,
     customer_name,
-    driver_details
+    driver_details,
+    proposed_pickup,
+    proposed_delivery
 """
 
 
@@ -96,6 +98,8 @@ class ShipmentsRepository:
             "carrier_name": row[8] or None,
             "customer_name": row[9] or None,
             "driver_details": driver_details,
+            "proposed_pickup": ShipmentsRepository._datetime_or_none(row[11]),
+            "proposed_delivery": ShipmentsRepository._datetime_or_none(row[12]),
         }
 
     def upsert_by_tenant_and_shipment_number_tx(
@@ -345,6 +349,48 @@ class ShipmentsRepository:
                 "tenant_id": tid,
                 "shipment_row_id": row_id,
                 "metadata_patch": jsonb_param(metadata_patch),
+            },
+        )
+        return result.rowcount == 1
+
+    def update_proposed_appointments_tx(
+        self,
+        *,
+        tenant_id: str,
+        shipment_row_id: str,
+        proposed_pickup: datetime | None = None,
+        proposed_delivery: datetime | None = None,
+    ) -> bool:
+        """Set ``shipments.proposed_*``; COALESCE keeps existing value when arg is None."""
+        tid = self._clean(tenant_id)
+        row_id = self._clean(shipment_row_id)
+        if not tid or not row_id:
+            return False
+        if proposed_pickup is None and proposed_delivery is None:
+            return False
+
+        result = self._session.execute(
+            text(
+                f"""
+                UPDATE {self.TABLE_NAME}
+                SET proposed_pickup = COALESCE(
+                        CAST(:proposed_pickup AS timestamptz),
+                        proposed_pickup
+                    ),
+                    proposed_delivery = COALESCE(
+                        CAST(:proposed_delivery AS timestamptz),
+                        proposed_delivery
+                    ),
+                    updated_at = NOW()
+                WHERE id = CAST(:shipment_row_id AS uuid)
+                  AND tenant_id = CAST(:tenant_id AS uuid)
+                """
+            ),
+            {
+                "tenant_id": tid,
+                "shipment_row_id": row_id,
+                "proposed_pickup": proposed_pickup,
+                "proposed_delivery": proposed_delivery,
             },
         )
         return result.rowcount == 1

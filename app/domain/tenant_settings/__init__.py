@@ -11,6 +11,7 @@ from app.domain.tenant_settings.gelita import GelitaTenantSettings
 from app.domain.tenant_settings.registry import (
     normalize_tenant_settings_dict,
     parse_tenant_settings,
+    tenant_settings_for_workflow_state,
 )
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "enabled_processes_from_settings",
     "normalize_tenant_settings_dict",
     "parse_tenant_settings",
+    "tenant_settings_for_workflow_state",
     "unipile_recipients_from_addresses",
 ]

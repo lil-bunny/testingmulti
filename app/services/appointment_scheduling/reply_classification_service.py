@@ -1,0 +1,270 @@
+"""LLM classification for appointment scheduling customer-reply emails."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from app.core.logger import get_logger
+from app.domain.appointment_scheduling.activity_log_descriptions import (
+    format_customer_reply_llm_action,
+)
+from app.domain.lifecycle_transition import LifecycleTransitionCommand
+from app.domain.prompt_step_keys import APPOINTMENT_SCHEDULING_CUSTOMER_REPLY
+from app.integrations.langsmith import PromptTraceMetadata, PromptUnavailableError
+from app.models.activity_type import ActivityType
+from app.services.appointment_scheduling.activity_common import SchedulingActivityDeps
+from app.services.communications.service import CommunicationsService
+from app.services.prompt_service import (
+    PromptService,
+    resolve_appointment_scheduling_customer_reply_prompts,
+)
+from app.tools.appointment_scheduling.customer_reply import (
+    ACCEPTED,
+    DO_NOTHING,
+    REJECTED,
+    build_customer_reply_result,
+)
+from app.tools.llm_client import LLMClientError, chat_json
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class ReplyClassificationResult:
+    decision: str = DO_NOTHING
+    reason: str = ""
+    confidence: float = 0.0
+    extracted_date: str | None = None
+    extracted_time: str | None = None
+    appointment_start_iso: str | None = None
+    turvo_start_time: str | None = None
+    thread_llm_input: str = ""
+    thread_message_count: int = 0
+    llm_raw: dict[str, Any] = field(default_factory=dict)
+    llm_activity_log_id: str | None = None
+
+    def to_state_patch(self) -> dict[str, Any]:
+        # reason lives only under customer_reply_extraction (no duplicate top-level key).
+        # llm_activity_log_id stays on this result object; not written to LangGraph state.
+        patch: dict[str, Any] = {
+            "customer_reply_decision": self.decision,
+            "customer_reply_extraction": {
+                "decision": self.decision,
+                "confidence": self.confidence,
+                "reason": self.reason,
+                "extracted_date": self.extracted_date,
+                "extracted_time": self.extracted_time,
+                "appointment_start_iso": self.appointment_start_iso,
+                "turvo_start_time": self.turvo_start_time,
+            },
+        }
+        if self.appointment_start_iso:
+            patch["confirmed_delivery_at"] = self.appointment_start_iso
+        return patch
+
+
+class ReplyClassificationService:
+    def __init__(
+        self,
+        *,
+        communications_service: CommunicationsService | None = None,
+        prompt_service: PromptService | None = None,
+        activity_deps: SchedulingActivityDeps | None = None,
+    ) -> None:
+        self._communications = communications_service or CommunicationsService()
+        self._prompts = prompt_service or PromptService()
+        self._activity_deps = activity_deps or SchedulingActivityDeps()
+
+    def classify_from_state(self, state) -> ReplyClassificationResult:
+        tenant_id = (getattr(state, "tenant_id", None) or state.data.get("tenant_id") or "").strip()
+        thread_id = str(state.data.get("thread_id") or "").strip()
+        tenant_settings = state.data.get("tenant_settings") or {}
+        return self.classify_from_payload(
+            tenant_id=tenant_id,
+            thread_id=thread_id,
+            fallback_body=state.data.get("body"),
+            tenant_settings=tenant_settings,
+            workflow_lifecycle_id=str(state.data.get("workflow_lifecycle_id") or "").strip(),
+            workflow_run_id=str(
+                getattr(state, "execution_id", None) or state.data.get("execution_id") or ""
+            ).strip(),
+            communication_id=str(state.data.get("communication_id") or "").strip() or None,
+            state=state,
+        )
+
+    def classify_from_payload(
+        self,
+        *,
+        tenant_id: str,
+        thread_id: str,
+        fallback_body: str | None,
+        tenant_settings: dict[str, Any],
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+        communication_id: str | None = None,
+        state=None,
+    ) -> ReplyClassificationResult:
+        reply_text = ""
+        thread_message_count = 0
+        if tenant_id and thread_id:
+            draft_comm_id = None
+            if workflow_lifecycle_id:
+                draft_comm_id = self._communications.find_outbound_draft_communication_id(
+                    tenant_id=tenant_id,
+                    workflow_lifecycle_id=workflow_lifecycle_id,
+                )
+            reply_text, thread_message_count = (
+                self._communications.build_appointment_reply_thread_llm_user_message(
+                    tenant_id,
+                    thread_id,
+                    draft_communication_id=draft_comm_id,
+                    fallback_body=fallback_body,
+                )
+            )
+
+        if not (reply_text or "").strip():
+            return ReplyClassificationResult(
+                decision=DO_NOTHING,
+                reason="empty reply body",
+                confidence=1.0,
+                thread_llm_input=reply_text,
+                thread_message_count=thread_message_count,
+                llm_raw={
+                    "decision": DO_NOTHING,
+                    "confidence": 1.0,
+                    "reason": "empty reply body",
+                },
+            )
+
+        try:
+            rendered, prompt_metadata = resolve_appointment_scheduling_customer_reply_prompts(
+                tenant_settings,
+                {"thread_text": reply_text},
+                prompt_service=self._prompts,
+            )
+        except PromptUnavailableError as exc:
+            logger.warning(
+                "classify_appointment_customer_reply prompt unavailable lifecycle_id=%s: %s",
+                workflow_lifecycle_id,
+                exc,
+            )
+            return self._fail_closed(
+                reply_text=reply_text,
+                thread_message_count=thread_message_count,
+                reason=str(exc),
+            )
+
+        prompt_trace = PromptTraceMetadata.from_load(
+            APPOINTMENT_SCHEDULING_CUSTOMER_REPLY,
+            prompt_metadata,
+        )
+        try:
+            raw = chat_json(
+                rendered.system,
+                rendered.user or reply_text,
+                temperature=0.1,
+                prompt_trace=prompt_trace,
+            )
+        except LLMClientError as exc:
+            logger.warning(
+                "customer reply LLM failed lifecycle_id=%s: %s",
+                workflow_lifecycle_id,
+                exc,
+            )
+            return self._fail_closed(
+                reply_text=reply_text,
+                thread_message_count=thread_message_count,
+                reason=f"llm_error: {exc}",
+            )
+
+        parsed = build_customer_reply_result(raw if isinstance(raw, dict) else {})
+        result = ReplyClassificationResult(
+            decision=parsed["decision"],
+            reason=parsed["reason"],
+            confidence=parsed["confidence"],
+            extracted_date=parsed.get("extracted_date"),
+            extracted_time=parsed.get("extracted_time"),
+            appointment_start_iso=parsed.get("appointment_start_iso"),
+            turvo_start_time=parsed.get("turvo_start_time"),
+            thread_llm_input=reply_text,
+            thread_message_count=thread_message_count,
+            llm_raw=parsed,
+        )
+
+        if workflow_lifecycle_id and tenant_id and workflow_run_id:
+            log_id = self._record_llm_activity(
+                state=state,
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
+                communication_id=communication_id,
+                result=result,
+            )
+            if log_id:
+                result.llm_activity_log_id = log_id
+
+        return result
+
+    def _record_llm_activity(
+        self,
+        *,
+        state,
+        tenant_id: str,
+        workflow_lifecycle_id: str,
+        workflow_run_id: str,
+        communication_id: str | None,
+        result: ReplyClassificationResult,
+    ) -> str | None:
+        description = format_customer_reply_llm_action(
+            decision=result.decision,
+            reason=result.reason,
+            confidence=result.confidence,
+        )
+        if state is not None:
+            command = self._activity_deps.action_from_state(
+                state,
+                description=description,
+                communication_id=communication_id,
+            )
+        else:
+            command = LifecycleTransitionCommand(
+                tenant_id=tenant_id,
+                workflow_lifecycle_id=workflow_lifecycle_id,
+                workflow_run_id=workflow_run_id,
+                activity_type=ActivityType.ACTION,
+                description=description,
+                communication_id=communication_id,
+                update_lifecycle=False,
+            )
+        transition_result = self._activity_deps.apply(command)
+        return transition_result.activity_log_id if transition_result else None
+
+    @staticmethod
+    def _fail_closed(
+        *,
+        reply_text: str,
+        thread_message_count: int,
+        reason: str,
+    ) -> ReplyClassificationResult:
+        return ReplyClassificationResult(
+            decision=DO_NOTHING,
+            reason=reason,
+            confidence=0.0,
+            thread_llm_input=reply_text,
+            thread_message_count=thread_message_count,
+            llm_raw={
+                "decision": DO_NOTHING,
+                "confidence": 0.0,
+                "reason": reason,
+            },
+        )
+
+
+__all__ = (
+    "ReplyClassificationResult",
+    "ReplyClassificationService",
+    "ACCEPTED",
+    "REJECTED",
+    "DO_NOTHING",
+)
