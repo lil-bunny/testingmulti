@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.asyncio_util import run_sync
 from app.core.logger import get_logger
-from app.domain.pod_lifecycle.guards import pod_upload_success_from_state
+from app.domain.pod_lifecycle.guards import (
+    pod_analysis_stored_from_state,
+    pod_upload_success_from_state,
+)
 from app.domain.pod_lifecycle.teams_notification import (
     format_pod_analysis_body,
     format_pod_analysis_title,
@@ -40,6 +43,12 @@ class PodTeamsNotificationResult:
 
 class PodLifecycleTeamsNotificationService:
     def notify_from_state(self, state: WorkflowState) -> PodTeamsNotificationResult:
+        """
+        Post a Teams card after POD analysis when tenant webhook settings exist.
+
+        Guard order: settings → event type → upload success → extraction stored →
+        scoring display fields. Returns skipped/error results without raising.
+        """
         data = state.data
         tenant_settings = data.get("tenant_settings")
         if not isinstance(tenant_settings, dict):
@@ -59,15 +68,15 @@ class PodLifecycleTeamsNotificationService:
         if not _analysis_success(data):
             return PodTeamsNotificationResult(skipped=True, skip_reason="pod_analysis_not_stored")
 
-        vs_results = data.get("pod_vs_ratecon_analysis_results")
-        if not isinstance(vs_results, dict):
+        scoring_results = data.get("pod_scoring_results")
+        if not isinstance(scoring_results, dict):
             return PodTeamsNotificationResult(
-                skipped=True, skip_reason="missing_vs_ratecon_results"
+                skipped=True, skip_reason="missing_pod_scoring_results"
             )
 
         fields = pod_analysis_display_fields_from_data(data)
         if fields is None:
-            skip_reason = _display_fields_skip_reason(data, vs_results)
+            skip_reason = _display_fields_skip_reason(data, scoring_results)
             return PodTeamsNotificationResult(skipped=True, skip_reason=skip_reason)
 
         title = format_pod_analysis_title(settings.message_title, fields=fields)
@@ -75,9 +84,9 @@ class PodLifecycleTeamsNotificationService:
         facts = pod_analysis_facts(fields)
 
         wl_id = str(data.get("workflow_lifecycle_id") or "").strip()
-        # ponytail: Teams stays live in workflow shadow_mode (email/Turvo are gated elsewhere)
+        # Teams stays live in shadow mode so operators can review scoring output.
         try:
-            asyncio.run(
+            run_sync(
                 post_message_card(
                     settings.teams_webhook_url,
                     title=title,
@@ -102,15 +111,15 @@ class PodLifecycleTeamsNotificationService:
 
 
 def _analysis_success(data: dict[str, Any]) -> bool:
-    persist = data.get("document_analysis_pod")
-    return isinstance(persist, dict) and persist.get("stored") is True
+    return pod_analysis_stored_from_state(data)
 
 
-def _display_fields_skip_reason(data: dict[str, Any], vs_results: dict[str, Any]) -> str:
-    if vs_results.get("confidence_score") is None:
-        return "missing_confidence_score"
-    if not str(vs_results.get("validation_summary") or "").strip():
-        return "missing_validation_summary"
+def _display_fields_skip_reason(data: dict[str, Any], scoring_results: dict[str, Any]) -> str:
+    if scoring_results.get("skipped"):
+        return "pod_scoring_skipped"
+    score = scoring_results.get("score")
+    if not isinstance(score, dict) or score.get("final_score") is None:
+        return "missing_pod_score"
     if not resolve_pod_analysis_load_id(data):
         return "missing_load_id"
     return "missing_display_fields"

@@ -1,4 +1,4 @@
-"""Tests for in-graph merge_and_upload_pod_attachments node."""
+"""Tests for in-graph merge_pod_attachments_local node."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from app.domain.state import WorkflowState
 from app.services.pod_lifecycle.attachment_pipeline_service import (
     PodAttachmentPipelineResult,
 )
-from app.workflows.nodes.pod import merge_and_upload_pod_attachments
+from app.workflows.nodes.pod import merge_pod_attachments_local
 
 
-def test_merge_and_upload_node_success_patches_state():
+def test_merge_local_node_success_patches_state():
     state = WorkflowState(
         tenant_id="t1",
         tenant_slug="t3ra",
@@ -24,23 +24,21 @@ def test_merge_and_upload_node_success_patches_state():
         },
     )
     with patch(
-        "app.services.pod_lifecycle.attachment_pipeline_service.PodAttachmentPipelineService.merge_and_upload_from_state",
+        "app.services.pod_lifecycle.attachment_pipeline_service.PodAttachmentPipelineService.merge_local_from_state",
         return_value=PodAttachmentPipelineResult(
             success=True,
             state_patch={
-                "pod_merged_pdf_object_key": "pod_attachments/pod_SHIP.pdf",
-                "documents_pod": {"stored": True, "id": "d1"},
+                "pod_merged_local_path": "/tmp/stage/pod_SHIP.pdf",
             },
         ),
     ):
-        out = merge_and_upload_pod_attachments(state)
+        out = merge_pod_attachments_local(state)
 
-    assert out.data["pod_merged_pdf_object_key"] == "pod_attachments/pod_SHIP.pdf"
-    assert out.data["documents_pod"]["stored"] is True
+    assert out.data["pod_merged_local_path"] == "/tmp/stage/pod_SHIP.pdf"
     assert "error" not in out.data
 
 
-def test_merge_and_upload_node_failure_sets_business_error(tmp_path):
+def test_merge_local_node_failure_sets_business_error(tmp_path):
     stage = tmp_path / "stage"
     stage.mkdir()
     (stage / "x.pdf").write_bytes(b"%PDF")
@@ -55,13 +53,13 @@ def test_merge_and_upload_node_failure_sets_business_error(tmp_path):
         },
     )
     with patch(
-        "app.services.pod_lifecycle.attachment_pipeline_service.PodAttachmentPipelineService.merge_and_upload_from_state",
+        "app.services.pod_lifecycle.attachment_pipeline_service.PodAttachmentPipelineService.merge_local_from_state",
         return_value=PodAttachmentPipelineResult(
             success=False,
             skip_reason="attachment_normalization_failed",
         ),
     ):
-        out = merge_and_upload_pod_attachments(state)
+        out = merge_pod_attachments_local(state)
 
     assert out["data"]["error"]["code"] == BusinessError.POD_ATTACHMENT_UPLOAD_FAILED.value
     assert not stage.exists()

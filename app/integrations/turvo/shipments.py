@@ -9,6 +9,7 @@ Shipment-scoped POD checks use ``GET /v1/documents/list`` — see
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -16,6 +17,7 @@ from typing import Any, Optional
 from app.domain.shipment_display import ShipmentDisplayFields
 from app.domain.shipment_route_locations import (
     active_route_stops,
+    is_multi_stop_route,
     last_active_route_stop,
 )
 from app.domain.spreadsheet_cells import clean_cell_value
@@ -31,18 +33,107 @@ TRACKING_METHOD_NONE = {"key": "31300", "value": "none"}
 TRACKING_METHOD_TURVO_APP = {"key": "31301", "value": "Turvo Driver app"}
 DRIVER_TYPE_SINGLE = {"key": "20020", "value": "Single driver"}
 
+_WORKFLOW_SHIPMENT_TOP_LEVEL_KEYS = frozenset(
+    {
+        "id",
+        "shipmentId",
+        "shipment_id",
+        "convoy",
+        "error",
+        "turvo_connection_timed_out",
+    }
+)
+_WORKFLOW_SHIPMENT_DETAIL_KEYS = frozenset(
+    {
+        "id",
+        "shipmentId",
+        "customId",
+        "status",
+        "transportation",
+        "carrierOrder",
+        "customerOrder",
+        "globalRoute",
+        "global_route",
+        "startDate",
+        "endDate",
+    }
+)
+
+
+def shipment_workflow_state_projection(payload: dict[str, Any]) -> dict[str, Any]:
+    """Project a Turvo shipment to fields consumed by workflow decisions.
+
+    The full vendor response can contain large status-history, tracking, and
+    geometry trees. Those fields must not enter LangGraph checkpoints.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    projected = {
+        key: deepcopy(payload[key])
+        for key in _WORKFLOW_SHIPMENT_TOP_LEVEL_KEYS
+        if key in payload
+    }
+    details = payload.get("details")
+    if isinstance(details, dict):
+        projected["details"] = {
+            key: deepcopy(details[key])
+            for key in _WORKFLOW_SHIPMENT_DETAIL_KEYS
+            if key in details
+        }
+    return projected
+
 
 def global_route_stops_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return ``details.globalRoute`` from a Turvo shipment API payload."""
+    """Return normalized route stops from camelCase or export-style Turvo payloads."""
     if not isinstance(payload, dict):
         return []
     details = payload.get("details")
     if not isinstance(details, dict):
         return []
     route = details.get("globalRoute")
-    if not isinstance(route, list):
+    if isinstance(route, list):
+        return [s for s in route if isinstance(s, dict)]
+
+    exported_route = details.get("global_route")
+    exported_stops = (
+        exported_route.get("ship_locations") if isinstance(exported_route, dict) else None
+    )
+    if not isinstance(exported_stops, list):
         return []
-    return [s for s in route if isinstance(s, dict)]
+
+    normalized: list[dict[str, Any]] = []
+    for stop in exported_stops:
+        if not isinstance(stop, dict):
+            continue
+        stop_type = stop.get("type") if isinstance(stop.get("type"), dict) else {}
+        address = stop.get("address") if isinstance(stop.get("address"), dict) else {}
+        city = address.get("city")
+        state = address.get("state")
+        country = address.get("country")
+        normalized.append(
+            {
+                "id": stop.get("globalRouteStopId") or stop.get("global_ship_location_id"),
+                "name": stop.get("name"),
+                "stopType": {"key": stop_type.get("key"), "value": stop_type.get("value")},
+                "timezone": stop.get("timezone"),
+                "address": {
+                    "line1": address.get("line1"),
+                    "city": city.get("name") if isinstance(city, dict) else city,
+                    "state": state.get("name") if isinstance(state, dict) else state,
+                    "countryCode": (
+                        country.get("code") if isinstance(country, dict) else address.get("countryISO")
+                    ),
+                },
+                "poNumbers": stop.get("purchase_orders"),
+                "notes": stop.get("instructions"),
+                "deleted": stop.get("deleted"),
+            }
+        )
+    return normalized
+
+
+def is_multi_stop_shipment(payload: dict[str, Any]) -> bool:
+    return is_multi_stop_route(global_route_stops_from_payload(payload))
 
 
 def _required_str(val: Any) -> str:
@@ -782,7 +873,7 @@ def carrier_from_order(order: dict[str, Any]) -> tuple[int | None, str | None]:
     except (TypeError, ValueError):
         carrier_id = None
     name = carrier.get("name")
-    carrier_name = str(name).strip() if name else None
+    carrier_name = (str(name).strip() if name else "") or None
     return carrier_id, carrier_name
 
 

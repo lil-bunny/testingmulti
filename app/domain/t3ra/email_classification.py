@@ -10,11 +10,7 @@ from app.domain.t3ra.email_attachments import (
     unipile_ratecon_pdf_attachment,
 )
 from app.domain.unipile_email_attachments import attachment_display_name
-from app.domain.unipile_email import (
-    build_unipile_attachment_fetch_context,
-    extract_email_attachment_metadata,
-    is_unipile_email_reply,
-)
+from app.domain.unipile_email import is_unipile_email_reply
 
 _RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
 _TONU_SUBJECT_SNIPPET = "tonu"
@@ -30,32 +26,12 @@ def has_rate_confirmation_subject(subject: str) -> bool:
     return _RATE_CONFIRMATION_SUBJECT_SNIPPET in normalized
 
 
-def _get_attachment_uri(attachment: dict[str, Any]) -> str | None:
-    """Best-effort HTTP URL if Unipile includes one (raw ``mail_received`` webhooks usually do not)."""
-    for key in (
-        "url",
-        "uri",
-        "download_url",
-        "attachment_url",
-        "link",
-        "href",
-        "public_url",
-        "file_url",
-    ):
-        value = attachment.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return None
-
-
 def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """
-    Classify a Unipile ``mail_received``-style webhook dict for ratecon attachment metadata.
+    Extract ratecon correlation fields from a Unipile ``mail_received`` payload.
 
-    Unipile attachments are typically ``id``, ``name``, ``mime``, ``extension``, ``size`` — not a
-    download URL. Use ``unipile_attachment_fetch`` (email_id, account_id, attachment_id) with the
-    Unipile API to retrieve bytes. ``attachment_uri`` is set only when the payload includes a URL.
-    Root-level ``thread_id`` is echoed for workflow correlation when present.
+    Returns only keys needed for enqueue / Turvo resolve: ``load_id``, ``subject``,
+    ``thread_id``. Attachment download uses root ``attachments`` + ``email_id``.
     """
     subject = str(payload.get("subject") or "").strip()
 
@@ -63,16 +39,9 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
     thread_id = str(raw_thread).strip() or None if raw_thread else None
 
     empty_result = {
-        "is_ratecon_mail": False,
         "load_id": None,
         "subject": subject or None,
         "thread_id": thread_id,
-        "ratecon_attachment_name": None,
-        "ratecon_attachment_uri": None,
-        "ratecon_attachment_id": None,
-        "ratecon_attachment_mime": None,
-        "ratecon_attachment_unipile": None,
-        "ratecon_unipile_attachment_fetch": None,
     }
 
     if not has_rate_confirmation_subject(subject):
@@ -87,22 +56,10 @@ def extract_ratecon_metadata_from_payload(payload: dict[str, Any]) -> dict[str, 
     if not load_id:
         return empty_result
 
-    attachment_metadata = extract_email_attachment_metadata(ratecon_attachment)
-    attachment_fetch_context = build_unipile_attachment_fetch_context(
-        payload, ratecon_attachment
-    )
-
     return {
-        "is_ratecon_mail": True,
         "load_id": load_id,
         "subject": subject or None,
         "thread_id": thread_id,
-        "ratecon_attachment_name": ratecon_attachment_name,
-        "ratecon_attachment_uri": _get_attachment_uri(ratecon_attachment),
-        "ratecon_attachment_id": attachment_metadata.get("id"),
-        "ratecon_attachment_mime": attachment_metadata.get("mime"),
-        "ratecon_attachment_unipile": attachment_metadata or None,
-        "ratecon_unipile_attachment_fetch": attachment_fetch_context or None,
     }
 
 
@@ -124,7 +81,7 @@ class T3raInboundEmailClassification:
     ratecon_attachment: dict[str, Any] | None
 
     def to_ratecon_enqueue_payload(self) -> dict[str, Any]:
-        """Merge ratecon metadata for Celery enqueue (same keys as legacy classifier dict)."""
+        """Merge ratecon metadata for Celery enqueue."""
         return {
             "workflow_name": "ratecon",
             **(self.ratecon_metadata or {}),

@@ -1,4 +1,4 @@
-"""t3ra ratecon workflow: ingress, graph run, and document persist (mocked)."""
+"""t3ra ratecon workflow: ingress, graph run, and document upload (mocked)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import uuid
 
 import pytest
 
-from app.models.document import DocumentType
 from app.repositories.tenant_repo import TenantRepository
 from app.repositories.workflow_repo import WorkflowRepository
 from app.services.workflow_lifecycle_service import (
@@ -14,9 +13,8 @@ from app.services.workflow_lifecycle_service import (
     WorkflowLifecycleService,
 )
 from app.services.workflow_service import WorkflowService
-from app.workflows.nodes import ratecon as ratecon_node
+from app.services.ratecon_document_service import RateconDocumentService
 from app.workflows.nodes import turvo as turvo_nodes
-from app.workflows.nodes import pod as pod_nodes
 
 _RATECON_ROW_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
@@ -51,22 +49,56 @@ def ratecon_lifecycle_stubs(monkeypatch):
 def ratecon_ingress_mocks(monkeypatch):
     """Pre-graph Turvo resolve + shipment upsert (RateconIngressService)."""
 
-    async def fake_upsert_from_load_id(self, **kwargs):
+    async def fake_resolve(slug, load_id, **kwargs):
+        return "SHIP-99"
+
+    async def fake_get(slug, shipment_id, client=None):
+        return {
+            "details": {
+                "id": "SHIP-99",
+                "customId": "L42",
+                "globalRoute": [
+                    {
+                        "deleted": False,
+                        "address": {"city": "Ripon", "state": "CA", "countryCode": "US"},
+                    },
+                    {
+                        "deleted": False,
+                        "address": {"city": "RENO", "state": "NV", "countryCode": "US"},
+                    },
+                ],
+                "carrierOrder": [],
+            }
+        }
+
+    def fake_upsert_from_turvo(self, **kwargs):
         return {
             "success": True,
             "shipments_row_id": _RATECON_ROW_UUID,
             "created": True,
-            "shipment_number": "SHIP-99",
+            "shipment_number": kwargs.get("turvo_shipment_id") or "SHIP-99",
         }
 
     monkeypatch.setattr(
-        "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_load_id",
-        fake_upsert_from_load_id,
+        "app.services.ratecon_ingress_service.load_id_to_shipment_id_async",
+        fake_resolve,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.get_turvo_shipment_async",
+        fake_get,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.ShipmentsService.upsert_from_turvo",
+        fake_upsert_from_turvo,
+    )
+    monkeypatch.setattr(
+        "app.services.ratecon_ingress_service.RateconSupersedeService.supersede_before_run",
+        lambda *a, **k: None,
     )
 
 
-def _patch_ratecon_graph_mocks(monkeypatch) -> tuple[list[dict], list[tuple]]:
-    """Turvo + lifecycle + S3 + documents mocks shared by happy-path test."""
+def _patch_ratecon_graph_mocks(monkeypatch) -> list[dict]:
+    """Turvo + lifecycle + upload mocks shared by happy-path test."""
 
     def fake_load_id_to_shipment(load_id, *, tenant_slug=None):
         return {
@@ -150,58 +182,37 @@ def _patch_ratecon_graph_mocks(monkeypatch) -> tuple[list[dict], list[tuple]]:
         fake_link_shipment_row,
     )
 
-    expect_key = "ratecon_attachments/ratecon_SHIP-99.pdf"
-
-    def fake_upload_to_s3(**kwargs):
+    def fake_upload_email_attachments(self, data):
         return {
+            "all_succeeded": True,
             "results": [
                 {
                     "attachment_id": "att-1",
                     "success": True,
-                    "object_key": expect_key,
+                    "object_key": "ratecon_attachments/ratecon_SHIP-99.pdf",
                     "error_message": None,
                     "original_filename": "Carrier_rate_confirmation.pdf",
-                    "content_type": "application/pdf",
-                    "extension": "pdf",
+                    "document_persist": {
+                        "stored": True,
+                        "id": "doc-row-1",
+                        "shipment_id": data.get("shipments_row_id"),
+                    },
                 }
             ],
-            "ratecon_object_keys": [expect_key],
-            "all_succeeded": True,
+            "ratecon_object_keys": ["ratecon_attachments/ratecon_SHIP-99.pdf"],
         }
-
-    persisted: list[tuple] = []
-
-    def fake_insert(doc_type, storage_key, **kwargs):
-        persisted.append((doc_type, storage_key, kwargs))
-        return {"stored": True, "id": "doc-row-1"}
 
     monkeypatch.setattr(
-        ratecon_node,
-        "upload_ratecon_email_attachments_to_s3",
-        fake_upload_to_s3,
+        RateconDocumentService,
+        "upload_email_attachments",
+        fake_upload_email_attachments,
     )
-    monkeypatch.setattr(ratecon_node, "insert_document", fake_insert)
 
-    def fake_ratecon_analysis(data):
-        return {
-            "success": True,
-            "shipment_id": data.get("shipment_id") or "SHIP-99",
-            "findings": {"extracted_fields": {"primary_identifier": "SHIP-99"}},
-            "confidence_score": 1.0,
-            "document_id": "doc-row-1",
-        }
-
-    def fake_upsert_ratecon_extraction(shipment_id, **kwargs):
-        return {"stored": True, "id": "analysis-row-1"}
-
-    monkeypatch.setattr(pod_nodes, "get_ratecon_analysis", fake_ratecon_analysis)
-    monkeypatch.setattr(pod_nodes, "upsert_ratecon_extraction", fake_upsert_ratecon_extraction)
-
-    return link_calls, persisted
+    return link_calls
 
 
 @pytest.mark.asyncio
-async def test_ratecon_requires_load_id():
+async def test_ratecon_requires_load_id_or_shipment_id():
     service = WorkflowService(WorkflowRepository(), TenantRepository())
     with pytest.raises(Exception, match="load_id"):
         await service.run(
@@ -213,11 +224,12 @@ async def test_ratecon_requires_load_id():
 
 @pytest.mark.asyncio
 async def test_ratecon_workflow_happy_path_mocked(
-    monkeypatch, ratecon_ingress_mocks, ratecon_lifecycle_stubs
+    monkeypatch,
+    ratecon_ingress_mocks,
+    ratecon_lifecycle_stubs,
 ):
-    """Resolve load, link locations, upload ratecon PDF, persist document (all mocked)."""
-    link_calls, persisted = _patch_ratecon_graph_mocks(monkeypatch)
-    expect_key = "ratecon_attachments/ratecon_SHIP-99.pdf"
+    """Resolve load, link locations, upload ratecon, and persist document metadata."""
+    link_calls = _patch_ratecon_graph_mocks(monkeypatch)
 
     service = WorkflowService(WorkflowRepository(), TenantRepository())
     result = await service.run(
@@ -239,20 +251,18 @@ async def test_ratecon_workflow_happy_path_mocked(
     )
     assert result["data"]["load_id_to_shipment"]["shipment_id"] == "SHIP-99"
     assert result["data"]["load_id_to_shipment"]["success"] is True
-    assert result["data"]["shipment_persist"]["success"] is True
+    assert result["data"]["load_id_to_shipment"].get("reused") is True
     assert result["data"]["shipments_row_id"] == _RATECON_ROW_UUID
+    assert result["data"]["shipment"]["details"]["globalRoute"]
     assert result["data"]["shipment_location_link"]["success"] is True
     assert result["data"]["shipment_location_link"]["pickup_location_id"] == (
         "11111111-1111-1111-1111-111111111111"
     )
 
-    assert persisted
-    assert persisted[0][0] == DocumentType.RATECON
-    assert persisted[0][1] == expect_key
-    assert persisted[0][2].get("shipments_row_id") == _RATECON_ROW_UUID
-    r0 = result["data"]["ratecon_s3_upload"]["results"][0]
-    assert r0["document_persist"]["stored"] is True
-    assert r0["document_persist"]["id"] == "doc-row-1"
-    assert result["data"]["ratecon_analysis_results"]["success"] is True
-    assert result["data"]["document_analysis_ratecon"]["stored"] is True
-    assert result["data"]["document_analysis_ratecon"]["id"] == "analysis-row-1"
+    upload = result["data"]["ratecon_s3_upload"]
+    assert upload["all_succeeded"] is True
+    assert upload["ratecon_object_keys"] == ["ratecon_attachments/ratecon_SHIP-99.pdf"]
+    assert upload["results"][0]["document_persist"]["stored"] is True
+    assert upload["results"][0]["document_persist"]["id"] == "doc-row-1"
+    assert "ratecon_page_count_cache" not in result["data"]
+    assert "ratecon_analysis" not in result["data"]

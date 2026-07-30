@@ -19,8 +19,8 @@ _CELERY_SSL_CERT_REQS_TO_REDIS_PY: dict[str, str] = {
 }
 
 
-def normalize_celery_broker_url_for_redis_py(url: str) -> str:
-    """Map Celery ``ssl_cert_reqs=CERT_*`` query values to redis-py ``none|optional|required``."""
+def normalize_redis_url_for_redis_py(url: str) -> str:
+    """Map Redis ``ssl_cert_reqs=CERT_*`` query values to redis-py ``none|optional|required``."""
     parts = urlsplit(url)
     if not parts.query:
         return url
@@ -45,15 +45,14 @@ def normalize_celery_broker_url_for_redis_py(url: str) -> str:
 
 def get_redis_client() -> Redis:
     """
-    Return a process-local Redis client from ``CELERY_BROKER_URL``.
-
+    Return a process-local Redis client from ``REDIS_URL``.
     Prefork workers each create their own client on first use.
     """
     global _client
     if _client is None:
-        broker_url = normalize_celery_broker_url_for_redis_py(settings.CELERY_BROKER_URL)
+        redis_url = normalize_redis_url_for_redis_py(settings.REDIS_URL)
         _client = Redis.from_url(
-            broker_url,
+            redis_url,
             decode_responses=True,
         )
     return _client

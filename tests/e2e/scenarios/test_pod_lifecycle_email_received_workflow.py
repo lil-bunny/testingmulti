@@ -43,7 +43,7 @@ _POST_WEBHOOK_WAIT_S = 240
 _POD_DOCUMENT_ANALYSIS_TYPES = frozenset(
     (
         DocumentAnalysisType.POD_EXTRACTION.value,
-        DocumentAnalysisType.POD_VS_RATECON_COMPARISON.value,
+        DocumentAnalysisType.POD_VS_TMS_ANALYSIS.value,
     )
 )
 
@@ -86,37 +86,10 @@ def _assert_no_pod_document_analysis_before_e2e(
     ids = [r.get("id") for r in offending]
     pytest.fail(
         "E2E precondition failed: `document_analysis` already has POD analysis row(s) for this "
-        "shipment. Remove pod_extraction / pod_vs_ratecon_comparison rows or pick another "
-        f"shipment_id, then re-run.\n"
+        f"shipment. Remove pod_extraction rows or pick another shipment_id, then re-run.\n"
         f"  shipment_id={shipment_id!r}\n"
         f"  analysis_types_found={types_hit!r}\n"
         f"  row ids={ids!r}"
-    )
-
-
-def _assert_ratecon_extraction_before_e2e(
-    *, before_analysis: list[dict], shipment_id: str
-) -> None:
-    """Pod lifecycle loads cached ratecon extraction; ratecon workflow must have run first."""
-    rows = [
-        r
-        for r in before_analysis
-        if str(r.get("analysis_type") or "").strip()
-        == DocumentAnalysisType.RATECON_EXTRACTION.value
-    ]
-    with_extracted_fields = [
-        r
-        for r in rows
-        if isinstance(r.get("results"), dict)
-        and (r.get("results") or {}).get("extracted_fields")
-    ]
-    if with_extracted_fields:
-        return
-    pytest.fail(
-        "Prerequisite: `ratecon_extraction` row with `results.extracted_fields` required "
-        "in `document_analysis` before POD reply e2e (pod lifecycle no longer re-runs ratecon LLM).\n"
-        f"  shipment_id={shipment_id!r}\n"
-        f"  ratecon_extraction rows found={len(rows)} with_extracted_fields={len(with_extracted_fields)}"
     )
 
 
@@ -176,9 +149,6 @@ def test_pod_lifecycle_email_received_unipile_webhook(
         before_docs=before_docs, shipment_id=shipment_id
     )
     _assert_no_pod_document_analysis_before_e2e(
-        before_analysis=before_analysis, shipment_id=shipment_id
-    )
-    _assert_ratecon_extraction_before_e2e(
         before_analysis=before_analysis, shipment_id=shipment_id
     )
 

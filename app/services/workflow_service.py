@@ -33,8 +33,8 @@ from app.workflows.graph.routers import (
     shipment_router,
     pod_exists_router,
     pod_missing_dispatch_router,
-    ratecon_cache_router,
     read_workflow_lifecycle_router,
+    trim_ratecon_pages_router,
     driver_assignment_eligibility_router,
     driver_assignment_delayed_eligibility_router,
     driver_assignment_delayed_event_router,
@@ -59,7 +59,6 @@ ROUTER_REGISTRY = {
     "pod_missing_dispatch": pod_missing_dispatch_router,
     "shipment_router": shipment_router,
     "event_type": event_type_router,
-    "ratecon_cache_router": ratecon_cache_router,
     "read_workflow_lifecycle_router": read_workflow_lifecycle_router,
     "load_type_router": load_type_router,
     "tender_status_router": tender_status_router,
@@ -70,6 +69,7 @@ ROUTER_REGISTRY = {
     "routing_guide_router": routing_guide_router,
     "manual_tms_upload_router": manual_tms_upload_router,
     "post_pod_processing_router": post_pod_processing_router,
+    "trim_ratecon_pages_router": trim_ratecon_pages_router,
     "driver_assignment_eligibility_router": driver_assignment_eligibility_router,
     "driver_assignment_delayed_eligibility_router": driver_assignment_delayed_eligibility_router,
     "driver_assignment_delayed_event_router": driver_assignment_delayed_event_router,
@@ -114,6 +114,28 @@ class WorkflowService:
         data = dict(payload)
         data["skipped_driver_assignment"] = True
         data["driver_assignment_skip_reason"] = reason
+        return {
+            "tenant_id": tenant_id,
+            "tenant_slug": tenant_slug,
+            "execution_id": execution_id,
+            "data": data,
+        }
+
+    @staticmethod
+    def _skipped_ratecon_ingress_result(
+        *,
+        tenant_id: str,
+        tenant_slug: str,
+        payload: dict,
+        reason: str,
+    ) -> dict:
+        """Return a no-graph run result when ratecon prepare intentionally skips."""
+        execution_id = (
+            str(payload.get("execution_id") or "").strip() or str(uuid.uuid4())
+        )
+        data = dict(payload)
+        data["skipped_ratecon_ingress"] = True
+        data["ratecon_ingress_skip_reason"] = reason
         return {
             "tenant_id": tenant_id,
             "tenant_slug": tenant_slug,
@@ -282,13 +304,29 @@ class WorkflowService:
             payload["workflow_shadow_mode"] = True
 
         if workflow_name == "ratecon":
-            # Guard: Ingress may already have upserted the shipment.
-            if not str(payload.get("shipments_row_id") or "").strip():
-                payload = await self._ratecon_ingress.prepare_payload(
+            # Always prepare: multi-stop gate + Turvo fetch; upsert is idempotent.
+            prepared = await self._ratecon_ingress.prepare_payload(
+                tenant_id=tenant_id,
+                tenant_slug=tenant_slug,
+                payload=payload,
+            )
+            if not prepared.ok:
+                reason = prepared.skip_reason or "unknown"
+                logger.info(
+                    "ratecon ingress skipped tenant_slug=%s shipment_id=%s "
+                    "load_id=%s reason=%s",
+                    tenant_slug,
+                    (prepared.payload or payload).get("shipment_id"),
+                    (prepared.payload or payload).get("load_id"),
+                    reason,
+                )
+                return self._skipped_ratecon_ingress_result(
                     tenant_id=tenant_id,
                     tenant_slug=tenant_slug,
-                    payload=payload,
+                    payload=prepared.payload or payload,
+                    reason=reason,
                 )
+            payload = prepared.payload or payload
 
         if (
             workflow_name == "driver_assignment"

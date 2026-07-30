@@ -21,8 +21,8 @@ class PodLifecycleTeamsNotificationSettings(BaseModel):
 @dataclass(frozen=True)
 class PodAnalysisDisplayFields:
     load_id: str
-    confidence_score: str
-    validation_summary: str
+    score: str
+    review_summary: str
     overall_status: str
 
 
@@ -57,53 +57,79 @@ def resolve_pod_analysis_load_id(data: dict[str, Any]) -> str:
             if custom_id:
                 return custom_id
 
-    for key in ("ratecon_analysis_results", "pod_vs_ratecon_analysis_results"):
-        block = data.get(key)
-        if not isinstance(block, dict):
-            continue
-        findings = block.get("findings") or {}
-        if not isinstance(findings, dict):
-            continue
-        extracted = findings.get("extracted_fields") or {}
-        if isinstance(extracted, dict):
-            primary = str(extracted.get("primary_identifier") or "").strip()
-            if primary:
-                return primary
-
     return str(data.get("shipment_id") or "").strip()
+
+
+def resolve_pod_scoring_summary(score: dict[str, Any]) -> str:
+    """Human-readable summary of a ``pod_scoring`` result dict for Teams/activity display."""
+    po_scores = score.get("po_scores") if isinstance(score.get("po_scores"), list) else []
+    if not po_scores:
+        return "No Turvo purchase orders were found to score."
+
+    parts = [
+        f"{po.get('po_number')}: {po.get('po_total')}/100"
+        for po in po_scores
+        if isinstance(po, dict)
+    ]
+    summary = "; ".join(parts)
+
+    exceptions = score.get("exceptions") if isinstance(score.get("exceptions"), list) else []
+    exception_types = sorted(
+        {e.get("exception_type") for e in exceptions if isinstance(e, dict) and e.get("exception_type")}
+    )
+    if exception_types:
+        summary += f". Exceptions: {', '.join(exception_types)}."
+
+    review_reasons = score.get("review_reasons") if isinstance(score.get("review_reasons"), list) else []
+    if review_reasons:
+        summary += " Review required: " + " ".join(str(reason) for reason in review_reasons)
+
+    remarks = score.get("remarks") if isinstance(score.get("remarks"), list) else []
+    if remarks:
+        summary += " " + " ".join(str(r) for r in remarks)
+
+    return summary.strip()
 
 
 def pod_analysis_display_fields_from_data(
     data: dict[str, Any],
 ) -> PodAnalysisDisplayFields | None:
-    vs_results = data.get("pod_vs_ratecon_analysis_results")
-    if not isinstance(vs_results, dict):
+    """
+    Map ``pod_scoring_results`` into Teams/activity display fields.
+
+    Returns ``None`` when scoring was skipped, missing, or load id / score
+    cannot be resolved.
+    """
+    scoring_results = data.get("pod_scoring_results")
+    if not isinstance(scoring_results, dict) or not scoring_results.get("success"):
+        return None
+    if scoring_results.get("skipped"):
+        return None
+
+    score = scoring_results.get("score")
+    if not isinstance(score, dict):
         return None
 
     load_id = resolve_pod_analysis_load_id(data)
     if not load_id:
         return None
 
-    confidence_raw = vs_results.get("confidence_score")
-    if confidence_raw is None:
+    final_score = score.get("final_score")
+    if final_score is None:
         return None
     try:
-        confidence_score = f"{float(confidence_raw):.2f}"
+        score_display = f"{round(float(final_score))}/100"
     except (TypeError, ValueError):
         return None
 
-    validation_summary = str(vs_results.get("validation_summary") or "").strip()
-    if not validation_summary:
-        return None
-
-    overall = str(vs_results.get("overall_status") or "UNKNOWN").strip().upper()
+    overall = str(score.get("overall_status") or "UNKNOWN").strip().upper()
     if overall not in ("PASS", "FAIL", "UNKNOWN"):
         overall = "UNKNOWN"
 
     return PodAnalysisDisplayFields(
         load_id=load_id,
-        confidence_score=confidence_score,
-        validation_summary=validation_summary,
+        score=score_display,
+        review_summary=resolve_pod_scoring_summary(score),
         overall_status=overall,
     )
 
@@ -132,25 +158,28 @@ def format_pod_analysis_body(
         except KeyError:
             return str(template).strip().format_map(_SafeFormatMap(ctx))
     return (
-        f"Load {fields.load_id} POD score {fields.confidence_score} "
-        f"({fields.overall_status}). {fields.validation_summary}"
+        f"Load {fields.load_id} POD score {fields.score} "
+        f"({fields.overall_status}). {fields.review_summary}"
     )
 
 
 def pod_analysis_facts(fields: PodAnalysisDisplayFields) -> list[tuple[str, str]]:
     return [
         ("Load ID", fields.load_id or "—"),
-        ("POD Score", fields.confidence_score or "—"),
+        ("POD Score", fields.score or "—"),
         ("Status", fields.overall_status or "—"),
-        ("Summary", fields.validation_summary or "—"),
+        ("Review summary", fields.review_summary or "—"),
     ]
 
 
 def _template_context(fields: PodAnalysisDisplayFields) -> dict[str, str]:
     return {
         "load_id": fields.load_id,
-        "confidence_score": fields.confidence_score,
-        "validation_summary": fields.validation_summary,
+        "score": fields.score,
+        "review_summary": fields.review_summary,
+        # Keep tenant-authored templates working during rollout.
+        "confidence_score": fields.score,
+        "validation_summary": fields.review_summary,
         "overall_status": fields.overall_status,
     }
 

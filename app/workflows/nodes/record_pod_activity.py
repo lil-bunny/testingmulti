@@ -27,7 +27,7 @@ def record_pod_escalation_activity(state):
 
 
 def record_pod_upload_activity(state):
-    """Log POD S3 upload outcome after in-graph merge_and_upload_pod_attachments."""
+    """Log POD S3 upload outcome after ``upload_trimmed_pod_attachments``."""
     PodUploadActivityService().record_from_state(state)
     return state
 
@@ -35,12 +35,6 @@ def record_pod_upload_activity(state):
 def record_pod_extraction_activity(state):
     """Log POD LLM extraction outcome after ``pod_analysis``."""
     PodPipelineActivityService().record_extraction_from_state(state)
-    return state
-
-
-def record_pod_vs_ratecon_activity(state):
-    """Log POD vs ratecon validation outcome after ``pod_vs_ratecon_analysis``."""
-    PodPipelineActivityService().record_vs_ratecon_from_state(state)
     return state
 
 

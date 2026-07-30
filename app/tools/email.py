@@ -181,7 +181,8 @@ def send_email(
     subject: Optional[str] = None,
     body: Optional[str] = None,
     thread_id: Optional[str] = None,
-    account_id: Optional[str] = None,
+    *,
+    account_id: str,
     tenant_id: Optional[str] = None,
     communication_metadata: Optional[dict[str, Any]] = None,
     cc: Any = None,
@@ -193,9 +194,8 @@ def send_email(
 ):
     """
     POD request / reminder delivery. If ``thread_id`` is set, reply in thread; else if ``to``
-    has at least one valid address, send a new message. Requires ``UNIPILE_API_KEY`` and
-    a sending ``account_id`` (argument, ``tenants.settings.mikey_account_id``, or legacy
-    ``settings.UNIPILE_ACCOUNT_ID``).
+    has at least one valid address, send a new message. Requires ``UNIPILE_API_KEY`` and a
+    sending ``account_id`` (caller must resolve from tenant settings / payload).
 
     ``to``, ``cc``, and ``bcc`` accept a single email string or a list of strings.
 
@@ -207,7 +207,7 @@ def send_email(
     subject = subject or "POD Request"
     body = (body or "").strip() or "Please send pod"
     tid = (thread_id or "").strip()
-    acc = (account_id or settings.UNIPILE_ACCOUNT_ID or "").strip()
+    acc = (account_id or "").strip()
     api_key = (settings.UNIPILE_API_KEY or "").strip()
 
     if not api_key:
@@ -220,12 +220,7 @@ def send_email(
         return
 
     if not acc:
-        logger.info(
-            "send_email skipped: no account_id and UNIPILE_ACCOUNT_ID unset (to=%r)",
-            to,
-        )
-        print(f"[EMAIL] to={to}, subject={subject} (no account_id)")
-        return
+        raise ValueError("send_email: account_id is required")
 
     if tid:
         return reply_to_thread(

@@ -38,7 +38,7 @@ def test_classify_driver_details_delegates_to_service() -> None:
     mock_result = MagicMock()
     mock_result.to_state_patch.return_value = {
         "driver_details_decision": HAS_DETAILS,
-        "driver_details_reason": "ok",
+        "driver_details_extraction": {"decision": HAS_DETAILS, "reason": "ok"},
     }
     with patch(
         "app.workflows.nodes.driver_assignment.nodes.DriverDetailsClassificationService"

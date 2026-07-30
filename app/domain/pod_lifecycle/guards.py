@@ -92,6 +92,11 @@ def pod_upload_success_from_state(data: dict[str, Any]) -> bool:
     return False
 
 
+def pod_analysis_stored_from_state(data: dict[str, Any]) -> bool:
+    """True when POD extraction was persisted for this run."""
+    return data.get("pod_analysis_stored") is True
+
+
 def is_manual_fresh_pod_upload(data: dict[str, Any]) -> bool:
     """Portal upload with a new PDF (not stored-only TMS re-push)."""
     if not is_manual_pod_upload(data):

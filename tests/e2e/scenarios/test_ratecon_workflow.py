@@ -72,7 +72,7 @@ def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> Non
     Before snapshot:
     1) payload has thread_id
     2) no workflow_lifecycles row for this thread
-    3) if lifecycle rows already exist, no ratecon docs for related shipments
+    3) if lifecycle rows already exist, no ratecon documents for related shipments
     """
     print("\n[before snapshot]\n")
 
@@ -124,7 +124,9 @@ def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> Non
     ratecon_hits: list[str] = []
     for sid in sorted(shipment_ids):
         docs = fetch_documents_for_shipment(shipment_id=sid)
-        ratecon_rows = [d for d in docs if str(d.get("type") or "").strip() == _RATECON_DOC_TYPE]
+        ratecon_rows = [
+            d for d in docs if str(d.get("type") or "").strip() == _RATECON_DOC_TYPE
+        ]
 
         ok = not ratecon_rows
         _report_check(
@@ -135,15 +137,16 @@ def assert_ratecon_pre_webhook_db_state(*, payload: dict, tenant_id: str) -> Non
 
         if ratecon_rows:
             ratecon_hits.append(
-                f"  shipment_id={sid!r}: found {len(ratecon_rows)} document(s) with type={_RATECON_DOC_TYPE!r} "
+                f"  shipment_id={sid!r}: found {len(ratecon_rows)} document "
+                f"row(s) with type={_RATECON_DOC_TYPE!r} "
                 f"(ids={[d.get('id') for d in ratecon_rows]})"
             )
 
     if ratecon_hits:
         parts.append(
             "Before snapshot failed (check 3): lifecycle row(s) already exist for this thread, and "
-            f"at least one `documents` row has doc type (column `type`) {_RATECON_DOC_TYPE!r} for "
-            "the related shipment(s) — clean DB state required."
+            f"at least one `documents` row has type {_RATECON_DOC_TYPE!r} for the related "
+            "shipment(s) — clean DB state required."
         )
         parts.extend(ratecon_hits)
 
@@ -236,8 +239,8 @@ def assert_ratecon_post_webhook_db_state(*, execution_id: str) -> dict[str, Any]
     if not ratecon_docs:
         types_found = sorted({str(d.get("type") or "") for d in docs if d.get("type") is not None})
         _fail_ratecon_e2e(
-            "After snapshot failed (check 4): no `documents` row with doc type (column `type`) "
-            f"{_RATECON_DOC_TYPE!r} for this shipment after the workflow.\n"
+            "After snapshot failed (check 4): no `documents` row with "
+            f"type={_RATECON_DOC_TYPE!r} for this shipment after the workflow.\n"
             f"  execution_id={exec_id!r}\n"
             f"  shipment_id={shipment_id!r}\n"
             f"  document rows for shipment: count={len(docs)} type_values_found={types_found!r}"

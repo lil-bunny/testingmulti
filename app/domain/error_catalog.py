@@ -98,9 +98,9 @@ class BusinessError(_CatalogError):
         "pod_extraction_empty",
         "POD LLM extraction returned no usable data.",
     )
-    RATECON_EXTRACTION_EMPTY = (
-        "ratecon_extraction_empty",
-        "Ratecon LLM extraction returned no usable data.",
+    POD_PAGE_TYPES_UNUSABLE = (
+        "pod_page_types_unusable",
+        "POD LLM response pages[] is missing or malformed; cannot trim rate confirmation pages.",
     )
     SHIPMENT_NOT_FOUND_IN_TMS = (
         "shipment_not_found_in_tms",

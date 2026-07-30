@@ -35,7 +35,6 @@ def install_pod_e2e_stubs() -> None:
 
         for mod_name in (
             "app.services.email_webhook_attachment_ingestion",
-            "app.tools.ratecon",
             "app.services.ratecon_document_service",
             "app.services.pod_lifecycle.attachment_pipeline_service",
         ):

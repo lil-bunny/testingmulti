@@ -25,6 +25,7 @@ from app.tools.appointment_scheduling.customer_reply import (
     REJECTED,
     build_customer_reply_result,
 )
+from app.tools.llm_credentials import resolve_llm_credentials
 from app.tools.llm_client import LLMClientError, chat_json
 
 logger = get_logger(__name__)
@@ -159,10 +160,14 @@ class ReplyClassificationService:
             APPOINTMENT_SCHEDULING_CUSTOMER_REPLY,
             prompt_metadata,
         )
+        credentials = resolve_llm_credentials(
+            workflow_name="appointment_scheduling"
+        )
         try:
             raw = chat_json(
                 rendered.system,
                 rendered.user or reply_text,
+                credentials=credentials,
                 temperature=0.1,
                 prompt_trace=prompt_trace,
             )

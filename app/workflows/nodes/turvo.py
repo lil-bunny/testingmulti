@@ -6,13 +6,14 @@ from app.domain.error_catalog import IntegrationError, SystemError
 from app.domain.state import tenant_slug_from_payload, workflow_state_data
 from app.exceptions import WorkflowException
 from app.tools.pdf_to_images import PdfTooLargeError
-from app.integrations.turvo.shipments import (
-    delivery_address_from_global_route_stop,
-    global_route_stops_from_payload,
-)
 from app.services.shipment_location_link_service import ShipmentLocationLinkService
 from app.services.shipments_service import ShipmentsService
 from app.services.pod_lifecycle.tms_upload_service import PodTmsUploadService
+from app.integrations.turvo.shipments import (
+    carrier_from_order,
+    first_active_carrier_order,
+    shipment_workflow_state_projection,
+)
 from app.tools.turvo import check_pod_by_shipment_id as check_pod_tool
 from app.tools.turvo import get_shipment as get_shipment_tool
 from app.tools.turvo import load_id_to_shipment_id as load_id_to_shipment_id_tool
@@ -41,20 +42,11 @@ def _merge_pod_exists_from_turvo(state) -> None:
         state.data["pod_exists"] = webhook_pod
 
 
-def get_shipment(state):
-    sid_state = resolve_shipment_id(state.data)
-    shipment = get_shipment_tool(
-        sid_state,
-        **turvo_call_kwargs(state),
+def _apply_shipment_side_effects(state, shipment: dict[str, Any]) -> None:
+    """Set convoy flag and enrich display columns from an in-memory Turvo payload."""
+    _carrier_id, carrier_name = carrier_from_order(
+        first_active_carrier_order(shipment) or {}
     )
-
-    state.data["shipment"] = shipment
-    details = shipment.get("details") or {}
-    carrier_order = details.get("carrierOrder") or []
-    carrier_name = ""
-    if carrier_order and isinstance(carrier_order[0], dict):
-        carrier = carrier_order[0].get("carrier") or {}
-        carrier_name = str(carrier.get("name") or "")
 
     state.data["is_convoy"] = (
         "convoy" in carrier_name.lower()
@@ -67,12 +59,12 @@ def get_shipment(state):
     shipment_id = state.data.get("shipment_id") or resolve_shipment_id(state.data)
     if (
         shipments_row_id
-        and isinstance(shipment, dict)
         and load_id is not None
         and str(load_id).strip()
         and shipment_id
     ):
-        enrich = ShipmentsService().enrich_display_fields_from_turvo_payload(
+        shipments_service = ShipmentsService()
+        enrich = shipments_service.enrich_display_fields_from_turvo_payload(
             tenant_id=state.data.get("tenant_id"),
             turvo_shipment_id=str(shipment_id),
             load_id=str(load_id).strip(),
@@ -80,11 +72,55 @@ def get_shipment(state):
         )
         state.data["shipment_display_enrich"] = enrich
 
+
+def get_shipment(state):
+    """
+    Ensure ``state.data["shipment"]`` is a checkpoint-safe Turvo projection.
+
+    Reuses a stashed projection from ratecon prepare when ``details`` is present.
+    """
+    existing = state.data.get("shipment")
+    if isinstance(existing, dict) and existing.get("details") is not None:
+        # Guard: prepare already fetched Turvo — skip a second get-by-id.
+        _apply_shipment_side_effects(state, existing)
+        state.data["shipment"] = shipment_workflow_state_projection(existing)
+        return state
+
+    sid_state = resolve_shipment_id(state.data)
+    shipment = get_shipment_tool(
+        sid_state,
+        **turvo_call_kwargs(state),
+    )
+
+    if isinstance(shipment, dict):
+        _apply_shipment_side_effects(state, shipment)
+        state.data["shipment"] = shipment_workflow_state_projection(shipment)
+    else:
+        state.data["shipment"] = {}
+
     return state
 
 
 def resolve_load_to_shipment(state):
-    """Resolve ``load_id`` to Turvo ``shipment_id``; stores tool result under ``load_id_to_shipment``."""
+    """
+    Resolve ``load_id`` to Turvo ``shipment_id``; store under ``load_id_to_shipment``.
+
+    Skips Turvo list + upsert when prepare already set ``shipment_id`` and
+    ``shipments_row_id``.
+    """
+    existing_sid = str(state.data.get("shipment_id") or "").strip()
+    existing_row = str(state.data.get("shipments_row_id") or "").strip()
+    if existing_sid and existing_row:
+        # Guard: prepare already resolved + upserted.
+        state.data["load_id_to_shipment"] = {
+            "success": True,
+            "shipment_id": existing_sid,
+            "load_id": state.data.get("load_id"),
+            "reused": True,
+            "message": "ok",
+        }
+        return state
+
     load_id = state.data.get("load_id")
     result = load_id_to_shipment_id_tool(
         load_id,
@@ -96,7 +132,8 @@ def resolve_load_to_shipment(state):
         load_id_str = str(load_id).strip() if load_id is not None else ""
         if load_id_str:
             turvo_payload = state.data.get("shipment")
-            persist = ShipmentsService().upsert_from_turvo(
+            shipments_service = ShipmentsService()
+            persist = shipments_service.upsert_from_turvo(
                 tenant_id=state.data.get("tenant_id"),
                 turvo_shipment_id=str(result["shipment_id"]),
                 load_id=load_id_str,
@@ -116,7 +153,8 @@ def resolve_load_to_shipment(state):
 def link_shipment_locations(state):
     """Resolve route endpoints to ``locations`` ids and update ``shipments`` FKs."""
     shipment = state.data.get("shipment") or {}
-    result = ShipmentLocationLinkService().link_from_turvo_shipment_payload(
+    shipment_location_link_service = ShipmentLocationLinkService()
+    result = shipment_location_link_service.link_from_turvo_shipment_payload(
         shipment if isinstance(shipment, dict) else {},
         shipments_row_id=str(state.data.get("shipments_row_id") or ""),
     )
@@ -141,7 +179,9 @@ def link_shipment_locations(state):
 
 @safe_node
 def upload_to_turvo(state):
-    result = PodTmsUploadService().upload_merged_pod_from_state(state)
+    """Upload the merged PoD PDF to Turvo; raise on TMS/size failures."""
+    pod_tms_upload_service = PodTmsUploadService()
+    result = pod_tms_upload_service.upload_merged_pod_from_state(state)
     state.data["turvo_upload_result"] = result
     if not result.get("success"):
         error_key = str(result.get("error") or "").strip()

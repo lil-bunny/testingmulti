@@ -10,9 +10,9 @@ from PIL import Image
 
 from app.domain.error_catalog import SystemError
 from app.domain.state import WorkflowState
-from app.services.pod_lifecycle.extraction import convert_pdf_to_images
 from app.tools import pod as pod_tools
 from app.tools.pdf_to_images import (
+    PdfRasterOptions,
     PdfTooLargeError,
     _effective_raster_dpi,
     _try_extract_embedded_page_images,
@@ -28,13 +28,10 @@ FIXTURE_PDF = Path(__file__).resolve().parent / "fixtures" / "testpod.pdf"
 def test_tracy_pdf_uses_embedded_images_under_budget(tmp_path: Path) -> None:
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    paths = convert_pdf_to_images(
+    paths = rasterize_pdf_to_jpeg_paths(
         str(TRACY_PDF),
         str(out_dir),
-        dpi=200,
-        max_side_px=2000,
-        jpeg_quality=85,
-        thread_count=1,
+        PdfRasterOptions(dpi=200, max_side_px=2000, jpeg_quality=85),
     )
     assert len(paths) == 8
     for path in paths:
@@ -71,7 +68,7 @@ def test_pymupdf_conversion_opens_document_once(tmp_path: Path) -> None:
     """Multi-page convert must parse the PDF once (session owns Document)."""
     import fitz
 
-    from app.tools import pdf_raster
+    from app.tools import pdf_to_images
 
     pdf_path = tmp_path / "two_page.pdf"
     doc = fitz.open()
@@ -91,8 +88,8 @@ def test_pymupdf_conversion_opens_document_once(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
-    with patch.object(pdf_raster.fitz, "open", side_effect=counting_open):
-        paths = pdf_raster._convert_pdf_with_pymupdf_page_at_a_time(
+    with patch.object(pdf_to_images.fitz, "open", side_effect=counting_open):
+        paths = pdf_to_images._convert_pdf_with_pymupdf_page_at_a_time(
             str(pdf_path),
             str(out_dir),
             dpi=72,
@@ -171,14 +168,10 @@ def test_letter_fixture_still_converts(tmp_path: Path) -> None:
     out_dir = tmp_path / "letter"
     out_dir.mkdir()
     try:
-        paths = convert_pdf_to_images(
+        paths = rasterize_pdf_to_jpeg_paths(
             str(FIXTURE_PDF),
             str(out_dir),
-            dpi=150,
-            max_side_px=2000,
-            jpeg_quality=80,
-            thread_count=1,
-            max_pages=2,
+            PdfRasterOptions(dpi=150, max_side_px=2000, jpeg_quality=80, max_pages=2),
         )
     except Exception as exc:
         if "fitz" in str(exc).lower() or "mupdf" in str(exc).lower() or "page count" in str(exc).lower():

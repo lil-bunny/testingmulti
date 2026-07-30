@@ -11,7 +11,10 @@ from app.domain.t3ra.email_classification import (
     T3raInboundEmailClassification,
     classify_t3ra_inbound_email,
 )
-from app.domain.unipile_email import extract_recipient_emails
+from app.domain.unipile_email import (
+    extract_recipient_emails,
+    omit_unipile_workflow_noise_keys,
+)
 from app.models.tenants import TenantSlug
 from app.services.pod_lifecycle.ingress_service import (
     POD_EMAIL_SKIP_INVALID_SHIPMENT_STATUS,
@@ -41,7 +44,7 @@ def enqueue_t3ra_workflow(
     """
     from app.services.lifecycle_run_serializer_service import LifecycleRunSerializerService
 
-    enriched_workflow_payload = dict(workflow_payload)
+    enriched_workflow_payload = omit_unipile_workflow_noise_keys(dict(workflow_payload))
     enriched_workflow_payload["event_type"] = event_type
     if communication_id:
         enriched_workflow_payload["communication_id"] = communication_id
@@ -209,9 +212,10 @@ class T3raEmailIngressService:
         tenant: UnipileTenantContext,
     ) -> IngressResult:
         """
-        Ratecon start: Turvo load→shipment upsert, then serialize-enqueue.
+        Prepare ratecon ingress (Turvo resolve + multi-stop gate), then enqueue.
 
-        Comms/attachment prep stay on the graph Celery task.
+        Outcomes: serialize-enqueue on success, or ``skipped`` when prepare gates
+        (e.g. multi-stop). Comms/attachment prep stay on the graph Celery task.
         """
         from app.services.ratecon_ingress_service import RateconIngressService
 
@@ -220,11 +224,21 @@ class T3raEmailIngressService:
             **email_classification.to_ratecon_enqueue_payload(),
         }
         ratecon_ingress_service = RateconIngressService()
-        workflow_payload = await ratecon_ingress_service.prepare_payload(
+        prepared = await ratecon_ingress_service.prepare_payload(
             tenant_id=tenant.tenant_uuid,
             tenant_slug=tenant.tenant_slug,
             payload=workflow_payload,
         )
+        # Guard: multi-stop (and future prepare skips) — do not enqueue the graph.
+        if not prepared.ok:
+            reason = prepared.skip_reason or "unknown"
+            logger.info(
+                "t3ra ratecon ingress skipped tenant_slug=%s reason=%s",
+                tenant.tenant_slug,
+                reason,
+            )
+            return IngressResult(outcome="skipped", reason=reason)
+        workflow_payload = prepared.payload or workflow_payload
         return enqueue_t3ra_workflow(
             workflow_name="ratecon",
             workflow_payload=workflow_payload,

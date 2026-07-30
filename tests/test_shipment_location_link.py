@@ -12,11 +12,13 @@ from app.domain.shipment_route_locations import (
     ShipmentLocationLinkError,
     active_route_stops,
     endpoints_from_route_stops,
+    is_multi_stop_route,
     last_active_route_stop,
 )
 from app.integrations.turvo.shipments import (
     delivery_address_from_global_route_stop,
     global_route_stops_from_payload,
+    is_multi_stop_shipment,
     location_insert_row_from_route_stop,
     postal_from_customer_order_route,
 )
@@ -115,6 +117,34 @@ class TestActiveRouteStops:
             _stop(city="B", state="TX"),
         ]
         assert len(active_route_stops(route)) == 1
+
+    def test_is_multi_stop_route(self) -> None:
+        assert is_multi_stop_route(THREE_STOP_ROUTE) is True
+        assert (
+            is_multi_stop_route(
+                [
+                    _stop(city="A", state="TX"),
+                    _stop(city="B", state="NV"),
+                ]
+            )
+            is False
+        )
+
+    def test_is_multi_stop_shipment_uses_global_route(self) -> None:
+        assert is_multi_stop_shipment({"details": {"globalRoute": THREE_STOP_ROUTE}}) is True
+        assert (
+            is_multi_stop_shipment(
+                {
+                    "details": {
+                        "globalRoute": [
+                            _stop(city="A", state="TX"),
+                            _stop(city="B", state="NV"),
+                        ]
+                    }
+                }
+            )
+            is False
+        )
 
 
 class TestDeliveryAddressFromGlobalRouteStop:
