@@ -41,19 +41,22 @@ def build_stop_aware_observations(
                 )
 
         mismatched_pages = [item["page_number"] for item in comparisons if item["status"] == "location_mismatch"]
-        if mismatched_pages:
-            review_reasons.append(
-                f"PO {po.po_number} does not match its Turvo {po.stop_type} stop on page(s) "
-                f"{', '.join(map(str, mismatched_pages))}."
-            )
         matched_pages = [item["page_number"] for item in comparisons if item["status"] == "matched"]
-        if not matched_pages:
-            if comparisons:
+        # Pickup POs remain visible for context, but pickup evidence is not
+        # score-bearing and must never create an alert/review reason.
+        if po.stop_type != "pickup":
+            if mismatched_pages:
                 review_reasons.append(
-                    f"PO {po.po_number} has no page confirming its Turvo {po.stop_type} stop."
+                    f"PO {po.po_number} does not match its Turvo {po.stop_type} stop on page(s) "
+                    f"{', '.join(map(str, mismatched_pages))}."
                 )
-            else:
-                review_reasons.append(f"PO {po.po_number} was not found in the POD packet.")
+            if not matched_pages:
+                if comparisons:
+                    review_reasons.append(
+                        f"PO {po.po_number} has no page confirming its Turvo {po.stop_type} stop."
+                    )
+                else:
+                    review_reasons.append(f"PO {po.po_number} was not found in the POD packet.")
         po_matches[po.po_number] = {
             "turvo_stop_id": po.stop_id,
             "turvo_stop_type": po.stop_type,

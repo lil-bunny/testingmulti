@@ -107,7 +107,7 @@ def test_po_target_address_mismatch_requires_review_without_score_threshold() ->
 
     assert observations["po_matches"]["A1178441"]["mismatched_pages"] == [1]
     assert score.needs_action is True
-    assert score.review_reasons
+    assert all("pickup" not in reason.lower() for reason in score.review_reasons)
 
 
 def test_delivery_stamp_counts_without_a_signature_owner_label() -> None:
@@ -148,7 +148,4 @@ def test_unconfirmed_po_stop_requires_review() -> None:
     score = score_pod(observations, inputs)
 
     assert score.needs_action is True
-    assert score.review_reasons == [
-        "PO A1178441 has no page confirming its Turvo pickup stop.",
-        "PO 009360713406 was not found in the POD packet.",
-    ]
+    assert score.review_reasons == ["PO 009360713406 was not found in the POD packet."]

@@ -32,7 +32,6 @@ from app.domain.pod_lifecycle.scoring_constants import (
     REMARK_DATE_MATCH_TEMPLATE,
     REMARK_DATE_NO_MATCH_TEMPLATE,
     REMARK_NO_TURVO_PO,
-    REMARK_PICKUP_SIGNATURE_MISSING,
     REMARK_REFERENCE_ID_MATCH_TEMPLATE,
     REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE,
     REMARK_REFERENCE_ID_SKIPPED_SIGNATURE_FAILED,
@@ -62,8 +61,10 @@ def score_pod(
     threshold. Phase 1 still sends every POD to manual review.
     """
     exceptions = _exceptions_from_observations(pod_observations, turvo_inputs)
+    # Pickup evidence is informational only.  It is not score-bearing and
+    # should not generate a signature-related remark or review reason.
     pickup_signature_present = bool(pod_observations.get("pickup_signature_present", True))
-    remarks = [] if pickup_signature_present else [REMARK_PICKUP_SIGNATURE_MISSING]
+    remarks: list[str] = []
 
     if not turvo_inputs.purchase_orders:
         remarks.append(REMARK_NO_TURVO_PO)
@@ -83,10 +84,15 @@ def score_pod(
         _score_purchase_order(po, delivery_signature_present, pod_observations, turvo_inputs)
         for po in turvo_inputs.purchase_orders
     ]
-    # Pro-rated sum of each field-PO combination reduces to the mean PO total,
-    # since each PO's total is itself the sum of its field scores.
-    final_score = round(sum(po.po_total for po in po_scores) / len(po_scores))
-    review_reasons = list(pod_observations.get("review_reasons") or [])
+    scoreable_po_scores = [po for po in po_scores if po.po_total is not None]
+    if not scoreable_po_scores:
+        final_score = 0
+        review_reasons = _delivery_review_reasons(pod_observations.get("review_reasons"))
+        review_reasons.append("No delivery stop was available for POD scoring.")
+    else:
+        # Pickup rows are retained for dashboard visibility but are not scored.
+        final_score = round(sum(po.po_total or 0 for po in scoreable_po_scores) / len(scoreable_po_scores))
+        review_reasons = _delivery_review_reasons(pod_observations.get("review_reasons"))
     # Phase 1 routes every scored POD to Ops review. The concrete reasons remain
     # separately visible in exceptions and review_reasons.
     needs_action = True
@@ -105,6 +111,13 @@ def score_pod(
     )
 
 
+def _delivery_review_reasons(raw_reasons: object) -> list[str]:
+    """Keep review reasons relevant to the score-bearing delivery stop."""
+    if not isinstance(raw_reasons, list):
+        return []
+    return [str(reason) for reason in raw_reasons if "pickup" not in str(reason).casefold()]
+
+
 def _score_purchase_order(
     po: TurvoPurchaseOrder,
     delivery_signature_present: bool,
@@ -117,6 +130,16 @@ def _score_purchase_order(
     Missing delivery signature zeros the PO (Pass 2 never runs). Ref-id any-match
     awards 40; otherwise Pass 2 recovers up to 40 via dates + stop text fields.
     """
+    if po.stop_type == "pickup":
+        return PodPurchaseOrderScore(
+            po_number=po.po_number,
+            stop_type=po.stop_type,
+            pass1=[],
+            pass2=None,
+            po_total=None,
+            page_comparisons=[],
+        )
+
     if not delivery_signature_present:
         pass1 = [
             PodFieldResult(

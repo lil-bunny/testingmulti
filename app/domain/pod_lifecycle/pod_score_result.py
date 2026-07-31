@@ -37,7 +37,7 @@ class PodPurchaseOrderScore:
     stop_type: Literal["pickup", "delivery"]
     pass1: list[PodFieldResult]
     pass2: list[PodFieldResult] | None
-    po_total: int
+    po_total: int | None
     page_comparisons: list[dict] = field(default_factory=list)
 
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app.domain.pod_lifecycle.scoring_constants import REMARK_PICKUP_SIGNATURE_MISSING
 from app.integrations.turvo.pod_inputs import TurvoPurchaseOrder, TurvoShipmentPodInputs, TurvoStop
 from app.services.pod_lifecycle.pod_scoring import score_pod
 
@@ -58,13 +57,13 @@ def test_delivery_signature_absent_fails_all_pos_without_running_pass2() -> None
     assert result.final_score == 0
     assert result.needs_action is True
     assert result.overall_status == "FAIL"
-    for po_score in result.po_scores:
-        assert po_score.po_total == 0
-        assert po_score.pass2 is None
+    assert result.po_scores[0].po_total is None
+    assert result.po_scores[1].po_total == 0
+    assert result.po_scores[1].pass2 is None
 
 
 def test_signature_present_and_reference_id_match_scores_100() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": ["A1176371"],
@@ -80,7 +79,7 @@ def test_signature_present_and_reference_id_match_scores_100() -> None:
 
 
 def test_reference_id_fails_full_pass2_recovers_to_100() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": ["NO-MATCH"],
@@ -102,7 +101,7 @@ def test_reference_id_fails_full_pass2_recovers_to_100() -> None:
 
 
 def test_reference_id_fails_partial_pass2_dates_only_scores_80() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": ["NO-MATCH"],
@@ -120,7 +119,7 @@ def test_reference_id_fails_partial_pass2_dates_only_scores_80() -> None:
 
 
 def test_blank_address_in_pass2_scores_zero_for_that_field() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": [],
@@ -132,7 +131,7 @@ def test_blank_address_in_pass2_scores_zero_for_that_field() -> None:
 
 
 def test_spelling_variation_in_pass2_still_passes_via_token_overlap() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": [],
@@ -144,8 +143,7 @@ def test_spelling_variation_in_pass2_still_passes_via_token_overlap() -> None:
 
 
 def test_multi_po_pro_rating_matches_real_sample_shape() -> None:
-    """PO A1176371 (pickup) ref-id passes; PO 007660706282 (delivery) fails ref-id,
-    Pass 2 recovers dates only -> final = ((100) + (60+20)) / 2 = 90 -> PASS."""
+    """Pickup is display-only; the delivery score is 60 + 20 Pass 2 points."""
     pod_inputs = _inputs()
     observations = {
         "delivery_signature_present": True,
@@ -156,15 +154,13 @@ def test_multi_po_pro_rating_matches_real_sample_shape() -> None:
 
     result = score_pod(observations, pod_inputs)
 
-    assert result.final_score == 90
+    assert result.final_score == 80
     assert result.needs_action is True
-    assert result.overall_status == "PASS"
+    assert result.overall_status == "FAIL"
 
 
 def test_classic_doc_example_two_pos_one_signature_fails() -> None:
-    """Doc example: PO-1 signature PASSED, PO-2 signature FAILED -> (60+0)/2 = 30 field.
-    Modeled here as delivery signature absent entirely (both fail since it's shared),
-    so instead we exercise the equivalent case: one PO fully proven, one fully unproven."""
+    """Pickup remains visible but only the delivery PO is score-bearing."""
     pod_inputs = _inputs()
     observations = {
         "delivery_signature_present": True,
@@ -175,9 +171,9 @@ def test_classic_doc_example_two_pos_one_signature_fails() -> None:
     result = score_pod(observations, pod_inputs)
 
     po_by_number = {po.po_number: po for po in result.po_scores}
-    assert po_by_number["A1176371"].po_total == 100
-    assert po_by_number["007660706282"].po_total == 60  # signature only, Pass 2 all blank
-    assert result.final_score == 80
+    assert po_by_number["A1176371"].po_total is None
+    assert po_by_number["007660706282"].po_total == 60
+    assert result.final_score == 60
 
 
 def test_turvo_po_with_no_pod_proof_contributes_zero() -> None:
@@ -189,7 +185,7 @@ def test_turvo_po_with_no_pod_proof_contributes_zero() -> None:
 
 
 def test_exceptions_do_not_affect_score_but_force_needs_action() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": ["A1176371"],
@@ -206,7 +202,7 @@ def test_exceptions_do_not_affect_score_but_force_needs_action() -> None:
 
 
 def test_short_shipment_exception_detected() -> None:
-    pod_inputs = _inputs(ordered_pallet_qty=14, purchase_orders=[TurvoPurchaseOrder("A1176371", "pickup")])
+    pod_inputs = _inputs(ordered_pallet_qty=14, purchase_orders=[TurvoPurchaseOrder("A1176371", "delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": ["A1176371"],
@@ -221,7 +217,7 @@ def test_short_shipment_exception_detected() -> None:
 
 
 def test_over_shipment_exception_detected() -> None:
-    pod_inputs = _inputs(ordered_pallet_qty=14, purchase_orders=[TurvoPurchaseOrder("A1176371", "pickup")])
+    pod_inputs = _inputs(ordered_pallet_qty=14, purchase_orders=[TurvoPurchaseOrder("A1176371", "delivery")])
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": ["A1176371"],
@@ -232,7 +228,7 @@ def test_over_shipment_exception_detected() -> None:
 
 
 def test_refused_delivery_is_prominently_classified() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("A1176371", "pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("A1176371", "delivery")])
     result = score_pod(
         {
             "delivery_signature_present": True,
@@ -250,7 +246,7 @@ def test_refused_delivery_is_prominently_classified() -> None:
 
 
 def test_pickup_signature_missing_adds_remark_without_affecting_score() -> None:
-    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("A1176371", "pickup")])
+    pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("A1176371", "delivery")])
     observations = {
         "delivery_signature_present": True,
         "pickup_signature_present": False,
@@ -258,7 +254,7 @@ def test_pickup_signature_missing_adds_remark_without_affecting_score() -> None:
     }
     result = score_pod(observations, pod_inputs)
     assert result.final_score == 100
-    assert REMARK_PICKUP_SIGNATURE_MISSING in result.remarks
+    assert result.remarks == []
 
 
 def test_no_purchase_orders_fails_closed() -> None:
