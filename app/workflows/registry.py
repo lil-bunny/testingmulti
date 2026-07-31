@@ -87,6 +87,10 @@ from app.workflows.nodes.record_pod_activity import (
     record_pod_started_activity,
     record_pod_upload_activity,
 )
+from app.workflows.nodes.multi_stop_pod import (
+    record_multi_stop_pod_activity,
+    notify_multi_stop_pod_teams,
+)
 from app.workflows.nodes.record_pod_tms_upload_activity import (
     record_pod_tms_upload_activity,
 )
@@ -190,6 +194,8 @@ NODE_REGISTRY = {
     "record_pod_processed_activity": record_pod_processed_activity,
     "notify_pod_analysis_teams": notify_pod_analysis_teams,
     "record_pod_tms_upload_activity": record_pod_tms_upload_activity,
+    "record_multi_stop_pod_activity": record_multi_stop_pod_activity,
+    "notify_multi_stop_pod_teams": notify_multi_stop_pod_teams,
     "read_tender_row": read_tender_row,
     "send_tender_reminder": send_tender_reminder,
     "update_reminder_status": update_reminder_status,

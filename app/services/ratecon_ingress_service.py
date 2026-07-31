@@ -199,25 +199,26 @@ class RateconIngressService:
                 load_id=load_id,
             )
 
-        # Guard: ratecon graph only supports pickup + one delivery.
-        if is_multi_stop_shipment(turvo_payload):
-            logger.info(
-                "ratecon ingress skipped multi_stop tenant_slug=%s "
-                "shipment_id=%s load_id=%s",
-                tenant_slug,
-                turvo_shipment_id,
-                load_id,
-            )
-            skipped = dict(payload)
-            skipped["shipment_id"] = turvo_shipment_id
-            if load_id:
-                skipped["load_id"] = load_id
-            skipped["shipment"] = shipment_workflow_state_projection(turvo_payload)
-            return RateconIngressResult(
-                ok=False,
-                payload=skipped,
-                skip_reason=RATECON_SKIP_MULTI_STOP,
-            )
+        # NOTE: multi-stop gate disabled — ratecon graph is stop-agnostic
+        # (upload + bookkeeping only). Will be removed once multi-stop is stable.
+        # if is_multi_stop_shipment(turvo_payload):
+        #     logger.info(
+        #         "ratecon ingress skipped multi_stop tenant_slug=%s "
+        #         "shipment_id=%s load_id=%s",
+        #         tenant_slug,
+        #         turvo_shipment_id,
+        #         load_id,
+        #     )
+        #     skipped = dict(payload)
+        #     skipped["shipment_id"] = turvo_shipment_id
+        #     if load_id:
+        #         skipped["load_id"] = load_id
+        #     skipped["shipment"] = shipment_workflow_state_projection(turvo_payload)
+        #     return RateconIngressResult(
+        #         ok=False,
+        #         payload=skipped,
+        #         skip_reason=RATECON_SKIP_MULTI_STOP,
+        #     )
 
         if not load_id:
             load_id = self._custom_id_from_payload(turvo_payload)
