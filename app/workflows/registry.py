@@ -49,7 +49,6 @@ from app.workflows.nodes.record_ack_received import (
 )
 from app.workflows.nodes.record_tender_created_activity import record_tender_created_activity
 from app.workflows.nodes.record_ratecon_activity import (
-    record_ratecon_processed_activity,
     record_ratecon_received_activity,
     record_ratecon_upload_activity,
 )
@@ -164,7 +163,6 @@ NODE_REGISTRY = {
     "record_tender_created_activity": record_tender_created_activity,
     "record_ratecon_received_activity": record_ratecon_received_activity,
     "record_ratecon_upload_activity": record_ratecon_upload_activity,
-    "record_ratecon_processed_activity": record_ratecon_processed_activity,
     "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
     "check_driver_assignment_eligibility": check_driver_assignment_eligibility,
     "check_driver_reminder_eligibility": check_driver_reminder_eligibility,

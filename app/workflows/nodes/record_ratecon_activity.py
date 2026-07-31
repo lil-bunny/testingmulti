@@ -15,9 +15,3 @@ def record_ratecon_upload_activity(state):
     ratecon_activity_service = RateconActivityService()
     ratecon_activity_service.record_upload(state)
     return state
-
-
-def record_ratecon_processed_activity(state):
-    ratecon_activity_service = RateconActivityService()
-    ratecon_activity_service.record_processed(state)
-    return state

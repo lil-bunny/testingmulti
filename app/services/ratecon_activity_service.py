@@ -191,8 +191,10 @@ class RateconActivityService:
                             communication_id=comm_id,
                         ),
                         ActivityLogStep(
-                            activity_type=ActivityType.SUB_STATUS_CHANGE,
+                            activity_type=ActivityType.STATUS_CHANGE,
+                            to_status=StatusType.COMPLETED,
                             to_sub_status=StatusSubType.DOCUMENT_UPLOADED,
+                            from_status=StatusType.PROCESSING,
                             from_sub_status=StatusSubType.RATECON_STARTED,
                             metadata=meta,
                             communication_id=comm_id,
@@ -215,57 +217,13 @@ class RateconActivityService:
                         metadata=fail_meta,
                         communication_id=comm_id,
                     ),
-                ),
-            )
-        )
-
-    def record_processed(self, state: WorkflowState) -> None:
-        scope = _scope_ids(state)
-        if scope is None:
-            logger.warning(
-                "RateconActivityService.record_processed skipped missing ids "
-                "workflow_lifecycle_id=%r tenant_id=%r run_id=%r",
-                bool(state.data.get("workflow_lifecycle_id")),
-                bool(state.tenant_id or state.data.get("tenant_id")),
-                bool(state.execution_id),
-            )
-            return
-
-        wl_id, tenant_id, run_id = scope
-        upload_result = (
-            state.data.get("ratecon_s3_upload")
-            if isinstance(state.data.get("ratecon_s3_upload"), dict)
-            else None
-        )
-        upload_ok = upload_success(upload_result)
-        comm_id = _communication_id(state)
-        meta = (
-            _upload_success_metadata(upload_result or {})
-            if upload_ok
-            else _upload_failure_metadata(upload_result)
-        )
-
-        self._activity_log_service.record_sequence(
-            ActivityLogSequence(
-                tenant_id=tenant_id,
-                workflow_lifecycle_id=wl_id,
-                workflow_run_id=run_id,
-                steps=(
                     ActivityLogStep(
                         activity_type=ActivityType.STATUS_CHANGE,
                         to_status=StatusType.COMPLETED,
-                        to_sub_status=(
-                            StatusSubType.DOCUMENT_UPLOADED
-                            if upload_ok
-                            else StatusSubType.RATECON_STARTED
-                        ),
+                        to_sub_status=StatusSubType.RATECON_STARTED,
                         from_status=StatusType.PROCESSING,
-                        from_sub_status=(
-                            StatusSubType.DOCUMENT_UPLOADED
-                            if upload_ok
-                            else StatusSubType.RATECON_STARTED
-                        ),
-                        metadata=meta,
+                        from_sub_status=StatusSubType.RATECON_STARTED,
+                        metadata=fail_meta,
                         communication_id=comm_id,
                     ),
                 ),

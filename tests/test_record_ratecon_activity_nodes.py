@@ -96,7 +96,7 @@ def test_record_ratecon_upload_activity_success(
     mock_svc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
-    from app.models.status import StatusSubType
+    from app.models.status import StatusSubType, StatusType
     from app.workflows.nodes.record_ratecon_activity import record_ratecon_upload_activity
 
     mock_svc = MagicMock()
@@ -128,8 +128,10 @@ def test_record_ratecon_upload_activity_success(
     assert sequence.steps[0].metadata["object_key"] == "ratecon_attachments/ratecon_SHIP-99.pdf"
     assert sequence.steps[0].metadata["document_id"] == "doc-1"
     assert sequence.steps[0].communication_id == COMM_UUID
-    assert sequence.steps[1].activity_type == ActivityType.SUB_STATUS_CHANGE
+    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.COMPLETED
     assert sequence.steps[1].to_sub_status == StatusSubType.DOCUMENT_UPLOADED
+    assert sequence.steps[1].from_status == StatusType.PROCESSING
     assert sequence.steps[1].from_sub_status == StatusSubType.RATECON_STARTED
     assert sequence.steps[1].communication_id == COMM_UUID
 
@@ -139,6 +141,7 @@ def test_record_ratecon_upload_activity_failure(
     mock_svc_cls: MagicMock,
 ) -> None:
     from app.models.activity_type import ActivityType
+    from app.models.status import StatusSubType, StatusType
     from app.workflows.nodes.record_ratecon_activity import record_ratecon_upload_activity
 
     mock_svc = MagicMock()
@@ -150,77 +153,14 @@ def test_record_ratecon_upload_activity_failure(
 
     mock_svc.record_sequence.assert_called_once()
     sequence = mock_svc.record_sequence.call_args[0][0]
-    assert len(sequence.steps) == 1
+    assert len(sequence.steps) == 2
     assert sequence.steps[0].activity_type == ActivityType.EXCEPTION
     assert sequence.steps[0].description == "Ratecon document upload failed"
     assert sequence.steps[0].metadata["reason"] == "missing_email_id"
-
-
-@patch("app.services.ratecon_activity_service.ActivityLogService")
-def test_record_ratecon_processed_activity_success(
-    mock_svc_cls: MagicMock,
-) -> None:
-    from app.models.activity_type import ActivityType
-    from app.models.status import StatusSubType, StatusType
-    from app.workflows.nodes.record_ratecon_activity import (
-        record_ratecon_processed_activity,
-    )
-
-    mock_svc = MagicMock()
-    mock_svc_cls.return_value = mock_svc
-
-    state = _base_state(
-        data={
-            "ratecon_s3_upload": {
-                "all_succeeded": True,
-                "results": [
-                    {
-                        "success": True,
-                        "object_key": "ratecon_attachments/ratecon_SHIP-99.pdf",
-                        "document_persist": {"stored": True, "id": "doc-1"},
-                    }
-                ],
-            },
-            "communication_id": COMM_UUID,
-        }
-    )
-
-    record_ratecon_processed_activity(state)
-
-    mock_svc.record_sequence.assert_called_once()
-    sequence = mock_svc.record_sequence.call_args[0][0]
-    assert len(sequence.steps) == 1
-    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[0].to_status == StatusType.COMPLETED
-    assert sequence.steps[0].to_sub_status == StatusSubType.DOCUMENT_UPLOADED
-    assert sequence.steps[0].from_sub_status == StatusSubType.DOCUMENT_UPLOADED
-    assert sequence.steps[0].communication_id == COMM_UUID
-
-
-@patch("app.services.ratecon_activity_service.ActivityLogService")
-def test_record_ratecon_processed_activity_upload_failed(
-    mock_svc_cls: MagicMock,
-) -> None:
-    from app.models.activity_type import ActivityType
-    from app.models.status import StatusSubType, StatusType
-    from app.workflows.nodes.record_ratecon_activity import (
-        record_ratecon_processed_activity,
-    )
-
-    mock_svc = MagicMock()
-    mock_svc_cls.return_value = mock_svc
-
-    state = _base_state(data={"ratecon_s3_upload": {"skipped": True, "reason": "missing_email_id"}})
-
-    record_ratecon_processed_activity(state)
-
-    mock_svc.record_sequence.assert_called_once()
-    sequence = mock_svc.record_sequence.call_args[0][0]
-    assert len(sequence.steps) == 1
-    assert sequence.steps[0].activity_type == ActivityType.STATUS_CHANGE
-    assert sequence.steps[0].to_status == StatusType.COMPLETED
-    assert sequence.steps[0].to_sub_status == StatusSubType.RATECON_STARTED
-    assert sequence.steps[0].from_sub_status == StatusSubType.RATECON_STARTED
+    assert sequence.steps[1].activity_type == ActivityType.STATUS_CHANGE
+    assert sequence.steps[1].to_status == StatusType.COMPLETED
+    assert sequence.steps[1].to_sub_status == StatusSubType.RATECON_STARTED
+    assert sequence.steps[1].from_sub_status == StatusSubType.RATECON_STARTED
 
 
 @patch("app.services.ratecon_activity_service.ActivityLogService")

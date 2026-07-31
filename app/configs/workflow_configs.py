@@ -137,7 +137,6 @@ WORKFLOW_CONFIGS = {
             "record_ratecon_received_activity",
             "upload_ratecon_attachments",
             "record_ratecon_upload_activity",
-            "record_ratecon_processed_activity",
             "enqueue_driver_assignment_on_ratecon_complete",
             "check_ratecon_workflow_lifecycle",
             "end",
@@ -149,9 +148,8 @@ WORKFLOW_CONFIGS = {
             ["resolve_workflow_lifecycle", "record_ratecon_received_activity"],
             ["record_ratecon_received_activity", "upload_ratecon_attachments"],
             ["upload_ratecon_attachments", "record_ratecon_upload_activity"],
-            ["record_ratecon_upload_activity", "record_ratecon_processed_activity"],
             [
-                "record_ratecon_processed_activity",
+                "record_ratecon_upload_activity",
                 "enqueue_driver_assignment_on_ratecon_complete",
             ],
             [
