@@ -630,6 +630,7 @@ class DriverAssignmentActivityService:
                     ActivityLogStep(
                         activity_type=ActivityType.ACTION,
                         description=format_driver_escalation_sent_action(),
+                        communication_id=self._communication_id(state),
                     ),
                     transition_step,
                 ),

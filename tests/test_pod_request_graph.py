@@ -87,7 +87,6 @@ def test_ratecon_graph():
         "record_ratecon_received_activity",
         "upload_ratecon_attachments",
         "record_ratecon_upload_activity",
-        "record_ratecon_processed_activity",
         "enqueue_driver_assignment_on_ratecon_complete",
         "check_ratecon_workflow_lifecycle",
         "end",
@@ -99,9 +98,8 @@ def test_ratecon_graph():
     assert ("resolve_workflow_lifecycle", "record_ratecon_received_activity") in edges
     assert ("record_ratecon_received_activity", "upload_ratecon_attachments") in edges
     assert ("upload_ratecon_attachments", "record_ratecon_upload_activity") in edges
-    assert ("record_ratecon_upload_activity", "record_ratecon_processed_activity") in edges
     assert (
-        "record_ratecon_processed_activity",
+        "record_ratecon_upload_activity",
         "enqueue_driver_assignment_on_ratecon_complete",
     ) in edges
     assert (

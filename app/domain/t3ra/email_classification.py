@@ -5,12 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.logger import get_logger
 from app.domain.t3ra.email_attachments import (
     load_id_from_ratecon_attachment_name,
     unipile_ratecon_pdf_attachment,
 )
-from app.domain.unipile_email_attachments import attachment_display_name
+from app.domain.unipile_email_attachments import (
+    attachment_display_name,
+    iter_unipile_pdf_attachments,
+)
 from app.domain.unipile_email import is_unipile_email_reply
+
+logger = get_logger(__name__)
 
 _RATE_CONFIRMATION_SUBJECT_SNIPPET = "rate confirmation"
 _TONU_SUBJECT_SNIPPET = "tonu"
@@ -127,6 +133,23 @@ def classify_t3ra_inbound_email(payload: dict[str, Any]) -> T3raInboundEmailClas
 
     ratecon_metadata = extract_ratecon_metadata_from_payload(payload)
     ratecon_attachment = unipile_ratecon_pdf_attachment(payload)
+
+    if not (ratecon_metadata or {}).get("load_id"):
+        logger.warning(
+            "t3ra ratecon candidate without load_id thread_id=%s subject=%r attachments=%r",
+            payload.get("thread_id"),
+            payload.get("subject"),
+            [attachment_display_name(a) for a in iter_unipile_pdf_attachments(payload)],
+        )
+        return T3raInboundEmailClassification(
+            is_rate_confirmation_subject=True,
+            has_attachments=True,
+            is_in_reply_to=False,
+            is_thread_reply=is_thread_reply,
+            workflow_name=None,
+            ratecon_metadata=None,
+            ratecon_attachment=None,
+        )
 
     return T3raInboundEmailClassification(
         is_rate_confirmation_subject=True,

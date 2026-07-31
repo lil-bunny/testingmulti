@@ -15,7 +15,6 @@ LABEL_SIGNATURE = "signature"
 LABEL_REFERENCE_ID = "reference_id"
 
 # Top-level remarks / review reasons
-REMARK_PICKUP_SIGNATURE_MISSING = "Pickup signature not present."
 REMARK_NO_TURVO_PO = "No Turvo PO found for this shipment; cannot score."
 
 # Pass 1 signature remarks
