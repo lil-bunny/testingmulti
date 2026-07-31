@@ -20,6 +20,7 @@ from app.services.ratecon_supersede_service import RateconSupersedeService
 logger = get_logger(__name__)
 
 RATECON_SKIP_MULTI_STOP = "multi_stop"
+RATECON_SKIP_MISSING_LOAD_ID = "missing_load_id"
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,20 @@ class RateconIngressService:
             if not turvo_shipment_id:
                 raise Exception("ratecon: stashed shipment missing id")
         else:
+            if not load_id and not shipment_id:
+                logger.info(
+                    "ratecon ingress skipped missing_load_id tenant_slug=%s "
+                    "thread_id=%s email_id=%s subject=%r",
+                    tenant_slug,
+                    payload.get("thread_id"),
+                    payload.get("email_id"),
+                    payload.get("subject"),
+                )
+                return RateconIngressResult(
+                    ok=False,
+                    payload=dict(payload),
+                    skip_reason=RATECON_SKIP_MISSING_LOAD_ID,
+                )
             turvo_shipment_id, turvo_payload = await self._fetch_turvo_shipment(
                 tenant_slug=tenant_slug,
                 shipment_id=shipment_id,
