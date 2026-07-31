@@ -30,7 +30,6 @@ logger = get_logger(__name__)
 
 _MULTI_STOP_DONE_SUB_STATUSES = frozenset(
     {
-        StatusSubType.DOCUMENT_UPLOADED.value,
         StatusSubType.DOCUMENT_PROCESSED.value,
         StatusSubType.UPLOADED_TO_TMS.value,
     }

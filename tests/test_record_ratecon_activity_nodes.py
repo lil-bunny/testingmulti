@@ -45,7 +45,7 @@ def test_record_ratecon_received_activity_includes_communication_id(
 
     sequence = mock_svc.record_sequence.call_args[0][0]
     assert sequence.steps[0].communication_id == COMM_UUID
-    assert sequence.steps[1].communication_id == COMM_UUID
+    assert sequence.steps[1].communication_id is None
 
 
 @patch("app.services.ratecon_activity_service.ActivityLogService")
@@ -133,7 +133,8 @@ def test_record_ratecon_upload_activity_success(
     assert sequence.steps[1].to_sub_status == StatusSubType.DOCUMENT_UPLOADED
     assert sequence.steps[1].from_status == StatusType.PROCESSING
     assert sequence.steps[1].from_sub_status == StatusSubType.RATECON_STARTED
-    assert sequence.steps[1].communication_id == COMM_UUID
+    assert sequence.steps[1].metadata is None
+    assert sequence.steps[1].communication_id is None
 
 
 @patch("app.services.ratecon_activity_service.ActivityLogService")

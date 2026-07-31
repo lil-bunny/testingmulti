@@ -32,7 +32,7 @@ WORKFLOW_CONFIGS = {
         "edges": [
             ["pod_analysis", "record_pod_extraction_activity"],
             ["record_pod_extraction_activity", "trim_ratecon_pages_from_pod"],
-            ["upload_trimmed_pod_attachments", "record_pod_upload_activity"],
+            ["record_pod_upload_activity", "pod_scoring"],
             ["pod_scoring", "record_pod_processed_activity"],
             ["record_pod_processed_activity", "notify_pod_analysis_teams"],
             ["record_multi_stop_pod_activity", "notify_multi_stop_pod_teams"],
@@ -96,10 +96,10 @@ WORKFLOW_CONFIGS = {
                     "is_multi_stop": "upload_trimmed_pod_attachments",
                 },
             },
-            "record_pod_upload_activity": {
+            "upload_trimmed_pod_attachments": {
                 "router": "pod_stop_type_router",
                 "map": {
-                    "is_single_stop": "pod_scoring",
+                    "is_single_stop": "record_pod_upload_activity",
                     "is_multi_stop": "record_multi_stop_pod_activity",
                 },
             },

@@ -149,8 +149,6 @@ class RateconActivityService:
                         to_sub_status=StatusSubType.RATECON_STARTED,
                         from_status=StatusType.NONE,
                         from_sub_status=StatusSubType.NONE,
-                        metadata=meta,
-                        communication_id=comm_id,
                     ),
                 ),
             )
@@ -196,8 +194,6 @@ class RateconActivityService:
                             to_sub_status=StatusSubType.DOCUMENT_UPLOADED,
                             from_status=StatusType.PROCESSING,
                             from_sub_status=StatusSubType.RATECON_STARTED,
-                            metadata=meta,
-                            communication_id=comm_id,
                         ),
                     ),
                 )
@@ -223,8 +219,6 @@ class RateconActivityService:
                         to_sub_status=StatusSubType.RATECON_STARTED,
                         from_status=StatusType.PROCESSING,
                         from_sub_status=StatusSubType.RATECON_STARTED,
-                        metadata=fail_meta,
-                        communication_id=comm_id,
                     ),
                 ),
             )
