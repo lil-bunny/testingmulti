@@ -101,6 +101,26 @@ def test_pod_analysis_extraction_empty_sets_error(mock_tool):
 
 
 @patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_llm_gateway_timeout_sets_integration_error(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "llm_gateway_timeout"}
+    state = _state()
+
+    result = pod_analysis(state)
+
+    _assert_error(result, IntegrationError.LLM_GATEWAY_TIMEOUT)
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
+def test_pod_analysis_llm_gateway_timeout_manual_does_not_soft_fail(mock_tool):
+    mock_tool.return_value = {"success": False, "error": "llm_gateway_timeout"}
+    state = _state(event_type="manual_pod_upload")
+
+    result = pod_analysis(state)
+
+    _assert_error(result, IntegrationError.LLM_GATEWAY_TIMEOUT)
+
+
+@patch("app.workflows.nodes.pod.get_pod_analysis")
 def test_pod_analysis_s3_download_failed_sets_error(mock_tool):
     mock_tool.return_value = {"success": False, "error": "s3_download_failed"}
     state = _state()

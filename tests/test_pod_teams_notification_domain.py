@@ -76,7 +76,7 @@ def test_display_fields_read_real_score_pod_output() -> None:
         is_single_stop=True,
         pickup=TurvoStop(name="Shipper", address="1 A St, Lathrop, CA, US"),
         delivery=TurvoStop(name="Consignee", address="2 B St, Wilsonville, OR, US"),
-        purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup")],
+        purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")],
         pickup_date="2026-07-20T15:00:00Z",
         delivery_date="2026-07-21T13:00:00Z",
         ordered_pallet_qty=37,

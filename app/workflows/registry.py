@@ -49,7 +49,6 @@ from app.workflows.nodes.record_ack_received import (
 )
 from app.workflows.nodes.record_tender_created_activity import record_tender_created_activity
 from app.workflows.nodes.record_ratecon_activity import (
-    record_ratecon_processed_activity,
     record_ratecon_received_activity,
     record_ratecon_upload_activity,
 )
@@ -86,6 +85,10 @@ from app.workflows.nodes.record_pod_activity import (
     record_pod_reminder_activity,
     record_pod_started_activity,
     record_pod_upload_activity,
+)
+from app.workflows.nodes.multi_stop_pod import (
+    record_multi_stop_pod_activity,
+    notify_multi_stop_pod_teams,
 )
 from app.workflows.nodes.record_pod_tms_upload_activity import (
     record_pod_tms_upload_activity,
@@ -160,7 +163,6 @@ NODE_REGISTRY = {
     "record_tender_created_activity": record_tender_created_activity,
     "record_ratecon_received_activity": record_ratecon_received_activity,
     "record_ratecon_upload_activity": record_ratecon_upload_activity,
-    "record_ratecon_processed_activity": record_ratecon_processed_activity,
     "enqueue_driver_assignment_on_ratecon_complete": enqueue_driver_assignment_on_ratecon_complete,
     "check_driver_assignment_eligibility": check_driver_assignment_eligibility,
     "check_driver_reminder_eligibility": check_driver_reminder_eligibility,
@@ -190,6 +192,8 @@ NODE_REGISTRY = {
     "record_pod_processed_activity": record_pod_processed_activity,
     "notify_pod_analysis_teams": notify_pod_analysis_teams,
     "record_pod_tms_upload_activity": record_pod_tms_upload_activity,
+    "record_multi_stop_pod_activity": record_multi_stop_pod_activity,
+    "notify_multi_stop_pod_teams": notify_multi_stop_pod_teams,
     "read_tender_row": read_tender_row,
     "send_tender_reminder": send_tender_reminder,
     "update_reminder_status": update_reminder_status,

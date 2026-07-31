@@ -22,19 +22,20 @@ WORKFLOW_CONFIGS = {
             "pod_scoring",
             "record_pod_processed_activity",
             "notify_pod_analysis_teams",
+            "record_multi_stop_pod_activity",
+            "notify_multi_stop_pod_teams",
             "upload_to_turvo",
             "record_pod_tms_upload_activity",
             "update_shipment",
             "end",
         ],
         "edges": [
-            ["merge_pod_attachments_local", "pod_analysis"],
             ["pod_analysis", "record_pod_extraction_activity"],
             ["record_pod_extraction_activity", "trim_ratecon_pages_from_pod"],
-            ["upload_trimmed_pod_attachments", "record_pod_upload_activity"],
             ["record_pod_upload_activity", "pod_scoring"],
             ["pod_scoring", "record_pod_processed_activity"],
             ["record_pod_processed_activity", "notify_pod_analysis_teams"],
+            ["record_multi_stop_pod_activity", "notify_multi_stop_pod_teams"],
             ["upload_to_turvo", "record_pod_tms_upload_activity"],
             ["record_pod_tms_upload_activity", "end"],
             ["update_shipment", "end"],
@@ -88,6 +89,20 @@ WORKFLOW_CONFIGS = {
                 "router": "read_workflow_lifecycle_router",
                 "map": {"is_found": "get_shipment", "missing": "end"},
             },
+            "merge_pod_attachments_local": {
+                "router": "pod_stop_type_router",
+                "map": {
+                    "is_single_stop": "pod_analysis",
+                    "is_multi_stop": "upload_trimmed_pod_attachments",
+                },
+            },
+            "upload_trimmed_pod_attachments": {
+                "router": "pod_stop_type_router",
+                "map": {
+                    "is_single_stop": "record_pod_upload_activity",
+                    "is_multi_stop": "record_multi_stop_pod_activity",
+                },
+            },
             "trim_ratecon_pages_from_pod": {
                 "router": "trim_ratecon_pages_router",
                 "map": {
@@ -96,6 +111,13 @@ WORKFLOW_CONFIGS = {
                 },
             },
             "notify_pod_analysis_teams": {
+                "router": "post_pod_processing_router",
+                "map": {
+                    "manual": "upload_to_turvo",
+                    "email": "update_shipment",
+                },
+            },
+            "notify_multi_stop_pod_teams": {
                 "router": "post_pod_processing_router",
                 "map": {
                     "manual": "upload_to_turvo",
@@ -115,7 +137,6 @@ WORKFLOW_CONFIGS = {
             "record_ratecon_received_activity",
             "upload_ratecon_attachments",
             "record_ratecon_upload_activity",
-            "record_ratecon_processed_activity",
             "enqueue_driver_assignment_on_ratecon_complete",
             "check_ratecon_workflow_lifecycle",
             "end",
@@ -127,9 +148,8 @@ WORKFLOW_CONFIGS = {
             ["resolve_workflow_lifecycle", "record_ratecon_received_activity"],
             ["record_ratecon_received_activity", "upload_ratecon_attachments"],
             ["upload_ratecon_attachments", "record_ratecon_upload_activity"],
-            ["record_ratecon_upload_activity", "record_ratecon_processed_activity"],
             [
-                "record_ratecon_processed_activity",
+                "record_ratecon_upload_activity",
                 "enqueue_driver_assignment_on_ratecon_complete",
             ],
             [

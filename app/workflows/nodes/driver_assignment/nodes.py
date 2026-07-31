@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from app.core.logger import get_logger
+from app.domain.error_catalog import IntegrationError
+from app.exceptions import WorkflowException
 from app.services.driver_assignment.escalation_service import DriverAssignmentEscalationService
 from app.services.driver_assignment.activity_service import DriverAssignmentActivityService
 from app.services.driver_assignment.ingress_service import DriverAssignmentIngressService
@@ -14,6 +16,7 @@ from app.services.driver_assignment.shipment_driver_details_service import (
     DriverAssignmentShipmentDetailsService,
 )
 from app.services.workflow_reminder_service import WorkflowReminderService
+from app.workflows.utils.decorators import safe_node
 
 logger = get_logger(__name__)
 
@@ -197,6 +200,7 @@ def record_tms_driver_error(state):
     return state
 
 
+@safe_node
 def send_driver_details_confirmation(state):
     tenant_id = (state.tenant_id or state.data.get("tenant_id") or "").strip()
     run_id = str(state.execution_id or state.data.get("execution_id") or "").strip() or None
@@ -207,10 +211,16 @@ def send_driver_details_confirmation(state):
         workflow_run_id=run_id,
     )
     state.data["driver_confirmation_sent"] = result.sent
-    if result.error:
-        state.data["driver_confirmation_error"] = result.error
     if result.communication_id:
         state.data["communication_id"] = result.communication_id
+    if not result.sent and result.error not in (
+        "skipped_already_assigned",
+        "not_assigned",
+    ):
+        raise WorkflowException(
+            IntegrationError.EMAIL_SEND_FAILED,
+            message=f"Driver confirmation email failed: {result.error or 'unknown'}",
+        )
     return state
 
 

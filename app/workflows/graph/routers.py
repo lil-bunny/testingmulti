@@ -87,6 +87,16 @@ def trim_ratecon_pages_router(state):
     return "continue"
 
 
+def pod_stop_type_router(state):
+    """Route by shipment stop count: multi-stop skips extraction/scoring paths."""
+    from app.integrations.turvo.shipments import is_multi_stop_shipment
+
+    shipment = state.data.get("shipment") or {}
+    if is_multi_stop_shipment(shipment):
+        return "is_multi_stop"
+    return "is_single_stop"
+
+
 def read_workflow_lifecycle_router(state):
     event_type = event_type_router(state)
     if event_type in ("email_received", "manual_pod_upload"):

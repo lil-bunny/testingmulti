@@ -144,9 +144,12 @@ def pod_analysis(data: dict) -> dict:
             1 for p in page_results if p.get("extracted_data") and not p.get("error")
         )
         if ok_pages == 0:
+            llm_unavailable = any(
+                p.get("error_category") == "api_error" for p in page_results
+            )
             return {
                 "success": False,
-                "error": "extraction_empty",
+                "error": "llm_gateway_timeout" if llm_unavailable else "extraction_empty",
                 "shipment_id": sid,
                 "pod_object_key": object_key,
             }
