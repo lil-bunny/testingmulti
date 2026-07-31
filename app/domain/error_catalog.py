@@ -220,6 +220,10 @@ class IntegrationError(_CatalogError):
         "turvo_tender_status_failed",
         "Turvo tender status update failed.",
     )
+    LLM_GATEWAY_TIMEOUT = (
+        "llm_gateway_timeout",
+        "LLM gateway timed out while processing the request.",
+    )
 
 
 class SystemError(_CatalogError):

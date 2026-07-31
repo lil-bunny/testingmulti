@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 _POD_ANALYSIS_ERRORS = {
     "s3_download_failed": IntegrationError.POD_S3_DOWNLOAD_FAILED,
+    "llm_gateway_timeout": IntegrationError.LLM_GATEWAY_TIMEOUT,
     "extraction_empty": BusinessError.POD_EXTRACTION_EMPTY,
     "downloaded_file_not_pdf": BusinessError.POD_ATTACHMENT_UPLOAD_FAILED,
     "pdf_too_large": SystemError.PDF_TOO_LARGE,
