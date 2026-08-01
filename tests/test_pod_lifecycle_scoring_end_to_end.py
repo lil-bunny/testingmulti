@@ -158,7 +158,7 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
 def test_pod_lifecycle_scoring_fails_without_delivery_signature(
     mock_upsert, mock_row_id, tmp_path
 ) -> None:
-    """No delivery signature evidence leaves the numeric score at zero."""
+    """No delivery signature zeros the signature component; ref-id still scores 40."""
     mock_upsert.return_value = {"stored": True, "id": "da-1"}
     shipment_payload = _load_sample_shipment()
 
@@ -200,7 +200,8 @@ def test_pod_lifecycle_scoring_fails_without_delivery_signature(
     pod_scoring(state)
 
     score = state.data["pod_scoring_results"]["score"]
-    assert score["final_score"] == 0
+    assert score["final_score"] == 40
+    assert score["signature"]["score"] == 0
     assert score["needs_action"] is True
     assert score["overall_status"] == "FAIL"
     mock_upsert.assert_called_once()

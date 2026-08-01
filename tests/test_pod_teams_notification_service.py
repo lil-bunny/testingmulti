@@ -32,7 +32,23 @@ _BASE_DATA = {
         "score": {
             "final_score": 87,
             "overall_status": "PASS",
-            "po_scores": [{"po_number": "A1176371", "po_total": 87}],
+            "signature": {"label": "signature", "score": 60, "max_score": 60, "remark": ""},
+            "stops": [
+                {
+                    "stop_type": "pickup",
+                    "po_total": 1,
+                    "po_matched": 1,
+                    "reference_id": {"score": 20, "max_score": 20},
+                    "diff": [],
+                },
+                {
+                    "stop_type": "delivery",
+                    "po_total": 1,
+                    "po_matched": 1,
+                    "reference_id": {"score": 7, "max_score": 20},
+                    "diff": [],
+                },
+            ],
             "exceptions": [],
             "remarks": [],
         },

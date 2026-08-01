@@ -62,16 +62,34 @@ def resolve_pod_analysis_load_id(data: dict[str, Any]) -> str:
 
 def resolve_pod_scoring_summary(score: dict[str, Any]) -> str:
     """Human-readable summary of a ``pod_scoring`` result dict for Teams/activity display."""
-    po_scores = score.get("po_scores") if isinstance(score.get("po_scores"), list) else []
-    if not po_scores:
+    stops = score.get("stops") if isinstance(score.get("stops"), list) else []
+    if not stops:
         return "No Turvo purchase orders were found to score."
 
-    parts = [
-        f"{po.get('po_number')}: {po.get('po_total')}/100"
-        for po in po_scores
-        if isinstance(po, dict)
-    ]
-    summary = "; ".join(parts)
+    parts: list[str] = []
+    signature = score.get("signature")
+    if isinstance(signature, dict):
+        parts.append(
+            f"{signature.get('label')} {signature.get('score')}/{signature.get('max_score')}"
+        )
+    for stop in stops:
+        if not isinstance(stop, dict):
+            continue
+        stop_type = stop.get("stop_type")
+        reference_id = stop.get("reference_id")
+        if isinstance(reference_id, dict):
+            parts.append(
+                f"{stop_type} ref-id {reference_id.get('score')}/{reference_id.get('max_score')} "
+                f"({stop.get('po_matched')}/{stop.get('po_total')} POs)"
+            )
+        diff = [field for field in (stop.get("diff") or []) if isinstance(field, dict)]
+        if diff:
+            diff_scored = sum(int(field.get("score") or 0) for field in diff)
+            diff_max = sum(int(field.get("max_score") or 0) for field in diff)
+            parts.append(f"{stop_type} diff {diff_scored}/{diff_max}")
+    summary = "; ".join(p for p in parts if p)
+    if not summary:
+        return "No Turvo purchase orders were found to score."
 
     exceptions = score.get("exceptions") if isinstance(score.get("exceptions"), list) else []
     exception_types = sorted(

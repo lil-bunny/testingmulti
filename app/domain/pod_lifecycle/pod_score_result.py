@@ -2,12 +2,25 @@
 
 Shared contract for ``score_pod``, the ``pod_scoring`` node, and Teams/activity
 consumers.
+
+Model:
+
+- ``signature``: document-level delivery receiver proof, shared across POs
+- ``stops``: one block per stop type (pickup / delivery) with the prorated
+  reference-id result plus Pass 2 diff fields (dates + shipper/consignee text)
+- ``validation``: the 40-point validation bucket after the active strategy
+  combines reference-id + Pass 2 (see ``validation_score``)
+- ``final_score``: signature + validation bucket, always out of 100
+- ``po_scores``: per-Turvo-PO audit evidence (matched flag + page comparisons)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from app.domain.pod_lifecycle.validation_score import ValidationBucketScore
 
 ExceptionType = Literal[
     "damage",
@@ -16,28 +29,45 @@ ExceptionType = Literal[
     "refused_delivery",
 ]
 OverallStatus = Literal["PASS", "FAIL"]
+StopType = Literal["pickup", "delivery"]
 PASS_THRESHOLD = 90
 
 
 @dataclass(frozen=True)
 class PodFieldResult:
-    """One scored field within Pass 1 or Pass 2 for a single PO."""
+    """One compared field (signature, reference-id, or Pass 2 diff).
+
+    ``turvo_value`` / ``pod_value`` carry both sides for the ops dashboard.
+    Every field is always scored (0..max); which fields feed the overall score
+    is decided by the validation-bucket strategy, not by the field itself.
+    """
 
     label: str
     score: int
     max_score: int
     remark: str
+    turvo_value: str | None = None
+    pod_value: str | None = None
+
+
+@dataclass(frozen=True)
+class PodStopScore:
+    """Reference-id and Pass 2 diff evidence for one Turvo stop type."""
+
+    stop_type: StopType
+    po_total: int
+    po_matched: int
+    reference_id: PodFieldResult
+    diff: list[PodFieldResult] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class PodPurchaseOrderScore:
-    """Pass 1 (+ Pass 2 when ref-id fails) outcome for one Turvo PO."""
+    """Per-Turvo-PO audit evidence (matched status + page evidence)."""
 
     po_number: str
-    stop_type: Literal["pickup", "delivery"]
-    pass1: list[PodFieldResult]
-    pass2: list[PodFieldResult] | None
-    po_total: int | None
+    stop_type: StopType
+    matched: bool
     page_comparisons: list[dict] = field(default_factory=list)
 
 
@@ -53,12 +83,15 @@ class PodException:
 class PodScoreResult:
     """Numeric PoD-vs-Turvo score and evidence for an Ops review decision."""
 
-    po_scores: list[PodPurchaseOrderScore]
+    signature: PodFieldResult
+    stops: list[PodStopScore]
+    validation: ValidationBucketScore
     final_score: int
     overall_status: OverallStatus
+    max_score: int = 100
+    po_scores: list[PodPurchaseOrderScore] = field(default_factory=list)
     exceptions: list[PodException] = field(default_factory=list)
     needs_action: bool = False
-    pickup_signature_present: bool = True
     remarks: list[str] = field(default_factory=list)
     review_reasons: list[str] = field(default_factory=list)
     stop_times: list[dict] = field(default_factory=list)

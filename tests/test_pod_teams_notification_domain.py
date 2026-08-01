@@ -38,13 +38,14 @@ def test_parse_pod_teams_notification_settings() -> None:
     assert settings.message_title == "POD — Load {load_id}"
 
 
-def _scoring_results(*, final_score: float, result: str, po_scores: list | None = None) -> dict:
+def _scoring_results(*, final_score: float, result: str, stops: list | None = None) -> dict:
     return {
         "success": True,
         "score": {
             "final_score": final_score,
             "overall_status": result,
-            "po_scores": po_scores if po_scores is not None else [],
+            "signature": {"label": "signature", "score": 60, "max_score": 60, "remark": ""},
+            "stops": stops if stops is not None else [],
             "exceptions": [],
             "remarks": [],
         },
@@ -58,14 +59,31 @@ def test_pod_analysis_display_fields_from_data() -> None:
             "pod_scoring_results": _scoring_results(
                 final_score=88,
                 result="PASS",
-                po_scores=[{"po_number": "A1176371", "po_total": 88}],
+                stops=[
+                    {
+                        "stop_type": "pickup",
+                        "po_total": 1,
+                        "po_matched": 1,
+                        "reference_id": {"score": 20, "max_score": 20},
+                        "diff": [],
+                    },
+                    {
+                        "stop_type": "delivery",
+                        "po_total": 1,
+                        "po_matched": 1,
+                        "reference_id": {"score": 20, "max_score": 20},
+                        "diff": [],
+                    },
+                ],
             ),
         }
     )
     assert fields == PodAnalysisDisplayFields(
         load_id="30389",
         score="88/100",
-        review_summary="A1176371: 88/100",
+        review_summary=(
+            "signature 60/60; pickup ref-id 20/20 (1/1 POs); delivery ref-id 20/20 (1/1 POs)"
+        ),
         overall_status="PASS",
     )
 
@@ -76,14 +94,20 @@ def test_display_fields_read_real_score_pod_output() -> None:
         is_single_stop=True,
         pickup=TurvoStop(name="Shipper", address="1 A St, Lathrop, CA, US"),
         delivery=TurvoStop(name="Consignee", address="2 B St, Wilsonville, OR, US"),
-        purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")],
+        purchase_orders=[
+            TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup"),
+            TurvoPurchaseOrder(po_number="007660706282", stop_type="delivery"),
+        ],
         pickup_date="2026-07-20T15:00:00Z",
         delivery_date="2026-07-21T13:00:00Z",
         ordered_pallet_qty=37,
         custom_id="30397",
     )
     score = score_pod(
-        {"delivery_signature_present": True, "extracted_reference_numbers": ["A1176371"]},
+        {
+            "delivery_signature_present": True,
+            "extracted_reference_numbers": ["A1176371", "007660706282"],
+        },
         pod_inputs,
     )
 

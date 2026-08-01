@@ -1,14 +1,29 @@
-"""PoD-vs-Turvo scoring points, field labels, and remark / exception copy."""
+"""PoD-vs-Turvo scoring points, field labels, and remark / exception copy.
+
+Score model:
+
+- signature: document-level delivery receiver proof, shared across POs (0/60)
+- reference_id per stop (pickup / delivery): up to 20 each, prorated by the
+  ratio of matched Turvo POs on that stop
+- Pass 2 fields (dates + shipper/consignee text) are always computed, scored,
+  and stored with both Turvo and POD values (0/40 raw)
+- the 40-point validation bucket combines reference_id + Pass 2 via the active
+  strategy in ``validation_score``; the overall score is always out of 100
+"""
 
 from __future__ import annotations
 
-# Pass 1 point values
-PASS1_SIGNATURE_POINTS = 60
-PASS1_REFERENCE_ID_POINTS = 40
+# Score-bearing point values
+SIGNATURE_POINTS = 60
+REFERENCE_ID_POINTS_PER_STOP = 20
 
-# Pass 2 point values
-PASS2_DATE_POINTS = 10
-PASS2_TEXT_POINTS = 5
+# Diff point values
+DATE_POINTS = 10
+TEXT_POINTS = 5
+
+# Stop types
+STOP_TYPE_PICKUP = "pickup"
+STOP_TYPE_DELIVERY = "delivery"
 
 # Field labels
 LABEL_SIGNATURE = "signature"
@@ -17,30 +32,28 @@ LABEL_REFERENCE_ID = "reference_id"
 # Top-level remarks / review reasons
 REMARK_NO_TURVO_PO = "No Turvo PO found for this shipment; cannot score."
 
-# Pass 1 signature remarks
+# Signature remarks
 REMARK_SIGNATURE_ABSENT = (
-    "No receiver signature, delivery stamp, or delivery sticker detected."
+    "No receiver signature, delivery stamp, or delivery sticker detected on the document."
 )
 REMARK_SIGNATURE_PRESENT = (
-    "Receiver signature, delivery stamp, or delivery sticker present."
-)
-REMARK_REFERENCE_ID_SKIPPED_SIGNATURE_FAILED = (
-    "Not evaluated: Pass 1 signature check failed."
+    "Receiver signature, delivery stamp, or delivery sticker present on the document."
 )
 
-# Pass 1 reference-id remarks (templates)
+# Reference-id remarks (templates)
 REMARK_REFERENCE_ID_MATCH_TEMPLATE = (
-    "POD reference number and expected Turvo stop match for PO {po_number}."
+    "POD POs match the Turvo {stop_type} stop ({matched} of {total} POs)."
 )
 REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE = (
-    "No POD PO + expected-stop match for Turvo PO {po_number}; running Pass 2."
+    "No POD PO matches the Turvo {stop_type} stop."
+)
+REMARK_REFERENCE_ID_NO_POS_TEMPLATE = (
+    "No Turvo {stop_type} POs available; reference-id not scored."
 )
 
-# Pass 2 date remarks (templates)
+# Diff remarks (templates)
 REMARK_DATE_MATCH_TEMPLATE = "{label} matches Turvo ({turvo_date})."
 REMARK_DATE_NO_MATCH_TEMPLATE = "{label} does not match Turvo or is missing on POD."
-
-# Pass 2 text remarks (templates)
 REMARK_TEXT_MISSING_TEMPLATE = "{label} missing or blank on POD."
 REMARK_TEXT_IDENTIFIABLE_TEMPLATE = (
     "{label} present and identifiable on POD: '{pod_text}'."
