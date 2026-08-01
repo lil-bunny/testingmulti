@@ -74,3 +74,11 @@ def test_default_strategy_is_a_registered_strategy() -> None:
     from app.domain.pod_lifecycle import validation_score as module
 
     assert module.DEFAULT_VALIDATION_STRATEGY in module._STRATEGY_FUNCTIONS  # noqa: SLF001
+
+
+def test_default_strategy_is_blended_proration() -> None:
+    from app.domain.pod_lifecycle import validation_score as module
+
+    assert module.DEFAULT_VALIDATION_STRATEGY == STRATEGY_BLENDED
+    assert calculate_validation_score(20, 30).score == 35
+    assert calculate_validation_score(0, 30).score == 30
