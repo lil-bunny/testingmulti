@@ -11,6 +11,7 @@ Model:
 - ``validation``: the 40-point validation bucket after the active strategy
   combines reference-id + Pass 2 (see ``validation_score``)
 - ``final_score``: signature + validation bucket, always out of 100
+- ``pass_threshold``: score floor for ``overall_status`` PASS (surfaced to the ops UI)
 - ``po_scores``: per-Turvo-PO audit evidence (matched flag + page comparisons)
 """
 
@@ -90,6 +91,7 @@ class PodScoreResult:
     final_score: int
     overall_status: OverallStatus
     max_score: int = 100
+    pass_threshold: int = PASS_THRESHOLD
     po_scores: list[PodPurchaseOrderScore] = field(default_factory=list)
     exceptions: list[PodException] = field(default_factory=list)
     needs_action: bool = False

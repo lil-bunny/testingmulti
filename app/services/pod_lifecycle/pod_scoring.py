@@ -75,7 +75,7 @@ def score_pod(
 
     ``strategy`` selects the 40-point validation-bucket combination; it defaults
     to ``validation_score.DEFAULT_VALIDATION_STRATEGY``. The numeric score has an
-    informational PASS/FAIL status at the 90-point threshold. Every scored POD
+    informational PASS/FAIL status at ``PASS_THRESHOLD``. Every scored POD
     still routes to manual review.
     """
     exceptions = _exceptions_from_observations(pod_observations, turvo_inputs)
@@ -89,6 +89,7 @@ def score_pod(
             validation=calculate_validation_score(0, 0, strategy),
             final_score=0,
             overall_status="FAIL",
+            pass_threshold=PASS_THRESHOLD,
             exceptions=exceptions,
             needs_action=True,
             remarks=remarks,
@@ -119,6 +120,7 @@ def score_pod(
         validation=validation,
         final_score=final_score,
         overall_status=overall_status,
+        pass_threshold=PASS_THRESHOLD,
         po_scores=po_scores,
         exceptions=exceptions,
         needs_action=needs_action,

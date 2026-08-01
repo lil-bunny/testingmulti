@@ -90,6 +90,7 @@ def test_signature_present_and_both_stops_reference_id_match_scores_100() -> Non
     assert result.signature.score == 60
     assert result.final_score == 100
     assert result.overall_status == "PASS"
+    assert result.pass_threshold == 90
     assert result.needs_action is True
     pickup = _stop(result, "pickup")
     assert pickup.reference_id.score == 20
