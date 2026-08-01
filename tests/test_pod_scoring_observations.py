@@ -74,6 +74,60 @@ def test_missing_stop_times_gives_none_dates() -> None:
     assert obs["delivery_date"] is None
 
 
+def _location_page(**overrides) -> dict:
+    page = {
+        "page_number": 3,
+        "location_blocks": [
+            {
+                "printed_label": "Ship From",
+                "location_name": "Diamond Pet Foods",
+                "address": "11908 Harlan Road\nLathrop, CA 95330",
+            },
+            {
+                "printed_label": "Ship To",
+                "location_name": "COSTCO #936 CBDSDTOL",
+                "address": "8400 WEST SHERMAN\nTOLLESON, AZ 85353",
+            },
+        ],
+    }
+    page.update(overrides)
+    return page
+
+
+def test_ship_from_and_ship_to_blocks_populate_location_observations() -> None:
+    obs = derive_pod_scoring_observations([_location_page()])
+    assert obs["pickup_location"] == "Diamond Pet Foods"
+    assert obs["pickup_address"] == "11908 Harlan Road\nLathrop, CA 95330"
+    assert obs["destination_location"] == "COSTCO #936 CBDSDTOL"
+    assert obs["destination_address"] == "8400 WEST SHERMAN\nTOLLESON, AZ 85353"
+
+
+def test_fields_fallback_when_no_location_blocks() -> None:
+    page = _location_page(location_blocks=[])
+    page["fields"] = [
+        {"key": "pickup_location", "value": "Diamond Pet Foods"},
+        {"key": "pickup_address", "value": "11908 Harlan Road\nLathrop, CA 95330"},
+        {"key": "destination_location", "value": "COSTCO #936 CBDSDTOL"},
+        {"key": "destination_address", "value": "8400 WEST SHERMAN\nTOLLESON, AZ 85353"},
+    ]
+    obs = derive_pod_scoring_observations([page])
+    assert obs["pickup_location"] == "Diamond Pet Foods"
+    assert obs["destination_location"] == "COSTCO #936 CBDSDTOL"
+
+
+def test_location_blocks_win_over_earlier_page_fields() -> None:
+    field_page = _location_page(location_blocks=[], page_number=1)
+    field_page["fields"] = [{"key": "destination_location", "value": "COSTCO ECOMMERCE"}]
+    obs = derive_pod_scoring_observations([field_page, _location_page()])
+    assert obs["destination_location"] == "COSTCO #936 CBDSDTOL"
+
+
+def test_no_location_evidence_gives_none_values() -> None:
+    obs = derive_pod_scoring_observations([_delivery_page()])
+    assert obs["pickup_location"] is None
+    assert obs["destination_address"] is None
+
+
 def test_pallets_shipped_takes_max_across_pages() -> None:
     pages = [_delivery_page(pallets_shipped=10), _delivery_page(pallets_shipped=37)]
     obs = derive_pod_scoring_observations(pages)

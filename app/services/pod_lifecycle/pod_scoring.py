@@ -220,16 +220,16 @@ def _diff_fields(
                 True,
             ),
             (
-                "shipper_name",
+                "pickup_location",
                 turvo_inputs.pickup.name,
-                pod_observations.get("shipper_name"),
+                pod_observations.get("pickup_location"),
                 None,
                 False,
             ),
             (
-                "shipper_address",
+                "pickup_address",
                 turvo_inputs.pickup.address,
-                pod_observations.get("shipper_address"),
+                pod_observations.get("pickup_address"),
                 None,
                 False,
             ),
@@ -244,25 +244,25 @@ def _diff_fields(
                 True,
             ),
             (
-                "consignee_name",
+                "destination_location",
                 turvo_inputs.delivery.name,
-                pod_observations.get("consignee_name"),
+                pod_observations.get("destination_location"),
                 None,
                 False,
             ),
             (
-                "consignee_address",
+                "destination_address",
                 turvo_inputs.delivery.address,
-                pod_observations.get("consignee_address"),
+                pod_observations.get("destination_address"),
                 None,
                 False,
             ),
         )
     return [
-        _date_field(label, turvo_value, pod_value, time_zone)
+        _date_field(label, target, source, time_zone)
         if is_date
-        else _identifiable_text_field(label, turvo_value or "", pod_value)
-        for label, turvo_value, pod_value, time_zone, is_date in specs
+        else _identifiable_text_field(label, target or "", source)
+        for label, target, source, time_zone, is_date in specs
     ]
 
 
@@ -305,13 +305,13 @@ def _calendar_date_in_zone(iso_value: Any, time_zone: str | None) -> date | None
 
 def _date_field(
     label: str,
-    turvo_iso: str | None,
-    pod_iso: Any,
+    target: str | None,
+    source: Any,
     time_zone: str | None,
 ) -> PodFieldResult:
     """Award date points when POD and Turvo share the same calendar day in the stop TZ."""
-    turvo_date = _calendar_date_in_zone(turvo_iso, time_zone)
-    pod_date = _calendar_date_in_zone(pod_iso, time_zone)
+    turvo_date = _calendar_date_in_zone(target, time_zone)
+    pod_date = _calendar_date_in_zone(source, time_zone)
     if turvo_date is not None and turvo_date == pod_date:
         return PodFieldResult(
             label=label,
@@ -320,16 +320,16 @@ def _date_field(
             remark=REMARK_DATE_MATCH_TEMPLATE.format(
                 label=label, turvo_date=turvo_date.isoformat()
             ),
-            turvo_value=turvo_iso,
-            pod_value=_clean_iso_text(pod_iso),
+            target=target,
+            source=_clean_iso_text(source),
         )
     return PodFieldResult(
         label=label,
         score=0,
         max_score=DATE_POINTS,
         remark=REMARK_DATE_NO_MATCH_TEMPLATE.format(label=label),
-        turvo_value=turvo_iso,
-        pod_value=_clean_iso_text(pod_iso),
+        target=target,
+        source=_clean_iso_text(source),
     )
 
 
@@ -344,8 +344,8 @@ def _tokens(value: str) -> set[str]:
 
 def _identifiable_text_field(
     label: str,
-    turvo_value: str,
-    pod_value: Any,
+    target: str,
+    source: Any,
 ) -> PodFieldResult:
     """
     Award text points when POD text is non-blank and identifiable vs Turvo.
@@ -353,17 +353,17 @@ def _identifiable_text_field(
     Identifiable ≈ shares ≥1 significant token (len≥3) with Turvo, or Turvo has
     no comparable tokens (presence alone).
     """
-    pod_text = str(pod_value or "").strip()
+    pod_text = str(source or "").strip()
     if not pod_text:
         return PodFieldResult(
             label=label,
             score=0,
             max_score=TEXT_POINTS,
             remark=REMARK_TEXT_MISSING_TEMPLATE.format(label=label),
-            turvo_value=turvo_value or None,
-            pod_value=None,
+            target=target or None,
+            source=None,
         )
-    turvo_tokens = _tokens(turvo_value or "")
+    turvo_tokens = _tokens(target or "")
     pod_tokens = _tokens(pod_text)
     identifiable = not turvo_tokens or bool(turvo_tokens & pod_tokens)
     if identifiable:
@@ -372,18 +372,18 @@ def _identifiable_text_field(
             score=TEXT_POINTS,
             max_score=TEXT_POINTS,
             remark=REMARK_TEXT_IDENTIFIABLE_TEMPLATE.format(label=label, pod_text=pod_text),
-            turvo_value=turvo_value or None,
-            pod_value=pod_text,
+            target=target or None,
+            source=pod_text,
         )
     return PodFieldResult(
         label=label,
         score=0,
         max_score=TEXT_POINTS,
         remark=REMARK_TEXT_NO_MATCH_TEMPLATE.format(
-            label=label, pod_text=pod_text, turvo_value=turvo_value
+            label=label, pod_text=pod_text, target=target
         ),
-        turvo_value=turvo_value or None,
-        pod_value=pod_text,
+        target=target or None,
+        source=pod_text,
     )
 
 

@@ -5,8 +5,8 @@ Score model:
 - signature: document-level delivery receiver proof, shared across POs (0/60)
 - reference_id per stop (pickup / delivery): up to 20 each, prorated by the
   ratio of matched Turvo POs on that stop
-- Pass 2 fields (dates + shipper/consignee text) are always computed, scored,
-  and stored with both Turvo and POD values (0/40 raw)
+- Pass 2 fields (dates + pickup/destination location and address) are always
+  computed, scored, and stored with both Turvo and POD values (0/40 raw)
 - the 40-point validation bucket combines reference_id + Pass 2 via the active
   strategy in ``validation_score``; the overall score is always out of 100
 """
@@ -59,7 +59,7 @@ REMARK_TEXT_IDENTIFIABLE_TEMPLATE = (
     "{label} present and identifiable on POD: '{pod_text}'."
 )
 REMARK_TEXT_NO_MATCH_TEMPLATE = (
-    "{label} on POD ('{pod_text}') does not match Turvo ('{turvo_value}')."
+    "{label} on POD ('{pod_text}') does not match Turvo ('{target}')."
 )
 
 # Exception details

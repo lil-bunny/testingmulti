@@ -7,7 +7,7 @@ Model:
 
 - ``signature``: document-level delivery receiver proof, shared across POs
 - ``stops``: one block per stop type (pickup / delivery) with the prorated
-  reference-id result plus Pass 2 diff fields (dates + shipper/consignee text)
+  reference-id result plus Pass 2 diff fields (dates + pickup/destination text)
 - ``validation``: the 40-point validation bucket after the active strategy
   combines reference-id + Pass 2 (see ``validation_score``)
 - ``final_score``: signature + validation bucket, always out of 100
@@ -37,17 +37,18 @@ PASS_THRESHOLD = 90
 class PodFieldResult:
     """One compared field (signature, reference-id, or Pass 2 diff).
 
-    ``turvo_value`` / ``pod_value`` carry both sides for the ops dashboard.
-    Every field is always scored (0..max); which fields feed the overall score
-    is decided by the validation-bucket strategy, not by the field itself.
+    ``target`` holds the Turvo side and ``source`` the POD side for the ops
+    dashboard. Every field is always scored (0..max); which fields feed the
+    overall score is decided by the validation-bucket strategy, not by the field
+    itself.
     """
 
     label: str
     score: int
     max_score: int
     remark: str
-    turvo_value: str | None = None
-    pod_value: str | None = None
+    target: str | None = None
+    source: str | None = None
 
 
 @dataclass(frozen=True)

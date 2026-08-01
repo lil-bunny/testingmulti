@@ -138,7 +138,7 @@ def test_pass2_fields_are_always_scored_and_carry_both_sides() -> None:
         "delivery_signature_present": True,
         "extracted_reference_numbers": [_DELIVERY_PO],
         "delivery_date": "2026-07-21T13:00:00Z",
-        "consignee_name": "COSTCO # 766",
+        "destination_location": "COSTCO # 766",
     }
 
     result = score_pod(observations, pod_inputs)
@@ -147,12 +147,12 @@ def test_pass2_fields_are_always_scored_and_carry_both_sides() -> None:
     assert delivery.reference_id.score == 20
     date_field = next(f for f in delivery.diff if f.label == "delivery_date")
     assert date_field.score == 10
-    assert date_field.turvo_value == "2026-07-21T13:00:00Z"
-    assert date_field.pod_value == "2026-07-21T13:00:00Z"
-    consignee = next(f for f in delivery.diff if f.label == "consignee_name")
-    assert consignee.score == 5
-    assert consignee.turvo_value == "COSTCO # 766"
-    assert consignee.pod_value == "COSTCO # 766"
+    assert date_field.target == "2026-07-21T13:00:00Z"
+    assert date_field.source == "2026-07-21T13:00:00Z"
+    destination = next(f for f in delivery.diff if f.label == "destination_location")
+    assert destination.score == 5
+    assert destination.target == "COSTCO # 766"
+    assert destination.source == "COSTCO # 766"
     assert result.validation.pass2_raw_score == 15
 
 
@@ -164,8 +164,8 @@ def test_validation_bucket_follows_active_strategy() -> None:
         "extracted_reference_numbers": ["NO-MATCH"],
         "pickup_date": "2026-07-20T15:00:00Z",
         "delivery_date": "2026-07-21T13:00:00Z",
-        "consignee_name": "COSTCO # 766",
-        "consignee_address": "25900 Heather Place, Wilsonville, OR",
+        "destination_location": "COSTCO # 766",
+        "destination_address": "25900 Heather Place, Wilsonville, OR",
     }
 
     assert score_pod(observations, pod_inputs, strategy="fallback_swap").final_score == 90
@@ -186,10 +186,10 @@ def test_validation_bucket_never_exceeds_100() -> None:
         "extracted_reference_numbers": [_PICKUP_PO, _DELIVERY_PO],
         "pickup_date": "2026-07-20T15:00:00Z",
         "delivery_date": "2026-07-21T13:00:00Z",
-        "shipper_name": "Diamond Pet Foods",
-        "shipper_address": "250 East Roth Road, Lathrop, CA",
-        "consignee_name": "COSTCO # 766",
-        "consignee_address": "25900 Heather Place, Wilsonville, OR",
+        "pickup_location": "Diamond Pet Foods",
+        "pickup_address": "250 East Roth Road, Lathrop, CA",
+        "destination_location": "COSTCO # 766",
+        "destination_address": "25900 Heather Place, Wilsonville, OR",
     }
     result = score_pod(observations, pod_inputs, strategy="blended_proration")
     assert result.validation.ref_id_score == 40
@@ -203,14 +203,16 @@ def test_blank_diff_field_scores_zero_for_that_field() -> None:
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": [],
-        "consignee_address": "",
+        "destination_address": "",
     }
     result = score_pod(observations, pod_inputs)
     delivery = _stop(result, "delivery")
-    consignee_address_field = next(f for f in delivery.diff if f.label == "consignee_address")
-    assert consignee_address_field.score == 0
-    assert consignee_address_field.turvo_value == _DELIVERY.address
-    assert consignee_address_field.pod_value is None
+    destination_address_field = next(
+        f for f in delivery.diff if f.label == "destination_address"
+    )
+    assert destination_address_field.score == 0
+    assert destination_address_field.target == _DELIVERY.address
+    assert destination_address_field.source is None
 
 
 def test_pickup_stop_with_no_turvo_pos_has_zero_ref_id() -> None:
