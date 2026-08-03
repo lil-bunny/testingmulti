@@ -244,14 +244,14 @@ def _shipment_detail_fields(
             (
                 "delivery_location",
                 turvo_inputs.delivery.name,
-                pod_observations.get("destination_location") or pod_observations.get("delivery_location"),
+                pod_observations.get("delivery_location"),
                 None,
                 False,
             ),
             (
                 "delivery_address",
                 turvo_inputs.delivery.address,
-                pod_observations.get("destination_address") or pod_observations.get("delivery_address"),
+                pod_observations.get("delivery_address"),
                 None,
                 False,
             ),

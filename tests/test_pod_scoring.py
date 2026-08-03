@@ -147,7 +147,7 @@ def test_shipment_detail_fields_carry_source_and_target() -> None:
         "delivery_signature_present": True,
         "extracted_reference_numbers": [_DELIVERY_PO],
         "delivery_date": "2026-07-21T13:00:00Z",
-        "destination_location": "COSTCO # 766",
+        "delivery_location": "COSTCO # 766",
     }
 
     result = score_pod(observations, pod_inputs)
@@ -172,8 +172,8 @@ def test_proration_pass2_fills_remaining_capacity() -> None:
         "extracted_reference_numbers": ["NO-MATCH"],
         "pickup_date": "2026-07-20T15:00:00Z",
         "delivery_date": "2026-07-21T13:00:00Z",
-        "destination_location": "COSTCO # 766",
-        "destination_address": "25900 Heather Place, Wilsonville, OR",
+        "delivery_location": "COSTCO # 766",
+        "delivery_address": "25900 Heather Place, Wilsonville, OR",
     }
 
     result = score_pod(observations, pod_inputs)
@@ -191,8 +191,8 @@ def test_final_score_never_exceeds_100() -> None:
         "delivery_date": "2026-07-21T13:00:00Z",
         "pickup_location": "Diamond Pet Foods",
         "pickup_address": "250 East Roth Road, Lathrop, CA",
-        "destination_location": "COSTCO # 766",
-        "destination_address": "25900 Heather Place, Wilsonville, OR",
+        "delivery_location": "COSTCO # 766",
+        "delivery_address": "25900 Heather Place, Wilsonville, OR",
     }
     result = score_pod(observations, pod_inputs)
     assert _ref_id_total(result) == 40
@@ -205,7 +205,7 @@ def test_blank_shipment_detail_field_scores_zero() -> None:
     observations = {
         "delivery_signature_present": True,
         "extracted_reference_numbers": [],
-        "destination_address": "",
+        "delivery_address": "",
     }
     result = score_pod(observations, pod_inputs)
     delivery = _stop(result, "delivery")

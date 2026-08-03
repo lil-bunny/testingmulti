@@ -54,7 +54,7 @@ def _fake_raw_llm_response() -> dict:
                 "signature_owner": "receiver",
                 "fields": [
                     {"key": "pickup_address", "value": "250 East Roth Road, Lathrop, CA, US"},
-                    {"key": "destination_address", "value": "25900 HEATHER PLACE, WILSONVILLE, OR, US"},
+                    {"key": "delivery_address", "value": "25900 HEATHER PLACE, WILSONVILLE, OR, US"},
                 ],
                 "reference_ids": [
                     {"label": "PO#", "value": _PICKUP_PO},
@@ -73,8 +73,8 @@ def _fake_final_pod_data() -> dict:
         "delivery_confirmed": True,
         "pickup_location": "Diamond Pet Foods - 95330 (Roth)",
         "pickup_address": "250 East Roth Road, Lathrop, CA, US",
-        "destination_location": "COSTCO # 766",
-        "destination_address": "25900 HEATHER PLACE, WILSONVILLE, OR, US",
+        "delivery_location": "COSTCO # 766",
+        "delivery_address": "25900 HEATHER PLACE, WILSONVILLE, OR, US",
         "stop_times": [],
     }
 

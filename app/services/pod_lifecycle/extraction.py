@@ -129,14 +129,14 @@ def _location_value_from_page(page: dict[str, Any]) -> dict[str, str]:
 
     Prefers ``location_blocks`` labeled "Ship From" / "Ship To" and falls back to
     the ``fields`` keys the POD extraction uses (``pickup_location``,
-    ``pickup_address``, ``destination_location``, ``destination_address``).
+    ``pickup_address``, ``delivery_location``, ``delivery_address``).
     """
     values: dict[str, str] = {}
     for block in page.get("location_blocks") or []:
         if not isinstance(block, dict):
             continue
         label = _str_or_empty(block.get("printed_label")).casefold()
-        prefix = "pickup" if label == "ship from" else "destination" if label == "ship to" else ""
+        prefix = "pickup" if label == "ship from" else "delivery" if label == "ship to" else ""
         if not prefix:
             continue
         location = _str_or_empty(block.get("location_name"))
@@ -153,8 +153,8 @@ def _location_value_from_page(page: dict[str, Any]) -> dict[str, str]:
         if key not in (
             "pickup_location",
             "pickup_address",
-            "destination_location",
-            "destination_address",
+            "delivery_location",
+            "delivery_address",
         ):
             continue
         value = _str_or_empty(field.get("value"))
@@ -163,8 +163,8 @@ def _location_value_from_page(page: dict[str, Any]) -> dict[str, str]:
     return values
 
 
-def _pickup_destination_values(pages: list[dict[str, Any]]) -> dict[str, str]:
-    """Pickup / destination location + address, preferring labeled blocks.
+def _pickup_delivery_values(pages: list[dict[str, Any]]) -> dict[str, str]:
+    """Pickup / delivery location + address, preferring labeled blocks.
 
     ``location_blocks`` labeled "Ship From" / "Ship To" are the authoritative
     stop evidence; the ``fields`` keys are only a fallback for pages that lack
@@ -176,7 +176,7 @@ def _pickup_destination_values(pages: list[dict[str, Any]]) -> dict[str, str]:
             if not isinstance(block, dict):
                 continue
             label = _str_or_empty(block.get("printed_label")).casefold()
-            prefix = "pickup" if label == "ship from" else "destination" if label == "ship to" else ""
+            prefix = "pickup" if label == "ship from" else "delivery" if label == "ship to" else ""
             if not prefix:
                 continue
             location = _str_or_empty(block.get("location_name"))
@@ -241,7 +241,7 @@ def derive_pod_scoring_observations(
     ]
     pickup_date = _first_stop_time(stop_times, ("pickup_checkin_time", "pickup_checkout_time"))
     delivery_date = _first_stop_time(stop_times, ("delivery_checkin_time", "delivery_checkout_time"))
-    location_values = _pickup_destination_values(page_list)
+    location_values = _pickup_delivery_values(page_list)
 
     return {
         "delivery_signature_present": delivery_signature_present,
@@ -251,8 +251,8 @@ def derive_pod_scoring_observations(
         "delivery_date": delivery_date,
         "pickup_location": location_values.get("pickup_location"),
         "pickup_address": location_values.get("pickup_address"),
-        "destination_location": location_values.get("destination_location"),
-        "destination_address": location_values.get("destination_address"),
+        "delivery_location": location_values.get("delivery_location"),
+        "delivery_address": location_values.get("delivery_address"),
         "pallets_shipped": _pallets_shipped_from_pages(page_list),
         "damage_detected": damage_detected,
         "damage_detail": damage_detail or None,
