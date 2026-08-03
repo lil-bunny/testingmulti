@@ -1,27 +1,20 @@
 """PoD-vs-Turvo scoring result types (pure, no I/O).
 
-Shared contract for ``score_pod``, the ``pod_scoring`` node, and Teams/activity
-consumers.
+Stored schema contract: flat field-wise scoring grouped by stop.
 
-Model:
-
-- ``signature``: document-level delivery receiver proof, shared across POs
-- ``stops``: one block per stop type (pickup / delivery) with the prorated
-  reference-id result plus Pass 2 diff fields (dates + pickup/destination text)
-- ``validation``: the 40-point validation bucket combining reference-id + Pass 2
-  (reference-id keeps earned points; Pass 2 prorates the remaining capacity)
-- ``final_score``: signature + validation bucket, always out of 100
-- ``pass_threshold``: score floor for ``overall_status`` PASS (surfaced to the ops UI)
-- ``po_scores``: per-Turvo-PO audit evidence (matched flag + page comparisons)
+- Each stop has ``fields[]`` where every field carries ``label``, ``category``,
+  ``score``, ``maxScore``. Optional keys: ``remark``, ``source``, ``target``,
+  ``comparisons`` (for reference_id).
+- Signature lives inside the delivery stop as an identity field.
+- Root carries ``finalScore``, ``maxScore``, ``passThreshold``.
+- ``exceptions``, ``remarks``, ``reviewReasons``, ``stopTimes`` are omitted
+  when empty (not stored).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
-
-if TYPE_CHECKING:
-    from app.domain.pod_lifecycle.validation_score import ValidationBucketScore
+from typing import Literal
 
 ExceptionType = Literal[
     "damage",
@@ -31,50 +24,52 @@ ExceptionType = Literal[
 ]
 OverallStatus = Literal["PASS", "FAIL"]
 StopType = Literal["pickup", "delivery"]
+FieldCategory = Literal["identity", "shipment_detail"]
+
 PASS_THRESHOLD = 90
 
 
 @dataclass(frozen=True)
-class PodFieldResult:
-    """One compared field (signature, reference-id, or Pass 2 diff).
+class PoComparison:
+    """One PO comparison within a reference_id field."""
 
-    ``target`` holds the Turvo side and ``source`` the POD side for the ops
-    dashboard. Every field is always scored (0..max); Pass 2 fields contribute
-    via proration, not by the field itself.
+    po_number: str
+    matched: bool
+    source: str | None = None
+    target: str | None = None
+
+
+@dataclass(frozen=True)
+class ScoredField:
+    """One scored field within a stop.
+
+    Base contract: label, category, score, max_score always present.
+    Optional: remark, source, target, comparisons.
     """
 
     label: str
+    category: FieldCategory
     score: int
     max_score: int
-    remark: str
-    target: str | None = None
+    remark: str | None = None
     source: str | None = None
+    target: str | None = None
+    comparisons: list[PoComparison] | None = None
 
 
 @dataclass(frozen=True)
-class PodStopScore:
-    """Reference-id and Pass 2 diff evidence for one Turvo stop type."""
+class StopScore:
+    """All scored fields for one stop."""
 
     stop_type: StopType
-    po_total: int
-    po_matched: int
-    reference_id: PodFieldResult
-    diff: list[PodFieldResult] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class PodPurchaseOrderScore:
-    """Per-Turvo-PO audit evidence (matched status + page evidence)."""
-
-    po_number: str
-    stop_type: StopType
-    matched: bool
-    page_comparisons: list[dict] = field(default_factory=list)
+    stop_order: int
+    fields: list[ScoredField]
+    stop_times: list[dict] | None = None
 
 
 @dataclass(frozen=True)
 class PodException:
-    """Damage / short / over-shipment flag — never affects ``final_score``."""
+    """Damage / short / over-shipment flag — never affects score."""
 
     exception_type: ExceptionType
     detail: str
@@ -82,18 +77,13 @@ class PodException:
 
 @dataclass(frozen=True)
 class PodScoreResult:
-    """Numeric PoD-vs-Turvo score and evidence for an Ops review decision."""
+    """Root scoring result stored in document_analysis.results."""
 
-    signature: PodFieldResult
-    stops: list[PodStopScore]
-    validation: ValidationBucketScore
     final_score: int
-    overall_status: OverallStatus
-    max_score: int = 100
-    pass_threshold: int = PASS_THRESHOLD
-    po_scores: list[PodPurchaseOrderScore] = field(default_factory=list)
-    exceptions: list[PodException] = field(default_factory=list)
-    needs_action: bool = False
-    remarks: list[str] = field(default_factory=list)
-    review_reasons: list[str] = field(default_factory=list)
-    stop_times: list[dict] = field(default_factory=list)
+    max_score: int
+    pass_threshold: int
+    stops: list[StopScore]
+    exceptions: list[PodException] | None = None
+    remarks: list[str] | None = None
+    review_reasons: list[str] | None = None
+    needs_action: bool = True

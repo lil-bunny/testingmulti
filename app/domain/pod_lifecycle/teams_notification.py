@@ -67,26 +67,33 @@ def resolve_pod_scoring_summary(score: dict[str, Any]) -> str:
         return "No Turvo purchase orders were found to score."
 
     parts: list[str] = []
-    signature = score.get("signature")
-    if isinstance(signature, dict):
-        parts.append(
-            f"{signature.get('label')} {signature.get('score')}/{signature.get('max_score')}"
-        )
     for stop in stops:
         if not isinstance(stop, dict):
             continue
         stop_type = stop.get("stop_type")
-        reference_id = stop.get("reference_id")
-        if isinstance(reference_id, dict):
-            parts.append(
-                f"{stop_type} ref-id {reference_id.get('score')}/{reference_id.get('max_score')} "
-                f"({stop.get('po_matched')}/{stop.get('po_total')} POs)"
-            )
-        diff = [field for field in (stop.get("diff") or []) if isinstance(field, dict)]
-        if diff:
-            diff_scored = sum(int(field.get("score") or 0) for field in diff)
-            diff_max = sum(int(field.get("max_score") or 0) for field in diff)
-            parts.append(f"{stop_type} diff {diff_scored}/{diff_max}")
+        fields = stop.get("fields") if isinstance(stop.get("fields"), list) else []
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            label = field.get("label")
+            if label == "signature":
+                parts.append(
+                    f"signature {field.get('score')}/{field.get('max_score')}"
+                )
+            elif label == "reference_id":
+                comparisons = field.get("comparisons") or []
+                total = len(comparisons)
+                matched = sum(1 for c in comparisons if isinstance(c, dict) and c.get("matched"))
+                parts.append(
+                    f"{stop_type} ref-id {field.get('score')}/{field.get('max_score')} "
+                    f"({matched}/{total} POs)"
+                )
+        detail_fields = [f for f in fields if isinstance(f, dict) and f.get("category") == "shipment_detail"]
+        if detail_fields:
+            detail_scored = sum(int(f.get("score") or 0) for f in detail_fields)
+            detail_max = sum(int(f.get("max_score") or 0) for f in detail_fields)
+            parts.append(f"{stop_type} detail {detail_scored}/{detail_max}")
+
     summary = "; ".join(p for p in parts if p)
     if not summary:
         return "No Turvo purchase orders were found to score."
@@ -140,8 +147,10 @@ def pod_analysis_display_fields_from_data(
     except (TypeError, ValueError):
         return None
 
-    overall = str(score.get("overall_status") or "UNKNOWN").strip().upper()
-    if overall not in ("PASS", "FAIL", "UNKNOWN"):
+    pass_threshold = score.get("pass_threshold", 90)
+    try:
+        overall = "PASS" if float(final_score) >= pass_threshold else "FAIL"
+    except (TypeError, ValueError):
         overall = "UNKNOWN"
 
     return PodAnalysisDisplayFields(

@@ -2,13 +2,13 @@
 
 Score model:
 
-- signature: document-level delivery receiver proof, shared across POs (0/60)
+- signature: identity field inside delivery stop (0/60)
 - reference_id per stop (pickup / delivery): up to 20 each, prorated by the
   ratio of matched Turvo POs on that stop
-- Pass 2 fields (dates + pickup/destination location and address) are always
-  computed, scored, and stored with both Turvo and POD values (0/40 raw)
-- the 40-point validation bucket combines reference_id + Pass 2 by proportional
-  proration; the overall score is always out of 100
+- shipment_detail fields (dates + pickup/delivery location and address) are
+  always scored with source/target values
+- the final score aggregation (proration) is computed by freightx-api at
+  read time, not stored
 """
 
 from __future__ import annotations

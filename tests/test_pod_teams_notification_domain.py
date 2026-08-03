@@ -38,16 +38,14 @@ def test_parse_pod_teams_notification_settings() -> None:
     assert settings.message_title == "POD — Load {load_id}"
 
 
-def _scoring_results(*, final_score: float, result: str, stops: list | None = None) -> dict:
+def _scoring_results(*, final_score: float, stops: list | None = None) -> dict:
     return {
         "success": True,
         "score": {
             "final_score": final_score,
-            "overall_status": result,
-            "signature": {"label": "signature", "score": 60, "max_score": 60, "remark": ""},
+            "max_score": 100,
+            "pass_threshold": 90,
             "stops": stops if stops is not None else [],
-            "exceptions": [],
-            "remarks": [],
         },
     }
 
@@ -58,21 +56,43 @@ def test_pod_analysis_display_fields_from_data() -> None:
             "load_id": "30389",
             "pod_scoring_results": _scoring_results(
                 final_score=88,
-                result="PASS",
                 stops=[
                     {
                         "stop_type": "pickup",
-                        "po_total": 1,
-                        "po_matched": 1,
-                        "reference_id": {"score": 20, "max_score": 20},
-                        "diff": [],
+                        "stop_order": 1,
+                        "fields": [
+                            {
+                                "label": "reference_id",
+                                "category": "identity",
+                                "score": 20,
+                                "max_score": 20,
+                                "comparisons": [
+                                    {"po_number": "PO1", "matched": True, "source": "PO1", "target": "PO1"}
+                                ],
+                            },
+                        ],
                     },
                     {
                         "stop_type": "delivery",
-                        "po_total": 1,
-                        "po_matched": 1,
-                        "reference_id": {"score": 20, "max_score": 20},
-                        "diff": [],
+                        "stop_order": 2,
+                        "fields": [
+                            {
+                                "label": "signature",
+                                "category": "identity",
+                                "score": 60,
+                                "max_score": 60,
+                                "remark": "Present.",
+                            },
+                            {
+                                "label": "reference_id",
+                                "category": "identity",
+                                "score": 20,
+                                "max_score": 20,
+                                "comparisons": [
+                                    {"po_number": "PO2", "matched": True, "source": "PO2", "target": "PO2"}
+                                ],
+                            },
+                        ],
                     },
                 ],
             ),
@@ -82,9 +102,10 @@ def test_pod_analysis_display_fields_from_data() -> None:
         load_id="30389",
         score="88/100",
         review_summary=(
-            "signature 60/60; pickup ref-id 20/20 (1/1 POs); delivery ref-id 20/20 (1/1 POs)"
+            "pickup ref-id 20/20 (1/1 POs); "
+            "signature 60/60; delivery ref-id 20/20 (1/1 POs)"
         ),
-        overall_status="PASS",
+        overall_status="FAIL",
     )
 
 
@@ -128,7 +149,7 @@ def test_pod_analysis_display_fields_from_shipment_custom_id() -> None:
         {
             "shipment_id": "1000324895",
             "shipment": {"details": {"customId": "30389", "id": 1000324895}},
-            "pod_scoring_results": _scoring_results(final_score=8, result="FAIL"),
+            "pod_scoring_results": _scoring_results(final_score=8),
         }
     )
     assert fields is not None
@@ -140,7 +161,7 @@ def test_pod_analysis_display_fields_falls_back_to_shipment_id() -> None:
     fields = pod_analysis_display_fields_from_data(
         {
             "shipment_id": "1000324895",
-            "pod_scoring_results": _scoring_results(final_score=50, result="FAIL"),
+            "pod_scoring_results": _scoring_results(final_score=50),
         }
     )
     assert fields is not None

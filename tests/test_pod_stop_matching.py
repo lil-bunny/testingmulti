@@ -85,7 +85,6 @@ def test_30397_style_bol_accumulates_po_pages_and_delivery_times() -> None:
     ]
     assert score.final_score == 100
     assert score.needs_action is True
-    assert score.overall_status == "PASS"
 
 
 def test_po_target_address_mismatch_requires_review_without_score_threshold() -> None:
@@ -107,7 +106,7 @@ def test_po_target_address_mismatch_requires_review_without_score_threshold() ->
 
     assert observations["po_matches"]["A1178441"]["mismatched_pages"] == [1]
     assert score.needs_action is True
-    assert all("pickup" not in reason.lower() for reason in score.review_reasons)
+    assert all("pickup" not in reason.lower() for reason in (score.review_reasons or []))
 
 
 def test_delivery_stamp_counts_without_a_signature_owner_label() -> None:

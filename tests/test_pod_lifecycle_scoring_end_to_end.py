@@ -137,8 +137,9 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 100
     assert score["needs_action"] is True
-    assert score["overall_status"] == "PASS"
-    assert len(score["po_scores"]) == 2
+    assert score["pass_threshold"] == 90
+    # Verify stops have fields with comparisons (replaces old po_scores check)
+    assert len(score["stops"]) == 2
 
     mock_upsert.assert_called_once()
     args, kwargs = mock_upsert.call_args
@@ -201,7 +202,9 @@ def test_pod_lifecycle_scoring_fails_without_delivery_signature(
 
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 40
-    assert score["signature"]["score"] == 0
+    # Signature is inside delivery stop
+    delivery_stop = next(s for s in score["stops"] if s["stop_type"] == "delivery")
+    sig_field = next(f for f in delivery_stop["fields"] if f["label"] == "signature")
+    assert sig_field["score"] == 0
     assert score["needs_action"] is True
-    assert score["overall_status"] == "FAIL"
     mock_upsert.assert_called_once()

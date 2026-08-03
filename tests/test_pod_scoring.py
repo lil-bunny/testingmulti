@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from app.domain.pod_lifecycle.pod_score_result import PodStopScore
-from app.domain.pod_lifecycle.validation_score import calculate_validation_score
+from app.domain.pod_lifecycle.pod_score_result import ScoredField, StopScore
 from app.integrations.turvo.pod_inputs import TurvoPurchaseOrder, TurvoShipmentPodInputs, TurvoStop
 from app.services.pod_lifecycle.pod_scoring import score_pod
 
@@ -50,14 +49,31 @@ def _inputs(
     )
 
 
-def _stop(result, stop_type: str) -> PodStopScore:
-    stop = next((item for item in result.stops if item.stop_type == stop_type), None)
+def _stop(result, stop_type: str) -> StopScore:
+    stop = next((s for s in result.stops if s.stop_type == stop_type), None)
     assert stop is not None
-    assert isinstance(stop, PodStopScore)
     return stop
 
 
-def test_signature_is_document_level_and_absent_zeroes_only_signature_component() -> None:
+def _field(stop: StopScore, label: str) -> ScoredField:
+    field = next((f for f in stop.fields if f.label == label), None)
+    assert field is not None
+    return field
+
+
+def _ref_id_score(result, stop_type: str) -> int:
+    stop = _stop(result, stop_type)
+    return _field(stop, "reference_id").score
+
+
+def _ref_id_total(result) -> int:
+    return sum(
+        f.score for s in result.stops for f in s.fields
+        if f.label == "reference_id"
+    )
+
+
+def test_signature_absent_zeroes_only_signature_component() -> None:
     pod_inputs = _inputs()
     observations = {
         "delivery_signature_present": False,
@@ -66,12 +82,12 @@ def test_signature_is_document_level_and_absent_zeroes_only_signature_component(
 
     result = score_pod(observations, pod_inputs)
 
-    assert result.signature.score == 0
-    assert result.signature.max_score == 60
-    # Reference-id is scored independently of the signature gate.
-    assert result.validation.ref_id_score == 40
+    delivery = _stop(result, "delivery")
+    sig = _field(delivery, "signature")
+    assert sig.score == 0
+    assert sig.max_score == 60
+    assert _ref_id_total(result) == 40
     assert result.final_score == 40
-    assert result.overall_status == "FAIL"
     assert result.needs_action is True
 
 
@@ -84,16 +100,14 @@ def test_signature_present_and_both_stops_reference_id_match_scores_100() -> Non
 
     result = score_pod(observations, pod_inputs)
 
-    assert result.signature.score == 60
+    delivery = _stop(result, "delivery")
+    sig = _field(delivery, "signature")
+    assert sig.score == 60
     assert result.final_score == 100
-    assert result.overall_status == "PASS"
     assert result.pass_threshold == 90
     assert result.needs_action is True
-    pickup = _stop(result, "pickup")
-    assert pickup.reference_id.score == 20
-    assert pickup.reference_id.max_score == 20
-    delivery = _stop(result, "delivery")
-    assert delivery.reference_id.score == 20
+    assert _ref_id_score(result, "pickup") == 20
+    assert _ref_id_score(result, "delivery") == 20
 
 
 def test_reference_id_prorated_50_50() -> None:
@@ -112,25 +126,22 @@ def test_reference_id_prorated_50_50() -> None:
 
     result = score_pod(observations, pod_inputs)
 
-    pickup = _stop(result, "pickup")
-    assert pickup.po_total == 1
-    assert pickup.po_matched == 1
-    assert pickup.reference_id.score == 20
+    pickup_ref = _field(_stop(result, "pickup"), "reference_id")
+    assert pickup_ref.score == 20
+    assert len(pickup_ref.comparisons) == 1
+    assert pickup_ref.comparisons[0].matched is True
 
-    delivery = _stop(result, "delivery")
-    assert delivery.po_total == 2
-    assert delivery.po_matched == 1
-    assert delivery.reference_id.score == 10
+    delivery_ref = _field(_stop(result, "delivery"), "reference_id")
+    assert delivery_ref.score == 10
+    assert len(delivery_ref.comparisons) == 2
 
-    assert result.validation.ref_id_score == 30
-    # Pass 2 raw is empty here, so signature 60 + ref 30 decides the score.
+    assert _ref_id_total(result) == 30
+    # signature 60 + ref 30 + pass2 contributes to remaining 10 (raw 0) = 90
     assert result.final_score == 90
-    assert result.overall_status == "PASS"
     assert result.needs_action is True
 
 
-def test_pass2_fields_are_always_scored_and_carry_both_sides() -> None:
-    """Pass 2 keeps its real score even when reference-id already matched."""
+def test_shipment_detail_fields_carry_source_and_target() -> None:
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {
         "delivery_signature_present": True,
@@ -142,20 +153,19 @@ def test_pass2_fields_are_always_scored_and_carry_both_sides() -> None:
     result = score_pod(observations, pod_inputs)
 
     delivery = _stop(result, "delivery")
-    assert delivery.reference_id.score == 20
-    date_field = next(f for f in delivery.diff if f.label == "delivery_date")
+    date_field = _field(delivery, "delivery_date")
     assert date_field.score == 10
     assert date_field.target == "2026-07-21T13:00:00Z"
     assert date_field.source == "2026-07-21T13:00:00Z"
-    destination = next(f for f in delivery.diff if f.label == "destination_location")
-    assert destination.score == 5
-    assert destination.target == "COSTCO # 766"
-    assert destination.source == "COSTCO # 766"
-    assert result.validation.pass2_raw_score == 15
+    assert date_field.category == "shipment_detail"
+
+    location = _field(delivery, "delivery_location")
+    assert location.score == 5
+    assert location.source == "COSTCO # 766"
 
 
-def test_validation_bucket_prorates_pass2_into_remaining_capacity() -> None:
-    """ref-id fails (0) but Pass 2 raw is 30 -> bucket takes all 30."""
+def test_proration_pass2_fills_remaining_capacity() -> None:
+    """ref-id fails (0) but shipment detail raw is 30 -> contribution = 30."""
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {
         "delivery_signature_present": True,
@@ -167,12 +177,12 @@ def test_validation_bucket_prorates_pass2_into_remaining_capacity() -> None:
     }
 
     result = score_pod(observations, pod_inputs)
-    expected = 60 + calculate_validation_score(0, 30).score
-    assert result.final_score == expected
-    assert result.validation.pass2_contribution == 30
+    # ref_id = 0, detail_raw = 30, remaining = 40, contribution = 30
+    # final = 60 + 0 + 30 = 90
+    assert result.final_score == 90
 
 
-def test_validation_bucket_never_exceeds_100() -> None:
+def test_final_score_never_exceeds_100() -> None:
     pod_inputs = _inputs()
     observations = {
         "delivery_signature_present": True,
@@ -185,13 +195,12 @@ def test_validation_bucket_never_exceeds_100() -> None:
         "destination_address": "25900 Heather Place, Wilsonville, OR",
     }
     result = score_pod(observations, pod_inputs)
-    assert result.validation.ref_id_score == 40
-    assert result.validation.pass2_raw_score == 40
+    assert _ref_id_total(result) == 40
     assert result.final_score == 100
     assert result.max_score == 100
 
 
-def test_blank_diff_field_scores_zero_for_that_field() -> None:
+def test_blank_shipment_detail_field_scores_zero() -> None:
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {
         "delivery_signature_present": True,
@@ -200,27 +209,23 @@ def test_blank_diff_field_scores_zero_for_that_field() -> None:
     }
     result = score_pod(observations, pod_inputs)
     delivery = _stop(result, "delivery")
-    destination_address_field = next(
-        f for f in delivery.diff if f.label == "destination_address"
-    )
-    assert destination_address_field.score == 0
-    assert destination_address_field.target == _DELIVERY.address
-    assert destination_address_field.source is None
+    addr_field = _field(delivery, "delivery_address")
+    assert addr_field.score == 0
+    assert addr_field.target == _DELIVERY.address
+    assert addr_field.source is None
 
 
 def test_pickup_stop_with_no_turvo_pos_has_zero_ref_id() -> None:
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {"delivery_signature_present": True}
     result = score_pod(observations, pod_inputs)
-    pickup = _stop(result, "pickup")
-    assert pickup.po_total == 0
-    assert pickup.po_matched == 0
-    assert pickup.reference_id.score == 0
-    assert result.validation.ref_id_score == 0
+    pickup_ref = _field(_stop(result, "pickup"), "reference_id")
+    assert pickup_ref.score == 0
+    assert pickup_ref.comparisons == []
     assert result.final_score == 60
 
 
-def test_exceptions_do_not_affect_score_but_force_needs_action() -> None:
+def test_exceptions_do_not_affect_score() -> None:
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {
         "delivery_signature_present": True,
@@ -233,6 +238,7 @@ def test_exceptions_do_not_affect_score_but_force_needs_action() -> None:
 
     assert result.final_score == 80
     assert result.needs_action is True
+    assert result.exceptions is not None
     assert len(result.exceptions) == 1
     assert result.exceptions[0].exception_type == "damage"
 
@@ -245,6 +251,7 @@ def test_short_shipment_exception_detected() -> None:
         "pallets_shipped": 13,
     }
     result = score_pod(observations, pod_inputs)
+    assert result.exceptions is not None
     assert len(result.exceptions) == 1
     assert result.exceptions[0].exception_type == "short_shipment"
     assert result.final_score == 80
@@ -258,6 +265,7 @@ def test_over_shipment_exception_detected() -> None:
         "pallets_shipped": 15,
     }
     result = score_pod(observations, pod_inputs)
+    assert result.exceptions is not None
     assert result.exceptions[0].exception_type == "over_shipment"
 
 
@@ -274,23 +282,26 @@ def test_refused_delivery_is_prominently_classified() -> None:
     )
 
     assert result.final_score == 80
-    assert result.overall_status == "FAIL"
     assert result.needs_action is True
+    assert result.exceptions is not None
     assert result.exceptions[0].exception_type == "refused_delivery"
 
 
-def test_pickup_signature_flag_is_ignored_by_scoring() -> None:
-    """Pickup has no signature concept in the result; the flag is never scored."""
+def test_signature_only_on_delivery_stop() -> None:
+    """Signature field exists only in delivery stop, not pickup."""
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {
         "delivery_signature_present": True,
-        "pickup_signature_present": False,
         "extracted_reference_numbers": [_DELIVERY_PO],
     }
     result = score_pod(observations, pod_inputs)
-    assert result.signature.score == 60
-    assert result.remarks == []
-    assert not hasattr(result, "pickup_signature_present")
+
+    pickup = _stop(result, "pickup")
+    assert all(f.label != "signature" for f in pickup.fields)
+
+    delivery = _stop(result, "delivery")
+    sig = _field(delivery, "signature")
+    assert sig.score == 60
 
 
 def test_no_purchase_orders_fails_closed() -> None:
@@ -301,25 +312,23 @@ def test_no_purchase_orders_fails_closed() -> None:
     assert result.needs_action is True
 
 
-def test_reference_id_match_is_trim_and_casefold_only_no_leading_zero_strip() -> None:
-    """Locked decision: no leading-zero stripping — a dropped-zero sticker value fails."""
+def test_reference_id_match_is_casefold_no_leading_zero_strip() -> None:
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder("007660706282", "delivery")])
     observations = {
         "delivery_signature_present": True,
-        "extracted_reference_numbers": ["7660706282"],  # zeros dropped, e.g. sticker OCR
+        "extracted_reference_numbers": ["7660706282"],
     }
     result = score_pod(observations, pod_inputs)
-    # Ref-id fails; Pass 2 is all blank -> signature only = 60.
-    assert result.validation.ref_id_score == 0
+    assert _ref_id_total(result) == 0
     assert result.final_score == 60
 
     observations_padded = {**observations, "extracted_reference_numbers": ["007660706282"]}
     result_padded = score_pod(observations_padded, pod_inputs)
-    assert result_padded.validation.ref_id_score == 20
+    assert _ref_id_total(result_padded) == 20
     assert result_padded.final_score == 80
 
 
-def test_po_scores_are_audit_evidence_per_turvo_po() -> None:
+def test_comparisons_show_matched_and_unmatched_pos() -> None:
     pod_inputs = _inputs(
         purchase_orders=[
             TurvoPurchaseOrder(po_number=_PICKUP_PO, stop_type="pickup"),
@@ -332,7 +341,34 @@ def test_po_scores_are_audit_evidence_per_turvo_po() -> None:
         "extracted_reference_numbers": [_PICKUP_PO, _DELIVERY_PO],
     }
     result = score_pod(observations, pod_inputs)
-    by_number = {po.po_number: po for po in result.po_scores}
-    assert by_number[_PICKUP_PO].matched is True
-    assert by_number[_DELIVERY_PO].matched is True
-    assert by_number["UNPROVEN"].matched is False
+
+    delivery_ref = _field(_stop(result, "delivery"), "reference_id")
+    by_po = {c.po_number: c for c in delivery_ref.comparisons}
+    assert by_po[_DELIVERY_PO].matched is True
+    assert by_po[_DELIVERY_PO].source == _DELIVERY_PO
+    assert by_po["UNPROVEN"].matched is False
+    assert by_po["UNPROVEN"].source is None
+    assert by_po["UNPROVEN"].target == "UNPROVEN"
+
+
+def test_exceptions_omitted_when_empty() -> None:
+    pod_inputs = _inputs()
+    observations = {
+        "delivery_signature_present": True,
+        "extracted_reference_numbers": [_PICKUP_PO, _DELIVERY_PO],
+    }
+    result = score_pod(observations, pod_inputs)
+    assert result.exceptions is None
+
+
+def test_stop_order_is_correct() -> None:
+    pod_inputs = _inputs()
+    observations = {
+        "delivery_signature_present": True,
+        "extracted_reference_numbers": [_PICKUP_PO, _DELIVERY_PO],
+    }
+    result = score_pod(observations, pod_inputs)
+    assert result.stops[0].stop_type == "pickup"
+    assert result.stops[0].stop_order == 1
+    assert result.stops[1].stop_type == "delivery"
+    assert result.stops[1].stop_order == 2
