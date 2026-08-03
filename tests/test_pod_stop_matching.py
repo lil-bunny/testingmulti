@@ -36,7 +36,7 @@ def test_30397_style_bol_accumulates_po_pages_and_delivery_times() -> None:
             ],
             "fields": [
                 {"key": "pickup_location", "value": "Lathrop"},
-                {"key": "destination_address", "value": "8400 WEST SHERMAN TOLLESON, AZ"},
+                {"key": "delivery_address", "value": "8400 WEST SHERMAN TOLLESON, AZ"},
             ],
             "signature_owner": "receiver",
             "proof_of_receipt": {"has_receiver_signature": True},
@@ -57,7 +57,7 @@ def test_30397_style_bol_accumulates_po_pages_and_delivery_times() -> None:
             ],
             "fields": [
                 {"key": "pickup_address", "value": "11908 Harlan Road Lathrop, CA 95330"},
-                {"key": "destination_address", "value": "8400 WEST SHERMAN TOLLESON, AZ 85353"},
+                {"key": "delivery_address", "value": "8400 WEST SHERMAN TOLLESON, AZ 85353"},
             ],
             "proof_of_receipt": {},
             "stop_times": [],
@@ -85,7 +85,6 @@ def test_30397_style_bol_accumulates_po_pages_and_delivery_times() -> None:
     ]
     assert score.final_score == 100
     assert score.needs_action is True
-    assert score.overall_status == "PASS"
 
 
 def test_po_target_address_mismatch_requires_review_without_score_threshold() -> None:
@@ -107,7 +106,7 @@ def test_po_target_address_mismatch_requires_review_without_score_threshold() ->
 
     assert observations["po_matches"]["A1178441"]["mismatched_pages"] == [1]
     assert score.needs_action is True
-    assert all("pickup" not in reason.lower() for reason in score.review_reasons)
+    assert all("pickup" not in reason.lower() for reason in (score.review_reasons or []))
 
 
 def test_delivery_stamp_counts_without_a_signature_owner_label() -> None:
@@ -118,7 +117,7 @@ def test_delivery_stamp_counts_without_a_signature_owner_label() -> None:
                 "page_number": 1,
                 "reference_ids": [{"label": "Customer PO#", "value": "009360713406"}],
                 "fields": [
-                    {"key": "destination_address", "value": "8400 West Sherman, Tolleson, AZ"}
+                    {"key": "delivery_address", "value": "8400 West Sherman, Tolleson, AZ"}
                 ],
                 "signature_owner": "unknown",
                 "proof_of_receipt": {"has_stamp": True},

@@ -166,6 +166,31 @@ This continues on the same email thread as the ratecon step above, it isn't a se
 
 If you want to see a POD reminder email fire without waiting hours for the real schedule, you can revoke the scheduled Celery task and re-submit it with `countdown=0`, see `celery -A app.celery_app:celery_app inspect scheduled` to find it.
 
+### 5. Re-run POD vs TMS scoring (stored S3 POD)
+
+After a shipment already has a POD document in S3 (and ideally a `pod_extraction` row), you can re-score without re-uploading. Portal Bearer auth; jobs go to the tenant Celery work queue (`t3ra` for T3RA).
+
+`POST /api/v1/shipments/rescore_pod_vs_tms`
+
+- `shipment_ids`: `shipments.id` UUIDs (not Turvo shipment numbers), max 50
+- `use_existing_extraction` (default `true`): reuse `document_analysis` `pod_extraction` when present; if missing, analyze the stored S3 PDF then score. Set `false` to always re-analyze the stored PDF before scoring
+- Always re-fetches Turvo, then upserts `pod_vs_tms_analysis`
+- One Celery task per shipment via `apply_async_on_work_queue`
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/shipments/rescore_pod_vs_tms" \
+  -H "Authorization: Bearer YOUR_PORTAL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shipment_ids": [
+      "11111111-1111-1111-1111-111111111111"
+    ],
+    "use_existing_extraction": true
+  }'
+```
+
+Optional header: `X-Tenant-Slug: t3ra` (must match the token tenant). Response is `202` with per-id `status` (`queued`, `not_found`, `no_pod_document`, …) and `celery_task_id`. Watch the T3RA worker log for `process_pod_vs_tms_rescore`. Restart the worker after pulling this endpoint so the task is registered.
+
 ## Common issues that you may run into
 
 ### `SignatureDoesNotMatch` or `InvalidAccessKeyId` on S3 upload

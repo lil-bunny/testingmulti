@@ -123,6 +123,75 @@ def _first_stop_time(stop_times: list[Any], keys: tuple[str, str]) -> str | None
     return None
 
 
+def _location_value_from_page(page: dict[str, Any]) -> dict[str, str]:
+    """
+    Extract pickup / destination location name + address from one page.
+
+    Prefers ``location_blocks`` labeled "Ship From" / "Ship To" and falls back to
+    the ``fields`` keys the POD extraction uses (``pickup_location``,
+    ``pickup_address``, ``delivery_location``, ``delivery_address``).
+    """
+    values: dict[str, str] = {}
+    for block in page.get("location_blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        label = _str_or_empty(block.get("printed_label")).casefold()
+        prefix = "pickup" if label == "ship from" else "delivery" if label == "ship to" else ""
+        if not prefix:
+            continue
+        location = _str_or_empty(block.get("location_name"))
+        address = _str_or_empty(block.get("address"))
+        if location:
+            values.setdefault(f"{prefix}_location", location)
+        if address:
+            values.setdefault(f"{prefix}_address", address)
+
+    for field in page.get("fields") or []:
+        if not isinstance(field, dict):
+            continue
+        key = str(field.get("key") or "").strip()
+        if key not in (
+            "pickup_location",
+            "pickup_address",
+            "delivery_location",
+            "delivery_address",
+        ):
+            continue
+        value = _str_or_empty(field.get("value"))
+        if value:
+            values.setdefault(key, value)
+    return values
+
+
+def _pickup_delivery_values(pages: list[dict[str, Any]]) -> dict[str, str]:
+    """Pickup / delivery location + address, preferring labeled blocks.
+
+    ``location_blocks`` labeled "Ship From" / "Ship To" are the authoritative
+    stop evidence; the ``fields`` keys are only a fallback for pages that lack
+    them.
+    """
+    merged: dict[str, str] = {}
+    for page in pages:
+        for block in page.get("location_blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            label = _str_or_empty(block.get("printed_label")).casefold()
+            prefix = "pickup" if label == "ship from" else "delivery" if label == "ship to" else ""
+            if not prefix:
+                continue
+            location = _str_or_empty(block.get("location_name"))
+            address = _str_or_empty(block.get("address"))
+            if location:
+                merged.setdefault(f"{prefix}_location", location)
+            if address:
+                merged.setdefault(f"{prefix}_address", address)
+
+    for page in pages:
+        for key, value in _location_value_from_page(page).items():
+            merged.setdefault(key, value)
+    return merged
+
+
 def derive_pod_scoring_observations(
     pages: Any,
 ) -> dict[str, Any]:
@@ -172,6 +241,7 @@ def derive_pod_scoring_observations(
     ]
     pickup_date = _first_stop_time(stop_times, ("pickup_checkin_time", "pickup_checkout_time"))
     delivery_date = _first_stop_time(stop_times, ("delivery_checkin_time", "delivery_checkout_time"))
+    location_values = _pickup_delivery_values(page_list)
 
     return {
         "delivery_signature_present": delivery_signature_present,
@@ -179,6 +249,10 @@ def derive_pod_scoring_observations(
         "extracted_reference_numbers": sorted(reference_values),
         "pickup_date": pickup_date,
         "delivery_date": delivery_date,
+        "pickup_location": location_values.get("pickup_location"),
+        "pickup_address": location_values.get("pickup_address"),
+        "delivery_location": location_values.get("delivery_location"),
+        "delivery_address": location_values.get("delivery_address"),
         "pallets_shipped": _pallets_shipped_from_pages(page_list),
         "damage_detected": damage_detected,
         "damage_detail": damage_detail or None,

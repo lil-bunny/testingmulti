@@ -32,6 +32,15 @@ _POD_ANALYSIS_ERRORS = {
 }
 
 
+def _strip_none_values(obj):
+    """Recursively remove keys with None values from dicts (omit-when-empty serialization)."""
+    if isinstance(obj, dict):
+        return {k: _strip_none_values(v) for k, v in obj.items() if v is not None}
+    if isinstance(obj, list):
+        return [_strip_none_values(item) for item in obj]
+    return obj
+
+
 def _raise_on_tool_failure(out: dict, error_map: dict) -> None:
     if out.get("skipped") or out.get("success"):
         return
@@ -298,7 +307,7 @@ def pod_scoring(state):
         pod_observations = {**pod_observations, **stop_observations}
 
     score = score_pod(pod_observations, pod_inputs)
-    score_dict = asdict(score)
+    score_dict = _strip_none_values(asdict(score))
     state.data["pod_scoring_results"] = {"success": True, "score": score_dict}
 
     shipments_row_id = resolve_shipments_row_id_for_db(state.data)

@@ -19,6 +19,10 @@ from app.services.pod_lifecycle.manual_upload_ingress_service import (
     PodLifecycleNotFoundError,
     PodManualUploadIngressService,
 )
+from app.services.pod_lifecycle.pod_vs_tms_rescore_service import (
+    MAX_BATCH_SIZE,
+    PodVsTmsRescoreService,
+)
 from app.services.pod_lifecycle.tms_upload_service import (
     PodDocumentNotFoundError,
     PodTmsUploadService,
@@ -40,6 +44,44 @@ class PodUploadQueuedResponse(BaseModel):
         None,
         description="Whether the POD came from the request upload or existing storage",
     )
+
+
+class PodVsTmsRescoreRequest(BaseModel):
+    shipment_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_BATCH_SIZE,
+        description="Shipments.id UUIDs to rescore (max 50)",
+    )
+    use_existing_extraction: bool = Field(
+        True,
+        description=(
+            "When true, reuse stored pod_extraction when present; if missing, "
+            "re-analyze the stored S3 POD PDF. When false, always re-analyze."
+        ),
+    )
+
+
+class PodVsTmsRescoreItemResponse(BaseModel):
+    shipment_id: str
+    status: Literal[
+        "queued",
+        "not_found",
+        "no_pod_document",
+        "invalid_shipment_id",
+        "enqueue_failed",
+    ]
+    celery_task_id: str | None = None
+    shipment_number: str | None = None
+    error: str | None = None
+
+
+class PodVsTmsRescoreQueuedResponse(BaseModel):
+    success: bool = True
+    use_existing_extraction: bool
+    items: list[PodVsTmsRescoreItemResponse]
+    queued_count: int
+    message: str = "rescore jobs accepted"
 
 
 @router.post(
@@ -126,4 +168,53 @@ async def upload_pod(
         object_key=result.object_key,
         document_id=result.document_id,
         source=result.source,
+    )
+
+
+@router.post(
+    "/rescore_pod_vs_tms",
+    response_model=PodVsTmsRescoreQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue POD vs TMS rescore for stored POD documents",
+    dependencies=[Security(portal_bearer)],
+    responses={
+        401: {"description": "Unauthorized"},
+        422: {"description": "Unprocessable entity"},
+        503: {"description": "Service unavailable"},
+    },
+)
+async def rescore_pod_vs_tms(
+    body: PodVsTmsRescoreRequest,
+    tenant_slug: Annotated[str, Depends(get_tenant_slug_for_user)],
+    _: Annotated[str, Depends(require_turvo_oauth_linked_for_slug)],
+) -> PodVsTmsRescoreQueuedResponse:
+    """Enqueue one Celery rescore job per shipment on the tenant work queue."""
+    pod_vs_tms_rescore_service = PodVsTmsRescoreService()
+    try:
+        items = pod_vs_tms_rescore_service.enqueue_batch(
+            tenant_slug=tenant_slug,
+            shipment_ids=body.shipment_ids,
+            use_existing_extraction=body.use_existing_extraction,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    queued = [item for item in items if item.status == "queued"]
+    return PodVsTmsRescoreQueuedResponse(
+        use_existing_extraction=body.use_existing_extraction,
+        items=[
+            PodVsTmsRescoreItemResponse(
+                shipment_id=item.shipment_id,
+                status=item.status,
+                celery_task_id=item.celery_task_id,
+                shipment_number=item.shipment_number,
+                error=item.error,
+            )
+            for item in items
+        ],
+        queued_count=len(queued),
+        message="rescore jobs accepted",
     )

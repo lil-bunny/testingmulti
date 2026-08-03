@@ -1,9 +1,18 @@
 """PoD-vs-Turvo scoring engine (pure; no DB/HTTP).
 
 LLM supplies ``pod_observations``; this module applies the deterministic score.
-Flow per PO: delivery-signature gate (60) → ref-id match (40) → else Pass 2
-(dates + shipper/consignee text). Final score is the mean of PO totals;
-exceptions never change points. Phase 1 always routes the result to manual review.
+
+Score model (stored):
+- Flat field-wise scoring grouped by stop
+- Signature inside delivery stop as identity field (0/60)
+- reference_id per stop with comparisons[] (0/20 each)
+- shipment_detail fields: dates (0/10), location/address (0/5) with source/target
+- Root: finalScore, maxScore, passThreshold
+- exceptions/remarks/reviewReasons/stopTimes omitted when empty
+
+The final score uses blended proration (ref_id keeps points, pass2 fills
+remaining capacity up to 40). This is computed here for storage but the
+API layer owns the policy and can re-derive at read time.
 """
 
 from __future__ import annotations
@@ -15,31 +24,34 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.domain.pod_lifecycle.pod_score_result import (
     PASS_THRESHOLD,
+    PoComparison,
     PodException,
-    PodFieldResult,
-    PodPurchaseOrderScore,
     PodScoreResult,
+    ScoredField,
+    StopScore,
 )
 from app.domain.pod_lifecycle.scoring_constants import (
+    DATE_POINTS,
     EXCEPTION_DAMAGE_DEFAULT_DETAIL,
     EXCEPTION_PALLET_QTY_TEMPLATE,
     LABEL_REFERENCE_ID,
     LABEL_SIGNATURE,
-    PASS1_REFERENCE_ID_POINTS,
-    PASS1_SIGNATURE_POINTS,
-    PASS2_DATE_POINTS,
-    PASS2_TEXT_POINTS,
+    REFERENCE_ID_POINTS_PER_STOP,
     REMARK_DATE_MATCH_TEMPLATE,
     REMARK_DATE_NO_MATCH_TEMPLATE,
     REMARK_NO_TURVO_PO,
     REMARK_REFERENCE_ID_MATCH_TEMPLATE,
     REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE,
-    REMARK_REFERENCE_ID_SKIPPED_SIGNATURE_FAILED,
+    REMARK_REFERENCE_ID_NO_POS_TEMPLATE,
     REMARK_SIGNATURE_ABSENT,
     REMARK_SIGNATURE_PRESENT,
     REMARK_TEXT_IDENTIFIABLE_TEMPLATE,
     REMARK_TEXT_MISSING_TEMPLATE,
     REMARK_TEXT_NO_MATCH_TEMPLATE,
+    SIGNATURE_POINTS,
+    STOP_TYPE_DELIVERY,
+    STOP_TYPE_PICKUP,
+    TEXT_POINTS,
 )
 from app.integrations.turvo.pod_inputs import (  # noqa: TC001
     TurvoPurchaseOrder,
@@ -49,207 +61,246 @@ from app.integrations.turvo.pod_inputs import (  # noqa: TC001
 _IDENTIFIABLE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
 _REFUSED_DELIVERY_PATTERN = re.compile(r"\brefus(?:e|ed|al)\b", re.IGNORECASE)
 
+_VALIDATION_BUCKET_MAX = 40
+
 
 def score_pod(
     pod_observations: dict[str, Any],
     turvo_inputs: TurvoShipmentPodInputs,
 ) -> PodScoreResult:
-    """
-    Score a PoD against Turvo shipment inputs. Pure and deterministic.
-
-    The numeric score has an informational PASS/FAIL status at the 90-point
-    threshold. Phase 1 still sends every POD to manual review.
-    """
+    """Score a PoD against Turvo shipment inputs. Pure and deterministic."""
     exceptions = _exceptions_from_observations(pod_observations, turvo_inputs)
-    # Pickup evidence is informational only.  It is not score-bearing and
-    # should not generate a signature-related remark or review reason.
-    pickup_signature_present = bool(pod_observations.get("pickup_signature_present", True))
-    remarks: list[str] = []
 
     if not turvo_inputs.purchase_orders:
-        remarks.append(REMARK_NO_TURVO_PO)
         return PodScoreResult(
-            po_scores=[],
             final_score=0,
-            overall_status="FAIL",
-            exceptions=exceptions,
-            needs_action=True,
-            pickup_signature_present=pickup_signature_present,
-            remarks=remarks,
+            max_score=100,
+            pass_threshold=PASS_THRESHOLD,
+            stops=[],
+            remarks=[REMARK_NO_TURVO_PO],
             review_reasons=[REMARK_NO_TURVO_PO],
+            exceptions=exceptions or None,
+            needs_action=True,
         )
 
-    delivery_signature_present = bool(pod_observations.get("delivery_signature_present"))
-    po_scores = [
-        _score_purchase_order(po, delivery_signature_present, pod_observations, turvo_inputs)
-        for po in turvo_inputs.purchase_orders
-    ]
-    scoreable_po_scores = [po for po in po_scores if po.po_total is not None]
-    if not scoreable_po_scores:
-        final_score = 0
-        review_reasons = _delivery_review_reasons(pod_observations.get("review_reasons"))
-        review_reasons.append("No delivery stop was available for POD scoring.")
-    else:
-        # Pickup rows are retained for dashboard visibility but are not scored.
-        final_score = round(sum(po.po_total or 0 for po in scoreable_po_scores) / len(scoreable_po_scores))
-        review_reasons = _delivery_review_reasons(pod_observations.get("review_reasons"))
-    # Phase 1 routes every scored POD to Ops review. The concrete reasons remain
-    # separately visible in exceptions and review_reasons.
-    needs_action = True
-    overall_status = "PASS" if final_score >= PASS_THRESHOLD else "FAIL"
+    pickup_stop = _build_stop(STOP_TYPE_PICKUP, 1, turvo_inputs, pod_observations)
+    delivery_stop = _build_stop(STOP_TYPE_DELIVERY, 2, turvo_inputs, pod_observations)
+
+    # Compute final score using blended proration
+    ref_id_total = _sum_identity_scores([pickup_stop, delivery_stop], exclude_signature=True)
+    signature_score = _get_signature_score(delivery_stop)
+    detail_raw = _sum_shipment_detail_scores([pickup_stop, delivery_stop])
+
+    remaining = _VALIDATION_BUCKET_MAX - ref_id_total
+    detail_contribution = round(detail_raw * remaining / _VALIDATION_BUCKET_MAX) if _VALIDATION_BUCKET_MAX else 0
+    validation_bucket = ref_id_total + detail_contribution
+    final_score = min(100, signature_score + validation_bucket)
+
+    review_reasons = _delivery_review_reasons(pod_observations.get("review_reasons"))
+    remarks: list[str] = []
 
     return PodScoreResult(
-        po_scores=po_scores,
         final_score=final_score,
-        overall_status=overall_status,
-        exceptions=exceptions,
-        needs_action=needs_action,
-        pickup_signature_present=pickup_signature_present,
-        remarks=remarks,
-        review_reasons=review_reasons,
-        stop_times=list(pod_observations.get("stop_times") or []),
+        max_score=100,
+        pass_threshold=PASS_THRESHOLD,
+        stops=[pickup_stop, delivery_stop],
+        exceptions=exceptions or None,
+        remarks=remarks or None,
+        review_reasons=review_reasons or None,
+        needs_action=True,
+    )
+
+
+def _build_stop(
+    stop_type: str,
+    stop_order: int,
+    turvo_inputs: TurvoShipmentPodInputs,
+    pod_observations: dict[str, Any],
+) -> StopScore:
+    """Build all fields for a single stop."""
+    fields: list[ScoredField] = []
+
+    # Signature only on delivery
+    if stop_type == STOP_TYPE_DELIVERY:
+        fields.append(_signature_field(pod_observations))
+
+    # Reference ID
+    fields.append(_reference_id_field(stop_type, turvo_inputs, pod_observations))
+
+    # Shipment detail fields
+    fields.extend(_shipment_detail_fields(stop_type, turvo_inputs, pod_observations))
+
+    stop_times = list(pod_observations.get("stop_times") or [])
+
+    return StopScore(
+        stop_type=stop_type,
+        stop_order=stop_order,
+        fields=fields,
+        stop_times=stop_times or None,
+    )
+
+
+def _signature_field(pod_observations: dict[str, Any]) -> ScoredField:
+    present = bool(pod_observations.get("delivery_signature_present"))
+    return ScoredField(
+        label=LABEL_SIGNATURE,
+        category="identity",
+        score=SIGNATURE_POINTS if present else 0,
+        max_score=SIGNATURE_POINTS,
+        remark=REMARK_SIGNATURE_PRESENT if present else REMARK_SIGNATURE_ABSENT,
+    )
+
+
+def _reference_id_field(
+    stop_type: str,
+    turvo_inputs: TurvoShipmentPodInputs,
+    pod_observations: dict[str, Any],
+) -> ScoredField:
+    pos = [po for po in turvo_inputs.purchase_orders if po.stop_type == stop_type]
+    total = len(pos)
+
+    if total == 0:
+        return ScoredField(
+            label=LABEL_REFERENCE_ID,
+            category="identity",
+            score=0,
+            max_score=REFERENCE_ID_POINTS_PER_STOP,
+            remark=REMARK_REFERENCE_ID_NO_POS_TEMPLATE.format(stop_type=stop_type),
+            comparisons=[],
+        )
+
+    comparisons = []
+    matched_count = 0
+    for po in pos:
+        match_data = _po_stop_match(po.po_number, pod_observations)
+        is_matched = bool(match_data.get("reference_and_stop_match"))
+        if is_matched:
+            matched_count += 1
+        comparisons.append(
+            PoComparison(
+                po_number=po.po_number,
+                matched=is_matched,
+                source=po.po_number if is_matched else None,
+                target=po.po_number,
+            )
+        )
+
+    score = round(REFERENCE_ID_POINTS_PER_STOP * matched_count / total)
+    if matched_count:
+        remark = REMARK_REFERENCE_ID_MATCH_TEMPLATE.format(
+            stop_type=stop_type, matched=matched_count, total=total
+        )
+    else:
+        remark = REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE.format(stop_type=stop_type)
+
+    return ScoredField(
+        label=LABEL_REFERENCE_ID,
+        category="identity",
+        score=score,
+        max_score=REFERENCE_ID_POINTS_PER_STOP,
+        remark=remark,
+        comparisons=comparisons,
+    )
+
+
+def _shipment_detail_fields(
+    stop_type: str,
+    turvo_inputs: TurvoShipmentPodInputs,
+    pod_observations: dict[str, Any],
+) -> list[ScoredField]:
+    if stop_type == STOP_TYPE_PICKUP:
+        specs = (
+            (
+                "pickup_date",
+                turvo_inputs.pickup_date,
+                pod_observations.get("pickup_date"),
+                turvo_inputs.pickup.time_zone,
+                True,
+            ),
+            (
+                "pickup_location",
+                turvo_inputs.pickup.name,
+                pod_observations.get("pickup_location"),
+                None,
+                False,
+            ),
+            (
+                "pickup_address",
+                turvo_inputs.pickup.address,
+                pod_observations.get("pickup_address"),
+                None,
+                False,
+            ),
+        )
+    else:
+        specs = (
+            (
+                "delivery_date",
+                turvo_inputs.delivery_date,
+                pod_observations.get("delivery_date"),
+                turvo_inputs.delivery.time_zone,
+                True,
+            ),
+            (
+                "delivery_location",
+                turvo_inputs.delivery.name,
+                pod_observations.get("delivery_location"),
+                None,
+                False,
+            ),
+            (
+                "delivery_address",
+                turvo_inputs.delivery.address,
+                pod_observations.get("delivery_address"),
+                None,
+                False,
+            ),
+        )
+    return [
+        _date_field(label, target, source, time_zone)
+        if is_date
+        else _identifiable_text_field(label, target or "", source)
+        for label, target, source, time_zone, is_date in specs
+    ]
+
+
+def _sum_identity_scores(stops: list[StopScore], *, exclude_signature: bool = False) -> int:
+    total = 0
+    for stop in stops:
+        for f in stop.fields:
+            if f.category == "identity":
+                if exclude_signature and f.label == LABEL_SIGNATURE:
+                    continue
+                total += f.score
+    return total
+
+
+def _get_signature_score(delivery_stop: StopScore) -> int:
+    for f in delivery_stop.fields:
+        if f.label == LABEL_SIGNATURE:
+            return f.score
+    return 0
+
+
+def _sum_shipment_detail_scores(stops: list[StopScore]) -> int:
+    return sum(
+        f.score for stop in stops for f in stop.fields if f.category == "shipment_detail"
     )
 
 
 def _delivery_review_reasons(raw_reasons: object) -> list[str]:
-    """Keep review reasons relevant to the score-bearing delivery stop."""
     if not isinstance(raw_reasons, list):
         return []
     return [str(reason) for reason in raw_reasons if "pickup" not in str(reason).casefold()]
 
 
-def _score_purchase_order(
-    po: TurvoPurchaseOrder,
-    delivery_signature_present: bool,
-    pod_observations: dict[str, Any],
-    turvo_inputs: TurvoShipmentPodInputs,
-) -> PodPurchaseOrderScore:
-    """
-    Score one Turvo PO: shared delivery-signature gate, then ref-id or Pass 2.
-
-    Missing delivery signature zeros the PO (Pass 2 never runs). Ref-id any-match
-    awards 40; otherwise Pass 2 recovers up to 40 via dates + stop text fields.
-    """
-    if po.stop_type == "pickup":
-        return PodPurchaseOrderScore(
-            po_number=po.po_number,
-            stop_type=po.stop_type,
-            pass1=[],
-            pass2=None,
-            po_total=None,
-            page_comparisons=[],
-        )
-
-    if not delivery_signature_present:
-        pass1 = [
-            PodFieldResult(
-                label=LABEL_SIGNATURE,
-                score=0,
-                max_score=PASS1_SIGNATURE_POINTS,
-                remark=REMARK_SIGNATURE_ABSENT,
-            ),
-            PodFieldResult(
-                label=LABEL_REFERENCE_ID,
-                score=0,
-                max_score=PASS1_REFERENCE_ID_POINTS,
-                remark=REMARK_REFERENCE_ID_SKIPPED_SIGNATURE_FAILED,
-            ),
-        ]
-        return PodPurchaseOrderScore(
-            po_number=po.po_number,
-            stop_type=po.stop_type,
-            pass1=pass1,
-            pass2=None,
-            po_total=0,
-            page_comparisons=list(_po_stop_match(po.po_number, pod_observations).get("page_comparisons") or []),
-        )
-
-    signature_field = PodFieldResult(
-        label=LABEL_SIGNATURE,
-        score=PASS1_SIGNATURE_POINTS,
-        max_score=PASS1_SIGNATURE_POINTS,
-        remark=REMARK_SIGNATURE_PRESENT,
-    )
-
-    po_match = _po_stop_match(po.po_number, pod_observations)
-    if po_match.get("reference_and_stop_match"):
-        reference_field = PodFieldResult(
-            label=LABEL_REFERENCE_ID,
-            score=PASS1_REFERENCE_ID_POINTS,
-            max_score=PASS1_REFERENCE_ID_POINTS,
-            remark=REMARK_REFERENCE_ID_MATCH_TEMPLATE.format(po_number=po.po_number),
-        )
-        return PodPurchaseOrderScore(
-            po_number=po.po_number,
-            stop_type=po.stop_type,
-            pass1=[signature_field, reference_field],
-            pass2=None,
-            po_total=PASS1_SIGNATURE_POINTS + PASS1_REFERENCE_ID_POINTS,
-            page_comparisons=list(po_match.get("page_comparisons") or []),
-        )
-
-    reference_field = PodFieldResult(
-        label=LABEL_REFERENCE_ID,
-        score=0,
-        max_score=PASS1_REFERENCE_ID_POINTS,
-        remark=REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE.format(po_number=po.po_number),
-    )
-    pass2 = _score_pass2(turvo_inputs, pod_observations)
-    po_total = signature_field.score + sum(field.score for field in pass2)
-    return PodPurchaseOrderScore(
-        po_number=po.po_number,
-        stop_type=po.stop_type,
-        pass1=[signature_field, reference_field],
-        pass2=pass2,
-        po_total=po_total,
-        page_comparisons=list(po_match.get("page_comparisons") or []),
-    )
-
-
-def _score_pass2(
-    turvo_inputs: TurvoShipmentPodInputs,
-    pod_observations: dict[str, Any],
-) -> list[PodFieldResult]:
-    return [
-        _date_field(
-            "pickup_date",
-            turvo_inputs.pickup_date,
-            pod_observations.get("pickup_date"),
-            turvo_inputs.pickup.time_zone,
-        ),
-        _date_field(
-            "delivery_date",
-            turvo_inputs.delivery_date,
-            pod_observations.get("delivery_date"),
-            turvo_inputs.delivery.time_zone,
-        ),
-        _identifiable_text_field(
-            "shipper_name", turvo_inputs.pickup.name, pod_observations.get("shipper_name")
-        ),
-        _identifiable_text_field(
-            "shipper_address", turvo_inputs.pickup.address, pod_observations.get("shipper_address")
-        ),
-        _identifiable_text_field(
-            "consignee_name", turvo_inputs.delivery.name, pod_observations.get("consignee_name")
-        ),
-        _identifiable_text_field(
-            "consignee_address",
-            turvo_inputs.delivery.address,
-            pod_observations.get("consignee_address"),
-        ),
-    ]
-
-
 def _po_stop_match(po_number: str, pod_observations: dict[str, Any]) -> dict[str, Any]:
-    """Return the accumulated page evidence for a PO's Turvo-owned stop."""
     matches = pod_observations.get("po_matches")
     if isinstance(matches, dict):
         value = matches.get(po_number)
         if isinstance(value, dict):
             return value
 
-    # Compatibility for pre-stop-aware extracts. New POD analyses always use the
-    # page-level match above; historical/unit callers may only have a flat list.
     references = pod_observations.get("extracted_reference_numbers")
     if isinstance(references, list) and any(
         str(value or "").strip().casefold() == po_number.strip().casefold()
@@ -279,28 +330,38 @@ def _calendar_date_in_zone(iso_value: Any, time_zone: str | None) -> date | None
 
 def _date_field(
     label: str,
-    turvo_iso: str | None,
-    pod_iso: Any,
+    target: str | None,
+    source: Any,
     time_zone: str | None,
-) -> PodFieldResult:
-    """Award Pass 2 date points when POD and Turvo share the same calendar day in the stop TZ."""
-    turvo_date = _calendar_date_in_zone(turvo_iso, time_zone)
-    pod_date = _calendar_date_in_zone(pod_iso, time_zone)
+) -> ScoredField:
+    turvo_date = _calendar_date_in_zone(target, time_zone)
+    pod_date = _calendar_date_in_zone(source, time_zone)
     if turvo_date is not None and turvo_date == pod_date:
-        return PodFieldResult(
+        return ScoredField(
             label=label,
-            score=PASS2_DATE_POINTS,
-            max_score=PASS2_DATE_POINTS,
+            category="shipment_detail",
+            score=DATE_POINTS,
+            max_score=DATE_POINTS,
             remark=REMARK_DATE_MATCH_TEMPLATE.format(
                 label=label, turvo_date=turvo_date.isoformat()
             ),
+            target=target,
+            source=_clean_iso_text(source),
         )
-    return PodFieldResult(
+    return ScoredField(
         label=label,
+        category="shipment_detail",
         score=0,
-        max_score=PASS2_DATE_POINTS,
+        max_score=DATE_POINTS,
         remark=REMARK_DATE_NO_MATCH_TEMPLATE.format(label=label),
+        target=target,
+        source=_clean_iso_text(source),
     )
+
+
+def _clean_iso_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
 
 
 def _tokens(value: str) -> set[str]:
@@ -309,40 +370,43 @@ def _tokens(value: str) -> set[str]:
 
 def _identifiable_text_field(
     label: str,
-    turvo_value: str,
-    pod_value: Any,
-) -> PodFieldResult:
-    """
-    Award Pass 2 text points when POD text is non-blank and identifiable vs Turvo.
-
-    Identifiable ≈ shares ≥1 significant token (len≥3) with Turvo, or Turvo has
-    no comparable tokens (presence alone).
-    """
-    pod_text = str(pod_value or "").strip()
+    target: str,
+    source: Any,
+) -> ScoredField:
+    pod_text = str(source or "").strip()
     if not pod_text:
-        return PodFieldResult(
+        return ScoredField(
             label=label,
+            category="shipment_detail",
             score=0,
-            max_score=PASS2_TEXT_POINTS,
+            max_score=TEXT_POINTS,
             remark=REMARK_TEXT_MISSING_TEMPLATE.format(label=label),
+            target=target or None,
+            source=None,
         )
-    turvo_tokens = _tokens(turvo_value or "")
+    turvo_tokens = _tokens(target or "")
     pod_tokens = _tokens(pod_text)
     identifiable = not turvo_tokens or bool(turvo_tokens & pod_tokens)
     if identifiable:
-        return PodFieldResult(
+        return ScoredField(
             label=label,
-            score=PASS2_TEXT_POINTS,
-            max_score=PASS2_TEXT_POINTS,
+            category="shipment_detail",
+            score=TEXT_POINTS,
+            max_score=TEXT_POINTS,
             remark=REMARK_TEXT_IDENTIFIABLE_TEMPLATE.format(label=label, pod_text=pod_text),
+            target=target or None,
+            source=pod_text,
         )
-    return PodFieldResult(
+    return ScoredField(
         label=label,
+        category="shipment_detail",
         score=0,
-        max_score=PASS2_TEXT_POINTS,
+        max_score=TEXT_POINTS,
         remark=REMARK_TEXT_NO_MATCH_TEMPLATE.format(
-            label=label, pod_text=pod_text, turvo_value=turvo_value
+            label=label, pod_text=pod_text, target=target
         ),
+        target=target or None,
+        source=pod_text,
     )
 
 
