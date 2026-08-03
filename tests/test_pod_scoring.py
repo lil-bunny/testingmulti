@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from app.domain.pod_lifecycle.pod_score_result import PodStopScore
-from app.domain.pod_lifecycle.validation_score import (
-    DEFAULT_VALIDATION_STRATEGY,
-    calculate_validation_score,
-)
+from app.domain.pod_lifecycle.validation_score import calculate_validation_score
 from app.integrations.turvo.pod_inputs import TurvoPurchaseOrder, TurvoShipmentPodInputs, TurvoStop
 from app.services.pod_lifecycle.pod_scoring import score_pod
 
@@ -126,7 +123,7 @@ def test_reference_id_prorated_50_50() -> None:
     assert delivery.reference_id.score == 10
 
     assert result.validation.ref_id_score == 30
-    # Pass 2 raw is empty here, so every strategy yields signature 60 + ref 30.
+    # Pass 2 raw is empty here, so signature 60 + ref 30 decides the score.
     assert result.final_score == 90
     assert result.overall_status == "PASS"
     assert result.needs_action is True
@@ -157,8 +154,8 @@ def test_pass2_fields_are_always_scored_and_carry_both_sides() -> None:
     assert result.validation.pass2_raw_score == 15
 
 
-def test_validation_bucket_follows_active_strategy() -> None:
-    """ref-id fails (0) but Pass 2 raw is 30 -> strategy decides the bucket."""
+def test_validation_bucket_prorates_pass2_into_remaining_capacity() -> None:
+    """ref-id fails (0) but Pass 2 raw is 30 -> bucket takes all 30."""
     pod_inputs = _inputs(purchase_orders=[TurvoPurchaseOrder(_DELIVERY_PO, "delivery")])
     observations = {
         "delivery_signature_present": True,
@@ -169,15 +166,10 @@ def test_validation_bucket_follows_active_strategy() -> None:
         "destination_address": "25900 Heather Place, Wilsonville, OR",
     }
 
-    assert score_pod(observations, pod_inputs, strategy="fallback_swap").final_score == 90
-    assert score_pod(observations, pod_inputs, strategy="blended_proration").final_score == 90
-    assert score_pod(observations, pod_inputs, strategy="informational_pass2").final_score == 60
-
-    default = score_pod(observations, pod_inputs)
-    expected = 60 + calculate_validation_score(
-        0, 30, strategy=DEFAULT_VALIDATION_STRATEGY
-    ).score
-    assert default.final_score == expected
+    result = score_pod(observations, pod_inputs)
+    expected = 60 + calculate_validation_score(0, 30).score
+    assert result.final_score == expected
+    assert result.validation.pass2_contribution == 30
 
 
 def test_validation_bucket_never_exceeds_100() -> None:
@@ -192,7 +184,7 @@ def test_validation_bucket_never_exceeds_100() -> None:
         "destination_location": "COSTCO # 766",
         "destination_address": "25900 Heather Place, Wilsonville, OR",
     }
-    result = score_pod(observations, pod_inputs, strategy="blended_proration")
+    result = score_pod(observations, pod_inputs)
     assert result.validation.ref_id_score == 40
     assert result.validation.pass2_raw_score == 40
     assert result.final_score == 100

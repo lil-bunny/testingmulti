@@ -7,8 +7,8 @@ Score model:
   ratio of matched Turvo POs on that stop
 - Pass 2 fields (dates + pickup/destination location and address) are always
   computed, scored, and stored with both Turvo and POD values (0/40 raw)
-- the 40-point validation bucket combines reference_id + Pass 2 via the active
-  strategy in ``validation_score``; the overall score is always out of 100
+- the 40-point validation bucket combines reference_id + Pass 2 by proportional
+  proration; the overall score is always out of 100
 """
 
 from __future__ import annotations

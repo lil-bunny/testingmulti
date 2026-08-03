@@ -8,9 +8,9 @@ Score model:
   ratio of matched Turvo POs on that stop
 - Pass 2 ``diff`` fields (dates + shipper/consignee text) are always computed,
   scored, and stored with both Turvo and POD values (0/40 raw)
-- ``validation``: the 40-point bucket combines reference-id + Pass 2 via the
-  active strategy from ``validation_score`` (fallback_swap / informational_pass2
-  / blended_proration), driven by the per-branch default.
+- ``validation``: the 40-point bucket combines reference-id + Pass 2 by
+  proportional proration: reference-id keeps its earned points and Pass 2 fills
+  the remaining capacity.
 
 The final score is signature + validation bucket, always out of 100. Exceptions
 never change points.
@@ -68,15 +68,12 @@ _REFUSED_DELIVERY_PATTERN = re.compile(r"\brefus(?:e|ed|al)\b", re.IGNORECASE)
 def score_pod(
     pod_observations: dict[str, Any],
     turvo_inputs: TurvoShipmentPodInputs,
-    strategy: str | None = None,
 ) -> PodScoreResult:
     """
     Score a PoD against Turvo shipment inputs. Pure and deterministic.
 
-    ``strategy`` selects the 40-point validation-bucket combination; it defaults
-    to ``validation_score.DEFAULT_VALIDATION_STRATEGY``. The numeric score has an
-    informational PASS/FAIL status at ``PASS_THRESHOLD``. Every scored POD
-    still routes to manual review.
+    The numeric score has an informational PASS/FAIL status at ``PASS_THRESHOLD``.
+    Every scored POD still routes to manual review.
     """
     exceptions = _exceptions_from_observations(pod_observations, turvo_inputs)
     remarks: list[str] = []
@@ -86,7 +83,7 @@ def score_pod(
         return PodScoreResult(
             signature=_signature_field(pod_observations),
             stops=[],
-            validation=calculate_validation_score(0, 0, strategy),
+            validation=calculate_validation_score(0, 0),
             final_score=0,
             overall_status="FAIL",
             pass_threshold=PASS_THRESHOLD,
@@ -105,7 +102,7 @@ def score_pod(
 
     ref_id_total = sum(stop.reference_id.score for stop in stops)
     pass2_raw = sum(field.score for stop in stops for field in stop.diff)
-    validation = calculate_validation_score(ref_id_total, pass2_raw, strategy)
+    validation = calculate_validation_score(ref_id_total, pass2_raw)
 
     final_score = min(100, signature.score + validation.score)
     review_reasons = _delivery_review_reasons(pod_observations.get("review_reasons"))
