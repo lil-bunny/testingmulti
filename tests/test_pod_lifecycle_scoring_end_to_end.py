@@ -54,7 +54,7 @@ def _fake_raw_llm_response() -> dict:
                 "signature_owner": "receiver",
                 "fields": [
                     {"key": "pickup_address", "value": "250 East Roth Road, Lathrop, CA, US"},
-                    {"key": "destination_address", "value": "25900 HEATHER PLACE, WILSONVILLE, OR, US"},
+                    {"key": "delivery_address", "value": "25900 HEATHER PLACE, WILSONVILLE, OR, US"},
                 ],
                 "reference_ids": [
                     {"label": "PO#", "value": _PICKUP_PO},
@@ -73,8 +73,8 @@ def _fake_final_pod_data() -> dict:
         "delivery_confirmed": True,
         "pickup_location": "Diamond Pet Foods - 95330 (Roth)",
         "pickup_address": "250 East Roth Road, Lathrop, CA, US",
-        "destination_location": "COSTCO # 766",
-        "destination_address": "25900 HEATHER PLACE, WILSONVILLE, OR, US",
+        "delivery_location": "COSTCO # 766",
+        "delivery_address": "25900 HEATHER PLACE, WILSONVILLE, OR, US",
         "stop_times": [],
     }
 
@@ -137,8 +137,9 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
     score = state.data["pod_scoring_results"]["score"]
     assert score["final_score"] == 100
     assert score["needs_action"] is True
-    assert score["overall_status"] == "PASS"
-    assert len(score["po_scores"]) == 2
+    assert score["pass_threshold"] == 90
+    # Verify stops have fields with comparisons (replaces old po_scores check)
+    assert len(score["stops"]) == 2
 
     mock_upsert.assert_called_once()
     args, kwargs = mock_upsert.call_args
@@ -158,7 +159,7 @@ def test_pod_lifecycle_scoring_passes_for_real_sample_shipment(
 def test_pod_lifecycle_scoring_fails_without_delivery_signature(
     mock_upsert, mock_row_id, tmp_path
 ) -> None:
-    """No delivery signature evidence leaves the numeric score at zero."""
+    """No delivery signature zeros the signature component; ref-id still scores 40."""
     mock_upsert.return_value = {"stored": True, "id": "da-1"}
     shipment_payload = _load_sample_shipment()
 
@@ -200,7 +201,10 @@ def test_pod_lifecycle_scoring_fails_without_delivery_signature(
     pod_scoring(state)
 
     score = state.data["pod_scoring_results"]["score"]
-    assert score["final_score"] == 0
+    assert score["final_score"] == 40
+    # Signature is inside delivery stop
+    delivery_stop = next(s for s in score["stops"] if s["stop_type"] == "delivery")
+    sig_field = next(f for f in delivery_stop["fields"] if f["label"] == "signature")
+    assert sig_field["score"] == 0
     assert score["needs_action"] is True
-    assert score["overall_status"] == "FAIL"
     mock_upsert.assert_called_once()

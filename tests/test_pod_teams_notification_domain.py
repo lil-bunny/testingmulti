@@ -38,15 +38,14 @@ def test_parse_pod_teams_notification_settings() -> None:
     assert settings.message_title == "POD — Load {load_id}"
 
 
-def _scoring_results(*, final_score: float, result: str, po_scores: list | None = None) -> dict:
+def _scoring_results(*, final_score: float, stops: list | None = None) -> dict:
     return {
         "success": True,
         "score": {
             "final_score": final_score,
-            "overall_status": result,
-            "po_scores": po_scores if po_scores is not None else [],
-            "exceptions": [],
-            "remarks": [],
+            "max_score": 100,
+            "pass_threshold": 90,
+            "stops": stops if stops is not None else [],
         },
     }
 
@@ -57,16 +56,56 @@ def test_pod_analysis_display_fields_from_data() -> None:
             "load_id": "30389",
             "pod_scoring_results": _scoring_results(
                 final_score=88,
-                result="PASS",
-                po_scores=[{"po_number": "A1176371", "po_total": 88}],
+                stops=[
+                    {
+                        "stop_type": "pickup",
+                        "stop_order": 1,
+                        "fields": [
+                            {
+                                "label": "reference_id",
+                                "category": "identity",
+                                "score": 20,
+                                "max_score": 20,
+                                "comparisons": [
+                                    {"po_number": "PO1", "matched": True, "source": "PO1", "target": "PO1"}
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "stop_type": "delivery",
+                        "stop_order": 2,
+                        "fields": [
+                            {
+                                "label": "signature",
+                                "category": "identity",
+                                "score": 60,
+                                "max_score": 60,
+                                "remark": "Present.",
+                            },
+                            {
+                                "label": "reference_id",
+                                "category": "identity",
+                                "score": 20,
+                                "max_score": 20,
+                                "comparisons": [
+                                    {"po_number": "PO2", "matched": True, "source": "PO2", "target": "PO2"}
+                                ],
+                            },
+                        ],
+                    },
+                ],
             ),
         }
     )
     assert fields == PodAnalysisDisplayFields(
         load_id="30389",
         score="88/100",
-        review_summary="A1176371: 88/100",
-        overall_status="PASS",
+        review_summary=(
+            "pickup ref-id 20/20 (1/1 POs); "
+            "signature 60/60; delivery ref-id 20/20 (1/1 POs)"
+        ),
+        overall_status="FAIL",
     )
 
 
@@ -76,14 +115,20 @@ def test_display_fields_read_real_score_pod_output() -> None:
         is_single_stop=True,
         pickup=TurvoStop(name="Shipper", address="1 A St, Lathrop, CA, US"),
         delivery=TurvoStop(name="Consignee", address="2 B St, Wilsonville, OR, US"),
-        purchase_orders=[TurvoPurchaseOrder(po_number="A1176371", stop_type="delivery")],
+        purchase_orders=[
+            TurvoPurchaseOrder(po_number="A1176371", stop_type="pickup"),
+            TurvoPurchaseOrder(po_number="007660706282", stop_type="delivery"),
+        ],
         pickup_date="2026-07-20T15:00:00Z",
         delivery_date="2026-07-21T13:00:00Z",
         ordered_pallet_qty=37,
         custom_id="30397",
     )
     score = score_pod(
-        {"delivery_signature_present": True, "extracted_reference_numbers": ["A1176371"]},
+        {
+            "delivery_signature_present": True,
+            "extracted_reference_numbers": ["A1176371", "007660706282"],
+        },
         pod_inputs,
     )
 
@@ -104,7 +149,7 @@ def test_pod_analysis_display_fields_from_shipment_custom_id() -> None:
         {
             "shipment_id": "1000324895",
             "shipment": {"details": {"customId": "30389", "id": 1000324895}},
-            "pod_scoring_results": _scoring_results(final_score=8, result="FAIL"),
+            "pod_scoring_results": _scoring_results(final_score=8),
         }
     )
     assert fields is not None
@@ -116,7 +161,7 @@ def test_pod_analysis_display_fields_falls_back_to_shipment_id() -> None:
     fields = pod_analysis_display_fields_from_data(
         {
             "shipment_id": "1000324895",
-            "pod_scoring_results": _scoring_results(final_score=50, result="FAIL"),
+            "pod_scoring_results": _scoring_results(final_score=50),
         }
     )
     assert fields is not None

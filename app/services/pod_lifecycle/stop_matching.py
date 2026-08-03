@@ -136,7 +136,7 @@ def _stored_packet_stop_evidence(
     keys = (
         ("pickup_location", "pickup_address")
         if stop_type == "pickup"
-        else ("destination_location", "destination_address")
+        else ("delivery_location", "delivery_address")
     )
     values = {key: "" for key in keys}
     for field in page.get("fields") or []:
