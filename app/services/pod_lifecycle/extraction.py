@@ -192,6 +192,31 @@ def _pickup_delivery_values(pages: list[dict[str, Any]]) -> dict[str, str]:
     return merged
 
 
+def _page_has_receiver_signature(page: dict[str, Any]) -> bool:
+    """Check if any signature on the page has owner == receiver."""
+    signatures = page.get("signatures")
+    if isinstance(signatures, list):
+        return any(
+            isinstance(sig, dict) and str(sig.get("owner") or "").strip().lower() == "receiver"
+            for sig in signatures
+        )
+    return False
+
+
+def _delivery_proof_sources_from_pages(page_list: list[dict[str, Any]]) -> list[str]:
+    """Collect which proof types were found across all pages."""
+    sources: set[str] = set()
+    for page in page_list:
+        proof = _page_proof(page)
+        if proof.get("has_stamp"):
+            sources.add("stamp")
+        if proof.get("has_delivery_sticker"):
+            sources.add("delivery_sticker")
+        if _page_has_receiver_signature(page):
+            sources.add("receiver_signature")
+    return sorted(sources)
+
+
 def derive_pod_scoring_observations(
     pages: Any,
 ) -> dict[str, Any]:
@@ -203,28 +228,14 @@ def derive_pod_scoring_observations(
     """
     page_list = [p for p in pages if isinstance(p, dict)] if isinstance(pages, list) else []
 
-    delivery_signature_present = False
-    pickup_signature_present = False
+    delivery_proof_sources = _delivery_proof_sources_from_pages(page_list)
+    delivery_signature_present = bool(delivery_proof_sources)
     reference_values: set[str] = set()
     damage_detected = False
     damage_detail = ""
     refused_delivery = False
 
     for page in page_list:
-        proof = _page_proof(page)
-        has_evidence = bool(
-            proof.get("has_receiver_signature")
-            or proof.get("has_stamp")
-            or proof.get("has_delivery_sticker")
-        )
-        attribution = str(page.get("page_stop_attribution") or "").strip().lower()
-        owner = str(page.get("signature_owner") or "").strip().lower()
-
-        if attribution == "delivery" and owner == "receiver" and has_evidence:
-            delivery_signature_present = True
-        if attribution == "pickup" and (proof.get("has_receiver_signature") or proof.get("has_stamp")):
-            pickup_signature_present = True
-
         reference_values.update(_page_reference_values(page))
 
         if page.get("damage_detected") and not damage_detected:
@@ -245,7 +256,7 @@ def derive_pod_scoring_observations(
 
     return {
         "delivery_signature_present": delivery_signature_present,
-        "pickup_signature_present": pickup_signature_present,
+        "delivery_proof_sources": delivery_proof_sources,
         "extracted_reference_numbers": sorted(reference_values),
         "pickup_date": pickup_date,
         "delivery_date": delivery_date,
