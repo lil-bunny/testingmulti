@@ -34,11 +34,13 @@ from app.domain.pod_lifecycle.scoring_constants import (
     DATE_POINTS,
     EXCEPTION_DAMAGE_DEFAULT_DETAIL,
     EXCEPTION_PALLET_QTY_TEMPLATE,
+    FIELD_DISPLAY_LABELS,
     LABEL_REFERENCE_ID,
     LABEL_SIGNATURE,
     REFERENCE_ID_POINTS_PER_STOP,
     REMARK_DATE_MATCH_TEMPLATE,
-    REMARK_DATE_NO_MATCH_TEMPLATE,
+    REMARK_DATE_MISMATCH_TEMPLATE,
+    REMARK_DATE_MISSING_TEMPLATE,
     REMARK_NO_TURVO_PO,
     REMARK_REFERENCE_ID_MATCH_TEMPLATE,
     REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE,
@@ -140,14 +142,30 @@ def _build_stop(
     )
 
 
+_PROOF_SOURCE_DISPLAY: dict[str, str] = {
+    "receiver_signature": "receiver signature",
+    "stamp": "stamp",
+    "delivery_sticker": "delivery sticker",
+}
+
+
 def _signature_field(pod_observations: dict[str, Any]) -> ScoredField:
     present = bool(pod_observations.get("delivery_signature_present"))
+    if not present:
+        remark = REMARK_SIGNATURE_ABSENT
+    else:
+        sources = pod_observations.get("delivery_proof_sources") or []
+        display_sources = [_PROOF_SOURCE_DISPLAY.get(s, s) for s in sources]
+        if display_sources:
+            remark = "Confirmed via " + " and ".join(display_sources)
+        else:
+            remark = REMARK_SIGNATURE_PRESENT
     return ScoredField(
         label=LABEL_SIGNATURE,
         category="identity",
         score=SIGNATURE_POINTS if present else 0,
         max_score=SIGNATURE_POINTS,
-        remark=REMARK_SIGNATURE_PRESENT if present else REMARK_SIGNATURE_ABSENT,
+        remark=remark,
     )
 
 
@@ -291,7 +309,7 @@ def _sum_shipment_detail_scores(stops: list[StopScore]) -> int:
 def _delivery_review_reasons(raw_reasons: object) -> list[str]:
     if not isinstance(raw_reasons, list):
         return []
-    return [str(reason) for reason in raw_reasons if "pickup" not in str(reason).casefold()]
+    return [str(reason) for reason in raw_reasons if reason]
 
 
 def _po_stop_match(po_number: str, pod_observations: dict[str, Any]) -> dict[str, Any]:
@@ -334,6 +352,7 @@ def _date_field(
     source: Any,
     time_zone: str | None,
 ) -> ScoredField:
+    display_label = FIELD_DISPLAY_LABELS.get(label, label)
     turvo_date = _calendar_date_in_zone(target, time_zone)
     pod_date = _calendar_date_in_zone(source, time_zone)
     if turvo_date is not None and turvo_date == pod_date:
@@ -342,18 +361,20 @@ def _date_field(
             category="shipment_detail",
             score=DATE_POINTS,
             max_score=DATE_POINTS,
-            remark=REMARK_DATE_MATCH_TEMPLATE.format(
-                label=label, turvo_date=turvo_date.isoformat()
-            ),
+            remark=REMARK_DATE_MATCH_TEMPLATE.format(display_label=display_label),
             target=target,
             source=_clean_iso_text(source),
         )
+    if pod_date is None:
+        remark = REMARK_DATE_MISSING_TEMPLATE.format(display_label=display_label)
+    else:
+        remark = REMARK_DATE_MISMATCH_TEMPLATE.format(display_label=display_label)
     return ScoredField(
         label=label,
         category="shipment_detail",
         score=0,
         max_score=DATE_POINTS,
-        remark=REMARK_DATE_NO_MATCH_TEMPLATE.format(label=label),
+        remark=remark,
         target=target,
         source=_clean_iso_text(source),
     )
@@ -373,6 +394,7 @@ def _identifiable_text_field(
     target: str,
     source: Any,
 ) -> ScoredField:
+    display_label = FIELD_DISPLAY_LABELS.get(label, label)
     pod_text = str(source or "").strip()
     if not pod_text:
         return ScoredField(
@@ -380,7 +402,7 @@ def _identifiable_text_field(
             category="shipment_detail",
             score=0,
             max_score=TEXT_POINTS,
-            remark=REMARK_TEXT_MISSING_TEMPLATE.format(label=label),
+            remark=REMARK_TEXT_MISSING_TEMPLATE.format(display_label=display_label),
             target=target or None,
             source=None,
         )
@@ -393,7 +415,7 @@ def _identifiable_text_field(
             category="shipment_detail",
             score=TEXT_POINTS,
             max_score=TEXT_POINTS,
-            remark=REMARK_TEXT_IDENTIFIABLE_TEMPLATE.format(label=label, pod_text=pod_text),
+            remark=REMARK_TEXT_IDENTIFIABLE_TEMPLATE.format(display_label=display_label),
             target=target or None,
             source=pod_text,
         )
@@ -402,9 +424,7 @@ def _identifiable_text_field(
         category="shipment_detail",
         score=0,
         max_score=TEXT_POINTS,
-        remark=REMARK_TEXT_NO_MATCH_TEMPLATE.format(
-            label=label, pod_text=pod_text, target=target
-        ),
+        remark=REMARK_TEXT_NO_MATCH_TEMPLATE.format(display_label=display_label),
         target=target or None,
         source=pod_text,
     )

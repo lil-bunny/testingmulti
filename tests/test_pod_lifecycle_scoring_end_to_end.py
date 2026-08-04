@@ -51,7 +51,9 @@ def _fake_raw_llm_response() -> dict:
                     "has_stamp": False,
                     "has_delivery_sticker": False,
                 },
-                "signature_owner": "receiver",
+                "signatures": [
+                    {"owner": "receiver", "label": "Consignee Signature", "reasoning": "Ink in consignee box."}
+                ],
                 "fields": [
                     {"key": "pickup_address", "value": "250 East Roth Road, Lathrop, CA, US"},
                     {"key": "delivery_address", "value": "25900 HEATHER PLACE, WILSONVILLE, OR, US"},
