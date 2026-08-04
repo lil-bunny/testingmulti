@@ -19,6 +19,10 @@ from app.domain.unipile_email import (
     attachments_metadata_from_payload,
     build_unipile_attachment_fetch_context,
 )
+from app.domain.unipile_email_attachments import (
+    extract_cids_from_original_html,
+    is_thread_history_inline,
+)
 from app.models.document import DocumentType
 from app.services.attachment_normalizer import (
     AttachmentNormalizerService,
@@ -329,7 +333,28 @@ class PodAttachmentPipelineService:
         payload: dict[str, Any],
     ) -> PodAttachmentPipelineResult:
         """Fetch Unipile attachments, classify, stage local files (no S3 merge)."""
-        attachments = attachments_metadata_from_payload(payload)
+        body_html = payload.get("body") or payload.get("body_html") or ""
+        original_cids = extract_cids_from_original_html(body_html)
+
+        raw_attachments = payload.get("attachments")
+        if isinstance(raw_attachments, list):
+            filtered = [
+                att for att in raw_attachments
+                if not isinstance(att, dict)
+                or not is_thread_history_inline(att, original_cids)
+            ]
+            skipped = len(raw_attachments) - len(filtered)
+            if skipped:
+                logger.info(
+                    "attachment.pipeline.filter thread_history_inlines_skipped=%d kept=%d",
+                    skipped,
+                    len(filtered),
+                )
+            payload_for_meta = {**payload, "attachments": filtered}
+        else:
+            payload_for_meta = payload
+
+        attachments = attachments_metadata_from_payload(payload_for_meta)
         if not attachments:
             normalization = {"success": False, "error": "No attachments provided"}
             return PodAttachmentPipelineResult(

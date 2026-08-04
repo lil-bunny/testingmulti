@@ -2,10 +2,49 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+_CID_SRC_RE = re.compile(r'src=["\']cid:([^"\']+)["\']', re.IGNORECASE)
+
+_THREAD_HISTORY_BOUNDARY_RES = [
+    re.compile(r'<div[^>]*\bid=["\'][^"\']*appendonsend["\'][^>]*>', re.IGNORECASE),
+    re.compile(r'<div[^>]*\bid=["\'][^"\']*divRplyFwdMsg["\'][^>]*>', re.IGNORECASE),
+    re.compile(r'<div[^>]*class="[^"]*gmail_quote', re.IGNORECASE),
+    re.compile(r"<hr\b[^>]*>", re.IGNORECASE),
+]
+
+
+def _extract_original_html(html: str) -> str:
+    """Return the portion of the HTML before the first thread-history boundary."""
+    earliest_pos = len(html)
+    for pattern in _THREAD_HISTORY_BOUNDARY_RES:
+        match = pattern.search(html)
+        if match and match.start() < earliest_pos:
+            earliest_pos = match.start()
+    return html[:earliest_pos]
+
+
+def extract_cids_from_original_html(html: str | None) -> set[str]:
+    """Return CIDs referenced in the original (non-quoted) portion of the email HTML."""
+    if not html:
+        return set()
+    original = _extract_original_html(html)
+    return set(_CID_SRC_RE.findall(original))
+
+
+def is_thread_history_inline(attachment: dict[str, Any], original_cids: set[str]) -> bool:
+    """True when an inline attachment belongs to quoted thread history, not the new message."""
+    if not attachment.get("inline"):
+        return False
+    cid = attachment.get("cid")
+    if not cid or not str(cid).strip():
+        return False
+    return str(cid).strip() not in original_cids
 
 
 def normalize_attachment_extension(value: Any) -> str:
