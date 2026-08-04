@@ -42,21 +42,18 @@ def build_stop_aware_observations(
 
         mismatched_pages = [item["page_number"] for item in comparisons if item["status"] == "location_mismatch"]
         matched_pages = [item["page_number"] for item in comparisons if item["status"] == "matched"]
-        # Pickup POs remain visible for context, but pickup evidence is not
-        # score-bearing and must never create an alert/review reason.
-        if po.stop_type != "pickup":
-            if mismatched_pages:
+        if mismatched_pages:
+            review_reasons.append(
+                f"PO {po.po_number} does not match its Turvo {po.stop_type} stop on page(s) "
+                f"{', '.join(map(str, mismatched_pages))}."
+            )
+        if not matched_pages:
+            if comparisons:
                 review_reasons.append(
-                    f"PO {po.po_number} does not match its Turvo {po.stop_type} stop on page(s) "
-                    f"{', '.join(map(str, mismatched_pages))}."
+                    f"PO {po.po_number} has no page confirming its Turvo {po.stop_type} stop."
                 )
-            if not matched_pages:
-                if comparisons:
-                    review_reasons.append(
-                        f"PO {po.po_number} has no page confirming its Turvo {po.stop_type} stop."
-                    )
-                else:
-                    review_reasons.append(f"PO {po.po_number} was not found in the POD packet.")
+            else:
+                review_reasons.append(f"PO {po.po_number} was not found in the POD packet.")
         po_matches[po.po_number] = {
             "turvo_stop_id": po.stop_id,
             "turvo_stop_type": po.stop_type,
@@ -66,11 +63,12 @@ def build_stop_aware_observations(
             "reference_and_stop_match": any(item["status"] == "matched" for item in comparisons),
         }
 
+    proof_sources = _delivery_proof_sources(page_list)
     return {
         "po_matches": po_matches,
         "review_reasons": review_reasons,
-        "delivery_signature_present": _delivery_proof_present(page_list, matched_by_page),
-        "pickup_signature_present": _pickup_signature_present(page_list, matched_by_page),
+        "delivery_signature_present": bool(proof_sources),
+        "delivery_proof_sources": proof_sources,
         "stop_times": _aggregate_stop_times(page_list, matched_by_page),
     }
 
@@ -192,41 +190,30 @@ def _page_number(page: dict[str, Any]) -> int:
     return value if isinstance(value, int) else 0
 
 
-def _has_proof(page: dict[str, Any]) -> bool:
-    proof = page.get("proof_of_receipt")
-    return isinstance(proof, dict) and bool(
-        proof.get("has_receiver_signature")
-        or proof.get("has_stamp")
-        or proof.get("has_delivery_sticker")
-    )
+def _page_has_receiver_signature(page: dict[str, Any]) -> bool:
+    """Check if any signature on the page has owner == receiver."""
+    signatures = page.get("signatures")
+    if isinstance(signatures, list):
+        return any(
+            isinstance(sig, dict) and str(sig.get("owner") or "").strip().lower() == "receiver"
+            for sig in signatures
+        )
+    return False
 
 
-def _delivery_proof_present(page_list: list[dict[str, Any]], matched_by_page: dict[int, list[dict[str, Any]]]) -> bool:
-    return any(
-        _is_valid_delivery_proof(page)
-        and any(item["stop_type"] == "delivery" for item in matched_by_page[_page_number(page)])
-        for page in page_list
-    )
-
-
-def _is_valid_delivery_proof(page: dict[str, Any]) -> bool:
-    """A delivery stamp/sticker proves receipt without a signature-owner label."""
-    proof = page.get("proof_of_receipt")
-    if not isinstance(proof, dict):
-        return False
-    if proof.get("has_stamp") or proof.get("has_delivery_sticker"):
-        return True
-    return bool(proof.get("has_receiver_signature")) and (
-        str(page.get("signature_owner") or "").lower() == "receiver"
-    )
-
-
-def _pickup_signature_present(page_list: list[dict[str, Any]], matched_by_page: dict[int, list[dict[str, Any]]]) -> bool:
-    return any(
-        _has_proof(page)
-        and any(item["stop_type"] == "pickup" for item in matched_by_page[_page_number(page)])
-        for page in page_list
-    )
+def _delivery_proof_sources(page_list: list[dict[str, Any]]) -> list[str]:
+    """Packet-level: collect which proof types were found across all pages."""
+    sources: set[str] = set()
+    for page in page_list:
+        proof = page.get("proof_of_receipt")
+        if isinstance(proof, dict):
+            if proof.get("has_stamp"):
+                sources.add("stamp")
+            if proof.get("has_delivery_sticker"):
+                sources.add("delivery_sticker")
+        if _page_has_receiver_signature(page):
+            sources.add("receiver_signature")
+    return sorted(sources)
 
 
 def _aggregate_stop_times(

@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     LLM_APPOINTMENT_SCHEDULING_API_KEY: str
     LLM_LOAD_TENDERING_API_KEY: str
     LLM_CHAT_MODEL: str = "text"
-    LLM_VISION_MODEL: str = "doc_processing"
-    LLM_PDF_MODEL: str = "doc_processing"
+    LLM_VISION_MODEL: str = "doc_processing_low"
+    LLM_PDF_MODEL: str = "doc_processing_high"
     LLM_REQUEST_TIMEOUT: float = 500.0 # seconds
 
     # DB

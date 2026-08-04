@@ -33,34 +33,40 @@ LABEL_REFERENCE_ID = "reference_id"
 REMARK_NO_TURVO_PO = "No Turvo PO found for this shipment; cannot score."
 
 # Signature remarks
-REMARK_SIGNATURE_ABSENT = (
-    "No receiver signature, delivery stamp, or delivery sticker detected on the document."
-)
-REMARK_SIGNATURE_PRESENT = (
-    "Receiver signature, delivery stamp, or delivery sticker present on the document."
-)
+REMARK_SIGNATURE_ABSENT = "No proof of delivery found on the document"
+REMARK_SIGNATURE_PRESENT = "Proof of delivery confirmed"
 
 # Reference-id remarks (templates)
 REMARK_REFERENCE_ID_MATCH_TEMPLATE = (
-    "POD POs match the Turvo {stop_type} stop ({matched} of {total} POs)."
+    "{matched} of {total} {stop_type} PO numbers matched"
 )
 REMARK_REFERENCE_ID_NO_MATCH_TEMPLATE = (
-    "No POD PO matches the Turvo {stop_type} stop."
+    "None of the {stop_type} PO numbers matched"
 )
 REMARK_REFERENCE_ID_NO_POS_TEMPLATE = (
-    "No Turvo {stop_type} POs available; reference-id not scored."
+    "No PO numbers configured for {stop_type}"
 )
 
 # Diff remarks (templates)
-REMARK_DATE_MATCH_TEMPLATE = "{label} matches Turvo ({turvo_date})."
-REMARK_DATE_NO_MATCH_TEMPLATE = "{label} does not match Turvo or is missing on POD."
-REMARK_TEXT_MISSING_TEMPLATE = "{label} missing or blank on POD."
-REMARK_TEXT_IDENTIFIABLE_TEMPLATE = (
-    "{label} present and identifiable on POD: '{pod_text}'."
-)
+# {display_label} is injected by the scorer as a human-friendly name (e.g. "Pickup date")
+REMARK_DATE_MATCH_TEMPLATE = "{display_label} matches"
+REMARK_DATE_MISMATCH_TEMPLATE = "{display_label} does not match"
+REMARK_DATE_MISSING_TEMPLATE = "{display_label} not found on POD"
+REMARK_TEXT_MISSING_TEMPLATE = "{display_label} not found on POD"
+REMARK_TEXT_IDENTIFIABLE_TEMPLATE = "{display_label} found on POD"
 REMARK_TEXT_NO_MATCH_TEMPLATE = (
-    "{label} on POD ('{pod_text}') does not match Turvo ('{target}')."
+    "{display_label} does not match"
 )
+
+# Human-friendly display labels for field keys
+FIELD_DISPLAY_LABELS: dict[str, str] = {
+    "pickup_date": "Pickup date",
+    "delivery_date": "Delivery date",
+    "pickup_location": "Pickup location",
+    "pickup_address": "Pickup address",
+    "delivery_location": "Delivery location",
+    "delivery_address": "Delivery address",
+}
 
 # Exception details
 EXCEPTION_DAMAGE_DEFAULT_DETAIL = "Damage detected on POD."
