@@ -1,0 +1,84 @@
+{
+  "event": "mail_received",
+  "email_id": "test-outlook-email-id-001",
+  "account_id": "test-account-id-001",
+  "webhook_name": "freightx_test",
+  "date": "2026-08-03T20:52:55.000Z",
+  "from_attendee": {
+    "display_name": "Accounts Rep",
+    "identifier": "accounts@testbroker.example.com",
+    "identifier_type": "EMAIL_ADDRESS"
+  },
+  "to_attendees": [
+    {
+      "display_name": "Carrier Owner",
+      "identifier": "carrier@example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    }
+  ],
+  "cc_attendees": [
+    {
+      "display_name": "Ops Rep",
+      "identifier": "ops@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    },
+    {
+      "display_name": "Test Operations",
+      "identifier": "shipments@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    },
+    {
+      "display_name": "Manager One",
+      "identifier": "manager@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    },
+    {
+      "display_name": "Ops Specialist",
+      "identifier": "specialist@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    }
+  ],
+  "bcc_attendees": [],
+  "subject": "Re: Rate confirmation for shipment: #63789 TURLOCK, CA, US → MCCARRAN, NV, US",
+  "body": "<html><head>\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><style type=\"text/css\" style=\"display:none\">\r\n<!--\r\np\r\n\t{margin-top:0;\r\n\tmargin-bottom:0}\r\n-->\r\n</style></head><body dir=\"ltr\"><div class=\"elementToProof\" style=\"font-family:Aptos,Aptos_EmbeddedFont,Aptos_MSFontService,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><p style=\"color:rgb(36,36,36); font-family:&quot;Segoe UI&quot;,sans-serif; font-size:15px; background-color:rgb(255,255,255)\">Hi there,</p><p style=\"color:rgb(36,36,36); font-family:&quot;Segoe UI&quot;,sans-serif; font-size:15px; background-color:rgb(255,255,255)\">Please provide the POD along with ALL lumper receipts (if any) combine in one PDF within 48 hours.</p><p style=\"color:rgb(36,36,36); font-family:&quot;Segoe UI&quot;,sans-serif; font-size:15px; background-color:rgb(255,255,255)\">Failure to comply with the above will cause rate reductions as mentioned in the rate confirmation.</p><br></div><div id=\"Signature\" class=\"elementToProof\"><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><br></div><table><tbody><tr><td><p><b>Accounts Rep</b></p><p>Accounts Executive</p></td><td><p>accounts@testbroker.example.com</p><p>(555)-000-0001</p></td></tr></tbody></table></div><div id=\"appendonsend\"></div><hr tabindex=\"-1\" style=\"display:inline-block; width:98%\"><div id=\"divRplyFwdMsg\" dir=\"ltr\"><font face=\"Calibri, sans-serif\" color=\"#000000\" style=\"font-size:11pt\"><b>From:</b> Carrier Owner &lt;carrier@example.com&gt;<br><b>Sent:</b> 02 August 2026 15:20<br><b>To:</b> Ops Specialist &lt;specialist@testbroker.example.com&gt;<br><b>Cc:</b> Ops Rep &lt;ops@testbroker.example.com&gt;; Test Operations &lt;shipments@testbroker.example.com&gt;; Manager One &lt;manager@testbroker.example.com&gt;<br><b>Subject:</b> Re: Rate confirmation for shipment: #63789 TURLOCK, CA, US → MCCARRAN, NV, US</font> <div>&nbsp;</div></div><div><div dir=\"auto\">Checked in backed in to door 315 <div><img data-outlook-trace=\"F:1|T:1\" src=\"cid:ii_19fc4901fb52a2d2e8b1\" style=\"max-width:100%\"></div><br><div class=\"x_gmail_quote x_gmail_quote_container\"><div dir=\"ltr\" class=\"x_gmail_attr\">On Sun, Aug 2, 2026 at 6:01 AM Carrier Owner &lt;<a href=\"mailto:carrier@example.com\">carrier@example.com</a>&gt; wrote:<br></div><blockquote class=\"x_gmail_quote\" style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div dir=\"auto\">Checked in Backed In to door 37</div><div dir=\"auto\"><br><div class=\"x_gmail_quote\"><div dir=\"ltr\" class=\"x_gmail_attr\">On Sun, Aug 2, 2026 at 5:44 AM Ops Specialist &lt;<a href=\"mailto:specialist@testbroker.example.com\" target=\"_blank\">specialist@testbroker.example.com</a>&gt; wrote:<br></div><blockquote class=\"x_gmail_quote\" style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div dir=\"ltr\"><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\">Hi,</div><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><br></div><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\">Thanks for the update. Please find the pickup appointment number in the attached images.</div><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><br></div><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><img size=\"74713\" data-outlook-trace=\"F:1|T:1\" src=\"cid:ii_19fc290182dea654a7f2\" style=\"width:571px; max-width:100%\"></div><div><table><tbody><tr><td><b>Ops Specialist</b><br>Operations Specialist</td><td>specialist@testbroker.example.com<br>(555)-000-0002</td></tr></tbody></table></div><hr style=\"display:inline-block; width:98%\"><div dir=\"ltr\"><font face=\"Calibri, sans-serif\" style=\"font-size:11pt\"><b>From:</b> Carrier Owner &lt;carrier@example.com&gt;<br><b>Sent:</b> Sunday, August 2, 2026 5:38 AM<br><b>To:</b> Ops Specialist &lt;specialist@testbroker.example.com&gt;<br><b>Cc:</b> Ops Rep &lt;ops@testbroker.example.com&gt;; Test Operations &lt;shipments@testbroker.example.com&gt;; Manager One &lt;manager@testbroker.example.com&gt;<br><b>Subject:</b> Re: Rate confirmation for shipment: #63789</font></div></div><div dir=\"ltr\"><div><div dir=\"auto\">Arrived 1 am please provide appointment number</div><div><br><div><div dir=\"ltr\">On Sun, Aug 2, 2026 at 5:36 AM Carrier Owner &lt;<a href=\"mailto:carrier@example.com\" target=\"_blank\">carrier@example.com</a>&gt; wrote:<br></div><blockquote style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div><div><img data-outlook-trace=\"F:1|T:1\" src=\"cid:ii_19fc290182d75317d8f1\" style=\"width:462px; max-width:100%\"></div><br></div><div><br><div><div dir=\"ltr\">On Sun, Aug 2, 2026 at 3:12 AM Ops Specialist &lt;<a href=\"mailto:specialist@testbroker.example.com\" target=\"_blank\">specialist@testbroker.example.com</a>&gt; wrote:<br></div><blockquote style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div dir=\"ltr\"><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\">Hi,</div><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><br></div><div style=\"font-family:Aptos,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\">Could you please confirm if the driver is en route to the pickup location?</div></div></blockquote></div></div></blockquote></div></div></div></div></blockquote></div></div></blockquote></div></div></div></body></html>",
+  "message_id": "<TEST-MSG-ID-OUTLOOK-001@outlook.com>",
+  "provider_id": "test-provider-id-outlook-001",
+  "has_attachments": true,
+  "attachments": [
+    {
+      "id": "test-attachment-id-outlook-001",
+      "name": "IMG_1924.png",
+      "extension": "png",
+      "size": 393603,
+      "mime": "image/png",
+      "cid": "ii_19fc4901fb52a2d2e8b1",
+      "inline": true
+    },
+    {
+      "id": "test-attachment-id-outlook-002",
+      "name": "image.png",
+      "extension": "png",
+      "size": 74929,
+      "mime": "image/png",
+      "cid": "ii_19fc290182dea654a7f2",
+      "inline": true
+    },
+    {
+      "id": "test-attachment-id-outlook-003",
+      "name": "IMG_1919.png",
+      "extension": "png",
+      "size": 391265,
+      "mime": "image/png",
+      "cid": "ii_19fc290182d75317d8f1",
+      "inline": true
+    }
+  ],
+  "folders": ["Inbox"],
+  "role": "inbox",
+  "in_reply_to": {
+    "message_id": "<TEST-REPLY-MSG-ID-OUTLOOK@mail.gmail.com>",
+    "id": "test-reply-id-outlook-001"
+  },
+  "thread_id": "test-thread-id-outlook-001",
+  "event_type": "email_received"
+}

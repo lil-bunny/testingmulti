@@ -1,0 +1,59 @@
+{
+  "event": "mail_received",
+  "email_id": "test-gmail-email-id-001",
+  "account_id": "test-account-id-001",
+  "webhook_name": "freightx_test",
+  "date": "2026-08-04T16:33:31.000Z",
+  "from_attendee": {
+    "display_name": "Carrier Driver",
+    "identifier": "carrier+driver@example.com",
+    "identifier_type": "EMAIL_ADDRESS"
+  },
+  "to_attendees": [
+    {
+      "display_name": "Broker Ops",
+      "identifier": "ops@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    }
+  ],
+  "cc_attendees": [
+    {
+      "display_name": "Broker CC",
+      "identifier": "cc@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    },
+    {
+      "display_name": "Ana Test",
+      "identifier": "ana.test@testbroker.example.com",
+      "identifier_type": "EMAIL_ADDRESS"
+    }
+  ],
+  "bcc_attendees": [],
+  "reply_to_attendees": [],
+  "subject": "Re: Fw: PICK UP REQUEST # 95118 PO# 129018",
+  "body": "<html><head>\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"></head><body><div dir=\"ltr\">we can accept this</div><br><div class=\"gmail_quote gmail_quote_container\"><div dir=\"ltr\" class=\"gmail_attr\">On Tue, Aug 4, 2026 at 9:58 PM Carrier Driver &lt;<a href=\"mailto:carrier%2Bdriver@example.com\">carrier+driver@example.com</a>&gt; wrote:<br></div><blockquote class=\"gmail_quote\" style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div dir=\"ltr\"><div dir=\"ltr\">hi there is this for 25 packs</div><img src=\"cid:ii_msevgh710\" alt=\"load tendering.png\" width=\"523\" height=\"225\"><br></div><br><div class=\"gmail_quote\"><div dir=\"ltr\" class=\"gmail_attr\">On Tue, Aug 4, 2026 at 9:54 PM Broker Ops &lt;<a href=\"mailto:ops@testbroker.example.com\" target=\"_blank\">ops@testbroker.example.com</a>&gt; wrote:<br></div><blockquote class=\"gmail_quote\" style=\"margin:0px 0px 0px 0.8ex; border-left:1px solid rgb(204,204,204); padding-left:1ex\"><div><div dir=\"ltr\"><div style=\"font-family:Aptos,Aptos_EmbeddedFont,Aptos_MSFontService,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><br></div><div id=\"m_3368216690374488600m_-154611153560465408appendonsend\"></div><div style=\"font-family:Aptos,Aptos_EmbeddedFont,Aptos_MSFontService,Calibri,Helvetica,sans-serif; font-size:12pt; color:rgb(0,0,0)\"><br></div><hr style=\"display:inline-block; width:98%\"><div id=\"m_3368216690374488600m_-154611153560465408divRplyFwdMsg\"><div style=\"direction:ltr; font-family:Calibri,sans-serif; font-size:11pt; color:rgb(0,0,0)\"><b>From:</b> Ana Test &lt;<a href=\"mailto:ana.test@testbroker.example.com\" target=\"_blank\">ana.test@testbroker.example.com</a>&gt;<br><b>Sent:</b> Tuesday, August 4, 2026 9:50 PM<br><b>To:</b> Broker Ops &lt;<a href=\"mailto:ops@testbroker.example.com\" target=\"_blank\">ops@testbroker.example.com</a>&gt;<br><b>Subject:</b> PICK UP REQUEST # 95118 PO# 129018</div><div style=\"direction:ltr\">&nbsp;</div></div><div style=\"line-height:1.5; font-family:Arial,Helvetica,sans-serif; font-size:14px; color:rgb(17,17,17)\">Note: Use carrier <a href=\"mailto:carrier%2Bdriver@example.com\" target=\"_blank\">carrier+driver@example.com</a></div><p style=\"line-height:1.5; margin-top:1em; margin-bottom:18px\"><span style=\"font-family:Arial,Helvetica,sans-serif; font-size:14px; color:rgb(17,17,17)\"><b>Deliver to:</b><br>TESTCORP<br>123 TEST STREET<br>ANYTOWN CA 90000</span></p><p style=\"line-height:1.5; margin-top:1em; margin-bottom:12px\"><span style=\"font-family:Arial,Helvetica,sans-serif; font-size:14px; color:rgb(17,17,17)\">Order # 95118<br>Customer PO # 129018</span></p><p style=\"line-height:1.5; margin-top:1em; margin-bottom:12px\"><span style=\"font-family:Arial,Helvetica,sans-serif; font-size:14px; color:rgb(17,17,17)\">Ship date: 2026-07-03<br>Delivery date: 2026-07-08</span></p><p style=\"line-height:1.5; margin-top:1em; margin-bottom:12px\"><span style=\"font-family:Arial,Helvetica,sans-serif; font-size:14px; color:rgb(17,17,17)\">Gross weight: ~40,925 pounds<br>Value: 166,500.00<br><br>Pieces: 18 bags @ 1000kg each<br>Number of pallets: 18 pallets ~ 48&quot;x42&quot;x72&quot;<br>Product: Test Product</span></p></div></div></blockquote></div></blockquote></div></body></html>",
+  "body_plain": "",
+  "message_id": "<TEST-MSG-ID-GMAIL-001@mail.gmail.com>",
+  "provider_id": "test-provider-id-gmail-001",
+  "read_date": null,
+  "is_complete": true,
+  "has_attachments": true,
+  "attachments": [
+    {
+      "id": "test-attachment-id-gmail-001",
+      "name": "load tendering.png",
+      "extension": "png",
+      "size": 26008,
+      "mime": "image/png",
+      "cid": "ii_msevgh710",
+      "inline": true
+    }
+  ],
+  "folders": ["Inbox"],
+  "role": "inbox",
+  "in_reply_to": {
+    "message_id": "<TEST-REPLY-MSG-ID-GMAIL@mail.gmail.com>",
+    "id": "test-reply-id-gmail-001"
+  },
+  "thread_id": "test-thread-id-gmail-001"
+}
